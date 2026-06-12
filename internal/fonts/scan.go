@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -108,13 +109,7 @@ func (s *Scanner) ReadUserFont(dirName, file string) (data []byte, etag string, 
 	if !found {
 		return nil, "", false
 	}
-	known := false
-	for _, f := range fam.Files {
-		if f == file {
-			known = true
-			break
-		}
-	}
+	known := slices.Contains(fam.Files, file)
 	if !known {
 		return nil, "", false
 	}

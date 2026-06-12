@@ -23,7 +23,7 @@ func TestValidateSettings(t *testing.T) {
 		{"lineHeight out of range", func(s *settingsJSON) { v := 9.0; s.LineHeight = &v }, false},
 		{"too many font roles", func(s *settingsJSON) {
 			s.FontRoles = map[string]fontRoleEntry{}
-			for i := 0; i < 101; i++ {
+			for i := range 101 {
 				s.FontRoles[string(rune('a'+i%26))+string(rune('0'+i/26))] = fontRoleEntry{Regular: "x"}
 			}
 		}, false},
