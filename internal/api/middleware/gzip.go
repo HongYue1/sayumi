@@ -1,0 +1,302 @@
+package middleware
+
+import (
+	"bufio"
+	"compress/gzip"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+)
+
+var gzPool = sync.Pool{
+	New: func() any {
+		writer, _ := gzip.NewWriterLevel(io.Discard, gzip.BestSpeed)
+		return writer
+	},
+}
+
+var copyBufPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, 32<<10)
+		return &buf
+	},
+}
+
+func compressibleType(contentType string) bool {
+	if i := strings.IndexByte(contentType, ';'); i != -1 {
+		contentType = contentType[:i]
+	}
+	contentType = strings.TrimSpace(contentType)
+
+	if contentType == "text/event-stream" {
+		return false
+	}
+
+	switch {
+	case strings.HasPrefix(contentType, "text/"):
+		return true
+	case contentType == "application/json",
+		contentType == "application/javascript",
+		contentType == "application/xml",
+		contentType == "application/xhtml+xml",
+		contentType == "application/x-javascript",
+		contentType == "application/manifest+json",
+		contentType == "image/svg+xml":
+		return true
+	}
+
+	return false
+}
+
+// acceptsGzip reports whether the Accept-Encoding header value includes gzip
+// with a non-zero q-value. It parses tokens of the form "encoding[;q=value]"
+// directly, because mime.ParseMediaType requires a "type/subtype" slash and
+// always errors on bare encoding tokens like "gzip" or "*".
+func acceptsGzip(headerValue string) bool {
+	sawGzip := false
+	gzipAllowed := false
+	sawStar := false
+	starAllowed := false
+
+	for part := range strings.SplitSeq(headerValue, ",") {
+		encoding, q := parseEncodingToken(strings.TrimSpace(part))
+
+		switch encoding {
+		case "gzip":
+			sawGzip = true
+			gzipAllowed = q > 0
+		case "*":
+			sawStar = true
+			starAllowed = q > 0
+		}
+	}
+
+	if sawGzip {
+		return gzipAllowed
+	}
+	return sawStar && starAllowed
+}
+
+// parseEncodingToken splits "encoding[;param=value;...]" into the lowercased
+// encoding name and its quality value (1.0 when absent or unparseable).
+func parseEncodingToken(s string) (encoding string, q float64) {
+	q = 1.0
+	before, after, ok := strings.Cut(s, ";")
+	if !ok {
+		encoding = strings.ToLower(s)
+		return
+	}
+	encoding = strings.ToLower(strings.TrimSpace(before))
+	for param := range strings.SplitSeq(after, ";") {
+		k, v, ok := strings.Cut(strings.TrimSpace(param), "=")
+		if ok && strings.TrimSpace(k) == "q" {
+			if parsed, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
+				q = parsed
+			}
+		}
+	}
+	return
+}
+
+func addVaryValue(header http.Header, value string) {
+	existing := header.Values("Vary")
+	for _, vary := range existing {
+		for part := range strings.SplitSeq(vary, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), value) {
+				return
+			}
+		}
+	}
+	header.Add("Vary", value)
+}
+
+func cacheControlNoTransform(value string) bool {
+	for part := range strings.SplitSeq(value, ",") {
+		if strings.EqualFold(strings.TrimSpace(part), "no-transform") {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldBypassGzipRequest(r *http.Request) bool {
+	if r.Method == http.MethodHead || r.Header.Get("Range") != "" || r.Header.Get("Upgrade") != "" {
+		return true
+	}
+
+	for part := range strings.SplitSeq(r.Header.Get("Connection"), ",") {
+		if strings.EqualFold(strings.TrimSpace(part), "upgrade") {
+			return true
+		}
+	}
+	return false
+}
+
+func copyBuffered(dst io.Writer, src io.Reader) (int64, error) {
+	bufPtr := copyBufPool.Get().(*[]byte)
+	defer copyBufPool.Put(bufPtr)
+	return io.CopyBuffer(dst, src, *bufPtr)
+}
+
+type gzipResponseWriter struct {
+	http.ResponseWriter
+	gz          *gzip.Writer
+	statusCode  int
+	headerSent  bool
+	compress    bool
+	decided     bool
+	wroteHeader bool
+}
+
+func (g *gzipResponseWriter) WriteHeader(code int) {
+	if g.wroteHeader {
+		return
+	}
+	g.wroteHeader = true
+	g.statusCode = code
+
+	if code == http.StatusNoContent || code == http.StatusNotModified || code == http.StatusPartialContent {
+		g.decided = true
+		g.compress = false
+		g.ResponseWriter.WriteHeader(code)
+		g.headerSent = true
+	}
+}
+
+func (g *gzipResponseWriter) decide() {
+	if g.decided {
+		return
+	}
+	g.decided = true
+
+	header := g.Header()
+	contentType := header.Get("Content-Type")
+	g.compress = contentType != "" &&
+		header.Get("Content-Encoding") == "" &&
+		!cacheControlNoTransform(header.Get("Cache-Control")) &&
+		compressibleType(contentType)
+
+	if g.compress {
+		header.Del("Content-Length")
+		header.Set("Content-Encoding", "gzip")
+	}
+
+	if !g.headerSent {
+		statusCode := g.statusCode
+		if statusCode == 0 {
+			statusCode = http.StatusOK
+		}
+		g.ResponseWriter.WriteHeader(statusCode)
+		g.headerSent = true
+	}
+}
+
+func (g *gzipResponseWriter) ensureWriter() {
+	if g.gz != nil {
+		return
+	}
+	writer := gzPool.Get().(*gzip.Writer)
+	writer.Reset(g.ResponseWriter)
+	g.gz = writer
+}
+
+func (g *gzipResponseWriter) Write(data []byte) (int, error) {
+	if !g.decided {
+		if g.Header().Get("Content-Type") == "" {
+			g.Header().Set("Content-Type", http.DetectContentType(data))
+		}
+		g.decide()
+	}
+
+	if !g.compress {
+		return g.ResponseWriter.Write(data)
+	}
+
+	g.ensureWriter()
+	return g.gz.Write(data)
+}
+
+func (g *gzipResponseWriter) ReadFrom(reader io.Reader) (int64, error) {
+	if !g.decided && g.Header().Get("Content-Type") == "" {
+		return copyBuffered(g, reader)
+	}
+
+	if !g.decided {
+		g.decide()
+	}
+
+	if !g.compress {
+		if rf, ok := g.ResponseWriter.(io.ReaderFrom); ok {
+			return rf.ReadFrom(reader)
+		}
+		return copyBuffered(g.ResponseWriter, reader)
+	}
+
+	g.ensureWriter()
+	return copyBuffered(g.gz, reader)
+}
+
+func (g *gzipResponseWriter) Flush() {
+	if !g.decided {
+		g.decide()
+	}
+	if g.gz != nil {
+		_ = g.gz.Flush()
+	}
+	if flusher, ok := g.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (g *gzipResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := g.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, http.ErrNotSupported
+	}
+	return hijacker.Hijack()
+}
+
+func (g *gzipResponseWriter) Unwrap() http.ResponseWriter { return g.ResponseWriter }
+
+func (g *gzipResponseWriter) close() {
+	if g.gz == nil {
+		return
+	}
+	// Only return the writer to the pool when Close succeeds. A failed Close
+	// leaves the deflate stream in an undefined state; recycling it would
+	// silently corrupt the next response that borrows it.
+	if err := g.gz.Close(); err != nil {
+		slog.Error("gzip close failed", "err", err)
+		g.gz = nil
+		return
+	}
+	gzPool.Put(g.gz)
+	g.gz = nil
+}
+
+func Gzip(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		addVaryValue(w.Header(), "Accept-Encoding")
+
+		if shouldBypassGzipRequest(r) || !acceptsGzip(r.Header.Get("Accept-Encoding")) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		grw := &gzipResponseWriter{
+			ResponseWriter: w,
+			statusCode:     http.StatusOK,
+		}
+		defer grw.close()
+
+		next.ServeHTTP(grw, r)
+
+		if !grw.headerSent {
+			grw.decide()
+		}
+	})
+}

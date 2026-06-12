@@ -1,0 +1,122 @@
+import { getSettings, saveSettings, type UserSettings } from "~/api/client";
+import { getFontFamily } from "~/lib/fonts";
+import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry.svelte";
+
+// Shape the reader iframe expects (see iframe/frame.ts apply-settings handler).
+export interface IframeSettings {
+  mode: "scroll" | "paged" | "paged-two";
+  fontSize: number;
+  fontFamily: string;
+  preserveBookStyles: boolean;
+  preserveBookFonts: boolean;
+  lineHeight: number | null;
+  paragraphSpacing: number | null;
+  textIndent: number | null;
+  contentWidth: number | null;
+  margins: { top: number | null; bottom: number | null; side: number | null };
+  justify: boolean;
+  hyphenation: boolean;
+  theme: string;
+  chapterTitleAlign: "left" | "center" | "right" | null;
+  chapterTitleSize: number | null;
+  chapterTitleSpacing: number | null;
+}
+
+export const DEFAULT_USER_SETTINGS: UserSettings = {
+  fontSize: 26,
+  fontFamily: "eb-garamond",
+  lineHeight: null,
+  paragraphSpacing: null,
+  textIndent: null,
+  contentWidth: null,
+  displayMode: "scroll",
+  marginTop: 48,
+  marginBottom: 48,
+  marginSide: 48,
+  preserveStyles: true,
+  preserveFonts: false,
+  justify: true,
+  hyphenation: false,
+  theme: "rose-pine",
+  chapterTitleAlign: null,
+  chapterTitleSize: null,
+  chapterTitleSpacing: null,
+  fontRoles: {},
+};
+
+/** Resolves a font family id to a CSS font-family value, handling user fonts. */
+function resolveFontFamily(id: string): string {
+  if (isUserFamilyId(id)) {
+    return fontRegistry.cssValue(id) ?? getFontFamily(id);
+  }
+  return getFontFamily(id);
+}
+
+export function toIframeSettings(s: UserSettings): IframeSettings {
+  return {
+    mode: s.displayMode,
+    fontSize: s.fontSize,
+    fontFamily: resolveFontFamily(s.fontFamily),
+    preserveBookStyles: s.preserveStyles,
+    preserveBookFonts: s.preserveFonts,
+    lineHeight: s.lineHeight,
+    paragraphSpacing: s.paragraphSpacing,
+    textIndent: s.textIndent,
+    contentWidth: s.contentWidth,
+    margins: { top: s.marginTop, bottom: s.marginBottom, side: s.marginSide },
+    justify: s.justify,
+    hyphenation: s.hyphenation,
+    theme: s.theme,
+    chapterTitleAlign: s.chapterTitleAlign,
+    chapterTitleSize: s.chapterTitleSize,
+    chapterTitleSpacing: s.chapterTitleSpacing,
+  };
+}
+
+class Settings {
+  value = $state<UserSettings>({ ...DEFAULT_USER_SETTINGS });
+  /** Memoised mapping to the reader-iframe settings shape. */
+  iframe = $derived.by<IframeSettings>(() => toIframeSettings(this.value));
+
+  #loaded = false;
+  #saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** Loads server settings once; keeps defaults on failure (non-fatal). */
+  async load(): Promise<void> {
+    if (this.#loaded) return;
+    try {
+      this.value = await getSettings();
+      this.#loaded = true;
+    } catch {
+      // Keep defaults if settings cannot be loaded.
+    }
+  }
+
+  update(partial: Partial<UserSettings>): void {
+    this.value = { ...this.value, ...partial };
+    this.#scheduleSave();
+  }
+
+  /** Call on logout so the next login gets fresh settings from the server. */
+  reset(): void {
+    this.#loaded = false;
+    if (this.#saveTimer) {
+      clearTimeout(this.#saveTimer);
+      this.#saveTimer = undefined;
+    }
+    this.value = { ...DEFAULT_USER_SETTINGS };
+  }
+
+  #scheduleSave(): void {
+    if (this.#saveTimer) clearTimeout(this.#saveTimer);
+    this.#saveTimer = setTimeout(() => {
+      this.#saveTimer = undefined;
+      const snapshot = { ...this.value };
+      saveSettings(snapshot).catch(() => {
+        // Best-effort debounced save; the next user action will retry.
+      });
+    }, 500);
+  }
+}
+
+export const settings = new Settings();

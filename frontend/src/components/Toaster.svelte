@@ -1,0 +1,65 @@
+<script lang="ts">
+  import { toast } from "~/lib/toast.svelte";
+</script>
+
+<div class="container" role="status" aria-live="polite" aria-atomic="false">
+  {#each toast.items as item (item.id)}
+    <div class="toast" class:exiting={item.exiting}>{item.message}</div>
+  {/each}
+</div>
+
+<style>
+  .container {
+    position: fixed;
+    bottom: 4rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    pointer-events: none;
+  }
+  .toast {
+    max-width: min(420px, calc(100vw - 32px));
+    padding: 0.5rem 1rem;
+    background: color-mix(in srgb, var(--fg) 88%, var(--bg));
+    color: var(--bg);
+    border-radius: 0.5rem;
+    font-size: 0.8rem;
+    text-align: center;
+    box-shadow: 0 2px 12px color-mix(in srgb, var(--fg) 25%, transparent);
+    pointer-events: auto;
+    animation: toast-in 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  }
+  .toast.exiting {
+    animation: toast-out 0.16s ease forwards;
+  }
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.94);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  @keyframes toast-out {
+    from {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(-6px) scale(0.96);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .toast,
+    .toast.exiting {
+      animation: none;
+    }
+  }
+</style>

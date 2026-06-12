@@ -1,0 +1,616 @@
+package epub
+
+import (
+	"archive/zip"
+	"bytes"
+	"fmt"
+	"log/slog"
+	"net/url"
+	"path"
+	"regexp"
+	"strings"
+
+	"golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
+)
+
+const ChapterRenderVersion = "2026-03-22-1"
+
+type ChapterResponse struct {
+	ChapterIndex int    `json:"chapterIndex"`
+	HTML         string `json:"html"`
+	CSS          string `json:"css"`
+	FontFaceCSS  string `json:"fontFaceCSS"`
+	Direction    string `json:"direction"`
+	WritingMode  string `json:"writingMode"`
+	ResourceBase string `json:"resourceBase"`
+}
+
+func ProcessChapter(
+	store *EPUBStore,
+	filePath string,
+	spine []SpineEntry,
+	chapterIndex int,
+	bookID string,
+	bookDirection string,
+	resourceToken string,
+) (ChapterResponse, error) {
+	if chapterIndex < 0 || chapterIndex >= len(spine) {
+		return ChapterResponse{}, fmt.Errorf("chapter index %d out of range (0-%d)", chapterIndex, len(spine)-1)
+	}
+
+	if cached, ok := store.GetChapter(filePath, chapterIndex, ChapterRenderVersion); ok {
+		return cached, nil
+	}
+
+	entry := spine[chapterIndex]
+	hrefPath := entry.Href
+	if idx := strings.Index(hrefPath, "#"); idx != -1 {
+		hrefPath = hrefPath[:idx]
+	}
+
+	_, index, err := store.OpenIndexed(filePath)
+	if err != nil {
+		return ChapterResponse{}, fmt.Errorf("open epub: %w", err)
+	}
+	defer store.Release(filePath)
+
+	rawHTML, err := readZipFileIndexed(index, hrefPath)
+	if err != nil {
+		return ChapterResponse{}, fmt.Errorf("read chapter %s: %w", hrefPath, err)
+	}
+
+	chapterDir := path.Dir(hrefPath)
+	if chapterDir == "." {
+		chapterDir = ""
+	}
+	resourceBase := fmt.Sprintf("/api/books/%s/resources", bookID)
+
+	resp, err := processChapterHTML(
+		rawHTML,
+		chapterDir,
+		resourceBase,
+		chapterIndex,
+		bookDirection,
+		index,
+		resourceToken,
+	)
+	if err != nil {
+		return ChapterResponse{}, err
+	}
+
+	store.SetChapter(filePath, chapterIndex, ChapterRenderVersion, resp)
+	return resp, nil
+}
+
+// writingModeRe matches the CSS writing-mode property set to a vertical value.
+// Anchoring on the property name avoids false positives from class names,
+// comments, or string literals that contain "vertical-rl" / "vertical-lr".
+var writingModeRe = regexp.MustCompile(`(?i)writing-mode\s*:\s*(vertical-rl|vertical-lr)`)
+
+func processChapterHTML(
+	rawHTML []byte,
+	chapterDir string,
+	resourceBase string,
+	chapterIndex int,
+	bookDirection string,
+	index map[string]*zip.File,
+	resourceToken string,
+) (ChapterResponse, error) {
+	doc, err := html.Parse(bytes.NewReader(rawHTML))
+	if err != nil {
+		return ChapterResponse{}, fmt.Errorf("parse html: %w", err)
+	}
+
+	Sanitize(doc)
+
+	htmlNode, headNode, bodyNode := findStructural(doc)
+
+	direction := bookDirection
+	if direction == "" {
+		direction = "ltr"
+	}
+	writingMode := "horizontal-tb"
+
+	if htmlNode != nil {
+		for _, attr := range htmlNode.Attr {
+			if strings.EqualFold(attr.Key, "dir") {
+				direction = strings.ToLower(attr.Val)
+			}
+		}
+	}
+
+	if bodyNode != nil {
+		for _, attr := range bodyNode.Attr {
+			if strings.EqualFold(attr.Key, "dir") {
+				direction = strings.ToLower(attr.Val)
+			}
+		}
+	}
+
+	// Clamp to the two values the renderer understands. "auto" and unknown
+	// values from EPUB HTML attributes fall back to the book-level default.
+	switch direction {
+	case "ltr", "rtl":
+	default:
+		direction = bookDirection
+		if direction == "" {
+			direction = "ltr"
+		}
+	}
+
+	var cssBuilder strings.Builder
+	var fontFaceBuilder strings.Builder
+	extractCSS(headNode, chapterDir, resourceBase, index, &cssBuilder, &fontFaceBuilder, resourceToken)
+
+	css := cssBuilder.String()
+	// Check head CSS first, then fall back to body <style> blocks and inline
+	// style attributes. EPUBs that set writing-mode on the <body> element via
+	// an inline attribute or a body-embedded stylesheet would be mis-rendered
+	// as horizontal if only head CSS is inspected.
+	if m := writingModeRe.FindStringSubmatch(css); m != nil {
+		writingMode = strings.ToLower(m[1])
+	} else if bodyNode != nil {
+		// Walk body <style> elements and the body's own inline style attribute.
+		if writingMode == "horizontal-tb" {
+			writingMode = detectWritingModeFromBody(bodyNode)
+		}
+	}
+
+	if bodyNode != nil {
+		rewriteNodeURLs(bodyNode, chapterDir, resourceBase, resourceToken)
+	} else {
+		rewriteNodeURLs(doc, chapterDir, resourceBase, resourceToken)
+	}
+
+	bodyHTML, err := extractBodyHTML(bodyNode, doc)
+	if err != nil {
+		return ChapterResponse{}, fmt.Errorf("render chapter %d body: %w", chapterIndex, err)
+	}
+
+	return ChapterResponse{
+		ChapterIndex: chapterIndex,
+		HTML:         bodyHTML,
+		CSS:          css,
+		FontFaceCSS:  fontFaceBuilder.String(),
+		Direction:    direction,
+		WritingMode:  writingMode,
+		ResourceBase: resourceBase,
+	}, nil
+}
+
+// detectWritingModeFromBody inspects body-level CSS for writing-mode. It checks
+// two sources that extractCSS misses because it only processes <head>:
+//
+//  1. Inline <style> elements anywhere inside the body subtree.
+//  2. The inline style="…" attribute on any element (covers the common pattern
+//     of `<body style="writing-mode:vertical-rl">`).
+//
+// Returns the detected mode ("vertical-rl" or "vertical-lr") or "horizontal-tb"
+// when no vertical writing mode is found.
+func detectWritingModeFromBody(bodyNode *html.Node) string {
+	var found string
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if found != "" {
+			return
+		}
+		if n.Type == html.ElementNode {
+			// Check inline style attribute on any element.
+			for _, attr := range n.Attr {
+				if strings.EqualFold(attr.Key, "style") {
+					if m := writingModeRe.FindStringSubmatch(attr.Val); m != nil {
+						found = strings.ToLower(m[1])
+						return
+					}
+				}
+			}
+			// Check <style> element text content.
+			if n.DataAtom == atom.Style {
+				for child := n.FirstChild; child != nil; child = child.NextSibling {
+					if child.Type == html.TextNode {
+						if m := writingModeRe.FindStringSubmatch(child.Data); m != nil {
+							found = strings.ToLower(m[1])
+							return
+						}
+					}
+				}
+			}
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(bodyNode)
+	if found != "" {
+		return found
+	}
+	return "horizontal-tb"
+}
+
+func findStructural(root *html.Node) (htmlNode, headNode, bodyNode *html.Node) {
+	var walk func(*html.Node) bool
+	walk = func(n *html.Node) bool {
+		if n.Type == html.ElementNode {
+			switch n.DataAtom {
+			case atom.Html:
+				htmlNode = n
+			case atom.Head:
+				headNode = n
+			case atom.Body:
+				bodyNode = n
+			}
+		}
+		if htmlNode != nil && headNode != nil && bodyNode != nil {
+			return true
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			if walk(child) {
+				return true
+			}
+		}
+		return false
+	}
+	walk(root)
+	return
+}
+
+func extractCSS(
+	headNode *html.Node,
+	chapterDir string,
+	resourceBase string,
+	index map[string]*zip.File,
+	cssOut *strings.Builder,
+	fontFaceOut *strings.Builder,
+	resourceToken string,
+) {
+	if headNode == nil {
+		return
+	}
+
+	var toRemove []*html.Node
+
+	for child := headNode.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type != html.ElementNode {
+			continue
+		}
+
+		if child.DataAtom == atom.Style {
+			cssText := nodeText(child)
+			separateFontFaces(cssText, chapterDir, resourceBase, cssOut, fontFaceOut, resourceToken)
+			toRemove = append(toRemove, child)
+			continue
+		}
+
+		if child.DataAtom == atom.Link {
+			rel := getAttr(child, "rel")
+			href := getAttr(child, "href")
+			if hasToken(rel, "stylesheet") && href != "" {
+				cssPath := resolvePath(chapterDir, href)
+				cssData, err := readZipFileIndexed(index, cssPath)
+				if err != nil {
+					slog.Warn("stylesheet not found in epub", "path", cssPath, "err", err)
+				} else {
+					separateFontFaces(string(cssData), path.Dir(cssPath), resourceBase, cssOut, fontFaceOut, resourceToken)
+				}
+				toRemove = append(toRemove, child)
+			}
+		}
+	}
+
+	for _, node := range toRemove {
+		headNode.RemoveChild(node)
+	}
+}
+
+var (
+	fontFaceRegex = regexp.MustCompile(`(?is)@font-face\s*\{(?:[^{}]|/\*.*?\*/)*\}`)
+	cssURLRegex   = regexp.MustCompile(`url\(\s*['"]?(?:[^'"\s)]+)['"]?\s*\)`)
+)
+
+// cssImportStringRegex matches bare @import "path" / @import 'path' rules.
+// RE2 (Go's regexp engine) does not support backreferences, so the closing
+// quote is captured as group 4 and validated for equality with group 2 inside
+// the replacement callback. The url() form is handled by cssURLRegex above.
+var cssImportStringRegex = regexp.MustCompile(`(?i)(@import\s+)(['"])([^'"]+)(['"])`)
+
+// separateFontFaces splits cssText into @font-face blocks (written to fontFaceOut)
+// and the remaining rules (written to cssOut), rewriting resource URLs in both.
+func separateFontFaces(
+	cssText string,
+	cssDir string,
+	resourceBase string,
+	cssOut *strings.Builder,
+	fontFaceOut *strings.Builder,
+	resourceToken string,
+) {
+	remaining := fontFaceRegex.ReplaceAllStringFunc(cssText, func(match string) string {
+		rewritten := rewriteCSSURLs(match, cssDir, resourceBase, resourceToken)
+		fontFaceOut.WriteString(rewritten)
+		fontFaceOut.WriteByte('\n')
+		return ""
+	})
+
+	remaining = strings.TrimSpace(remaining)
+	if remaining != "" {
+		rewritten := rewriteCSSURLs(remaining, cssDir, resourceBase, resourceToken)
+		cssOut.WriteString(rewritten)
+		cssOut.WriteByte('\n')
+	}
+}
+
+func rewriteCSSURLs(cssText, cssDir, resourceBase, resourceToken string) string {
+	// Rewrite url(...) tokens.
+	result := cssURLRegex.ReplaceAllStringFunc(cssText, func(match string) string {
+		paren := strings.IndexByte(match, '(')
+		if paren < 0 || match[len(match)-1] != ')' {
+			return match
+		}
+
+		inner := strings.TrimSpace(match[paren+1 : len(match)-1])
+		rawURL := strings.Trim(inner, "'\"")
+		if !isRewritableResourceReference(rawURL) {
+			return match
+		}
+
+		rewritten, ok := buildResourceURL(cssDir, resourceBase, rawURL, resourceToken)
+		if !ok {
+			return match
+		}
+		return fmt.Sprintf("url('%s')", rewritten)
+	})
+
+	// Rewrite bare @import "path" / @import 'path' strings. The url() pass
+	// above already handles @import url(...), so only the string form remains.
+	// Group layout: [1]=@import+space [2]=open-quote [3]=path [4]=close-quote.
+	// We validate that open and close quotes match because RE2 has no
+	// backreference support.
+	result = cssImportStringRegex.ReplaceAllStringFunc(result, func(match string) string {
+		subs := cssImportStringRegex.FindStringSubmatch(match)
+		if len(subs) < 5 || subs[2] != subs[4] {
+			return match
+		}
+		rawURL := subs[3]
+		if !isRewritableResourceReference(rawURL) {
+			return match
+		}
+		rewritten, ok := buildResourceURL(cssDir, resourceBase, rawURL, resourceToken)
+		if !ok {
+			return match
+		}
+		return subs[1] + subs[2] + rewritten + subs[4]
+	})
+
+	return result
+}
+
+func rewriteNodeURLs(n *html.Node, chapterDir, resourceBase, resourceToken string) {
+	rewriteNodeURLsDepth(n, chapterDir, resourceBase, resourceToken, 0)
+}
+
+func rewriteNodeURLsDepth(n *html.Node, chapterDir, resourceBase, resourceToken string, depth int) {
+	if depth > maxSanitizeDepth {
+		return
+	}
+
+	if n.Type == html.ElementNode {
+		if n.DataAtom == atom.Style {
+			rewriteStyleElementText(n, chapterDir, resourceBase, resourceToken)
+		}
+
+		for i, attr := range n.Attr {
+			key := strings.ToLower(attr.Key)
+
+			switch key {
+			case "style":
+				n.Attr[i].Val = rewriteCSSURLs(attr.Val, chapterDir, resourceBase, resourceToken)
+				continue
+			case "srcset":
+				n.Attr[i].Val = rewriteSrcsetValue(attr.Val, chapterDir, resourceBase, resourceToken)
+				continue
+			}
+
+			shouldRewrite := false
+			switch key {
+			case "src", "poster":
+				shouldRewrite = true
+			case "href":
+				if n.DataAtom != atom.A {
+					shouldRewrite = true
+				}
+			case "xlink:href":
+				if n.Data == "image" || n.Data == "use" {
+					shouldRewrite = true
+				}
+			}
+
+			if !shouldRewrite || !isRewritableResourceReference(attr.Val) {
+				continue
+			}
+
+			if rewritten, ok := buildResourceURL(chapterDir, resourceBase, attr.Val, resourceToken); ok {
+				n.Attr[i].Val = rewritten
+			}
+		}
+	}
+
+	for child := n.FirstChild; child != nil; child = child.NextSibling {
+		rewriteNodeURLsDepth(child, chapterDir, resourceBase, resourceToken, depth+1)
+	}
+}
+
+func rewriteStyleElementText(n *html.Node, chapterDir, resourceBase, resourceToken string) {
+	for child := n.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type != html.TextNode {
+			continue
+		}
+		child.Data = rewriteCSSURLs(child.Data, chapterDir, resourceBase, resourceToken)
+	}
+}
+
+func rewriteSrcsetValue(srcset, chapterDir, resourceBase, resourceToken string) string {
+	parts := strings.Split(srcset, ",")
+	rewrittenAny := false
+
+	for i, part := range parts {
+		fields := strings.Fields(strings.TrimSpace(part))
+		if len(fields) == 0 {
+			parts[i] = strings.TrimSpace(part)
+			continue
+		}
+
+		rewrittenURL, ok := buildResourceURL(chapterDir, resourceBase, fields[0], resourceToken)
+		if ok {
+			fields[0] = rewrittenURL
+			rewrittenAny = true
+		}
+		parts[i] = strings.Join(fields, " ")
+	}
+
+	if !rewrittenAny {
+		return srcset
+	}
+	return strings.Join(parts, ", ")
+}
+
+func buildResourceURL(baseDir, resourceBase, rawRef, resourceToken string) (string, bool) {
+	if !isRewritableResourceReference(rawRef) {
+		return "", false
+	}
+
+	refPath, rawQuery, fragment := splitResourceReference(rawRef)
+	if refPath == "" {
+		return "", false
+	}
+
+	resolved := resolvePath(baseDir, refPath)
+	if resolved == "" || resolved == "." {
+		return "", false
+	}
+
+	var builder strings.Builder
+	builder.Grow(len(resourceBase) + len(resolved) + len(rawQuery) + len(fragment) + len(resourceToken) + 16)
+	builder.WriteString(resourceBase)
+	builder.WriteByte('/')
+	builder.WriteString(resolved)
+
+	hasQuery := false
+	if rawQuery != "" {
+		builder.WriteByte('?')
+		builder.WriteString(rawQuery)
+		hasQuery = true
+	}
+	if resourceToken != "" {
+		if hasQuery {
+			builder.WriteByte('&')
+		} else {
+			builder.WriteByte('?')
+		}
+		builder.WriteString("token=")
+		builder.WriteString(url.QueryEscape(resourceToken))
+	}
+	if fragment != "" {
+		builder.WriteByte('#')
+		builder.WriteString(fragment)
+	}
+
+	return builder.String(), true
+}
+
+func isRewritableResourceReference(rawRef string) bool {
+	rawRef = strings.TrimSpace(rawRef)
+	if rawRef == "" {
+		return false
+	}
+
+	lower := strings.ToLower(rawRef)
+	switch {
+	case strings.HasPrefix(lower, "#"),
+		strings.HasPrefix(lower, "data:"),
+		strings.HasPrefix(lower, "blob:"),
+		strings.HasPrefix(lower, "/api/"),
+		strings.HasPrefix(lower, "//"):
+		return false
+	}
+
+	return !hasAbsoluteURIScheme(rawRef)
+}
+
+func hasAbsoluteURIScheme(rawRef string) bool {
+	for idx, r := range rawRef {
+		switch r {
+		case ':':
+			if idx == 0 {
+				return false
+			}
+			return isURIScheme(rawRef[:idx])
+		case '/', '?', '#':
+			return false
+		}
+	}
+	return false
+}
+
+func isURIScheme(value string) bool {
+	if value == "" {
+		return false
+	}
+
+	first := value[0]
+	if (first < 'a' || first > 'z') && (first < 'A' || first > 'Z') {
+		return false
+	}
+
+	for i := 1; i < len(value); i++ {
+		ch := value[i]
+		if (ch >= 'a' && ch <= 'z') ||
+			(ch >= 'A' && ch <= 'Z') ||
+			(ch >= '0' && ch <= '9') ||
+			ch == '+' || ch == '-' || ch == '.' {
+			continue
+		}
+		return false
+	}
+
+	return true
+}
+
+func splitResourceReference(ref string) (refPath, rawQuery, fragment string) {
+	if hashIndex := strings.IndexByte(ref, '#'); hashIndex != -1 {
+		fragment = ref[hashIndex+1:]
+		ref = ref[:hashIndex]
+	}
+	if queryIndex := strings.IndexByte(ref, '?'); queryIndex != -1 {
+		rawQuery = ref[queryIndex+1:]
+		ref = ref[:queryIndex]
+	}
+	return ref, rawQuery, fragment
+}
+
+func extractBodyHTML(bodyNode *html.Node, doc *html.Node) (string, error) {
+	var buf bytes.Buffer
+	if bodyNode == nil {
+		if err := html.Render(&buf, doc); err != nil {
+			slog.Error("failed to render full document", "err", err)
+			return "", fmt.Errorf("render document: %w", err)
+		}
+		return buf.String(), nil
+	}
+
+	for child := bodyNode.FirstChild; child != nil; child = child.NextSibling {
+		if err := html.Render(&buf, child); err != nil {
+			slog.Error("failed to render body child node", "err", err)
+			return "", fmt.Errorf("render body child: %w", err)
+		}
+	}
+	return buf.String(), nil
+}
+
+func getAttr(n *html.Node, key string) string {
+	for _, attr := range n.Attr {
+		if strings.EqualFold(attr.Key, key) {
+			return attr.Val
+		}
+	}
+	return ""
+}

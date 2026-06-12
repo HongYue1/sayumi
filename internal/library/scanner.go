@@ -1,0 +1,287 @@
+package library
+
+import (
+	"archive/zip"
+	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"sayumi/internal/epub"
+	"sayumi/internal/storage"
+)
+
+type Scanner struct {
+	libraryPath string
+	db          *storage.DB
+}
+
+func NewScanner(libraryPath string, db *storage.DB) *Scanner {
+	return &Scanner{libraryPath: libraryPath, db: db}
+}
+
+// ScanNow walks the library directory and imports any new EPUB files.
+// It respects ctx cancellation so slow scans don't block profile opens indefinitely.
+// ScanNow walks the library directory and imports any new EPUBs into the DB.
+// It returns the IDs of books imported during this scan so callers can update
+// their in-memory caches (this function does not touch the in-memory cache).
+func (s *Scanner) ScanNow(ctx context.Context) ([]string, error) {
+	slog.Info("scanning library", "path", s.libraryPath)
+
+	importedIDs := make([]string, 0)
+	err := filepath.WalkDir(s.libraryPath, func(filePath string, dirEntry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			slog.Warn("scan access failed", "path", filePath, "err", walkErr)
+			return nil
+		}
+		if dirEntry == nil {
+			return nil
+		}
+
+		// Cancellation is checked once per file entry, not per directory.
+		// A directory with many EPUBs may process several files before the
+		// check fires; this is acceptable given the low per-file overhead.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		if dirEntry.IsDir() {
+			if strings.HasPrefix(dirEntry.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if strings.HasPrefix(dirEntry.Name(), ".") || !strings.HasSuffix(strings.ToLower(dirEntry.Name()), ".epub") {
+			return nil
+		}
+
+		id, imported, err := s.importFile(ctx, filePath, "")
+		if err != nil {
+			slog.Warn("scan import failed", "path", filePath, "err", err)
+			return nil
+		}
+		if imported {
+			importedIDs = append(importedIDs, id)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("walk library %q: %w", s.libraryPath, err)
+	}
+
+	slog.Info("scan complete", "imported", len(importedIDs))
+	return importedIDs, nil
+}
+
+func (s *Scanner) importFile(ctx context.Context, filePath string, knownHash string) (id string, imported bool, err error) {
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		return "", false, fmt.Errorf("abs path: %w", err)
+	}
+
+	ignored, err := s.db.IsFileIgnoredContext(ctx, absPath)
+	if err != nil {
+		return "", false, fmt.Errorf("check ignored: %w", err)
+	}
+	if ignored {
+		return "", false, nil
+	}
+
+	if existingID, found, err := s.db.BookExistsByPathContext(ctx, absPath); err != nil {
+		return "", false, fmt.Errorf("check existing by path: %w", err)
+	} else if found {
+		return existingID, false, nil
+	}
+
+	var hash string
+	var fileSize int64
+
+	if knownHash != "" {
+		hash = knownHash
+
+		fileInfo, err := os.Stat(absPath)
+		if err != nil {
+			return "", false, fmt.Errorf("stat file: %w", err)
+		}
+		fileSize = fileInfo.Size()
+	} else {
+		hash, fileSize, err = contentHash(ctx, absPath)
+		if err != nil {
+			return "", false, fmt.Errorf("hash file: %w", err)
+		}
+	}
+
+	existing, err := s.db.GetBookByHashContext(ctx, hash)
+	switch {
+	case err == nil:
+		// Reconcile the stored path: if the file has been moved, renamed, or
+		// copied into a cloned profile, update the DB so future reads use the
+		// correct location. Failures are non-fatal — the book is still usable
+		// at its old path until the next successful reconciliation.
+		if existing.FilePath != absPath {
+			if updateErr := s.db.UpdateBookFilePathContext(ctx, existing.ID, absPath); updateErr != nil {
+				slog.Warn("reconcile book path after hash match failed",
+					"id", existing.ID, "old", existing.FilePath, "new", absPath, "err", updateErr)
+			}
+		}
+		return existing.ID, false, nil
+	case errors.Is(err, sql.ErrNoRows):
+	default:
+		return "", false, fmt.Errorf("check existing by hash: %w", err)
+	}
+
+	zr, err := zip.OpenReader(absPath)
+	if err != nil {
+		return "", false, fmt.Errorf("open zip: %w", err)
+	}
+	defer func() {
+		if closeErr := zr.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close epub: %w", closeErr)
+		}
+	}()
+
+	meta, err := epub.Parse(&zr.Reader)
+	if err != nil {
+		return "", false, fmt.Errorf("parse epub: %w", err)
+	}
+
+	id = generateID(absPath, hash)
+
+	spineJSON, err := json.Marshal(meta.Spine)
+	if err != nil {
+		return "", false, fmt.Errorf("marshal spine: %w", err)
+	}
+
+	tocJSON, err := json.Marshal(meta.TOC)
+	if err != nil {
+		return "", false, fmt.Errorf("marshal toc: %w", err)
+	}
+
+	record := storage.BookRecord{
+		BookSummary: storage.BookSummary{
+			ID:           id,
+			Title:        meta.Title,
+			Author:       meta.Author,
+			Language:     meta.Language,
+			Publisher:    meta.Publisher,
+			Description:  meta.Description,
+			PubDate:      meta.PubDate,
+			ISBN:         meta.ISBN,
+			FilePath:     absPath,
+			FileHash:     hash,
+			FileSize:     fileSize,
+			Direction:    meta.Direction,
+			ChapterCount: len(meta.Spine),
+		},
+		SpineJSON: string(spineJSON),
+		TocJSON:   string(tocJSON),
+	}
+
+	canonicalID, err := s.db.InsertBookContext(ctx, record)
+	if err != nil {
+		return "", false, fmt.Errorf("insert book: %w", err)
+	}
+	// Use the canonical ID: if a concurrent import of the same content won the
+	// race, InsertBookContext returns that row's ID instead of our proposed one.
+	id = canonicalID
+
+	if meta.CoverPath != "" {
+		if coverErr := extractCover(s.libraryPath, id, &zr.Reader, meta.CoverPath); coverErr != nil {
+			slog.Warn("cover extraction failed", "title", meta.Title, "err", coverErr)
+		} else {
+			coverRelPath := filepath.Join(".sayumi", "covers", id+".jpg")
+			if updateErr := s.db.UpdateBookCoverContext(ctx, id, coverRelPath); updateErr != nil {
+				slog.Warn("update cover path failed", "book", id, "err", updateErr)
+			}
+		}
+	}
+
+	slog.Info("imported book", "title", meta.Title, "author", meta.Author, "chapters", len(meta.Spine))
+	return id, true, nil
+}
+
+// CheckDuplicate reports whether filePath is already in the library by content hash.
+func (s *Scanner) CheckDuplicate(ctx context.Context, filePath string) (existingID string, hash string, isDuplicate bool) {
+	h, _, err := contentHash(ctx, filePath)
+	if err != nil {
+		return "", "", false
+	}
+
+	existing, err := s.db.GetBookByHashContext(ctx, h)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			slog.Warn("duplicate check failed", "path", filePath, "err", err)
+		}
+		return "", h, false
+	}
+
+	return existing.ID, h, true
+}
+
+// ImportFile imports a single EPUB file into the library, returning its book ID.
+func (s *Scanner) ImportFile(ctx context.Context, filePath string, knownHash string) (string, error) {
+	id, _, err := s.importFile(ctx, filePath, knownHash)
+	if err != nil {
+		return "", err
+	}
+	if id != "" {
+		return id, nil
+	}
+	return "", fmt.Errorf("book was not imported and could not be found")
+}
+
+func contentHash(ctx context.Context, filePath string) (hash string, size int64, err error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", 0, fmt.Errorf("open file for hashing: %w", err)
+	}
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close file: %w", closeErr)
+		}
+	}()
+
+	info, err := file.Stat()
+	if err != nil {
+		return "", 0, fmt.Errorf("stat file: %w", err)
+	}
+
+	hasher := sha256.New()
+	buf := make([]byte, 32<<10) // 32 KB chunks
+	for {
+		if err := ctx.Err(); err != nil {
+			return "", 0, err
+		}
+		n, readErr := file.Read(buf)
+		if n > 0 {
+			if _, writeErr := hasher.Write(buf[:n]); writeErr != nil {
+				return "", 0, fmt.Errorf("hash file content: %w", writeErr)
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return "", 0, fmt.Errorf("hash file content: %w", readErr)
+		}
+	}
+
+	return hex.EncodeToString(hasher.Sum(nil)), info.Size(), nil
+}
+
+func generateID(filePath, contentHash string) string {
+	hasher := sha256.New()
+	_, _ = hasher.Write([]byte(filePath))
+	_, _ = hasher.Write([]byte(contentHash))
+	return hex.EncodeToString(hasher.Sum(nil))[:16]
+}
