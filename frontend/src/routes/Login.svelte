@@ -7,6 +7,8 @@
     type ProfileInfo,
   } from "~/api/client";
   import { session } from "~/lib/session.svelte";
+  import Icon from "~/lib/Icon.svelte";
+  import { Lock, ArrowLeft, Plus, TriangleAlert } from "@lucide/svelte";
 
   let profiles = $state<ProfileInfo[]>([]);
   let loading = $state(true);
@@ -89,28 +91,44 @@
 
 <div class="screen">
   <div class="card">
-    <div class="head">
+    <header class="head">
       <h1 class="brand">Sayumi</h1>
-      <p class="tagline">A reading room</p>
-    </div>
+      <p class="tagline">“A quiet room for your books.”</p>
+    </header>
 
     {#if loading}
-      <p class="muted">Loading…</p>
+      <!-- Loading skeleton mirroring the profile list. -->
+      <ul class="profiles" aria-hidden="true">
+        {#each [0, 1, 2] as i (i)}
+          <li>
+            <div class="profile skeleton">
+              <span class="avatar sk-avatar"></span>
+              <span class="sk-bar"></span>
+            </div>
+          </li>
+        {/each}
+      </ul>
+      <p class="muted" role="status">Loading profiles…</p>
     {:else if mode === "pick" && !selected}
-      <p class="muted">Choose a profile</p>
+      <p class="muted">Choose a profile to continue</p>
       <ul class="profiles">
         {#each profiles as p (p.name)}
           <li>
             <button class="profile" onclick={() => pick(p)} disabled={busy}>
               <span class="avatar">{p.name.slice(0, 1).toUpperCase()}</span>
               <span class="name">{p.name}</span>
-              {#if p.hasPin}<span class="lock" aria-label="PIN protected">●</span>{/if}
+              {#if p.hasPin}
+                <span class="lock">
+                  <Icon icon={Lock} size={16} label="PIN protected" />
+                </span>
+              {/if}
             </button>
           </li>
         {/each}
       </ul>
       <button class="link" onclick={() => { mode = "create"; error = ""; }}>
-        + New profile
+        <Icon icon={Plus} size={16} />
+        New profile
       </button>
     {:else if selected}
       <form onsubmit={submitPin}>
@@ -134,12 +152,17 @@
           {busy ? "Signing in…" : "Sign in"}
         </button>
         <button class="link" type="button" onclick={backToList} disabled={busy}>
-          ← Back
+          <Icon icon={ArrowLeft} size={16} />
+          Back
         </button>
       </form>
     {:else}
       <form onsubmit={submitCreate}>
-        <p class="muted">Create a profile</p>
+        {#if profiles.length === 0}
+          <p class="muted">Welcome — create a profile to start your library.</p>
+        {:else}
+          <p class="muted">Create a profile</p>
+        {/if}
         <!-- svelte-ignore a11y_autofocus -->
         <input
           class="field"
@@ -169,13 +192,19 @@
             onclick={() => { mode = "pick"; error = ""; }}
             disabled={busy}
           >
-            ← Back
+            <Icon icon={ArrowLeft} size={16} />
+            Back
           </button>
         {/if}
       </form>
     {/if}
 
-    {#if error}<p class="error" role="alert">{error}</p>{/if}
+    {#if error}
+      <p class="error" role="alert">
+        <Icon icon={TriangleAlert} size={16} />
+        <span>{error}</span>
+      </p>
+    {/if}
   </div>
 </div>
 
@@ -185,7 +214,7 @@
     align-items: center;
     justify-content: center;
     min-height: 100vh;
-    padding: 1.5rem;
+    padding: var(--sp-6);
   }
 
   .card {
@@ -193,8 +222,8 @@
     max-width: 22rem;
     display: flex;
     flex-direction: column;
-    gap: 0.85rem;
-    animation: rise 0.4s var(--ease) both;
+    gap: var(--sp-4);
+    animation: rise var(--dur-slow) var(--ease-out) both;
   }
   @keyframes rise {
     from {
@@ -207,10 +236,10 @@
     }
   }
 
+  /* Wordmark + tagline, separated from the list by a hairline rule. */
   .head {
     text-align: center;
     padding-bottom: var(--sp-4);
-    margin-bottom: var(--sp-2);
     border-bottom: 1px solid var(--hairline);
   }
   .brand {
@@ -218,15 +247,16 @@
     font-family: var(--font-display);
     font-size: var(--text-3xl);
     font-weight: 500;
-    line-height: 1;
+    line-height: var(--lh-tight);
     letter-spacing: 0.01em;
   }
   .tagline {
-    margin: 0.45rem 0 0;
-    font-size: var(--text-xs);
-    font-weight: 700;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
+    margin: var(--sp-3) 0 0;
+    font-family: var(--font-display);
+    font-variant: small-caps;
+    letter-spacing: 0.08em;
+    font-size: var(--text-base);
+    line-height: var(--lh-snug);
     color: var(--muted);
   }
 
@@ -243,92 +273,152 @@
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
+    gap: var(--sp-2);
   }
 
   .profile {
     display: flex;
     align-items: center;
-    gap: 0.7rem;
+    gap: var(--sp-3);
     width: 100%;
-    padding: 0.6rem 0.8rem;
-    border: 1px solid color-mix(in srgb, var(--fg) 12%, transparent);
-    border-radius: 0.6rem;
+    min-height: 44px;
+    padding: var(--sp-2) var(--sp-3);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
     background: transparent;
     color: var(--fg);
     font: inherit;
+    text-align: left;
     cursor: pointer;
-    transition: border-color 0.15s, background 0.15s;
+    transition:
+      border-color var(--dur) var(--ease-out),
+      background var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
   }
   .profile:hover:not(:disabled) {
     border-color: var(--accent);
     background: color-mix(in srgb, var(--accent) 7%, transparent);
   }
+  .profile:active:not(:disabled) {
+    transform: scale(0.99);
+  }
+  .profile:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
 
   .avatar {
+    flex: none;
     display: grid;
     place-items: center;
-    width: 2rem;
-    height: 2rem;
+    width: 2.1rem;
+    height: 2.1rem;
     border-radius: 50%;
     background: color-mix(in srgb, var(--accent) 18%, transparent);
     color: var(--fg);
     font-family: var(--font-display);
-    font-size: 1.05rem;
+    font-size: var(--text-lg);
     font-weight: 600;
   }
 
   .name {
     flex: 1;
+    min-width: 0;
     text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .lock {
-    color: var(--muted, #6b6661);
-    font-size: 0.7rem;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    color: var(--muted);
   }
 
-  .field {
-    width: 100%;
-    padding: 0.6rem 0.75rem;
-    border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
-    border-radius: 0.55rem;
-    background: var(--bg);
-    color: var(--fg);
-    font: inherit;
+  /* Skeleton placeholders shown while profiles load. */
+  .skeleton {
+    pointer-events: none;
+    cursor: default;
   }
-  .field:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
+  .sk-avatar {
+    background: var(--surface-hover);
+  }
+  .sk-bar {
+    height: 0.8rem;
+    width: 55%;
+    border-radius: var(--radius);
+    background: var(--surface-hover);
+  }
+  .sk-avatar,
+  .sk-bar {
+    animation: pulse 1.2s var(--ease) infinite;
+  }
+  @keyframes pulse {
+    0%,
+    100% {
+      opacity: 0.55;
+    }
+    50% {
+      opacity: 1;
+    }
   }
 
   form {
     display: flex;
     flex-direction: column;
-    gap: 0.7rem;
+    gap: var(--sp-3);
+  }
+
+  .field {
+    width: 100%;
+    min-height: 44px;
+    padding: var(--sp-2) var(--sp-3);
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--fg);
+    font: inherit;
+    /* ≥ 16px keeps iOS Safari from zooming the viewport on focus. */
+    font-size: var(--text-base);
+    transition: border-color var(--dur) var(--ease-out);
+  }
+  .field::placeholder {
+    color: var(--muted);
+  }
+  .field:focus-visible {
+    /* Ring comes from the global :focus-visible rule; just tint the border. */
+    border-color: var(--accent);
   }
 
   .remember {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    color: var(--muted, #6b6661);
-    font-size: 0.9rem;
+    gap: var(--sp-2);
+    color: var(--muted);
+    font-size: var(--text-sm);
   }
 
   .primary {
-    padding: 0.6rem 0.9rem;
+    min-height: 44px;
+    padding: var(--sp-2) var(--sp-4);
     border: none;
-    border-radius: 0.55rem;
+    border-radius: var(--radius);
     background: var(--accent);
     color: #fff;
     font: inherit;
     font-weight: 700;
     cursor: pointer;
-    transition: opacity 0.15s var(--ease);
+    transition:
+      opacity var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
   }
   .primary:hover:not(:disabled) {
     opacity: 0.88;
+  }
+  .primary:active:not(:disabled) {
+    transform: scale(0.97);
   }
   .primary:disabled {
     opacity: 0.55;
@@ -336,22 +426,44 @@
   }
 
   .link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-1);
     align-self: center;
+    min-height: 44px;
+    padding: var(--sp-1) var(--sp-3);
     border: none;
+    border-radius: var(--radius);
     background: transparent;
-    color: var(--muted, #6b6661);
+    color: var(--muted);
     font: inherit;
     cursor: pointer;
-    padding: 0.25rem;
+    transition: color var(--dur) var(--ease-out);
   }
   .link:hover:not(:disabled) {
     color: var(--fg);
   }
+  .link:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+  .link:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
 
   .error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-2);
     margin: 0;
     color: #b3402f;
-    text-align: center;
-    font-size: 0.9rem;
+    text-align: left;
+    font-size: var(--text-sm);
+    line-height: var(--lh-snug);
+  }
+  .error :global(svg) {
+    flex: none;
   }
 </style>

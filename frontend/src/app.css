@@ -73,6 +73,11 @@
 
   --radius: 0.5rem;
 
+  /* Focus ring — one consistent keyboard ring across every control,
+     applied via the global :focus-visible rule below. Uses theme tokens so
+     it adapts across all 24 themes. */
+  --focus: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+
   /* Motion: durations + easing curves (chrome transitions, button feedback). */
   --dur-fast: 120ms;
   --dur: 180ms;
@@ -118,6 +123,28 @@ body {
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--muted);
+}
+
+/* One consistent keyboard focus ring for every control. Components may add
+   their own focus state styles (e.g. a border tint) but should rely on this
+   for the ring itself instead of redefining an outline. */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+/* Tactile press feedback for buttons and icon controls
+   (reduced-motion users get the instant state via the block below). */
+.press {
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.press:active {
+  transform: scale(0.97);
+}
+
+/* Tabular figures so counters/percentages keep a fixed width as digits change. */
+.tnum {
+  font-variant-numeric: tabular-nums;
 }
 
 @media (prefers-reduced-motion: reduce) {
