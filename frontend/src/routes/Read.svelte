@@ -32,6 +32,7 @@
   import BookmarksPanel from "~/components/reader/BookmarksPanel.svelte";
   import type { ChapterFrameAPI, KeyEvent } from "~/components/reader/frame-types";
   import Icon from "~/lib/Icon.svelte";
+  import { focusTrap } from "~/lib/focusTrap";
   import {
     ArrowLeft,
     Bookmark as BookmarkIcon,
@@ -699,14 +700,14 @@
     {/if}
 
     {#if activePanel === "toc" && book}
-      <aside class="panel left">
+      <div class="panel left" role="dialog" aria-modal="true" aria-label="Table of contents" {@attach focusTrap}>
         <TocPanel toc={book.toc} onnavigate={handleTocNavigate} />
-      </aside>
+      </div>
       <button class="scrim" aria-label="Close" onclick={closePanel}></button>
     {/if}
 
     {#if activePanel === "bookmarks"}
-      <aside class="panel left">
+      <div class="panel left" role="dialog" aria-modal="true" aria-label="Bookmarks" {@attach focusTrap}>
         <BookmarksPanel
           {bookmarks}
           onnavigate={navigateBookmark}
@@ -714,25 +715,25 @@
           onupdate={(id, label, comment) => void editBookmark(id, label, comment)}
           onclose={closePanel}
         />
-      </aside>
+      </div>
       <button class="scrim" aria-label="Close" onclick={closePanel}></button>
     {/if}
 
     {#if activePanel === "search"}
-      <aside class="panel right">
+      <div class="panel right" role="dialog" aria-modal="true" aria-label="Search in book" {@attach focusTrap}>
         <SearchPanel
           {bookId}
           onresultclick={navigateToResult}
           onclose={closePanel}
         />
-      </aside>
+      </div>
       <button class="scrim" aria-label="Close" onclick={closePanel}></button>
     {/if}
 
     {#if activePanel === "settings"}
-      <aside class="panel right">
+      <div class="panel right" role="dialog" aria-modal="true" aria-label="Settings" {@attach focusTrap}>
         <SettingsPanel onclose={closePanel} />
-      </aside>
+      </div>
       <button class="scrim" aria-label="Close" onclick={closePanel}></button>
     {/if}
 
@@ -784,6 +785,10 @@
     justify-content: center;
     line-height: 1;
     padding: 0.45rem;
+    /* 44×44 minimum hit area (fixing-accessibility / web-quality-audit tap
+       targets); the icon glyph stays centered via flex. */
+    min-width: 2.75rem;
+    min-height: 2.75rem;
     border-radius: 0.4rem;
     cursor: pointer;
     transition: background var(--dur-fast) var(--ease-out),

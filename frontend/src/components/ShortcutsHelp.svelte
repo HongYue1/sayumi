@@ -2,6 +2,7 @@
   import { ui } from "~/lib/ui.svelte";
   import Icon from "~/lib/Icon.svelte";
   import { X } from "@lucide/svelte";
+  import { focusTrap } from "~/lib/focusTrap";
 
   const groups: { title: string; items: { keys: string[]; desc: string }[] }[] = [
     {
@@ -51,6 +52,7 @@
       aria-modal="true"
       aria-label="Keyboard shortcuts"
       onclick={(e) => e.stopPropagation()}
+      {@attach focusTrap}
     >
       <header>
         <h2>Keyboard shortcuts</h2>

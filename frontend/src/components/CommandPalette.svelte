@@ -8,6 +8,7 @@
   import { THEMES } from "~/lib/themes";
   import Icon from "~/lib/Icon.svelte";
   import { Search } from "@lucide/svelte";
+  import { focusTrap } from "~/lib/focusTrap";
 
   interface Command {
     id: string;
@@ -123,6 +124,7 @@
       aria-modal="true"
       aria-label="Command palette"
       onclick={(e) => e.stopPropagation()}
+      {@attach focusTrap}
     >
       <div class="cmd-search">
         <Icon icon={Search} size={18} class="cmd-search-icon" />

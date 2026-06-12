@@ -268,7 +268,7 @@
     opacity: 1;
   }
   .chip-btn:active {
-    transform: scale(0.92);
+    transform: scale(0.95);
   }
   .remove {
     right: var(--sp-1);

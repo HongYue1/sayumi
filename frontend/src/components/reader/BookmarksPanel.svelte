@@ -254,7 +254,7 @@
     color: var(--fg);
   }
   .icon-btn:active {
-    transform: scale(0.92);
+    transform: scale(0.95);
   }
   .icon-btn.danger:hover {
     color: #b3402f;
