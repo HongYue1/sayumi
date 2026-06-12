@@ -30,6 +30,16 @@
   import SearchPanel from "~/components/reader/SearchPanel.svelte";
   import BookmarksPanel from "~/components/reader/BookmarksPanel.svelte";
   import type { ChapterFrameAPI, KeyEvent } from "~/components/reader/frame-types";
+  import Icon from "~/lib/Icon.svelte";
+  import {
+    ArrowLeft,
+    Bookmark as BookmarkIcon,
+    BookmarkCheck,
+    BookMarked,
+    Search,
+    Settings,
+    List,
+  } from "@lucide/svelte";
 
   interface Props {
     bookId: string;
@@ -489,7 +499,7 @@
   function navigateBookmark(bm: Bookmark): void {
     activePanel = "none";
     if (bm.chapter === currentChapter) {
-      if (bm.cfi) api?.scrollToFragment(bm.cfi);
+      if (bm.cfi) api?.scrollToCfi(bm.cfi);
       else api?.scrollTo(bm.percent);
     } else {
       void loadChapter(bm.chapter, "top", undefined, { percent: bm.percent, cfi: bm.cfi });
@@ -587,12 +597,12 @@
 
 <div class="reader" class:chrome-hidden={!chromeVisible}>
   <header class="bar" class:hidden={!chromeVisible}>
-    <button class="icon" onclick={handleBack} aria-label="Back to library">←</button>
+    <button class="icon" onclick={handleBack} aria-label="Back to library"><Icon icon={ArrowLeft} /></button>
     <div class="title">
       <span class="book">{book?.title ?? "…"}</span>
       {#if book}
         <span class="chapter">
-          {chapterLabel || `Chapter ${currentChapter + 1}`} · {currentChapter + 1}/{book.chapterCount}
+          {chapterLabel || `Chapter ${currentChapter + 1}`} · <span class="tnum">{currentChapter + 1}/{book.chapterCount}</span>
         </span>
       {/if}
     </div>
@@ -602,31 +612,31 @@
       onclick={() => void toggleBookmark()}
       aria-label={currentBookmarkId ? "Remove bookmark" : "Add bookmark"}
       aria-pressed={currentBookmarkId !== null}
-    >{currentBookmarkId ? "★" : "☆"}</button>
+    ><Icon icon={currentBookmarkId ? BookmarkCheck : BookmarkIcon} /></button>
     <button
       class="icon"
       onclick={() => togglePanel("bookmarks")}
       aria-label="Bookmarks"
       aria-pressed={activePanel === "bookmarks"}
-    >🔖</button>
+    ><Icon icon={BookMarked} /></button>
     <button
       class="icon"
       onclick={() => togglePanel("search")}
       aria-label="Search in book"
       aria-pressed={activePanel === "search"}
-    >🔍</button>
+    ><Icon icon={Search} /></button>
     <button
       class="icon"
       onclick={() => togglePanel("settings")}
       aria-label="Settings"
       aria-pressed={activePanel === "settings"}
-    >⚙</button>
+    ><Icon icon={Settings} /></button>
     <button
       class="icon"
       onclick={() => togglePanel("toc")}
       aria-label="Table of contents"
       aria-pressed={activePanel === "toc"}
-    >☰</button>
+    ><Icon icon={List} /></button>
   </header>
 
   <div class="stage">
@@ -717,16 +727,17 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.4rem 0.6rem;
+    padding: 0.55rem 0.9rem;
     background: color-mix(in srgb, var(--bg) 92%, transparent);
     backdrop-filter: blur(8px);
     border-bottom: 1px solid color-mix(in srgb, var(--fg) 10%, transparent);
-    transition: transform 0.2s ease, opacity 0.2s ease;
+    transition: transform var(--dur) var(--ease-out), opacity var(--dur) var(--ease-out);
   }
   .bar.hidden {
     transform: translateY(-100%);
     opacity: 0;
     pointer-events: none;
+    transition: transform var(--dur) var(--ease-in), opacity var(--dur) var(--ease-in);
   }
   .chrome-hidden {
     cursor: none;
@@ -735,14 +746,22 @@
     border: none;
     background: transparent;
     color: var(--fg);
-    font-size: 1.2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     line-height: 1;
-    padding: 0.4rem 0.6rem;
+    padding: 0.45rem;
     border-radius: 0.4rem;
     cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
   }
   .icon:hover {
     background: color-mix(in srgb, var(--fg) 8%, transparent);
+  }
+  .icon:active {
+    transform: scale(0.94);
   }
   .icon.active {
     color: var(--accent);
@@ -752,20 +771,22 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    line-height: 1.2;
+    gap: 0.2rem;
   }
   .book {
     font-family: var(--font-display);
     font-weight: 600;
-    font-size: 1.05rem;
-    line-height: 1.15;
+    font-size: 1.1rem;
+    line-height: var(--lh-tight);
+    letter-spacing: 0.01em;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .chapter {
-    font-size: 0.7rem;
-    letter-spacing: 0.04em;
+    font-size: 0.72rem;
+    line-height: var(--lh-snug);
+    letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--muted, #6b6661);
     overflow: hidden;
@@ -839,7 +860,7 @@
     z-index: 5;
     height: 3px;
     background: color-mix(in srgb, var(--fg) 12%, transparent);
-    transition: opacity 0.2s ease;
+    transition: opacity var(--dur) var(--ease-out);
   }
   .progress.hidden {
     opacity: 0;
@@ -847,6 +868,6 @@
   .fill {
     height: 100%;
     background: var(--accent);
-    transition: width 0.15s ease-out;
+    transition: width var(--dur-fast) var(--ease-out);
   }
 </style>

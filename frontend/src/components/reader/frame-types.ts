@@ -26,6 +26,7 @@ export interface ChapterFrameAPI {
   scrollTo: (percent: number) => void;
   scrollToEnd: () => void;
   scrollToFragment: (id: string) => void;
+  scrollToCfi: (cfi: string) => void;
   requestPosition: () => void;
   nextPage: () => void;
   prevPage: () => void;

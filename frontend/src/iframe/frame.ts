@@ -979,6 +979,7 @@
     | { type: "go-to-page"; page?: number }
     | { type: "go-to-last-page" }
     | { type: "scroll-to-fragment"; id?: string }
+    | { type: "scroll-to-cfi"; cfi?: string }
     | { type: "get-position" }
     | {
         type: "highlight-search";
@@ -1314,6 +1315,36 @@
 
     const el = document.getElementById(id);
     if (!el) return;
+
+    if (!contentReady) {
+      contentReady = true;
+      document.body.style.opacity = "1";
+      document.documentElement.style.overflow = "";
+      requestAnimationFrame(() => {
+        if (!destroyed) setChapterHidden(false);
+      });
+    }
+
+    el.scrollIntoView({ behavior: "smooth" });
+    resetBoundary();
+  }
+
+  // Jump to a previously reported CFI within the *current* chapter (e.g. a
+  // bookmark in the chapter already on screen). Mirrors scrollToFragmentById
+  // but resolves the position via the CFI path instead of an element id.
+  function scrollToCfiLocal(cfi: string): void {
+    const el = resolveCFILocal(cfi);
+    if (!el) return;
+
+    if (isPagedMode) {
+      if (totalPages <= 0) {
+        el.scrollIntoView({ behavior: "auto" });
+      } else {
+        goToPageInternal(getElementPageIndex(el), true);
+      }
+      resetBoundary();
+      return;
+    }
 
     if (!contentReady) {
       contentReady = true;
@@ -2094,6 +2125,10 @@
 
       case "scroll-to-fragment":
         if (typeof msg.id === "string") scrollToFragmentById(msg.id);
+        break;
+
+      case "scroll-to-cfi":
+        if (typeof msg.cfi === "string") scrollToCfiLocal(msg.cfi);
         break;
 
       case "get-position":

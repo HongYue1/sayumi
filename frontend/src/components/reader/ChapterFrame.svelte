@@ -213,6 +213,7 @@
     scrollTo: (percent) => sendToFrame({ type: "scroll-to", percent }),
     scrollToEnd: () => sendToFrame({ type: "scroll-to-end" }),
     scrollToFragment: (id) => sendToFrame({ type: "scroll-to-fragment", id }),
+    scrollToCfi: (cfi) => sendToFrame({ type: "scroll-to-cfi", cfi }),
     requestPosition: () => sendToFrame({ type: "get-position" }),
     nextPage: () => sendToFrame({ type: "next-page" }),
     prevPage: () => sendToFrame({ type: "prev-page" }),
