@@ -10,15 +10,15 @@ export interface ReaderFont {
 // surfaced dynamically through the user-font registry.
 export const READER_FONTS: ReaderFont[] = [
   {
-    id: "eb-garamond",
-    label: "EB Garamond",
-    family: "'EB Garamond', Garamond, serif",
+    id: "literata",
+    label: "Literata",
+    family: "'Literata', Georgia, serif",
     category: "serif",
   },
   {
-    id: "atkinson",
-    label: "Atkinson Hyperlegible",
-    family: "'Atkinson Hyperlegible', Helvetica, Arial, sans-serif",
+    id: "atkinson-next",
+    label: "Atkinson Hyperlegible Next",
+    family: "'Atkinson Hyperlegible Next', Helvetica, Arial, sans-serif",
     category: "sans-serif",
   },
 ];

@@ -24,7 +24,7 @@ export interface IframeSettings {
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
   fontSize: 26,
-  fontFamily: "eb-garamond",
+  fontFamily: "literata",
   lineHeight: null,
   paragraphSpacing: null,
   textIndent: null,

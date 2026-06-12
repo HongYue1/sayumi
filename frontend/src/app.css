@@ -1,41 +1,35 @@
 /* ------------------------------------------------------------------ *
- * Interface typefaces. Both are already embedded and served at /fonts/
- * for the reader, so reusing them for the app chrome adds no network
- * cost. EB Garamond is the literary display face (wordmark, titles,
- * headings); Atkinson Hyperlegible is the highly-legible UI face.
+ * Interface typefaces — embedded in the binary (internal/fonts/) and
+ * served at /fonts/, so the chrome never depends on the user-writable
+ * ./Fonts/ folder. Literata is the literary display face (wordmark,
+ * titles, headings); Atkinson Hyperlegible Next is the highly-legible
+ * UI face. Both are variable fonts (single Roman + Italic file each).
  * ------------------------------------------------------------------ */
 @font-face {
-  font-family: "EB Garamond";
-  src: url("/fonts/EBGaramond-VariableFont_wght.woff2") format("woff2");
-  font-weight: 400 800;
+  font-family: "Literata";
+  src: url("/fonts/Literata-VariableFont.woff2") format("woff2");
+  font-weight: 100 900;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
-  font-family: "EB Garamond";
-  src: url("/fonts/EBGaramond-Italic-VariableFont_wght.woff2") format("woff2");
-  font-weight: 400 800;
+  font-family: "Literata";
+  src: url("/fonts/Literata-Italic-VariableFont.woff2") format("woff2");
+  font-weight: 100 900;
   font-style: italic;
   font-display: swap;
 }
 @font-face {
-  font-family: "Atkinson Hyperlegible";
-  src: url("/fonts/AtkinsonHyperlegible.woff2") format("woff2");
-  font-weight: 400;
+  font-family: "Atkinson Hyperlegible Next";
+  src: url("/fonts/AtkinsonHyperlegibleNext-VariableFont.woff2") format("woff2");
+  font-weight: 100 900;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
-  font-family: "Atkinson Hyperlegible";
-  src: url("/fonts/AtkinsonHyperlegible-Bold.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Atkinson Hyperlegible";
-  src: url("/fonts/AtkinsonHyperlegible-Italic.woff2") format("woff2");
-  font-weight: 400;
+  font-family: "Atkinson Hyperlegible Next";
+  src: url("/fonts/AtkinsonHyperlegibleNext-Italic-VariableFont.woff2") format("woff2");
+  font-weight: 100 900;
   font-style: italic;
   font-display: swap;
 }
@@ -49,8 +43,8 @@
   --accent: #7c6f64;
 
   /* Literary-press typefaces. */
-  --font-display: "EB Garamond", Georgia, "Times New Roman", serif;
-  --font-ui: "Atkinson Hyperlegible", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Literata", Georgia, "Times New Roman", serif;
+  --font-ui: "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, sans-serif;
 
   /* Derived surface tokens — computed from the active theme so every one
      of the 24 themes (light + dark) gets a coherent set automatically. */

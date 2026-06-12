@@ -8,11 +8,10 @@ import { userFamilyDir } from "~/lib/fontRegistry.svelte";
 // Only the two embedded reading fonts. The rest of the catalogue ships as
 // drop-in ./Fonts/ families and is rendered via buildUserFontFaces below.
 const FONT_FILES = {
-  ebGaramond: "EBGaramond-VariableFont_wght.woff2",
-  ebGaramondItalic: "EBGaramond-Italic-VariableFont_wght.woff2",
-  atkinson: "AtkinsonHyperlegible.woff2",
-  atkinsonBold: "AtkinsonHyperlegible-Bold.woff2",
-  atkinsonItalic: "AtkinsonHyperlegible-Italic.woff2",
+  literata: "Literata-VariableFont.woff2",
+  literataItalic: "Literata-Italic-VariableFont.woff2",
+  atkinson: "AtkinsonHyperlegibleNext-VariableFont.woff2",
+  atkinsonItalic: "AtkinsonHyperlegibleNext-Italic-VariableFont.woff2",
 } as const;
 
 function fontUrl(filename: string): string {
@@ -37,14 +36,13 @@ export function buildReaderFontFaces(): string {
   font-display: block;
 }`;
 
-  const { ebGaramond, ebGaramondItalic, atkinson, atkinsonBold, atkinsonItalic } = FONT_FILES;
+  const { literata, literataItalic, atkinson, atkinsonItalic } = FONT_FILES;
 
   cachedReaderFontFaces = [
-    face("EB Garamond", ebGaramond, "400 800"),
-    face("EB Garamond", ebGaramondItalic, "400 800", "italic"),
-    face("Atkinson Hyperlegible", atkinson, "400"),
-    face("Atkinson Hyperlegible", atkinsonBold, "700"),
-    face("Atkinson Hyperlegible", atkinsonItalic, "400", "italic"),
+    face("Literata", literata, "100 900"),
+    face("Literata", literataItalic, "100 900", "italic"),
+    face("Atkinson Hyperlegible Next", atkinson, "100 900"),
+    face("Atkinson Hyperlegible Next", atkinsonItalic, "100 900", "italic"),
   ].join("\n");
 
   return cachedReaderFontFaces;
