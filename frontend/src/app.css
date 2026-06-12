@@ -123,8 +123,10 @@ body {
    Firefox uses scrollbar-width/-color; WebKit/Blink use the pseudo-elements. */
 * {
   scrollbar-width: thin;
-  /* thumb then track: a hairline thumb riding in a subtle theme surface. */
-  scrollbar-color: var(--hairline-strong) var(--surface);
+  /* thumb then track: a stronger hairline thumb riding in a border-colored
+     channel (--hairline is the chrome's border token, matching the reader's
+     --border track). */
+  scrollbar-color: var(--hairline-strong) var(--hairline);
 }
 
 ::-webkit-scrollbar {
@@ -132,10 +134,10 @@ body {
   height: 8px;
 }
 
-/* A subtle theme-derived channel behind the thumb (instead of transparent),
-   which gives the bar the same defined, finished look as the reader. */
+/* Border-colored channel behind the thumb (the reader uses --border here);
+   --hairline is this app's equivalent border token. */
 ::-webkit-scrollbar-track {
-  background: var(--surface);
+  background: var(--hairline);
 }
 
 ::-webkit-scrollbar-thumb {
