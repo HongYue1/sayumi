@@ -49,7 +49,7 @@
   {#if open}
     <button class="scrim" aria-label="Close theme menu" onclick={() => close(false)}></button>
     <div class="menu" role="menu" tabindex="-1" aria-label="Theme" onkeydown={onKeydown}>
-      <p class="group">Light</p>
+      <p class="group eyebrow">Light</p>
       <div class="swatches">
         {#each lightThemes as t, i (t.id)}
           {@const active = settings.value.theme === t.id}
@@ -72,7 +72,7 @@
           </button>
         {/each}
       </div>
-      <p class="group">Dark</p>
+      <p class="group eyebrow">Dark</p>
       <div class="swatches">
         {#each darkThemes as t (t.id)}
           {@const active = settings.value.theme === t.id}
@@ -108,10 +108,15 @@
     padding: 0.25rem;
     cursor: pointer;
     line-height: 0;
+    transition:
+      border-color var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
   }
-  .trigger:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
+  .trigger:hover {
+    border-color: var(--accent);
+  }
+  .trigger:active {
+    transform: scale(0.97);
   }
   .swatch {
     position: relative;
@@ -149,19 +154,26 @@
     right: 0;
     z-index: 21;
     width: 16rem;
-    padding: 0.6rem;
+    padding: var(--sp-3);
     background: var(--bg);
     border: 1px solid var(--hairline-strong);
     border-radius: var(--radius);
     box-shadow: 0 8px 22px color-mix(in srgb, var(--fg) 22%, transparent);
+    transform-origin: top right;
+    animation: theme-menu-in var(--dur-fast) var(--ease-out) both;
+  }
+  @keyframes theme-menu-in {
+    from {
+      opacity: 0;
+      transform: scale(0.97) translateY(-3px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
   }
   .group {
     margin: 0.2rem 0 0.35rem;
-    font-size: var(--text-xs);
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--muted);
   }
   .group:not(:first-child) {
     margin-top: 0.7rem;
@@ -169,20 +181,25 @@
   .swatches {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(2.4rem, 1fr));
-    gap: 0.35rem;
+    gap: var(--sp-2);
   }
   .swatch.pick {
     width: 100%;
     height: 2rem;
     border: 2px solid var(--hairline);
     cursor: pointer;
+    transition:
+      border-color var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
+  }
+  .swatch.pick:hover {
+    border-color: var(--accent);
+  }
+  .swatch.pick:active {
+    transform: scale(0.95);
   }
   .swatch.pick.active {
     border-color: var(--accent);
     box-shadow: 0 0 0 2px var(--accent);
-  }
-  .swatch.pick:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
   }
 </style>

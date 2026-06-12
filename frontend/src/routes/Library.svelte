@@ -7,6 +7,8 @@
   import { router } from "~/lib/router.svelte";
   import BookCard from "~/components/library/BookCard.svelte";
   import ThemeDropdown from "~/components/library/ThemeDropdown.svelte";
+  import Icon from "~/lib/Icon.svelte";
+  import { Plus, RefreshCw, ArrowUpDown, Check, X, LogOut } from "@lucide/svelte";
 
   import { DEFAULT_FLAIRS } from "~/lib/flairs";
 
@@ -80,8 +82,12 @@
       <h1 class="brand">Sayumi</h1>
       <div class="profile">
         <ThemeDropdown />
+        <span class="profile-divider" aria-hidden="true"></span>
         <span class="who" title={session.profile ?? ""}>{session.profile}</span>
-        <button class="signout" onclick={() => session.logout()}>Sign out</button>
+        <button class="signout" onclick={() => session.logout()}>
+          <Icon icon={LogOut} size={16} />
+          Sign out
+        </button>
       </div>
     </div>
 
@@ -94,11 +100,14 @@
         aria-label="Search library"
       />
 
-      <select class="sort" bind:value={library.sort} aria-label="Sort by">
-        {#each SORT_OPTIONS as opt (opt.key)}
-          <option value={opt.key}>{opt.label}</option>
-        {/each}
-      </select>
+      <div class="select-wrap">
+        <Icon icon={ArrowUpDown} size={16} class="select-icon" />
+        <select class="sort" bind:value={library.sort} aria-label="Sort by">
+          {#each SORT_OPTIONS as opt (opt.key)}
+            <option value={opt.key}>{opt.label}</option>
+          {/each}
+        </select>
+      </div>
 
       <button
         class="ghost-btn"
@@ -106,6 +115,7 @@
         disabled={library.rescanning}
         title="Scan the Library folder for new files"
       >
+        <Icon icon={RefreshCw} size={16} class={library.rescanning ? "spin" : ""} />
         {library.rescanning ? "Scanning…" : "Rescan"}
       </button>
 
@@ -114,6 +124,7 @@
         onclick={() => fileInput?.click()}
         disabled={library.uploading}
       >
+        <Icon icon={Plus} size={16} />
         {library.uploading ? "Uploading…" : "Add book"}
       </button>
       <input
@@ -130,7 +141,7 @@
   {#if library.books.length > 0}
     <div class="browsebar">
       <p class="eyebrow">
-        Your Library · {library.books.length}
+        Your Library · <span class="tnum">{library.books.length}</span>
         {library.books.length === 1 ? "book" : "books"}
       </p>
 
@@ -139,7 +150,11 @@
           {@const active = library.flairFilters.includes(f.id)}
           <span class="chip" class:active style:--chip={f.color}>
             <button class="chip-toggle" onclick={() => library.toggleFlairFilter(f.id)}>
-              <span class="dot" style:background={f.color}></span>
+              {#if active}
+                <span class="chip-check" style:color={f.color} aria-hidden="true"><Icon icon={Check} size={14} /></span>
+              {:else}
+                <span class="dot" style:background={f.color}></span>
+              {/if}
               {f.label}
             </button>
             {#if isCustom(f.id)}
@@ -148,7 +163,7 @@
                 title="Delete flair"
                 aria-label={`Delete flair ${f.label}`}
                 onclick={() => library.removeCustomFlair(f.id)}
-              >×</button>
+              ><Icon icon={X} size={13} /></button>
             {/if}
           </span>
         {/each}
@@ -182,6 +197,7 @@
     <div class="empty">
       <p>Your library is empty.</p>
       <button class="upload" onclick={() => fileInput?.click()} disabled={library.uploading}>
+        <Icon icon={Plus} size={16} />
         {library.uploading ? "Uploading…" : "Add your first book"}
       </button>
       <p class="hint">…or drop .epub files into your <code>Library</code> folder.</p>
@@ -206,7 +222,7 @@
   {#if dragging}
     <div class="dropzone" aria-hidden="true">
       <div class="dropzone-inner">
-        <span class="dropzone-mark">＋</span>
+        <span class="dropzone-mark"><Icon icon={Plus} size={40} /></span>
         <p>Drop .epub files to add them</p>
       </div>
     </div>
@@ -218,7 +234,7 @@
     position: relative;
     min-height: 100vh;
     padding: var(--sp-8) var(--sp-8) var(--sp-12);
-    max-width: 1180px;
+    max-width: 1440px;
     margin: 0 auto;
   }
 
@@ -228,10 +244,10 @@
     z-index: 40;
     display: grid;
     place-items: center;
-    padding: 1.5rem;
+    padding: var(--sp-6);
     background: color-mix(in srgb, var(--bg) 78%, transparent);
     backdrop-filter: blur(2px);
-    animation: dz-in 0.12s var(--ease);
+    animation: dz-in var(--dur-fast) var(--ease-out);
   }
   @keyframes dz-in {
     from {
@@ -254,8 +270,7 @@
     text-align: center;
   }
   .dropzone-mark {
-    font-size: 2.6rem;
-    line-height: 1;
+    display: inline-flex;
     color: var(--accent);
   }
   .dropzone-inner p {
@@ -286,7 +301,9 @@
     letter-spacing: 0.01em;
   }
 
+  /* A shared control height keeps the search, sort, and buttons on one baseline. */
   .controls {
+    --control-h: 2.4rem;
     display: flex;
     align-items: center;
     gap: var(--sp-2);
@@ -295,38 +312,74 @@
   .search {
     flex: 1;
     min-width: 12rem;
-    padding: 0.5rem 0.8rem;
+    height: var(--control-h);
+    padding: 0 0.8rem;
     border: 1px solid var(--hairline-strong);
     border-radius: var(--radius);
     background: var(--bg);
     color: var(--fg);
     font: inherit;
+    transition: border-color var(--dur) var(--ease-out);
   }
   .search::placeholder {
     color: var(--muted);
   }
-  .search:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
+  .search:hover {
+    border-color: var(--accent);
+  }
+
+  .select-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+  .select-wrap :global(.select-icon) {
+    position: absolute;
+    left: 0.6rem;
+    color: var(--muted);
+    pointer-events: none;
   }
   .sort {
-    padding: 0.5rem 0.6rem;
+    height: var(--control-h);
+    padding: 0 0.6rem 0 2rem;
     border: 1px solid var(--hairline-strong);
     border-radius: var(--radius);
     background: var(--bg);
     color: var(--fg);
     font: inherit;
+    cursor: pointer;
+    transition: border-color var(--dur) var(--ease-out);
+  }
+  .sort:hover {
+    border-color: var(--accent);
+  }
+
+  /* Buttons share the control height and gain an icon + label row. */
+  .ghost-btn,
+  .upload {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
+    height: var(--control-h);
+    border-radius: var(--radius);
+    font: inherit;
+    cursor: pointer;
+    transition:
+      background var(--dur) var(--ease-out),
+      opacity var(--dur) var(--ease-out),
+      border-color var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
+  }
+  .ghost-btn:active:not(:disabled),
+  .upload:active:not(:disabled) {
+    transform: scale(0.97);
   }
   .upload {
-    padding: 0.5rem 1rem;
+    padding: 0 1rem;
     border: none;
-    border-radius: var(--radius);
     background: var(--accent);
     color: #fff;
-    font: inherit;
     font-weight: 700;
-    cursor: pointer;
-    transition: opacity 0.15s var(--ease);
   }
   .upload:hover:not(:disabled) {
     opacity: 0.88;
@@ -335,53 +388,75 @@
     opacity: 0.55;
     cursor: not-allowed;
   }
-
-  .profile {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    flex-shrink: 0;
-  }
-
   .ghost-btn {
-    padding: 0.5rem 0.8rem;
+    padding: 0 0.8rem;
     border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius);
     background: transparent;
     color: var(--fg);
-    font: inherit;
-    cursor: pointer;
-    transition: background 0.15s var(--ease);
   }
   .ghost-btn:hover:not(:disabled) {
     background: var(--surface-hover);
+    border-color: var(--accent);
   }
   .ghost-btn:disabled {
     opacity: 0.55;
     cursor: not-allowed;
   }
+  /* Spin the rescan glyph while a scan is in flight. */
+  .ghost-btn :global(.spin) {
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .profile {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    flex-shrink: 0;
+  }
+  .profile-divider {
+    width: 1px;
+    height: 1.4rem;
+    background: var(--hairline-strong);
+  }
   .who {
-    color: var(--muted);
+    color: var(--fg);
     font-size: var(--text-sm);
-    max-width: 10rem;
+    font-weight: 500;
+    max-width: 12rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .signout {
-    border: none;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    padding: 0.35rem 0.7rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
     background: transparent;
     color: var(--muted);
     font: inherit;
     font-size: var(--text-sm);
-    padding: 0.2rem 0;
     cursor: pointer;
-    border-bottom: 1px solid transparent;
-    transition: color 0.15s var(--ease), border-color 0.15s var(--ease);
+    transition:
+      background var(--dur) var(--ease-out),
+      color var(--dur) var(--ease-out),
+      border-color var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
   }
   .signout:hover {
     color: var(--fg);
-    border-bottom-color: var(--accent);
+    background: var(--surface-hover);
+    border-color: var(--hairline-strong);
+  }
+  .signout:active {
+    transform: scale(0.97);
   }
 
   /* ---- browse bar (label + flairs) ---- */
@@ -395,7 +470,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.4rem;
+    gap: var(--sp-2);
   }
   .chip {
     display: inline-flex;
@@ -403,8 +478,11 @@
     border: 1px solid var(--hairline-strong);
     border-radius: 999px;
     overflow: hidden;
-    transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+    transition:
+      border-color var(--dur) var(--ease-out),
+      background var(--dur) var(--ease-out);
   }
+  /* Selected chips read as selected by fill + a check (not colour alone). */
   .chip.active {
     border-color: var(--chip);
     background: color-mix(in srgb, var(--chip) 16%, transparent);
@@ -413,7 +491,7 @@
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    padding: 0.25rem 0.65rem;
+    padding: 0.3rem 0.7rem;
     border: none;
     background: transparent;
     color: var(--fg);
@@ -421,6 +499,10 @@
     font-size: var(--text-xs);
     letter-spacing: 0.02em;
     cursor: pointer;
+    transition: transform var(--dur-fast) var(--ease-out);
+  }
+  .chip-toggle:active {
+    transform: scale(0.96);
   }
   .chip .dot {
     width: 0.55rem;
@@ -428,14 +510,20 @@
     border-radius: 50%;
     flex-shrink: 0;
   }
+  .chip-check {
+    display: inline-flex;
+    flex-shrink: 0;
+  }
   .chip-del {
+    display: inline-flex;
+    align-items: center;
     border: none;
     background: transparent;
     color: var(--muted);
-    font-size: 0.9rem;
     line-height: 1;
     padding: 0 0.45rem 0 0.1rem;
     cursor: pointer;
+    transition: color var(--dur-fast) var(--ease-out);
   }
   .chip-del:hover {
     color: #b3402f;
@@ -447,20 +535,20 @@
   }
   .addflair input {
     width: 8rem;
-    padding: 0.3rem 0.6rem;
+    padding: 0.35rem 0.7rem;
     border: 1px solid var(--hairline-strong);
     border-radius: 999px;
     background: var(--bg);
     color: var(--fg);
     font: inherit;
     font-size: var(--text-xs);
+    transition: border-color var(--dur) var(--ease-out);
   }
-  .addflair input:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
+  .addflair input:hover {
+    border-color: var(--accent);
   }
   .addflair button {
-    padding: 0.3rem 0.7rem;
+    padding: 0.35rem 0.8rem;
     border: 1px solid var(--hairline-strong);
     border-radius: 999px;
     background: transparent;
@@ -468,6 +556,15 @@
     font: inherit;
     font-size: var(--text-xs);
     cursor: pointer;
+    transition:
+      background var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
+  }
+  .addflair button:hover:not(:disabled) {
+    background: var(--surface-hover);
+  }
+  .addflair button:active:not(:disabled) {
+    transform: scale(0.96);
   }
   .addflair button:disabled {
     opacity: 0.5;
@@ -485,8 +582,14 @@
   /* ---- grid ---- */
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     gap: var(--sp-8) var(--sp-4);
+  }
+  @media (max-width: 768px) {
+    .grid {
+      grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+      gap: var(--sp-6) var(--sp-3);
+    }
   }
 
   .state,
@@ -511,6 +614,9 @@
     font-size: var(--text-xl);
     color: var(--fg);
     margin: 0;
+  }
+  .empty .upload {
+    padding: 0 1.1rem;
   }
   .empty code {
     font-family: ui-monospace, monospace;

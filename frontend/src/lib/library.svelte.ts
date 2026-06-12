@@ -60,7 +60,8 @@ class Library {
     }
 
     const byTitle = (a: BookMeta, b: BookMeta) =>
-      a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+      // numeric collation so "Book 2" sorts before "Book 10" (natural order).
+      a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: "base" });
 
     switch (this.sort) {
       case "title":
@@ -70,6 +71,7 @@ class Library {
         list.sort(
           (a, b) =>
             a.author.localeCompare(b.author, undefined, {
+              numeric: true,
               sensitivity: "base",
             }) || byTitle(a, b),
         );

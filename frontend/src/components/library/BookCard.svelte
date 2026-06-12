@@ -1,6 +1,8 @@
 <script lang="ts">
   import { getCoverUrl, type BookMeta, type FlairDef } from "~/api/client";
   import { findFlair, flairTextColor } from "~/lib/flairs";
+  import Icon from "~/lib/Icon.svelte";
+  import { Trash2, Tag, Check } from "@lucide/svelte";
 
   interface Props {
     book: BookMeta;
@@ -97,19 +99,19 @@
       </span>
     {/if}
 
-    <button class="remove" title="Remove" aria-label="Remove book" onclick={remove}>
-      ×
+    <button class="chip-btn remove" title="Remove" aria-label="Remove book" onclick={remove}>
+      <Icon icon={Trash2} size={15} />
     </button>
     <button
       bind:this={flairBtn}
-      class="flair-btn"
+      class="chip-btn flair-btn"
       title="Set flair"
       aria-label="Set flair"
       aria-haspopup="menu"
       aria-expanded={menuOpen}
       onclick={toggleMenu}
     >
-      <span aria-hidden="true">🏷</span>
+      <Icon icon={Tag} size={15} />
     </button>
   </div>
 
@@ -129,7 +131,7 @@
       }}
     ></button>
     <div class="flair-menu" role="menu" tabindex="-1" aria-label="Set flair" onkeydown={onMenuKeydown}>
-      <p class="menu-heading" aria-hidden="true">Set flair</p>
+      <p class="menu-heading eyebrow" aria-hidden="true">Set flair</p>
       {#each flairs as f, i (f.id)}
         {@const isActive = book.flairId === f.id}
         <button
@@ -145,7 +147,7 @@
         >
           <span class="dot" style:background={f.color} aria-hidden="true"></span>
           <span class="menu-label">{f.label}</span>
-          {#if isActive}<span class="check" aria-hidden="true">✓</span>{/if}
+          {#if isActive}<span class="check" aria-hidden="true"><Icon icon={Check} size={15} /></span>{/if}
         </button>
       {/each}
     </div>
@@ -157,12 +159,12 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 0.55rem;
+    gap: var(--sp-2);
     cursor: pointer;
     border: none;
     background: none;
     text-align: left;
-    animation: card-in 0.32s var(--ease) both;
+    animation: card-in var(--dur-slow) var(--ease-out) both;
     animation-delay: var(--enter-delay, 0ms);
   }
   @keyframes card-in {
@@ -182,25 +184,28 @@
     border-radius: 3px;
     overflow: hidden;
     background: var(--surface);
-    /* Book-like depth: a thin spine edge + grounded shadow. */
-    box-shadow:
-      inset 1px 0 0 color-mix(in srgb, #fff 18%, transparent),
-      0 2px 6px color-mix(in srgb, var(--fg) 22%, transparent);
-    transition: transform 0.18s var(--ease), box-shadow 0.18s var(--ease);
+    /* Restrained, editorial elevation: a hairline border + one subtle, grounded
+       shadow (no heavy drop shadow). Hover lifts via transform only. */
+    border: 1px solid var(--hairline);
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--fg) 12%, transparent);
+    transition:
+      transform var(--dur) var(--ease-out),
+      box-shadow var(--dur) var(--ease-out);
   }
   .card:hover .cover,
   .card:focus-visible .cover {
     transform: translateY(-3px);
-    box-shadow:
-      inset 1px 0 0 color-mix(in srgb, #fff 18%, transparent),
-      0 8px 18px color-mix(in srgb, var(--fg) 28%, transparent);
+    box-shadow: 0 6px 16px color-mix(in srgb, var(--fg) 18%, transparent);
   }
+  /* Rely on a cover-targeted ring rather than the global card ring, so the
+     focus indicator hugs the artwork instead of the whole card column. */
   .card:focus-visible {
     outline: none;
+    box-shadow: none;
   }
   .card:focus-visible .cover {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
+    border-color: var(--accent);
+    box-shadow: var(--focus);
   }
 
   .cover img {
@@ -215,80 +220,74 @@
     height: 100%;
     display: grid;
     place-items: center;
-    padding: 0.75rem;
+    padding: var(--sp-3);
     text-align: center;
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: var(--muted, #6b6661);
+    font-family: var(--font-display);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    line-height: var(--lh-snug);
+    color: var(--muted);
     background: color-mix(in srgb, var(--accent) 10%, transparent);
   }
 
+  /* Progress as a thin accent rule pinned to the foot of the cover. */
   .progress {
     position: absolute;
     left: 0;
     right: 0;
     bottom: 0;
-    height: 4px;
-    background: color-mix(in srgb, var(--fg) 18%, transparent);
+    height: 3px;
+    background: color-mix(in srgb, var(--fg) 14%, transparent);
   }
   .bar {
     height: 100%;
     background: var(--accent);
   }
 
-  .remove {
+  /* Shared style for the two corner actions (remove + flair). */
+  .chip-btn {
     position: absolute;
-    top: 0.3rem;
-    right: 0.3rem;
-    width: 1.5rem;
-    height: 1.5rem;
+    top: var(--sp-1);
+    display: grid;
+    place-items: center;
+    width: 1.6rem;
+    height: 1.6rem;
     border: none;
     border-radius: 50%;
     background: color-mix(in srgb, #000 55%, transparent);
     color: #fff;
-    font-size: 1rem;
-    line-height: 1;
     cursor: pointer;
     opacity: 0;
-    transition: opacity 0.12s;
+    transition:
+      opacity var(--dur-fast) var(--ease-out),
+      background var(--dur-fast) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
   }
-  .card:hover .remove,
-  .card:focus-within .remove {
+  .card:hover .chip-btn,
+  .card:focus-within .chip-btn {
     opacity: 1;
+  }
+  .chip-btn:active {
+    transform: scale(0.92);
+  }
+  .remove {
+    right: var(--sp-1);
   }
   .remove:hover {
     background: #b3402f;
   }
-
   .flair-btn {
-    position: absolute;
-    top: 0.3rem;
-    left: 0.3rem;
-    width: 1.5rem;
-    height: 1.5rem;
-    border: none;
-    border-radius: 50%;
-    background: color-mix(in srgb, #000 55%, transparent);
-    color: #fff;
-    font-size: 0.75rem;
-    line-height: 1;
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.12s;
-  }
-  .card:hover .flair-btn,
-  .card:focus-within .flair-btn {
-    opacity: 1;
+    left: var(--sp-1);
   }
   .flair-btn:hover {
-    background: color-mix(in srgb, #000 70%, transparent);
+    background: color-mix(in srgb, #000 72%, transparent);
   }
 
   .flair-badge {
     position: absolute;
-    bottom: 0.3rem;
-    left: 0.3rem;
-    max-width: calc(100% - 0.6rem);
+    bottom: var(--sp-1);
+    left: var(--sp-1);
+    max-width: calc(100% - var(--sp-2));
     padding: 0.1rem 0.4rem;
     border-radius: 0.3rem;
     font-size: 0.66rem;
@@ -311,26 +310,34 @@
   .flair-menu {
     position: absolute;
     top: 2rem;
-    left: 0.3rem;
+    left: var(--sp-1);
     z-index: 21;
     min-width: 10rem;
-    padding: 0.3rem;
+    padding: var(--sp-1);
     background: var(--bg);
-    border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
-    border-radius: 0.5rem;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius);
     box-shadow: 0 6px 20px color-mix(in srgb, var(--fg) 22%, transparent);
+    transform-origin: top left;
+    animation: menu-in var(--dur-fast) var(--ease-out) both;
+  }
+  @keyframes menu-in {
+    from {
+      opacity: 0;
+      transform: scale(0.97) translateY(-2px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
   }
   .menu-heading {
     margin: 0.1rem 0.4rem 0.3rem;
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--muted, #6b6661);
   }
   .menu-item {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--sp-2);
     width: 100%;
     padding: 0.35rem 0.4rem;
     border: none;
@@ -338,12 +345,18 @@
     background: transparent;
     color: var(--fg);
     font: inherit;
-    font-size: 0.82rem;
+    font-size: var(--text-sm);
     text-align: left;
     cursor: pointer;
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
   }
   .menu-item:hover {
-    background: color-mix(in srgb, var(--fg) 8%, transparent);
+    background: var(--surface-hover);
+  }
+  .menu-item:active {
+    transform: scale(0.98);
   }
   .menu-item.active {
     font-weight: 600;
@@ -361,6 +374,7 @@
     white-space: nowrap;
   }
   .menu-item .check {
+    display: inline-flex;
     color: var(--accent);
   }
 
@@ -371,9 +385,9 @@
   }
   .title {
     font-family: var(--font-display);
-    font-size: 1.05rem;
+    font-size: var(--text-base);
     font-weight: 500;
-    line-height: 1.2;
+    line-height: var(--lh-snug);
     overflow: hidden;
     text-overflow: ellipsis;
     display: -webkit-box;
