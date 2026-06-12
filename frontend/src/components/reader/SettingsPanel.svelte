@@ -4,6 +4,8 @@
   import { READER_FONTS } from "~/lib/fonts";
   import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry.svelte";
   import type { UserSettings } from "~/api/client";
+  import Icon from "~/lib/Icon.svelte";
+  import { X } from "@lucide/svelte";
 
   interface Props {
     onclose: () => void;
@@ -120,7 +122,7 @@
 <div class="settings">
   <header>
     <h2>Settings</h2>
-    <button class="close" onclick={onclose} aria-label="Close settings">×</button>
+    <button class="close" onclick={onclose} aria-label="Close settings"><Icon icon={X} size={18} /></button>
   </header>
 
   <div class="body">
@@ -317,7 +319,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 0.75rem 1rem;
-    border-bottom: 1px solid color-mix(in srgb, var(--fg) 10%, transparent);
+    border-bottom: 1px solid var(--hairline);
     flex: 0 0 auto;
   }
   h2 {
@@ -328,12 +330,26 @@
     line-height: 1;
   }
   .close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border: none;
     background: transparent;
-    color: var(--fg);
-    font-size: 1.4rem;
-    line-height: 1;
+    color: var(--muted);
+    padding: 0.3rem;
+    border-radius: var(--radius);
     cursor: pointer;
+    transition:
+      background var(--dur) var(--ease-out),
+      color var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
+  }
+  .close:hover {
+    background: var(--surface-hover);
+    color: var(--fg);
+  }
+  .close:active {
+    transform: scale(0.94);
   }
   .body {
     overflow-y: auto;
@@ -341,7 +357,7 @@
   }
   section {
     padding: 0.85rem 0;
-    border-bottom: 1px solid color-mix(in srgb, var(--fg) 8%, transparent);
+    border-bottom: 1px solid var(--hairline);
   }
   section:last-child {
     border-bottom: none;
@@ -352,7 +368,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.14em;
-    color: var(--muted, #6b6661);
+    color: var(--muted);
   }
 
   .segmented {
@@ -362,13 +378,23 @@
   .segmented button {
     flex: 1;
     padding: 0.45rem 0.3rem;
-    border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
-    border-radius: 0.45rem;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius);
     background: transparent;
     color: var(--fg);
     font: inherit;
-    font-size: 0.85rem;
+    font-size: var(--text-sm);
     cursor: pointer;
+    transition:
+      background var(--dur) var(--ease-out),
+      border-color var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
+  }
+  .segmented button:hover:not(.active) {
+    border-color: var(--accent);
+  }
+  .segmented button:active {
+    transform: scale(0.97);
   }
   .segmented button.active {
     background: var(--accent);
@@ -383,7 +409,7 @@
   .group-label {
     margin: 0.4rem 0 0.3rem;
     font-size: 0.72rem;
-    color: var(--muted, #6b6661);
+    color: var(--muted);
   }
   .swatches {
     display: grid;
@@ -393,12 +419,21 @@
   .swatch {
     position: relative;
     aspect-ratio: 1.3;
-    border: 2px solid color-mix(in srgb, var(--fg) 16%, transparent);
-    border-radius: 0.4rem;
+    border: 2px solid var(--hairline-strong);
+    border-radius: var(--radius);
     cursor: pointer;
     display: grid;
     place-items: center;
     padding: 0;
+    transition:
+      border-color var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
+  }
+  .swatch:hover {
+    border-color: var(--accent);
+  }
+  .swatch:active {
+    transform: scale(0.95);
   }
   .swatch.active {
     border-color: var(--accent);
@@ -420,7 +455,7 @@
   .font-select {
     width: 100%;
     padding: 0.5rem;
-    border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
+    border: 1px solid var(--hairline-strong);
     border-radius: 0.45rem;
     background: var(--bg);
     color: var(--fg);
@@ -431,14 +466,14 @@
   .roles {
     margin: 0.2rem 0 0.6rem;
     padding: 0.5rem 0.6rem;
-    border: 1px solid color-mix(in srgb, var(--fg) 10%, transparent);
+    border: 1px solid var(--hairline);
     border-radius: 0.45rem;
-    background: color-mix(in srgb, var(--fg) 3%, transparent);
+    background: var(--surface);
   }
   .roles-hint {
     margin: 0 0 0.5rem;
     font-size: 0.72rem;
-    color: var(--muted, #6b6661);
+    color: var(--muted);
   }
   .role-row {
     display: flex;
@@ -457,7 +492,7 @@
     flex: 1;
     min-width: 0;
     padding: 0.35rem 0.4rem;
-    border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
+    border: 1px solid var(--hairline-strong);
     border-radius: 0.35rem;
     background: var(--bg);
     color: var(--fg);
@@ -468,7 +503,7 @@
     width: 100%;
     padding: 0.4rem;
     margin-bottom: 0.6rem;
-    border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
+    border: 1px solid var(--hairline-strong);
     border-radius: 0.4rem;
     background: transparent;
     color: var(--fg);
@@ -477,7 +512,7 @@
     cursor: pointer;
   }
   .rescan:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--fg) 6%, transparent);
+    background: var(--surface-hover);
   }
   .rescan:disabled {
     opacity: 0.6;
@@ -500,7 +535,7 @@
     align-items: center;
     gap: 0.3rem;
     font-size: 0.78rem;
-    color: var(--muted, #6b6661);
+    color: var(--muted);
   }
   .slider {
     display: flex;
@@ -515,7 +550,7 @@
     min-width: 3rem;
     text-align: right;
     font-size: 0.78rem;
-    color: var(--muted, #6b6661);
+    color: var(--muted);
     font-variant-numeric: tabular-nums;
   }
 

@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { Bookmark } from "~/api/client";
+  import Icon from "~/lib/Icon.svelte";
+  import { X, Pencil, Trash2 } from "@lucide/svelte";
 
   interface Props {
     bookmarks: Bookmark[];
@@ -32,7 +34,7 @@
 <div class="bookmarks">
   <header>
     <h2>Bookmarks</h2>
-    <button class="close" onclick={onclose} aria-label="Close bookmarks">×</button>
+    <button class="close" onclick={onclose} aria-label="Close bookmarks"><Icon icon={X} size={18} /></button>
   </header>
 
   <div class="list">
@@ -42,21 +44,23 @@
       {#each sorted as bm (bm.id)}
         <div class="bm">
           {#if editingId === bm.id}
-            <input class="field" bind:value={editLabel} placeholder="Label" />
-            <textarea class="field" bind:value={editComment} placeholder="Note…" rows="3"></textarea>
-            <div class="actions">
-              <button class="primary" onclick={() => saveEdit(bm.id)}>Save</button>
-              <button class="ghost" onclick={() => (editingId = null)}>Cancel</button>
+            <div class="edit">
+              <input class="field" bind:value={editLabel} placeholder="Label" />
+              <textarea class="field" bind:value={editComment} placeholder="Note…" rows="3"></textarea>
+              <div class="actions">
+                <button class="primary" onclick={() => saveEdit(bm.id)}>Save</button>
+                <button class="ghost-btn" onclick={() => (editingId = null)}>Cancel</button>
+              </div>
             </div>
           {:else}
             <button class="open" onclick={() => onnavigate(bm)}>
               <span class="bm-label">{bm.label || `Chapter ${bm.chapter + 1}`}</span>
-              <span class="bm-meta">Ch {bm.chapter + 1} · {Math.round(bm.percent * 100)}%</span>
+              <span class="bm-meta tnum">Ch {bm.chapter + 1} · {Math.round(bm.percent * 100)}%</span>
               {#if bm.comment}<span class="bm-comment">{bm.comment}</span>{/if}
             </button>
             <div class="actions">
-              <button class="ghost" onclick={() => startEdit(bm)} aria-label="Edit">✎</button>
-              <button class="ghost danger" onclick={() => ondelete(bm.id)} aria-label="Delete">🗑</button>
+              <button class="icon-btn" onclick={() => startEdit(bm)} aria-label="Edit bookmark"><Icon icon={Pencil} size={15} /></button>
+              <button class="icon-btn danger" onclick={() => ondelete(bm.id)} aria-label="Delete bookmark"><Icon icon={Trash2} size={15} /></button>
             </div>
           {/if}
         </div>
@@ -77,45 +81,64 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid color-mix(in srgb, var(--fg) 10%, transparent);
+    padding: var(--sp-3) var(--sp-4);
+    border-bottom: 1px solid var(--hairline);
     flex: 0 0 auto;
   }
   h2 {
     margin: 0;
     font-family: var(--font-display);
-    font-size: 1.4rem;
+    font-size: var(--text-xl);
     font-weight: 500;
     line-height: 1;
   }
   .close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border: none;
     background: transparent;
-    color: var(--fg);
-    font-size: 1.4rem;
-    line-height: 1;
+    color: var(--muted);
+    padding: 0.3rem;
+    border-radius: var(--radius);
     cursor: pointer;
+    transition:
+      background var(--dur) var(--ease-out),
+      color var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
+  }
+  .close:hover {
+    background: var(--surface-hover);
+    color: var(--fg);
+  }
+  .close:active {
+    transform: scale(0.94);
   }
   .list {
     overflow-y: auto;
-    padding: 0.5rem 0.75rem 2rem;
+    padding: var(--sp-2) var(--sp-3) var(--sp-8);
   }
   .empty {
-    color: var(--muted, #6b6661);
-    padding: 0.5rem;
+    color: var(--muted);
+    padding: var(--sp-2);
   }
   kbd {
-    border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent);
+    border: 1px solid var(--hairline-strong);
     border-radius: 0.25rem;
     padding: 0 0.3rem;
     font-size: 0.85em;
   }
   .bm {
     display: flex;
-    gap: 0.4rem;
+    gap: var(--sp-2);
     align-items: flex-start;
-    padding: 0.5rem 0;
-    border-bottom: 1px solid color-mix(in srgb, var(--fg) 8%, transparent);
+    padding: var(--sp-2) 0;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .edit {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
   }
   .open {
     flex: 1;
@@ -128,24 +151,24 @@
     display: flex;
     flex-direction: column;
     gap: 0.15rem;
-    padding: 0.2rem;
-    border-radius: 0.4rem;
+    padding: 0.3rem;
+    border-radius: var(--radius);
+    transition: background var(--dur-fast) var(--ease-out);
   }
   .open:hover {
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    background: var(--surface-hover);
   }
   .bm-label {
     font-weight: 500;
-    font-size: 0.9rem;
+    font-size: var(--text-sm);
   }
   .bm-meta {
-    font-size: 0.75rem;
-    color: var(--muted, #6b6661);
-    font-variant-numeric: tabular-nums;
+    font-size: var(--text-xs);
+    color: var(--muted);
   }
   .bm-comment {
-    font-size: 0.82rem;
-    color: var(--muted, #6b6661);
+    font-size: var(--text-sm);
+    color: var(--muted);
     margin-top: 0.15rem;
   }
   .actions {
@@ -153,42 +176,87 @@
     gap: 0.25rem;
     flex-shrink: 0;
   }
+  .edit .actions {
+    margin-top: 0.2rem;
+  }
   .field {
     width: 100%;
     padding: 0.4rem 0.5rem;
     margin-bottom: 0.35rem;
-    border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
-    border-radius: 0.4rem;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius);
     background: var(--bg);
     color: var(--fg);
     font: inherit;
-    font-size: 0.85rem;
+    font-size: var(--text-sm);
     resize: vertical;
+    transition: border-color var(--dur) var(--ease-out);
+  }
+  .field:hover {
+    border-color: var(--accent);
   }
   .primary {
     border: none;
     background: var(--accent);
     color: #fff;
     font: inherit;
-    font-size: 0.82rem;
-    padding: 0.35rem 0.7rem;
-    border-radius: 0.4rem;
+    font-size: var(--text-sm);
+    font-weight: 700;
+    padding: 0.35rem 0.8rem;
+    border-radius: var(--radius);
     cursor: pointer;
+    transition:
+      opacity var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
   }
-  .ghost {
+  .primary:hover {
+    opacity: 0.88;
+  }
+  .primary:active {
+    transform: scale(0.97);
+  }
+  .ghost-btn {
+    border: 1px solid var(--hairline-strong);
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    font-size: var(--text-sm);
+    padding: 0.35rem 0.8rem;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition:
+      background var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
+  }
+  .ghost-btn:hover {
+    background: var(--surface-hover);
+  }
+  .ghost-btn:active {
+    transform: scale(0.97);
+  }
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border: none;
     background: transparent;
-    color: var(--muted, #6b6661);
-    font: inherit;
+    color: var(--muted);
     cursor: pointer;
-    padding: 0.25rem 0.4rem;
-    border-radius: 0.4rem;
+    padding: 0.3rem;
+    border-radius: var(--radius);
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
   }
-  .ghost:hover {
-    background: color-mix(in srgb, var(--fg) 8%, transparent);
+  .icon-btn:hover {
+    background: var(--surface-hover);
     color: var(--fg);
   }
-  .ghost.danger:hover {
+  .icon-btn:active {
+    transform: scale(0.92);
+  }
+  .icon-btn.danger:hover {
     color: #b3402f;
   }
 </style>

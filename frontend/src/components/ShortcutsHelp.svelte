@@ -1,5 +1,7 @@
 <script lang="ts">
   import { ui } from "~/lib/ui.svelte";
+  import Icon from "~/lib/Icon.svelte";
+  import { X } from "@lucide/svelte";
 
   const groups: { title: string; items: { keys: string[]; desc: string }[] }[] = [
     {
@@ -29,6 +31,9 @@
   function onKeydown(e: KeyboardEvent): void {
     if (e.key === "Escape") {
       e.preventDefault();
+      // Consume the event so the reader's separate window key handler doesn't
+      // also act on this Esc and navigate back to the library.
+      e.stopImmediatePropagation();
       close();
     }
   }
@@ -54,7 +59,7 @@
           aria-label="Close"
           onclick={close}
           {@attach (el) => (el as HTMLButtonElement).focus()}
-        >×</button>
+        ><Icon icon={X} size={18} /></button>
       </header>
       <div class="groups">
         {#each groups as g (g.title)}
@@ -86,7 +91,7 @@
     place-items: center;
     padding: 1.5rem;
     background: color-mix(in srgb, #000 38%, transparent);
-    animation: ov-in 0.12s var(--ease);
+    animation: ov-in var(--dur-fast) var(--ease-out);
   }
   @keyframes ov-in {
     from {
@@ -101,8 +106,7 @@
     background: var(--bg);
     border: 1px solid var(--hairline-strong);
     border-radius: 0.75rem;
-    box-shadow: 0 18px 50px color-mix(in srgb, var(--fg) 35%, transparent);
-    animation: sh-in 0.14s var(--ease);
+    animation: sh-in var(--dur) var(--ease-out);
   }
   @keyframes sh-in {
     from {
@@ -124,21 +128,30 @@
   h2 {
     margin: 0;
     font-family: var(--font-display);
-    font-size: 1.4rem;
+    font-size: var(--text-xl);
     font-weight: 500;
   }
   .close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border: none;
     background: transparent;
-    color: var(--fg);
-    font-size: 1.5rem;
-    line-height: 1;
+    color: var(--muted);
+    padding: 0.3rem;
+    border-radius: var(--radius);
     cursor: pointer;
+    transition:
+      background var(--dur) var(--ease-out),
+      color var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
   }
-  .close:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-    border-radius: 0.3rem;
+  .close:hover {
+    background: var(--surface-hover);
+    color: var(--fg);
+  }
+  .close:active {
+    transform: scale(0.94);
   }
   .groups {
     display: grid;

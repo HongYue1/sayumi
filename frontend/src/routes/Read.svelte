@@ -21,6 +21,7 @@
   import { fontRegistry } from "~/lib/fontRegistry.svelte";
   import { buildAllFontFaces } from "~/lib/readerFontFaces";
   import { router } from "~/lib/router.svelte";
+  import { ui } from "~/lib/ui.svelte";
   import { resolveHref, findTocLabel } from "~/lib/href";
   import { getErrorMessage } from "~/lib/errors";
   import { applyTheme } from "~/lib/theme";
@@ -39,6 +40,7 @@
     Search,
     Settings,
     List,
+    CircleHelp,
   } from "@lucide/svelte";
 
   interface Props {
@@ -175,6 +177,16 @@
   // Keep the app chrome (reader bar, panels) in sync with the reading theme.
   $effect(() => {
     applyTheme(settings.value.theme);
+  });
+
+  // Drop any in-book search highlight as soon as the search panel is dismissed.
+  // Closing search shouldn't leave the matched text highlighted until the
+  // reader is exited.
+  let searchPanelWasOpen = false;
+  $effect(() => {
+    const searchOpen = activePanel === "search";
+    if (searchPanelWasOpen && !searchOpen) api?.clearHighlights();
+    searchPanelWasOpen = searchOpen;
   });
 
   onMount(() => {
@@ -529,44 +541,60 @@
     }
   }
 
-  function handleKeyAction(e: { key: string; ctrlKey?: boolean; metaKey?: boolean }): void {
-    if (e.ctrlKey || e.metaKey) return;
+  // Returns true when the key was acted on, so the caller can cancel its
+  // default (keeps a letter shortcut from also being typed into a panel input).
+  function handleKeyAction(e: { key: string; ctrlKey?: boolean; metaKey?: boolean }): boolean {
+    if (e.ctrlKey || e.metaKey) return false;
+    // A global overlay (command palette / shortcuts help) owns the keyboard
+    // while open, so reader shortcuts (Esc → back, arrows, etc.) must stand
+    // down — otherwise Esc would close the modal *and* navigate to the library.
+    if (ui.palette || ui.shortcuts) return false;
     switch (e.key) {
+      case "?":
+        // The book renders in an iframe; once it has focus the window-level
+        // handler in App.svelte never sees this key, so open the modal here
+        // (the iframe forwards keystrokes to handleKeyAction).
+        ui.openShortcuts();
+        return true;
       case "Escape":
         if (activePanel !== "none") {
           activePanel = "none";
           resetChromeTimer();
         } else handleBack();
-        break;
+        return true;
       case "ArrowLeft":
         goPrev();
-        break;
+        return true;
       case "ArrowRight":
         goNext();
-        break;
+        return true;
       case "t":
       case "T":
         togglePanel("toc");
-        break;
+        return true;
       case "s":
       case "S":
         togglePanel("settings");
-        break;
+        return true;
       case "f":
       case "F":
         togglePanel("search");
-        break;
+        return true;
       case "b":
       case "B":
         void toggleBookmark();
-        break;
+        return true;
     }
+    return false;
   }
 
   function handleWindowKey(e: KeyboardEvent): void {
     const tag = (document.activeElement as HTMLElement | null)?.tagName ?? "";
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-    handleKeyAction(e);
+    // Cancel the default for keys we handle so a letter shortcut (f/s/t/b)
+    // isn't also typed into a panel input that opens and grabs focus during
+    // this same keystroke.
+    if (handleKeyAction(e)) e.preventDefault();
   }
 
   function handleFrameKey(e: KeyEvent): void {
@@ -637,6 +665,11 @@
       aria-label="Table of contents"
       aria-pressed={activePanel === "toc"}
     ><Icon icon={List} /></button>
+    <button
+      class="icon"
+      onclick={() => ui.openShortcuts()}
+      aria-label="Keyboard shortcuts"
+    ><Icon icon={CircleHelp} /></button>
   </header>
 
   <div class="stage">
@@ -835,14 +868,12 @@
   }
   .panel.left {
     left: 0;
-    border-right: 1px solid color-mix(in srgb, var(--fg) 12%, transparent);
-    box-shadow: 2px 0 12px color-mix(in srgb, var(--fg) 18%, transparent);
+    border-right: 1px solid var(--hairline-strong);
   }
   .panel.right {
     right: 0;
     width: min(22rem, 90vw);
-    border-left: 1px solid color-mix(in srgb, var(--fg) 12%, transparent);
-    box-shadow: -2px 0 12px color-mix(in srgb, var(--fg) 18%, transparent);
+    border-left: 1px solid var(--hairline-strong);
   }
   .scrim {
     position: absolute;

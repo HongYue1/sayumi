@@ -18,7 +18,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--sp-2);
     pointer-events: none;
   }
   .toast {
@@ -26,15 +26,15 @@
     padding: 0.5rem 1rem;
     background: color-mix(in srgb, var(--fg) 88%, var(--bg));
     color: var(--bg);
-    border-radius: 0.5rem;
-    font-size: 0.8rem;
+    border-radius: var(--radius);
+    font-size: var(--text-sm);
     text-align: center;
     box-shadow: 0 2px 12px color-mix(in srgb, var(--fg) 25%, transparent);
     pointer-events: auto;
-    animation: toast-in 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+    animation: toast-in var(--dur) var(--ease-out) forwards;
   }
   .toast.exiting {
-    animation: toast-out 0.16s ease forwards;
+    animation: toast-out var(--dur-fast) var(--ease-in) forwards;
   }
   @keyframes toast-in {
     from {

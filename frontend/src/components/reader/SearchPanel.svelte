@@ -2,6 +2,8 @@
   import { onMount } from "svelte";
   import { searchBook, type SearchResult } from "~/api/client";
   import { getErrorMessage } from "~/lib/errors";
+  import Icon from "~/lib/Icon.svelte";
+  import { X } from "@lucide/svelte";
 
   interface Props {
     bookId: string;
@@ -172,8 +174,8 @@
       autocomplete="off"
       spellcheck="false"
     />
-    {#if countText}<span class="count">{countText}</span>{/if}
-    <button class="close" onclick={onclose} aria-label="Close search">×</button>
+    {#if countText}<span class="count tnum">{countText}</span>{/if}
+    <button class="close" onclick={onclose} aria-label="Close search"><Icon icon={X} size={18} /></button>
   </header>
 
   <div class="list">
@@ -182,7 +184,7 @@
     {:else if status === "error"}
       <div class="state">
         <p>{errorMsg}</p>
-        <button onclick={() => run(lastQuery)}>Try again</button>
+        <button class="ghost-btn" onclick={() => run(lastQuery)}>Try again</button>
       </div>
     {:else if status === "done" && results.length === 0}
       <p class="state">No results for “{query}”.</p>
@@ -191,7 +193,7 @@
         <div class="group">
           <div class="group-head">
             Chapter {group.chapterIndex + 1}
-            <span class="group-count">{group.items.length}</span>
+            <span class="group-count tnum">{group.items.length}</span>
           </div>
           {#each group.items as it (it.globalIdx)}
             {@const p = parts(it.result)}
@@ -208,7 +210,7 @@
         </div>
       {/each}
       {#if hasMore && !loadingMore}
-        <button class="more" onclick={loadMore}>Load more results</button>
+        <button class="more ghost-btn" onclick={loadMore}>Load more results</button>
       {/if}
       {#if loadingMore}<p class="state">Loading…</p>{/if}
     {/if}
@@ -227,57 +229,80 @@
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    padding: 0.6rem 0.75rem;
-    border-bottom: 1px solid color-mix(in srgb, var(--fg) 10%, transparent);
+    padding: var(--sp-2) var(--sp-3);
+    border-bottom: 1px solid var(--hairline);
     flex: 0 0 auto;
   }
   .field {
     flex: 1;
     min-width: 0;
     padding: 0.45rem 0.6rem;
-    border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
-    border-radius: 0.45rem;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius);
     background: var(--bg);
     color: var(--fg);
     font: inherit;
+    transition: border-color var(--dur) var(--ease-out);
   }
-  .field:focus {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
+  .field:hover {
+    border-color: var(--accent);
   }
   .count {
-    font-size: 0.72rem;
-    color: var(--muted, #6b6661);
+    font-size: var(--text-xs);
+    color: var(--muted);
     white-space: nowrap;
   }
   .close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border: none;
     background: transparent;
-    color: var(--fg);
-    font-size: 1.3rem;
-    line-height: 1;
+    color: var(--muted);
+    padding: 0.3rem;
+    border-radius: var(--radius);
     cursor: pointer;
+    transition:
+      background var(--dur) var(--ease-out),
+      color var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
+  }
+  .close:hover {
+    background: var(--surface-hover);
+    color: var(--fg);
+  }
+  .close:active {
+    transform: scale(0.94);
   }
   .list {
     overflow-y: auto;
     padding: 0.4rem 0.5rem 2rem;
   }
   .state {
-    color: var(--muted, #6b6661);
+    color: var(--muted);
     padding: 0.6rem 0.5rem;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
     align-items: flex-start;
   }
-  .state button {
-    border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
+  .ghost-btn {
+    border: 1px solid var(--hairline-strong);
     background: transparent;
     color: var(--fg);
     font: inherit;
-    padding: 0.35rem 0.7rem;
-    border-radius: 0.4rem;
+    padding: 0.4rem 0.8rem;
+    border-radius: var(--radius);
     cursor: pointer;
+    transition:
+      background var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
+  }
+  .ghost-btn:hover {
+    background: var(--surface-hover);
+  }
+  .ghost-btn:active {
+    transform: scale(0.97);
   }
   .group {
     margin-bottom: 0.6rem;
@@ -285,14 +310,11 @@
   .group-head {
     display: flex;
     justify-content: space-between;
-    font-size: 0.72rem;
+    font-size: var(--text-xs);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--muted, #6b6661);
+    color: var(--muted);
     padding: 0.3rem 0.5rem;
-  }
-  .group-count {
-    font-variant-numeric: tabular-nums;
   }
   .result {
     display: block;
@@ -303,18 +325,19 @@
     color: var(--fg);
     font: inherit;
     padding: 0.45rem 0.5rem;
-    border-radius: 0.4rem;
+    border-radius: var(--radius);
     cursor: pointer;
     line-height: 1.35;
+    transition: background var(--dur-fast) var(--ease-out);
   }
   .result:hover {
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    background: var(--surface-hover);
   }
   .result.active {
     background: color-mix(in srgb, var(--accent) 18%, transparent);
   }
   .snippet {
-    font-size: 0.85rem;
+    font-size: var(--text-sm);
   }
   .snippet mark {
     background: color-mix(in srgb, var(--accent) 40%, transparent);
@@ -324,13 +347,6 @@
   }
   .more {
     width: 100%;
-    border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
-    background: transparent;
-    color: var(--fg);
-    font: inherit;
-    padding: 0.5rem;
-    border-radius: 0.45rem;
-    cursor: pointer;
     margin-top: 0.4rem;
   }
 </style>

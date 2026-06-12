@@ -29,7 +29,7 @@
 {/snippet}
 
 <nav class="toc" aria-label="Table of contents">
-  <h2>Contents</h2>
+  <h2 class="eyebrow">Contents</h2>
   {#if toc.length === 0}
     <p class="empty">No table of contents.</p>
   {:else}
@@ -45,14 +45,10 @@
   .toc {
     height: 100%;
     overflow-y: auto;
-    padding: 1rem 0.5rem 2rem;
+    padding: var(--sp-4) var(--sp-2) var(--sp-8);
   }
   h2 {
-    margin: 0 0 0.75rem 0.75rem;
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted, #6b6661);
+    margin: 0 0 var(--sp-3) var(--sp-3);
   }
   ul {
     list-style: none;
@@ -67,17 +63,23 @@
     background: transparent;
     color: var(--fg);
     font: inherit;
-    font-size: 0.9rem;
-    line-height: 1.3;
+    font-size: var(--text-sm);
+    line-height: var(--lh-snug);
     padding: 0.4rem 0.5rem;
-    border-radius: 0.4rem;
+    border-radius: var(--radius);
     cursor: pointer;
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
   }
   .entry:hover {
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    background: var(--surface-hover);
+  }
+  .entry:active {
+    transform: scale(0.99);
   }
   .empty {
-    margin: 0 0.75rem;
-    color: var(--muted, #6b6661);
+    margin: 0 var(--sp-3);
+    color: var(--muted);
   }
 </style>

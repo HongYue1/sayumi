@@ -6,6 +6,8 @@
   import { session } from "~/lib/session.svelte";
   import { applyTheme } from "~/lib/theme";
   import { THEMES } from "~/lib/themes";
+  import Icon from "~/lib/Icon.svelte";
+  import { Search } from "@lucide/svelte";
 
   interface Command {
     id: string;
@@ -89,6 +91,10 @@
     switch (e.key) {
       case "Escape":
         e.preventDefault();
+        // Consume the event so it doesn't bubble to the reader's window key
+        // handler, which would otherwise also act on this Esc and navigate back
+        // to the library.
+        e.stopPropagation();
         close();
         break;
       case "ArrowDown":
@@ -118,18 +124,21 @@
       aria-label="Command palette"
       onclick={(e) => e.stopPropagation()}
     >
-      <input
-        bind:this={input}
-        class="cmd-input"
-        type="text"
-        placeholder="Type a command, book, or theme…"
-        aria-label="Command palette search"
-        aria-controls="cmd-list"
-        autocomplete="off"
-        spellcheck="false"
-        bind:value={query}
-        onkeydown={onKeydown}
-      />
+      <div class="cmd-search">
+        <Icon icon={Search} size={18} class="cmd-search-icon" />
+        <input
+          bind:this={input}
+          class="cmd-input"
+          type="text"
+          placeholder="Type a command, book, or theme…"
+          aria-label="Command palette search"
+          aria-controls="cmd-list"
+          autocomplete="off"
+          spellcheck="false"
+          bind:value={query}
+          onkeydown={onKeydown}
+        />
+      </div>
       <ul class="cmd-list" id="cmd-list" role="listbox" aria-label="Commands">
         {#each filtered as cmd, i (cmd.id)}
           <li>
@@ -163,7 +172,7 @@
     align-items: flex-start;
     padding: 12vh 1rem 1rem;
     background: color-mix(in srgb, #000 38%, transparent);
-    animation: ov-in 0.12s var(--ease);
+    animation: ov-in var(--dur-fast) var(--ease-out);
   }
   @keyframes ov-in {
     from {
@@ -181,9 +190,8 @@
     background: var(--bg);
     border: 1px solid var(--hairline-strong);
     border-radius: 0.75rem;
-    box-shadow: 0 18px 50px color-mix(in srgb, var(--fg) 35%, transparent);
     overflow: hidden;
-    animation: pl-in 0.14s var(--ease);
+    animation: pl-in var(--dur) var(--ease-out);
   }
   @keyframes pl-in {
     from {
@@ -195,17 +203,32 @@
       transform: translateY(0);
     }
   }
-  .cmd-input {
-    border: none;
+  .cmd-search {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: 0 1rem;
     border-bottom: 1px solid var(--hairline);
+  }
+  .cmd-search :global(.cmd-search-icon) {
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+  .cmd-input {
+    flex: 1;
+    min-width: 0;
+    border: none;
     background: transparent;
     color: var(--fg);
     font: inherit;
     font-size: var(--text-lg);
-    padding: 0.9rem 1rem;
+    padding: 0.9rem 0;
   }
   .cmd-input:focus-visible {
     outline: none;
+    /* The palette dialog is the focus container; the input doesn't need its
+       own accent ring (the global :focus-visible box-shadow). */
+    box-shadow: none;
   }
   .cmd-input::placeholder {
     color: var(--muted);
@@ -224,12 +247,13 @@
     width: 100%;
     padding: 0.55rem 0.7rem;
     border: none;
-    border-radius: 0.4rem;
+    border-radius: var(--radius);
     background: transparent;
     color: var(--fg);
     font: inherit;
     text-align: left;
     cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-out);
   }
   .cmd.active {
     background: color-mix(in srgb, var(--accent) 16%, transparent);

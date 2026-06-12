@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { checkHealth } from "~/api/client";
+  import Icon from "~/lib/Icon.svelte";
+  import { WifiOff } from "@lucide/svelte";
 
   const RECOVERY_POLL_MS = 15_000;
 
@@ -55,7 +57,7 @@
 
 {#if offline}
   <div class="banner" role="alert">
-    <span class="dot" aria-hidden="true"></span>
+    <Icon icon={WifiOff} size={15} />
     Server unreachable
     <button type="button" class="retry" onclick={() => void check()}>Retry</button>
   </div>
@@ -71,12 +73,12 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem;
+    gap: var(--sp-2);
     padding: 0.5rem 1rem;
     background: #b3261e;
     color: #fff;
-    font-size: 0.8rem;
-    animation: slide-down 0.2s ease forwards;
+    font-size: var(--text-sm);
+    animation: slide-down var(--dur) var(--ease-out) forwards;
   }
   @keyframes slide-down {
     from {
@@ -86,28 +88,26 @@
       transform: translateY(0);
     }
   }
-  .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.5);
-    flex-shrink: 0;
-  }
   .retry {
     margin-left: 0.5rem;
     padding: 2px 0.5rem;
     font: inherit;
-    font-size: 0.72rem;
+    font-size: var(--text-xs);
     font-weight: 600;
     color: #fff;
     background: rgba(255, 255, 255, 0.2);
     border: none;
-    border-radius: 0.35rem;
+    border-radius: var(--radius);
     cursor: pointer;
-    transition: background 0.12s ease;
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
   }
   .retry:hover {
-    background: rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.32);
+  }
+  .retry:active {
+    transform: scale(0.96);
   }
   @media (prefers-reduced-motion: reduce) {
     .banner {

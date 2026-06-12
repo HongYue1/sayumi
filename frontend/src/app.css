@@ -115,6 +115,38 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* Themed scrollbars across the chrome (library, side panels, command
+   palette, search results) so scroll areas never fall back to a bright OS
+   scrollbar against a dark theme. Mirrors the in-book reader's bars
+   (iframe/frame.css): neutral by design — a hairline thumb that strengthens
+   to muted on hover, derived from the active theme so all 24 themes adapt.
+   Firefox uses scrollbar-width/-color; WebKit/Blink use the pseudo-elements. */
+* {
+  scrollbar-width: thin;
+  /* thumb then track: a hairline thumb riding in a subtle theme surface. */
+  scrollbar-color: var(--hairline-strong) var(--surface);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+/* A subtle theme-derived channel behind the thumb (instead of transparent),
+   which gives the bar the same defined, finished look as the reader. */
+::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--hairline-strong);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
 /* Small-caps section label used across the chrome (e.g. "YOUR LIBRARY"). */
 .eyebrow {
   font-family: var(--font-ui);

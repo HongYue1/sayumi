@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -45,6 +47,13 @@ func searchHandler(_ *Dependencies) http.HandlerFunc {
 
 		resp, err := epub.Search(r.Context(), pd.Store, book.FilePath, spine, query, cursor, limit)
 		if err != nil {
+			// The reader aborts the previous in-flight search on every keystroke
+			// (debounced search box), which cancels this request's context. That's
+			// expected client behavior, not a failure — stay quiet and don't try to
+			// write a 500 to a connection the client already walked away from.
+			if errors.Is(err, context.Canceled) || r.Context().Err() != nil {
+				return
+			}
 			slog.Error("search failed", "book", id, "query", query, "err", err)
 			writeError(w, http.StatusInternalServerError, "search_error", "search failed")
 			return
