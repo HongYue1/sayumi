@@ -39,7 +39,10 @@
      light-theme fallbacks for first paint before a theme is applied. */
   --bg: #faf9f7;
   --fg: #1c1b1a;
-  --muted: #6b6661;
+  /* Derived from the active theme (applyTheme only sets --bg/--fg/--accent),
+     so muted text keeps a consistent ~AA contrast across all 24 themes
+     instead of staying a fixed light-theme gray on dark backgrounds. */
+  --muted: color-mix(in srgb, var(--fg) 70%, var(--bg));
   --accent: #7c6f64;
 
   /* Literary-press typefaces. */

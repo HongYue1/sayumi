@@ -78,7 +78,9 @@
       <img
         src={getCoverUrl(book.id)}
         alt={book.title}
-        loading="lazy"
+        loading={index < 8 ? "eager" : "lazy"}
+        fetchpriority={index === 0 ? "high" : undefined}
+        decoding="async"
         onerror={() => (coverFailed = true)}
       />
     {:else}
@@ -188,14 +190,13 @@
        shadow (no heavy drop shadow). Hover lifts via transform only. */
     border: 1px solid var(--hairline);
     box-shadow: 0 1px 3px color-mix(in srgb, var(--fg) 12%, transparent);
-    transition:
-      transform var(--dur) var(--ease-out),
-      box-shadow var(--dur) var(--ease-out);
+    /* Animate transform only (GPU-composited). The resting shadow stays static
+       so the hover lift never triggers per-frame paint. */
+    transition: transform var(--dur) var(--ease-out);
   }
   .card:hover .cover,
   .card:focus-visible .cover {
     transform: translateY(-3px);
-    box-shadow: 0 6px 16px color-mix(in srgb, var(--fg) 18%, transparent);
   }
   /* Rely on a cover-targeted ring rather than the global card ring, so the
      focus indicator hugs the artwork instead of the whole card column. */

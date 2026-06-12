@@ -39,6 +39,7 @@
 
 <OfflineBanner />
 
+<main>
 {#if !session.ready}
   <div class="boot"></div>
 {:else if !session.authenticated}
@@ -50,6 +51,7 @@
 {:else}
   <Library />
 {/if}
+</main>
 
 <CommandPalette />
 <ShortcutsHelp />
