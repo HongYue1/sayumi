@@ -72,7 +72,20 @@
   --text-3xl: 2.6rem;
 
   --radius: 0.5rem;
+
+  /* Motion: durations + easing curves (chrome transitions, button feedback). */
+  --dur-fast: 120ms;
+  --dur: 180ms;
+  --dur-slow: 260ms;
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+
+  /* Line-height scale (tight headings → loose body). */
+  --lh-tight: 1.15;
+  --lh-snug: 1.3;
+  --lh-normal: 1.5;
+  --lh-loose: 1.7;
 
   color-scheme: light;
   font-family: var(--font-ui);
