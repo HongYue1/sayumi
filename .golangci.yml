@@ -1,0 +1,27 @@
+# golangci-lint v2 config (matches installed 2.12.2).
+# Builds on the default "standard" set (errcheck, govet, ineffassign,
+# staticcheck, unused) with a few high-signal, low-noise extras. Formatting is
+# intentionally left to check.sh (gofumpt + goimports) to avoid version skew
+# between the standalone formatters and golangci-lint's bundled copies.
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - gocritic
+    - misspell
+    - nilerr
+    - unconvert
+  settings:
+    misspell:
+      locale: US
+  exclusions:
+    generated: lax
+    rules:
+      - path: _test\.go
+        linters:
+          - bodyclose

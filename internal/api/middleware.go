@@ -48,7 +48,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
-	// Append the newline to the marshalled slice before the single Write call
+	// Append the newline to the marshaled slice before the single Write call
 	// to avoid a second syscall and a second chunk through the gzip compressor.
 	data = append(data, '\n')
 	_, _ = w.Write(data)

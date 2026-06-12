@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"sayumi/internal/epub"
 	"sayumi/internal/storage"
@@ -23,18 +24,67 @@ import (
 type Scanner struct {
 	libraryPath string
 	db          *storage.DB
+
+	mu      sync.Mutex
+	current *scanCall
+}
+
+// scanCall represents a single in-flight library scan. Concurrent ScanNow
+// callers share one scanCall instead of each launching a redundant walk.
+type scanCall struct {
+	done chan struct{}
+	ids  []string
+	err  error
 }
 
 func NewScanner(libraryPath string, db *storage.DB) *Scanner {
 	return &Scanner{libraryPath: libraryPath, db: db}
 }
 
-// ScanNow walks the library directory and imports any new EPUB files.
-// It respects ctx cancellation so slow scans don't block profile opens indefinitely.
-// ScanNow walks the library directory and imports any new EPUBs into the DB.
-// It returns the IDs of books imported during this scan so callers can update
-// their in-memory caches (this function does not touch the in-memory cache).
+// ScanNow walks the library directory and imports any new EPUBs into the DB,
+// returning the IDs imported during the scan.
+//
+// Scans are single-flighted per Scanner: if a scan is already running when
+// ScanNow is called, the caller waits for the in-flight scan and shares its
+// result instead of starting a second walk. This coalesces overlapping rescans
+// (e.g. a burst of POST /api/library/rescan, or a manual rescan racing the
+// automatic scan on profile open) so the library is never walked and re-hashed
+// by two goroutines at once.
+//
+// A waiting caller still observes its own ctx cancellation. Note that if the
+// leader's scan is canceled mid-walk, waiters receive that error too; scans are
+// safe to retry.
 func (s *Scanner) ScanNow(ctx context.Context) ([]string, error) {
+	s.mu.Lock()
+	if call := s.current; call != nil {
+		s.mu.Unlock()
+		select {
+		case <-call.done:
+			return call.ids, call.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	call := &scanCall{done: make(chan struct{})}
+	s.current = call
+	s.mu.Unlock()
+
+	call.ids, call.err = s.scan(ctx)
+
+	s.mu.Lock()
+	s.current = nil
+	s.mu.Unlock()
+	close(call.done)
+
+	return call.ids, call.err
+}
+
+// scan performs the actual library walk and import. It is only ever invoked by
+// ScanNow, which serializes and coalesces concurrent callers. It returns the
+// IDs of books imported during this scan so callers can update their in-memory
+// caches (this function does not touch the in-memory cache). It respects ctx
+// cancellation so slow scans don't block profile opens indefinitely.
+func (s *Scanner) scan(ctx context.Context) ([]string, error) {
 	slog.Info("scanning library", "path", s.libraryPath)
 
 	importedIDs := make([]string, 0)

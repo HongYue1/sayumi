@@ -522,6 +522,7 @@ type statusWriter struct {
 	http.ResponseWriter
 	status int
 	wrote  bool
+	bytes  int
 }
 
 func (sw *statusWriter) markWritten(status int) {
@@ -539,15 +540,21 @@ func (sw *statusWriter) WriteHeader(code int) {
 
 func (sw *statusWriter) Write(b []byte) (int, error) {
 	sw.markWritten(http.StatusOK)
-	return sw.ResponseWriter.Write(b)
+	n, err := sw.ResponseWriter.Write(b)
+	sw.bytes += n
+	return n, err
 }
 
 func (sw *statusWriter) ReadFrom(r io.Reader) (int64, error) {
 	sw.markWritten(http.StatusOK)
 	if rf, ok := sw.ResponseWriter.(io.ReaderFrom); ok {
-		return rf.ReadFrom(r)
+		n, err := rf.ReadFrom(r)
+		sw.bytes += int(n)
+		return n, err
 	}
-	return io.Copy(sw.ResponseWriter, r)
+	n, err := io.Copy(sw.ResponseWriter, r)
+	sw.bytes += int(n)
+	return n, err
 }
 
 func (sw *statusWriter) Flush() {
@@ -580,9 +587,23 @@ func logMiddleware(next http.Handler) http.Handler {
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", writer.status,
+			"size", humanizeBytes(writer.bytes),
 			"duration", time.Since(start),
 		)
 	})
+}
+
+// humanizeBytes renders a response body size in B/KB/MB for the debug
+// access log so large payloads are easy to spot at a glance.
+func humanizeBytes(n int) string {
+	switch {
+	case n < 1024:
+		return fmt.Sprintf("%dB", n)
+	case n < 1024*1024:
+		return fmt.Sprintf("%.1fKB", float64(n)/1024)
+	default:
+		return fmt.Sprintf("%.1fMB", float64(n)/(1024*1024))
+	}
 }
 
 func recoverMiddleware(next http.Handler) http.Handler {

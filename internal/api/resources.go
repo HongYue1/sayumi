@@ -83,7 +83,7 @@ func getResourceHandler(deps *Dependencies) http.HandlerFunc {
 
 		// Block content types that execute under the app origin when opened
 		// directly. Chapter HTML is served via processChapterHTML which
-		// sanitises and rewrites the content; raw EPUB assets that are
+		// sanitizes and rewrites the content; raw EPUB assets that are
 		// HTML, XHTML, or script must never be served as-is.
 		if isExecutableContentType(contentType) {
 			writeError(w, http.StatusForbidden, "forbidden", "resource type not served directly")

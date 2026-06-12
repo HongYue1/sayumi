@@ -182,10 +182,10 @@ func NewStore(maxSize int) *EPUBStore {
 func buildIndex(zr *zip.ReadCloser) map[string]*zip.File {
 	idx := make(map[string]*zip.File, len(zr.File))
 	for _, f := range zr.File {
-		normalised := strings.TrimPrefix(f.Name, "/")
-		idx[normalised] = f
-		lower := strings.ToLower(normalised)
-		if lower != normalised {
+		normalized := strings.TrimPrefix(f.Name, "/")
+		idx[normalized] = f
+		lower := strings.ToLower(normalized)
+		if lower != normalized {
 			if _, exists := idx[lower]; !exists {
 				idx[lower] = f
 			}

@@ -175,7 +175,7 @@ func (pm *ProfileManager) lockProfiles(ctx context.Context, profileNames ...stri
 
 	toClose := make(map[string]*profileDeps, len(names))
 
-	// Wake the cond if the caller's context is cancelled so the wait loop
+	// Wake the cond if the caller's context is canceled so the wait loop
 	// below can observe ctx.Err() rather than blocking indefinitely.
 	stopWake := context.AfterFunc(ctx, func() {
 		pm.mu.Lock()
@@ -220,10 +220,10 @@ func (pm *ProfileManager) lockProfiles(ctx context.Context, profileNames ...stri
 
 // Get opens a profile (or returns the already-open one), incrementing its
 // reference count. The caller must call pd.release() when done. ctx is
-// forwarded to the initial library scan so a cancelled request does not
+// forwarded to the initial library scan so a canceled request does not
 // leave the server stuck waiting for a slow scan.
 func (pm *ProfileManager) Get(ctx context.Context, profileName string) (*profileDeps, error) {
-	// Wake the cond if the caller's context is cancelled so blocked waiters
+	// Wake the cond if the caller's context is canceled so blocked waiters
 	// observe ctx.Err() instead of waiting for an unrelated Broadcast.
 	stopWake := context.AfterFunc(ctx, func() {
 		pm.mu.Lock()

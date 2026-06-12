@@ -7,7 +7,7 @@ import (
 )
 
 // fontsResponse is the JSON shape returned by the font-discovery endpoints.
-// Only user-supplied families are reported; the embedded catalogue is a static
+// Only user-supplied families are reported; the embedded catalog is a static
 // constant on the client side.
 type fontsResponse struct {
 	User []fonts.Family `json:"user"`

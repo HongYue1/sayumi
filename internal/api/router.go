@@ -16,10 +16,11 @@ type Dependencies struct {
 	LibraryRoot string
 	Fonts       *fonts.Scanner
 	sessions    *sessionStore
+	throttle    *loginThrottle
 }
 
 // NewDependencies constructs a Dependencies value with all internal state
-// (including the session store) properly initialised.
+// (including the session store) properly initialized.
 func NewDependencies(profilesDB *storage.ProfilesDB, profileMgr *ProfileManager, libraryRoot string, fontScanner *fonts.Scanner) *Dependencies {
 	return &Dependencies{
 		ProfilesDB:  profilesDB,
@@ -27,10 +28,11 @@ func NewDependencies(profilesDB *storage.ProfilesDB, profileMgr *ProfileManager,
 		LibraryRoot: libraryRoot,
 		Fonts:       fontScanner,
 		sessions:    newSessionStore(),
+		throttle:    newLoginThrottle(),
 	}
 }
 
-// StartBackgroundTasks runs periodic maintenance until ctx is cancelled.
+// StartBackgroundTasks runs periodic maintenance until ctx is canceled.
 // Call it in a dedicated goroutine after the server starts.
 func (d *Dependencies) StartBackgroundTasks(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Minute)
@@ -39,6 +41,7 @@ func (d *Dependencies) StartBackgroundTasks(ctx context.Context) {
 		select {
 		case <-ticker.C:
 			d.sessions.sweep()
+			d.throttle.sweep()
 		case <-ctx.Done():
 			return
 		}

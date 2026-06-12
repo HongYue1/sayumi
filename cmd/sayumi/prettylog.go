@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// prettyHandler is a slog.Handler that writes compact, colour-coded lines to w.
+// prettyHandler is a slog.Handler that writes compact, color-coded lines to w.
 //
 // Request lines (msg="request") are formatted as:
 //
@@ -140,6 +140,13 @@ func (h *prettyHandler) writeRequest(sb *strings.Builder, attrs map[string]strin
 		sb.WriteString(strings.Repeat(" ", pad))
 		sb.WriteString(ansiDim)
 		sb.WriteString(d)
+		sb.WriteString(ansiReset)
+	}
+
+	if size := attrs["size"]; size != "" {
+		sb.WriteString(ansiDim)
+		sb.WriteString("  ")
+		sb.WriteString(size)
 		sb.WriteString(ansiReset)
 	}
 }

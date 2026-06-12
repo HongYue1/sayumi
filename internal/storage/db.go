@@ -22,16 +22,23 @@ func Open(libraryPath string) (*DB, error) {
 	}
 
 	dbPath := filepath.Join(sayumiDir, "sayumi.db")
+	// modernc.org/sqlite does NOT understand mattn/go-sqlite3 "_param=" DSN
+	// keys; it silently ignores unknown query parameters. The previous
+	// "_journal_mode=WAL&_foreign_keys=on&..." form therefore left every pragma
+	// at its default (journal_mode=delete, foreign_keys=OFF, busy_timeout=0).
+	// modernc instead executes any "_pragma=" directive on every connection it
+	// opens, which also keeps the per-connection pragmas (foreign_keys,
+	// busy_timeout) correct should the pool ever be widened past one conn.
 	dsn := dbPath +
-		"?_journal_mode=WAL" +
-		"&_synchronous=NORMAL" +
-		"&_cache_size=-32000" +
-		"&_busy_timeout=5000" +
-		"&_foreign_keys=on" +
+		"?_pragma=journal_mode(WAL)" +
+		"&_pragma=synchronous(NORMAL)" +
+		"&_pragma=cache_size(-32000)" +
+		"&_pragma=busy_timeout(5000)" +
+		"&_pragma=foreign_keys(1)" +
 		// 256 MB mmap window per profile DB. On a typical desktop this is
 		// virtual address space only (no RSS until pages are read).
 		// On 32-bit hosts or constrained environments this should be lowered.
-		"&_mmap_size=268435456"
+		"&_pragma=mmap_size(268435456)"
 
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {

@@ -25,8 +25,11 @@ func OpenProfilesDB(libraryRoot string) (*ProfilesDB, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create .sayumi dir: %w", err)
 	}
+	// See storage.Open for why "_pragma=" is required here: modernc silently
+	// ignores the mattn-style "_param=" DSN keys, so the old form left WAL and
+	// foreign-key enforcement off on this database too.
 	dsn := filepath.Join(dir, "profiles.db") +
-		"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on"
+		"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open profiles db: %w", err)

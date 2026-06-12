@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -374,8 +375,17 @@ func loginHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
+		key := throttleKey(body.Name, r)
+		if wait := deps.throttle.retryAfter(key); wait > 0 {
+			w.Header().Set("Retry-After", strconv.Itoa(int(wait/time.Second)+1))
+			writeError(w, http.StatusTooManyRequests, "rate_limited",
+				"too many failed attempts; please wait and try again")
+			return
+		}
+
 		profile, err := deps.ProfilesDB.GetProfileContext(r.Context(), body.Name)
 		if errors.Is(err, sql.ErrNoRows) {
+			deps.throttle.recordFailure(key)
 			writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid name or PIN")
 			return
 		}
@@ -394,6 +404,7 @@ func loginHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 		if !ok {
+			deps.throttle.recordFailure(key)
 			writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid name or PIN")
 			return
 		}
@@ -405,6 +416,7 @@ func loginHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
+		deps.throttle.recordSuccess(key)
 		setCookie(w, r, token, sess)
 		writeJSON(w, http.StatusOK, map[string]string{"profile": body.Name})
 	}
