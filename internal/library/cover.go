@@ -27,6 +27,18 @@ const (
 	maxCoverBytes     = 20 << 20
 )
 
+// maxConcurrentCoverDecodes caps how many cover images may be decoded and
+// resized at the same time. A single decode transiently holds a full-size
+// RGBA buffer (up to maxCoverPixels*4 bytes, ~96 MB at the cap), so without a
+// limit the library scan's worker pool — sized to GOMAXPROCS — could hold one
+// such buffer per core at once. Bounding concurrent decodes keeps peak memory
+// independent of core count without throttling the cheaper hashing/parsing.
+const maxConcurrentCoverDecodes = 4
+
+// coverDecodeSem enforces maxConcurrentCoverDecodes across every goroutine that
+// calls extractCover (notably the scan worker pool).
+var coverDecodeSem = make(chan struct{}, maxConcurrentCoverDecodes)
+
 func extractCover(libraryPath, bookID string, zr *zip.Reader, coverPathInZip string) (err error) {
 	coversDir := filepath.Join(libraryPath, ".sayumi", "covers")
 	if err := os.MkdirAll(coversDir, 0o755); err != nil {
@@ -63,11 +75,18 @@ func extractCover(libraryPath, bookID string, zr *zip.Reader, coverPathInZip str
 		return nil
 	}
 
+	// Bound concurrent decode+resize so the scan worker pool can't hold one
+	// full-size image buffer per core at once. The semaphore is held across
+	// resizeToFit because the decoded buffer stays live until the smaller
+	// resized image replaces it.
+	coverDecodeSem <- struct{}{}
 	img, _, err := image.Decode(bytes.NewReader(coverData))
 	if err != nil {
+		<-coverDecodeSem
 		return fmt.Errorf("decode cover image: %w", err)
 	}
 	img = resizeToFit(img, maxCoverWidth, maxCoverHeight)
+	<-coverDecodeSem
 
 	coversRoot, rootErr := os.OpenRoot(coversDir)
 	if rootErr != nil {

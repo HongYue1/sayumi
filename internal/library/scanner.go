@@ -351,6 +351,15 @@ func (s *Scanner) ImportFile(ctx context.Context, filePath string, knownHash str
 	return "", errors.New("book was not imported and could not be found")
 }
 
+// hashBufPool reuses 1 MiB read buffers across the scan worker pool so each
+// contentHash call avoids allocating (and later GC-ing) its own large buffer.
+var hashBufPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, 1<<20) // 1 MiB
+		return &buf
+	},
+}
+
 func contentHash(ctx context.Context, filePath string) (hash string, size int64, err error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -368,7 +377,9 @@ func contentHash(ctx context.Context, filePath string) (hash string, size int64,
 	}
 
 	hasher := sha256.New()
-	buf := make([]byte, 32<<10) // 32 KB chunks
+	bufPtr := hashBufPool.Get().(*[]byte)
+	defer hashBufPool.Put(bufPtr)
+	buf := *bufPtr
 	for {
 		if err := ctx.Err(); err != nil {
 			return "", 0, err
