@@ -151,10 +151,10 @@ func processChapterHTML(
 	if m := writingModeRe.FindStringSubmatch(css); m != nil {
 		writingMode = strings.ToLower(m[1])
 	} else if bodyNode != nil {
-		// Walk body <style> elements and the body's own inline style attribute.
-		if writingMode == "horizontal-tb" {
-			writingMode = detectWritingModeFromBody(bodyNode)
-		}
+		// Head CSS had no writing-mode, so writingMode is still the default
+		// "horizontal-tb"; walk body <style> elements and the body's own inline
+		// style attribute to catch EPUBs that set it there instead.
+		writingMode = detectWritingModeFromBody(bodyNode)
 	}
 
 	if bodyNode != nil {
