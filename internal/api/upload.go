@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"sayumi/internal/storage"
 )
@@ -24,6 +25,16 @@ func uploadBookHandler(_ *Dependencies) http.HandlerFunc {
 		pd := requireProfileDeps(w, r)
 		if pd == nil {
 			return
+		}
+
+		// Receiving up to 100 MB can outlast the server's global WriteTimeout,
+		// which Go arms when the request headers are read — before the body is
+		// consumed. Clear the write deadline for just this handler so a large
+		// upload over a slow link is not aborted mid-response; the body is already
+		// bounded by MaxBytesReader below. Best-effort: if the writer does not
+		// support deadlines we proceed unchanged.
+		if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+			slog.Debug("clear upload write deadline unsupported", "err", err)
 		}
 
 		// +1024: generous headroom for multipart framing (boundary lines,
