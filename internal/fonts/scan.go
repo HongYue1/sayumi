@@ -2,10 +2,10 @@ package fonts
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -97,34 +97,83 @@ func (s *Scanner) lookupDir(dirName string) (Family, bool) {
 	return Family{}, false
 }
 
-// ReadUserFont reads a single font file belonging to a discovered family,
-// validating both the directory and file against the current scan so that no
-// path outside a known family can be served. Returns the bytes and a cheap
-// ETag (derived from size + modtime).
-func (s *Scanner) ReadUserFont(dirName, file string) (data []byte, etag string, ok bool) {
+// resolveUserFont validates that dirName/file names a known font file in a
+// discovered family and returns the path relative to s.dir. It consults only
+// the cached scan and does not touch the disk.
+func (s *Scanner) resolveUserFont(dirName, file string) (relPath string, ok bool) {
 	if s.dir == "" {
-		return nil, "", false
+		return "", false
 	}
 	fam, found := s.lookupDir(dirName)
 	if !found {
-		return nil, "", false
+		return "", false
 	}
-	known := slices.Contains(fam.Files, file)
-	if !known {
-		return nil, "", false
+	if !slices.Contains(fam.Files, file) {
+		return "", false
 	}
+	return filepath.Join(dirName, file), true
+}
 
-	path := filepath.Join(s.dir, dirName, file)
-	info, err := os.Stat(path)
+// StatUserFont validates the request and returns the size and a cheap ETag
+// (size + modtime) without reading the file body, so conditional (If-None-Match)
+// and HEAD requests can be served without loading the font. The lookup is
+// confined to s.dir via os.Root, so a symlink escaping the fonts directory is
+// rejected rather than followed.
+func (s *Scanner) StatUserFont(dirName, file string) (size int64, etag string, ok bool) {
+	relPath, valid := s.resolveUserFont(dirName, file)
+	if !valid {
+		return 0, "", false
+	}
+	root, err := os.OpenRoot(s.dir)
+	if err != nil {
+		return 0, "", false
+	}
+	defer func() { _ = root.Close() }()
+
+	info, err := root.Stat(relPath)
 	if err != nil || info.IsDir() {
+		return 0, "", false
+	}
+	return info.Size(), userFontETag(info), true
+}
+
+// ReadUserFont reads a single font file belonging to a discovered family,
+// validating both the directory and file against the current scan so that no
+// path outside a known family can be served. The read is confined to s.dir via
+// os.Root (symlinks escaping the directory are rejected). Returns the bytes and
+// a cheap ETag (derived from size + modtime).
+func (s *Scanner) ReadUserFont(dirName, file string) (data []byte, etag string, ok bool) {
+	relPath, valid := s.resolveUserFont(dirName, file)
+	if !valid {
 		return nil, "", false
 	}
-	b, err := os.ReadFile(path)
+	root, err := os.OpenRoot(s.dir)
 	if err != nil {
 		return nil, "", false
 	}
-	etag = `"u` + strconv.FormatInt(info.Size(), 16) + "-" + strconv.FormatInt(info.ModTime().UnixNano(), 16) + `"`
-	return b, etag, true
+	defer func() { _ = root.Close() }()
+
+	f, err := root.Open(relPath)
+	if err != nil {
+		return nil, "", false
+	}
+	defer func() { _ = f.Close() }()
+
+	info, err := f.Stat()
+	if err != nil || info.IsDir() {
+		return nil, "", false
+	}
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return nil, "", false
+	}
+	return b, userFontETag(info), true
+}
+
+// userFontETag derives a stable ETag for a user font from its size and
+// modification time. Quoted per RFC 7232.
+func userFontETag(info os.FileInfo) string {
+	return `"u` + strconv.FormatInt(info.Size(), 16) + "-" + strconv.FormatInt(info.ModTime().UnixNano(), 16) + `"`
 }
 
 func (s *Scanner) scan() []Family {
@@ -154,8 +203,8 @@ func (s *Scanner) scan() []Family {
 		}
 	}
 
-	sort.Slice(families, func(i, j int) bool {
-		return strings.ToLower(families[i].Label) < strings.ToLower(families[j].Label)
+	slices.SortFunc(families, func(a, b Family) int {
+		return strings.Compare(strings.ToLower(a.Label), strings.ToLower(b.Label))
 	})
 	return families
 }
@@ -180,7 +229,7 @@ func (s *Scanner) scanFamily(dirName string) (Family, bool) {
 	if len(files) == 0 {
 		return Family{}, false
 	}
-	sort.Strings(files)
+	slices.Sort(files)
 
 	label := dirName
 	category := "serif"

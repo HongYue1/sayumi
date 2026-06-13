@@ -146,14 +146,16 @@ func serveUserFont(w http.ResponseWriter, r *http.Request, scanner *Scanner, dir
 		writePlainStatus(w, http.StatusNotFound, "not found")
 		return
 	}
-	data, etag, ok := scanner.ReadUserFont(dir, file)
+	// Stat first so conditional (If-None-Match) and HEAD requests are answered
+	// without ever reading the font bytes off disk.
+	size, etag, ok := scanner.StatUserFont(dir, file)
 	if !ok {
 		writePlainStatus(w, http.StatusNotFound, "not found")
 		return
 	}
 
 	w.Header().Set("Content-Type", epub.ContentTypeByExt(file))
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	// User fonts can change on disk, so allow revalidation via ETag rather than
 	// marking immutable like the embedded set.
 	w.Header().Set("Cache-Control", "public, max-age=3600")
@@ -173,6 +175,20 @@ func serveUserFont(w http.ResponseWriter, r *http.Request, scanner *Scanner, dir
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+
+	data, readETag, ok := scanner.ReadUserFont(dir, file)
+	if !ok {
+		// Raced with a change or removal between the stat above and this read;
+		// drop the stale length/ETag so we don't emit a mismatched response.
+		w.Header().Del("Content-Length")
+		w.Header().Del("ETag")
+		writePlainStatus(w, http.StatusNotFound, "not found")
+		return
+	}
+	// Re-sync length and ETag from the bytes actually read, in case the file
+	// changed on disk between the stat above and this read.
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.Header().Set("ETag", readETag)
 
 	_, _ = w.Write(data)
 }
