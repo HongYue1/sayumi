@@ -73,6 +73,8 @@ func ProcessChapter(
 		chapterIndex,
 		bookDirection,
 		index,
+		store,
+		filePath,
 		resourceToken,
 	)
 	if err != nil {
@@ -95,6 +97,8 @@ func processChapterHTML(
 	chapterIndex int,
 	bookDirection string,
 	index map[string]*zip.File,
+	store *EPUBStore,
+	filePath string,
 	resourceToken string,
 ) (ChapterResponse, error) {
 	doc, err := html.Parse(bytes.NewReader(rawHTML))
@@ -141,7 +145,7 @@ func processChapterHTML(
 
 	var cssBuilder strings.Builder
 	var fontFaceBuilder strings.Builder
-	extractCSS(headNode, chapterDir, resourceBase, index, &cssBuilder, &fontFaceBuilder, resourceToken)
+	extractCSS(headNode, chapterDir, resourceBase, index, store, filePath, &cssBuilder, &fontFaceBuilder, resourceToken)
 
 	css := cssBuilder.String()
 	// Check head CSS first, then fall back to body <style> blocks and inline
@@ -260,6 +264,8 @@ func extractCSS(
 	chapterDir string,
 	resourceBase string,
 	index map[string]*zip.File,
+	store *EPUBStore,
+	filePath string,
 	cssOut *strings.Builder,
 	fontFaceOut *strings.Builder,
 	resourceToken string,
@@ -287,11 +293,23 @@ func extractCSS(
 			href := getAttr(child, "href")
 			if hasToken(rel, "stylesheet") && href != "" {
 				cssPath := resolvePath(chapterDir, href)
-				cssData, err := readZipFileIndexed(index, cssPath)
-				if err != nil {
+				if frag, ok := store.GetCSSFragment(filePath, cssPath); ok {
+					// Shared stylesheets are decompressed and rewritten once
+					// per book, then replayed for every chapter that links the
+					// same sheet. Safe because resourceBase and resourceToken
+					// are deterministic per book (the same invariant the
+					// chapter cache already relies on).
+					cssOut.WriteString(frag.css)
+					fontFaceOut.WriteString(frag.fontFace)
+				} else if cssData, err := readZipFileIndexed(index, cssPath); err != nil {
 					slog.Warn("stylesheet not found in epub", "path", cssPath, "err", err)
 				} else {
-					separateFontFaces(string(cssData), path.Dir(cssPath), resourceBase, cssOut, fontFaceOut, resourceToken)
+					var cssFrag, fontFaceFrag strings.Builder
+					separateFontFaces(string(cssData), path.Dir(cssPath), resourceBase, &cssFrag, &fontFaceFrag, resourceToken)
+					frag := cssFragment{css: cssFrag.String(), fontFace: fontFaceFrag.String()}
+					store.SetCSSFragment(filePath, cssPath, frag)
+					cssOut.WriteString(frag.css)
+					fontFaceOut.WriteString(frag.fontFace)
 				}
 				toRemove = append(toRemove, child)
 			}

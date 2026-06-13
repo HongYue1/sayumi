@@ -159,12 +159,27 @@ type textPair struct {
 	lower string
 }
 
+type cssFragmentKey struct {
+	filePath string
+	cssPath  string
+}
+
+// cssFragment holds the processed output of one linked stylesheet: the
+// non-@font-face rules and the extracted @font-face blocks, both with resource
+// URLs already rewritten. It is shared across all chapters of a book that link
+// the same sheet.
+type cssFragment struct {
+	css      string
+	fontFace string
+}
+
 type EPUBStore struct {
 	mu        sync.Mutex
 	lru       *zipLRU
 	openFiles map[string]*zipEntry
 	chapters  *LRUCache[chapterRenderKey, ChapterResponse]
 	texts     *LRUCache[chapterTextKey, textPair]
+	cssFrags  *LRUCache[cssFragmentKey, cssFragment]
 }
 
 func NewStore(maxSize int) *EPUBStore {
@@ -176,6 +191,7 @@ func NewStore(maxSize int) *EPUBStore {
 		openFiles: make(map[string]*zipEntry),
 		chapters:  newLRUCache[chapterRenderKey, ChapterResponse](maxSize * 10),
 		texts:     newLRUCache[chapterTextKey, textPair](maxSize * 5),
+		cssFrags:  newLRUCache[cssFragmentKey, cssFragment](maxSize * 4),
 	}
 }
 
@@ -298,6 +314,7 @@ func (s *EPUBStore) CloseBook(filePath string) {
 func (s *EPUBStore) EvictBook(filePath string) {
 	s.chapters.DeleteFunc(func(k chapterRenderKey) bool { return k.filePath != filePath })
 	s.texts.DeleteFunc(func(k chapterTextKey) bool { return k.filePath != filePath })
+	s.cssFrags.DeleteFunc(func(k cssFragmentKey) bool { return k.filePath != filePath })
 }
 
 type ResourceReader struct {
@@ -446,6 +463,14 @@ func (s *EPUBStore) SetText(filePath string, chapterIndex int, orig, lower strin
 	s.texts.Put(chapterTextKey{filePath: filePath, chapterIndex: chapterIndex}, textPair{orig: orig, lower: lower})
 }
 
+func (s *EPUBStore) GetCSSFragment(filePath, cssPath string) (cssFragment, bool) {
+	return s.cssFrags.Get(cssFragmentKey{filePath: filePath, cssPath: cssPath})
+}
+
+func (s *EPUBStore) SetCSSFragment(filePath, cssPath string, frag cssFragment) {
+	s.cssFrags.Put(cssFragmentKey{filePath: filePath, cssPath: cssPath}, frag)
+}
+
 // Close releases all open zip readers. Must only be called after all
 // in-flight requests have returned (i.e. after markClosingAndWait).
 func (s *EPUBStore) Close() {
@@ -460,4 +485,5 @@ func (s *EPUBStore) Close() {
 	s.lru = newZipLRU(s.lru.cap)
 	s.chapters = newLRUCache[chapterRenderKey, ChapterResponse](s.chapters.cap)
 	s.texts = newLRUCache[chapterTextKey, textPair](s.texts.cap)
+	s.cssFrags = newLRUCache[cssFragmentKey, cssFragment](s.cssFrags.cap)
 }
