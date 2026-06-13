@@ -95,9 +95,18 @@ func recordToJSON(s storage.SettingsRecord) settingsJSON {
 	j.ParagraphSpacing = nullFloat64ToPtr(s.ParagraphSpacing)
 	j.TextIndent = nullFloat64ToPtr(s.TextIndent)
 	j.ContentWidth = nullInt64ToIntPtr(s.ContentWidth)
-	j.MarginTop = nullInt64ToIntPtr(s.MarginTop)
-	j.MarginBottom = nullInt64ToIntPtr(s.MarginBottom)
-	j.MarginSide = nullInt64ToIntPtr(s.MarginSide)
+	// Only override the fresh-profile defaults above when a value is actually
+	// stored; a NULL column (no row yet, or a row saved without margins) must
+	// keep the 48px default rather than collapsing to null.
+	if v := nullInt64ToIntPtr(s.MarginTop); v != nil {
+		j.MarginTop = v
+	}
+	if v := nullInt64ToIntPtr(s.MarginBottom); v != nil {
+		j.MarginBottom = v
+	}
+	if v := nullInt64ToIntPtr(s.MarginSide); v != nil {
+		j.MarginSide = v
+	}
 	j.ChapterTitleAlign = nullStringToPtr(s.ChapterTitleAlign)
 	j.ChapterTitleSize = nullInt64ToIntPtr(s.ChapterTitleSize)
 	j.ChapterTitleSpacing = nullFloat64ToPtr(s.ChapterTitleSpacing)
@@ -204,7 +213,7 @@ func validateSettings(j *settingsJSON) (string, bool) {
 		return "theme must be 1-32 characters", false
 	}
 	if j.DisplayMode != "scroll" && j.DisplayMode != "paged" && j.DisplayMode != "paged-two" {
-		return "displayMode must be scroll or paged", false
+		return "displayMode must be scroll, paged, or paged-two", false
 	}
 	if j.LineHeight != nil && (*j.LineHeight < 0.5 || *j.LineHeight > 4.0) {
 		return "lineHeight must be 0.5-4.0", false
@@ -300,9 +309,13 @@ func putSettingsHandler(_ *Dependencies) http.HandlerFunc {
 		}
 		fontRolesJSON := ""
 		if len(j.FontRoles) > 0 {
-			if b, err := json.Marshal(j.FontRoles); err == nil {
-				fontRolesJSON = string(b)
+			b, err := json.Marshal(j.FontRoles)
+			if err != nil {
+				slog.Error("marshal font roles failed", "err", err)
+				writeError(w, http.StatusInternalServerError, "server_error", "failed to encode settings")
+				return
 			}
+			fontRolesJSON = string(b)
 		}
 
 		record := storage.SettingsRecord{
