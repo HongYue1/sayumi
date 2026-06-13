@@ -23,6 +23,7 @@ const (
 	maxCoverWidth     = 400
 	maxCoverHeight    = 600
 	maxCoverDimension = 10_000
+	maxCoverPixels    = 24_000_000
 	maxCoverBytes     = 20 << 20
 )
 
@@ -51,6 +52,14 @@ func extractCover(libraryPath, bookID string, zr *zip.Reader, coverPathInZip str
 	}
 	if config.Width > maxCoverDimension || config.Height > maxCoverDimension {
 		slog.Warn("skipping oversized cover", "book", bookID, "width", config.Width, "height", config.Height)
+		return nil
+	}
+	// Reject high pixel counts even when each side is within bounds: decoding
+	// expands to a 4-byte-per-pixel RGBA buffer, so capping total pixels keeps a
+	// crafted cover from exhausting memory — important now that scans decode
+	// covers concurrently across the worker pool.
+	if int64(config.Width)*int64(config.Height) > maxCoverPixels {
+		slog.Warn("skipping high-pixel-count cover", "book", bookID, "width", config.Width, "height", config.Height, "pixels", int64(config.Width)*int64(config.Height))
 		return nil
 	}
 

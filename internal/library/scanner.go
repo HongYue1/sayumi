@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -87,7 +88,76 @@ func (s *Scanner) ScanNow(ctx context.Context) ([]string, error) {
 func (s *Scanner) scan(ctx context.Context) ([]string, error) {
 	slog.Info("scanning library", "path", s.libraryPath)
 
-	importedIDs := make([]string, 0)
+	paths, err := s.collectEPUBPaths(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(paths) == 0 {
+		slog.Info("scan complete", "imported", 0)
+		return nil, nil
+	}
+
+	// Hashing, EPUB parsing, and cover decode/resize/encode dominate a
+	// first-time import and are independent per file, so fan them out across a
+	// bounded worker pool sized to the CPU count. The walk itself stays
+	// single-threaded (WalkDir is not safe to call concurrently); only the heavy
+	// per-file import work runs in parallel. storage.DB already serializes
+	// writes and pools reads, so concurrent importFile calls need no extra
+	// locking beyond the importedIDs append below.
+	workers := min(runtime.GOMAXPROCS(0), len(paths))
+
+	var (
+		mu          sync.Mutex
+		importedIDs = make([]string, 0, len(paths))
+		wg          sync.WaitGroup
+	)
+	pathCh := make(chan string)
+
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for filePath := range pathCh {
+				id, imported, importErr := s.importFile(ctx, filePath, "")
+				if importErr != nil {
+					slog.Warn("scan import failed", "path", filePath, "err", importErr)
+					continue
+				}
+				if imported {
+					mu.Lock()
+					importedIDs = append(importedIDs, id)
+					mu.Unlock()
+				}
+			}
+		}()
+	}
+
+	// This goroutine is the sole sender on pathCh, so it owns closing it. It
+	// stops feeding early on cancellation; in-flight workers then unwind quickly
+	// because importFile observes ctx through its DB and hashing calls.
+	for _, filePath := range paths {
+		if ctx.Err() != nil {
+			break
+		}
+		pathCh <- filePath
+	}
+	close(pathCh)
+	wg.Wait()
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	slog.Info("scan complete", "imported", len(importedIDs))
+	return importedIDs, nil
+}
+
+// collectEPUBPaths walks the library directory and returns the paths of all
+// candidate .epub files, skipping dotfiles and dot-directories. It is the
+// single-threaded discovery phase that feeds scan's worker pool and honors ctx
+// cancellation between entries.
+func (s *Scanner) collectEPUBPaths(ctx context.Context) ([]string, error) {
+	var paths []string
 	err := filepath.WalkDir(s.libraryPath, func(filePath string, dirEntry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			slog.Warn("scan access failed", "path", filePath, "err", walkErr)
@@ -115,22 +185,13 @@ func (s *Scanner) scan(ctx context.Context) ([]string, error) {
 			return nil
 		}
 
-		id, imported, err := s.importFile(ctx, filePath, "")
-		if err != nil {
-			slog.Warn("scan import failed", "path", filePath, "err", err)
-			return nil
-		}
-		if imported {
-			importedIDs = append(importedIDs, id)
-		}
+		paths = append(paths, filePath)
 		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("walk library %q: %w", s.libraryPath, err)
 	}
-
-	slog.Info("scan complete", "imported", len(importedIDs))
-	return importedIDs, nil
+	return paths, nil
 }
 
 func (s *Scanner) importFile(ctx context.Context, filePath string, knownHash string) (id string, imported bool, err error) {
