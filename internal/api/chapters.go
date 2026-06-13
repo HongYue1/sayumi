@@ -55,7 +55,7 @@ func getChapterHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		spine, ok := pd.Books.GetSpine(id)
+		spine, ok := pd.Books.GetSpine(r.Context(), id)
 		if !ok {
 			writeError(w, http.StatusInternalServerError, "parse_error", "failed to get spine")
 			return

@@ -111,16 +111,20 @@ func (db *DB) DeleteFlairContext(ctx context.Context, id, userID string) error {
 
 // GetAllBookFlairsContext returns a map of book id -> assigned flair id for a
 // profile, used to decorate the library listing in one query.
-func (db *DB) GetAllBookFlairsContext(ctx context.Context, userID string) (map[string]string, error) {
+func (db *DB) GetAllBookFlairsContext(ctx context.Context, userID string) (out map[string]string, err error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT book_id, flair_id FROM book_flairs WHERE user_id = ?
 	`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list book flairs: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close rows: %w", cerr)
+		}
+	}()
 
-	out := make(map[string]string)
+	out = make(map[string]string)
 	for rows.Next() {
 		var bookID, flairID string
 		if err := rows.Scan(&bookID, &flairID); err != nil {

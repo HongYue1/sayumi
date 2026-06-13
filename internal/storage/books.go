@@ -65,6 +65,54 @@ func (db *DB) ListBooksContext(ctx context.Context) (out []BookRecord, err error
 	return out, nil
 }
 
+// ListBookSummariesContext returns every book's summary metadata, deliberately
+// omitting the heavy spine_json / toc_json columns. NewBookCache uses this to
+// build the library list: a spine/toc is only needed when a book is actually
+// opened for reading, yet reading those large TEXT columns for every row (they
+// overflow onto separate SQLite pages) dominated profile-open time. Fetch them
+// on demand with GetBookContentContext.
+func (db *DB) ListBookSummariesContext(ctx context.Context) (out []BookSummary, err error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, title, author, language, publisher, description, pub_date, isbn,
+		       file_path, file_hash, file_size, cover_path, has_cover,
+		       direction, chapter_count,
+		       created_at, updated_at
+		FROM books
+		ORDER BY title COLLATE NOCASE ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list book summaries: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close rows: %w", cerr)
+		}
+	}()
+
+	for rows.Next() {
+		summary, scanErr := scanBookSummary(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scan book summary: %w", scanErr)
+		}
+		out = append(out, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate book summaries: %w", err)
+	}
+	return out, nil
+}
+
+// GetBookContentContext loads only the spine_json and toc_json for a book. The
+// book cache no longer holds these (see ListBookSummariesContext); they are
+// fetched on demand when a book is opened (chapter render, search, book detail).
+func (db *DB) GetBookContentContext(ctx context.Context, id string) (spineJSON, tocJSON string, err error) {
+	row := db.QueryRowContext(ctx, "SELECT spine_json, toc_json FROM books WHERE id = ?", id)
+	if err := row.Scan(&spineJSON, &tocJSON); err != nil {
+		return "", "", fmt.Errorf("get book content %s: %w", id, err)
+	}
+	return spineJSON, tocJSON, nil
+}
+
 func (db *DB) GetBookContext(ctx context.Context, id string) (BookRecord, error) {
 	row := db.QueryRowContext(ctx, `
 		SELECT id, title, author, language, publisher, description, pub_date, isbn,
@@ -266,4 +314,17 @@ func scanBook(s scanner) (BookRecord, error) {
 		&book.Direction, &book.ChapterCount, &book.CreatedAt, &book.UpdatedAt,
 	)
 	return book, err
+}
+
+// scanBookSummary scans the summary columns selected by ListBookSummariesContext
+// (the same column order as scanBook, minus spine_json / toc_json).
+func scanBookSummary(s scanner) (BookSummary, error) {
+	var b BookSummary
+	err := s.Scan(
+		&b.ID, &b.Title, &b.Author, &b.Language, &b.Publisher,
+		&b.Description, &b.PubDate, &b.ISBN, &b.FilePath, &b.FileHash,
+		&b.FileSize, &b.CoverPath, &b.HasCover,
+		&b.Direction, &b.ChapterCount, &b.CreatedAt, &b.UpdatedAt,
+	)
+	return b, err
 }

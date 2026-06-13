@@ -52,6 +52,25 @@ func coverResponseETag(fileHash string) string {
 	return `"` + fileHash + ":cover" + `"`
 }
 
+const bookDetailCacheControl = "private, no-cache"
+
+// bookDetailVersion is bumped if the shape of GET /api/books/{id} changes so
+// stale cached detail responses revalidate after a deploy.
+const bookDetailVersion = "1"
+
+// bookDetailETag identifies a book-detail response. The spine + toc are
+// immutable for a given file_hash, but the book's own metadata (e.g. title,
+// cover) can change in place without a re-import, so bookUpdatedAt (the books
+// row's updated_at) is folded in alongside the reader's progress; lastReadAt
+// (the progress row's updated_at, empty when there is no progress) captures the
+// latter. A re-open with unchanged metadata and progress revalidates to 304.
+func bookDetailETag(fileHash, bookUpdatedAt, lastReadAt string) string {
+	if fileHash == "" {
+		return ""
+	}
+	return `"` + fileHash + ":" + bookUpdatedAt + ":" + lastReadAt + ":" + bookDetailVersion + `"`
+}
+
 // bookResponseFromSummary constructs a BookResponse from a BookSummary.
 // Progress and LastReadAt must be set separately if known.
 func bookResponseFromSummary(b storage.BookSummary) BookResponse {
@@ -146,14 +165,36 @@ func getBookHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
+		// The detail payload is dominated by the immutable spine + toc JSON (tens
+		// of KB); its only mutable part is the reader's own progress. An ETag over
+		// file_hash + last-progress-update lets an unchanged re-open return a
+		// 0-byte 304 instead of re-fetching, re-marshaling and re-gzipping the
+		// whole body. The content fetch + marshal happen only past the 304 check,
+		// so a hit costs just the indexed progress lookup already done above.
+		w.Header().Set("Cache-Control", bookDetailCacheControl)
+		if etag := bookDetailETag(book.FileHash, book.UpdatedAt, lastReadAt); etag != "" {
+			w.Header().Set("ETag", etag)
+			if ifNoneMatchMatches(r, etag) {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+		}
+
+		spineJSON, tocJSON, err := pd.DB.GetBookContentContext(r.Context(), book.ID)
+		if err != nil {
+			slog.Error("load book content failed", "book", book.ID, "err", err)
+			writeError(w, http.StatusInternalServerError, "db_error", "failed to load book")
+			return
+		}
+
 		br := bookResponseFromSummary(book.BookSummary)
 		br.Progress = progress
 		br.LastReadAt = lastReadAt
 
 		resp := BookDetailResponse{
 			BookResponse: br,
-			Spine:        json.RawMessage(book.SpineJSON),
-			TOC:          json.RawMessage(book.TocJSON),
+			Spine:        json.RawMessage(spineJSON),
+			TOC:          json.RawMessage(tocJSON),
 		}
 
 		writeJSON(w, http.StatusOK, resp)
@@ -216,13 +257,19 @@ func getTocHandler(_ *Dependencies) http.HandlerFunc {
 		}
 
 		id := r.PathValue("id")
-		book, ok := pd.Books.Get(id)
-		if !ok {
+		if _, ok := pd.Books.Get(id); !ok {
 			writeError(w, http.StatusNotFound, "not_found", "book not found")
 			return
 		}
 
-		writeJSON(w, http.StatusOK, json.RawMessage(book.TocJSON))
+		_, tocJSON, err := pd.DB.GetBookContentContext(r.Context(), id)
+		if err != nil {
+			slog.Error("load book toc failed", "book", id, "err", err)
+			writeError(w, http.StatusInternalServerError, "db_error", "failed to load toc")
+			return
+		}
+
+		writeJSON(w, http.StatusOK, json.RawMessage(tocJSON))
 	}
 }
 

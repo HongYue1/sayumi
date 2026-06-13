@@ -3,10 +3,13 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"sayumi/internal/epub"
 )
 
 // seedBooks inserts n books through the production insert path so read
@@ -22,6 +25,63 @@ func seedBooks(tb testing.TB, db *DB, n int) {
 		)
 		if _, err := db.InsertBookContext(ctx, book); err != nil {
 			tb.Fatalf("seed book %d: %v", i, err)
+		}
+	}
+}
+
+// seedBooksWithSpines inserts n books each carrying a realistic spine
+// (spineLen entries) so cache-construction benchmarks reflect production-sized
+// JSON rather than the empty "[]" spines of seedBooks.
+func seedBooksWithSpines(tb testing.TB, db *DB, n, spineLen int) {
+	tb.Helper()
+	ctx := context.Background()
+
+	spine := make([]epub.SpineEntry, spineLen)
+	for i := range spine {
+		spine[i] = epub.SpineEntry{
+			Href:      fmt.Sprintf("text/chapter%04d.xhtml", i),
+			ID:        fmt.Sprintf("chap%04d", i),
+			MediaType: "application/xhtml+xml",
+			Linear:    true,
+		}
+	}
+	raw, err := json.Marshal(spine)
+	if err != nil {
+		tb.Fatalf("marshal spine: %v", err)
+	}
+	spineJSON := string(raw)
+
+	for i := range n {
+		book := sampleBook(
+			fmt.Sprintf("id%04d", i),
+			fmt.Sprintf("hash-%04d", i),
+			fmt.Sprintf("/lib/book%04d.epub", i),
+		)
+		book.SpineJSON = spineJSON
+		book.ChapterCount = spineLen
+		if _, err := db.InsertBookContext(ctx, book); err != nil {
+			tb.Fatalf("seed book %d: %v", i, err)
+		}
+	}
+}
+
+// BenchmarkNewBookCache measures profile-open cache construction over a
+// realistic library (books carry full spines). Because spine parsing is now
+// lazy, this should track ListBooksContext cost and NOT the former per-book
+// unmarshal that dominated cold start.
+func BenchmarkNewBookCache(b *testing.B) {
+	db, err := Open(b.TempDir())
+	if err != nil {
+		b.Fatalf("open: %v", err)
+	}
+	b.Cleanup(func() { _ = db.Close() })
+	seedBooksWithSpines(b, db, 200, 120)
+	ctx := context.Background()
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := NewBookCache(ctx, db); err != nil {
+			b.Fatalf("new book cache: %v", err)
 		}
 	}
 }

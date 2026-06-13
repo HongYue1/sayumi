@@ -418,6 +418,26 @@ func loginHandler(deps *Dependencies) http.HandlerFunc {
 
 		deps.throttle.recordSuccess(key)
 		setCookie(w, r, token, sess)
+
+		// Warm the profile in the background so the first authenticated request
+		// (the library page load) doesn't pay the cold open cost: DB open +
+		// library scan + book-cache build. The warm-up must outlive this handler,
+		// so it runs on a goroutine with a context detached from the request
+		// (WithoutCancel) but bounded by a timeout so a stuck scan can't leak the
+		// goroutine. ProfileMgr.Get caches the opened profile and returns a ref we
+		// must release; errors are non-fatal because the real request will
+		// re-attempt the open and surface any genuine failure.
+		warmCtx, cancelWarm := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Second)
+		go func() {
+			defer cancelWarm()
+			pd, err := deps.ProfileMgr.Get(warmCtx, body.Name)
+			if err != nil {
+				slog.Debug("profile warm-up failed", "profile", body.Name, "err", err)
+				return
+			}
+			pd.release()
+		}()
+
 		writeJSON(w, http.StatusOK, map[string]string{"profile": body.Name})
 	}
 }

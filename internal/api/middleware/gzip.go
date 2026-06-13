@@ -142,6 +142,15 @@ func copyBuffered(dst io.Writer, src io.Reader) (int64, error) {
 	return io.CopyBuffer(dst, src, *bufPtr)
 }
 
+// minGzipSize is the response-body floor below which we skip gzip entirely.
+// Compressing a tiny body (e.g. a 31-byte JSON response) only adds ~18 bytes of
+// gzip framing plus CPU and can make the response larger. 1400 bytes is roughly
+// the payload of a single ~1500-byte TCP segment, so a response at or below it
+// already fits in one packet and gains little from being compressed; it also
+// matches the de-facto Go default (nytimes/gziphandler's DefaultMinSize) and its
+// TCP-segment rationale.
+const minGzipSize = 1400
+
 type gzipResponseWriter struct {
 	http.ResponseWriter
 	gz          *gzip.Writer
@@ -150,6 +159,12 @@ type gzipResponseWriter struct {
 	compress    bool
 	decided     bool
 	wroteHeader bool
+
+	// pending buffers the first body bytes of a compression-eligible response
+	// until we know whether it crosses minGzipSize. buffering is true while we are
+	// accumulating into pending and have not yet committed to a decision.
+	pending   []byte
+	buffering bool
 }
 
 func (g *gzipResponseWriter) WriteHeader(code int) {
@@ -167,31 +182,94 @@ func (g *gzipResponseWriter) WriteHeader(code int) {
 	}
 }
 
+// eligible reports whether the response may be gzip-compressed based on its
+// headers (set by the handler before the first write).
+func (g *gzipResponseWriter) eligible() bool {
+	header := g.Header()
+	contentType := header.Get("Content-Type")
+	return contentType != "" &&
+		header.Get("Content-Encoding") == "" &&
+		!cacheControlNoTransform(header.Get("Cache-Control")) &&
+		compressibleType(contentType)
+}
+
+// writeHeaderOnce flushes the status line to the underlying writer exactly once.
+func (g *gzipResponseWriter) writeHeaderOnce() {
+	if g.headerSent {
+		return
+	}
+	statusCode := g.statusCode
+	if statusCode == 0 {
+		statusCode = http.StatusOK
+	}
+	g.ResponseWriter.WriteHeader(statusCode)
+	g.headerSent = true
+}
+
 func (g *gzipResponseWriter) decide() {
 	if g.decided {
 		return
 	}
 	g.decided = true
+	g.buffering = false
 
-	header := g.Header()
-	contentType := header.Get("Content-Type")
-	g.compress = contentType != "" &&
-		header.Get("Content-Encoding") == "" &&
-		!cacheControlNoTransform(header.Get("Cache-Control")) &&
-		compressibleType(contentType)
-
+	g.compress = g.eligible()
 	if g.compress {
+		header := g.Header()
 		header.Del("Content-Length")
 		header.Set("Content-Encoding", "gzip")
 	}
+	g.writeHeaderOnce()
+}
 
-	if !g.headerSent {
-		statusCode := g.statusCode
-		if statusCode == 0 {
-			statusCode = http.StatusOK
-		}
-		g.ResponseWriter.WriteHeader(statusCode)
-		g.headerSent = true
+// commitCompressed commits a buffered, compression-eligible response to gzip: it
+// sets the encoding headers, flushes the status line, and writes any pending
+// bytes through the gzip writer.
+func (g *gzipResponseWriter) commitCompressed() error {
+	g.decided = true
+	g.buffering = false
+	g.compress = true
+
+	header := g.Header()
+	header.Del("Content-Length")
+	header.Set("Content-Encoding", "gzip")
+	g.writeHeaderOnce()
+	g.ensureWriter()
+
+	if len(g.pending) > 0 {
+		_, err := g.gz.Write(g.pending)
+		g.pending = nil
+		return err
+	}
+	return nil
+}
+
+// flushPending emits a buffered response that ended below minGzipSize: it is
+// written uncompressed, with an explicit Content-Length since the full body is
+// known.
+func (g *gzipResponseWriter) flushPending() {
+	g.decided = true
+	g.buffering = false
+	g.compress = false
+
+	if g.Header().Get("Content-Length") == "" {
+		g.Header().Set("Content-Length", strconv.Itoa(len(g.pending)))
+	}
+	g.writeHeaderOnce()
+	if len(g.pending) > 0 {
+		_, _ = g.ResponseWriter.Write(g.pending)
+		g.pending = nil
+	}
+}
+
+// finish settles a response after the handler returns: flush a still-buffered
+// small body uncompressed, or make a decision for a handler that wrote nothing.
+func (g *gzipResponseWriter) finish() {
+	switch {
+	case g.buffering:
+		g.flushPending()
+	case !g.headerSent:
+		g.decide()
 	}
 }
 
@@ -205,22 +283,47 @@ func (g *gzipResponseWriter) ensureWriter() {
 }
 
 func (g *gzipResponseWriter) Write(data []byte) (int, error) {
-	if !g.decided {
-		if g.Header().Get("Content-Type") == "" {
-			g.Header().Set("Content-Type", http.DetectContentType(data))
+	if g.decided {
+		if !g.compress {
+			return g.ResponseWriter.Write(data)
 		}
-		g.decide()
+		g.ensureWriter()
+		return g.gz.Write(data)
 	}
 
-	if !g.compress {
+	if g.Header().Get("Content-Type") == "" {
+		g.Header().Set("Content-Type", http.DetectContentType(data))
+	}
+
+	// Not compressible at all: decide now and stream straight through.
+	if !g.eligible() {
+		g.decide()
 		return g.ResponseWriter.Write(data)
 	}
 
-	g.ensureWriter()
-	return g.gz.Write(data)
+	// Compressible: buffer until we cross the size floor (or the response ends
+	// via finish/Flush). This defers the compress/skip decision until the body is
+	// known to be worth compressing. We report the full length as written so the
+	// caller (and io.Copy) sees no short write.
+	g.buffering = true
+	g.pending = append(g.pending, data...)
+	if len(g.pending) >= minGzipSize {
+		if err := g.commitCompressed(); err != nil {
+			return 0, err
+		}
+	}
+	return len(data), nil
 }
 
 func (g *gzipResponseWriter) ReadFrom(reader io.Reader) (int64, error) {
+	// If a prior Write left bytes buffered, commit them (a ReadFrom stream implies
+	// a body large enough to compress) before streaming the rest.
+	if g.buffering {
+		if err := g.commitCompressed(); err != nil {
+			return 0, err
+		}
+	}
+
 	if !g.decided && g.Header().Get("Content-Type") == "" {
 		return copyBuffered(g, reader)
 	}
@@ -241,7 +344,12 @@ func (g *gzipResponseWriter) ReadFrom(reader io.Reader) (int64, error) {
 }
 
 func (g *gzipResponseWriter) Flush() {
-	if !g.decided {
+	// An explicit flush means the handler wants bytes on the wire now, so a
+	// still-buffered eligible response commits to compression rather than waiting
+	// to cross the size floor.
+	if g.buffering {
+		_ = g.commitCompressed()
+	} else if !g.decided {
 		g.decide()
 	}
 	if g.gz != nil {
@@ -295,8 +403,6 @@ func Gzip(next http.Handler) http.Handler {
 
 		next.ServeHTTP(grw, r)
 
-		if !grw.headerSent {
-			grw.decide()
-		}
+		grw.finish()
 	})
 }
