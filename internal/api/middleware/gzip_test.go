@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // serveGzip runs h behind the Gzip middleware for a GET / request with the given
@@ -90,5 +91,55 @@ func TestGzipSkipsWhenNotAccepted(t *testing.T) {
 	}
 	if len(got) != len(body) {
 		t.Errorf("body len = %d, want %d", len(got), len(body))
+	}
+}
+
+// plainReader wraps an io.Reader and exposes only Read, deliberately hiding any
+// io.WriterTo the underlying reader implements. This forces io.Copy into the
+// gzip writer to take the io.ReaderFrom path — the exact shape that previously
+// drove gzipResponseWriter.ReadFrom into infinite self-recursion when no
+// Content-Type was set.
+type plainReader struct{ r io.Reader }
+
+func (p plainReader) Read(b []byte) (int, error) { return p.r.Read(b) }
+
+// TestGzipReadFromWithoutContentType streams a body via io.Copy (which
+// dispatches to ReadFrom) with no Content-Type set. It must complete and return
+// the bytes intact rather than recursing into ReadFrom forever.
+func TestGzipReadFromWithoutContentType(t *testing.T) {
+	body := strings.Repeat("sayumi ", 500) // over minGzipSize once sniffed
+
+	done := make(chan *http.Response, 1)
+	go func() {
+		done <- serveGzip(t, "gzip", func(w http.ResponseWriter, _ *http.Request) {
+			// No Content-Type set: forces the sniffing path in ReadFrom.
+			_, _ = io.Copy(w, plainReader{r: strings.NewReader(body)})
+		})
+	}()
+
+	var resp *http.Response
+	select {
+	case resp = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ReadFrom did not complete: likely infinite-recursion regression")
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	reader := io.Reader(resp.Body)
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		gr, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			t.Fatalf("gzip reader: %v", err)
+		}
+		defer func() { _ = gr.Close() }()
+		reader = gr
+	}
+
+	got, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if string(got) != body {
+		t.Errorf("body round-trip mismatch (len got=%d want=%d)", len(got), len(body))
 	}
 }

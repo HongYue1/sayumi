@@ -325,7 +325,12 @@ func (g *gzipResponseWriter) ReadFrom(reader io.Reader) (int64, error) {
 	}
 
 	if !g.decided && g.Header().Get("Content-Type") == "" {
-		return copyBuffered(g, reader)
+		// Route through Write (not io.Copy) so content-type sniffing and the
+		// buffering decision run. copyBuffered(g, …) cannot be used here: g
+		// implements io.ReaderFrom, so io.CopyBuffer would re-dispatch into this
+		// same ReadFrom and recurse indefinitely for any reader that does not
+		// implement io.WriterTo.
+		return g.writeFrom(reader)
 	}
 
 	if !g.decided {
@@ -341,6 +346,35 @@ func (g *gzipResponseWriter) ReadFrom(reader io.Reader) (int64, error) {
 
 	g.ensureWriter()
 	return copyBuffered(g.gz, reader)
+}
+
+// writeFrom drains reader into g via Write using a pooled buffer. It exists so
+// ReadFrom can run the content-type-sniffing path without calling io.Copy,
+// which would re-enter ReadFrom (g is an io.ReaderFrom) and recurse forever for
+// readers lacking io.WriterTo. Write reports the full slice length on each call,
+// so the returned total matches the bytes consumed from reader.
+func (g *gzipResponseWriter) writeFrom(reader io.Reader) (int64, error) {
+	bufPtr := copyBufPool.Get().(*[]byte)
+	defer copyBufPool.Put(bufPtr)
+	buf := *bufPtr
+
+	var total int64
+	for {
+		n, readErr := reader.Read(buf)
+		if n > 0 {
+			written, writeErr := g.Write(buf[:n])
+			total += int64(written)
+			if writeErr != nil {
+				return total, writeErr
+			}
+		}
+		if readErr == io.EOF {
+			return total, nil
+		}
+		if readErr != nil {
+			return total, readErr
+		}
+	}
 }
 
 func (g *gzipResponseWriter) Flush() {
