@@ -349,6 +349,12 @@ func rewriteCSSURLs(cssText, cssDir, resourceBase, resourceToken string) string 
 
 		inner := strings.TrimSpace(match[paren+1 : len(match)-1])
 		rawURL := strings.Trim(inner, "'\"")
+		if isExternalResourceReference(rawURL) {
+			// Neutralize remote refs so opening a book can't beacon reading
+			// activity to an external origin. about:invalid is the CSS-defined
+			// invalid URL that is guaranteed never to load.
+			return "url(about:invalid)"
+		}
 		if !isRewritableResourceReference(rawURL) {
 			return match
 		}
@@ -371,6 +377,11 @@ func rewriteCSSURLs(cssText, cssDir, resourceBase, resourceToken string) string 
 			return match
 		}
 		rawURL := subs[3]
+		if isExternalResourceReference(rawURL) {
+			// Drop the remote target of an @import "…" rule while keeping the
+			// rule syntactically valid; about:invalid never loads.
+			return subs[1] + subs[2] + "about:invalid" + subs[4]
+		}
 		if !isRewritableResourceReference(rawURL) {
 			return match
 		}
@@ -515,6 +526,31 @@ func buildResourceURL(baseDir, resourceBase, rawRef, resourceToken string) (stri
 	}
 
 	return builder.String(), true
+}
+
+// isExternalResourceReference reports whether rawRef points at a remote origin
+// that must not be fetched while rendering a chapter. EPUBs are local content,
+// so a stylesheet, @font-face, or @import that pulls from http(s):// or a
+// protocol-relative //host URL would let a crafted book beacon reading activity
+// (which book, when, which page) to an external server. The reader iframe's CSP
+// permits style-src/font-src/img-src from any origin, so this is the layer that
+// actually blocks the leak. data: and blob: are inline / same-document and are
+// left intact — EPUBs legitimately embed base64 fonts and images via data:.
+func isExternalResourceReference(rawRef string) bool {
+	trimmed := strings.TrimSpace(rawRef)
+	if strings.HasPrefix(trimmed, "//") {
+		return true
+	}
+	if !hasAbsoluteURIScheme(trimmed) {
+		return false
+	}
+	scheme := strings.ToLower(trimmed[:strings.IndexByte(trimmed, ':')])
+	switch scheme {
+	case "data", "blob":
+		return false
+	default:
+		return true
+	}
 }
 
 func isRewritableResourceReference(rawRef string) bool {

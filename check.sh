@@ -81,7 +81,16 @@ fi
 
 # ── 5. go test ────────────────────────────────────────────────────────────────
 step "5. go test"
-test_out="$(go test ./... 2>&1)"; test_exit=$?
+# The race detector requires cgo (CGO_ENABLED=1 + a C compiler). Sayumi
+# otherwise builds CGO-free (modernc sqlite), so fall back to a plain run when
+# cgo is unavailable rather than failing on a CGO-disabled CI/fresh machine.
+race_flag=""
+if [[ "$(go env CGO_ENABLED)" == "1" ]] && { have cc || have gcc || have clang; }; then
+  race_flag="-race"
+else
+  warn "race detector skipped (cgo unavailable); running plain go test"
+fi
+test_out="$(go test $race_flag ./... 2>&1)"; test_exit=$?
 echo "$test_out" | sed 's/^/   /'
 [[ $test_exit -eq 0 ]] && ok "tests passed" || fail "tests failed"
 

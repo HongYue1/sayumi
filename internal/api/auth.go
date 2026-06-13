@@ -358,6 +358,20 @@ func listProfilesHandler(deps *Dependencies) http.HandlerFunc {
 	}
 }
 
+// dummyPINHash is a valid bcrypt hash computed once on first use. The login
+// handler runs a throwaway CompareHashAndPassword against it on the
+// profile-not-found path so a non-existent profile costs roughly the same
+// wall-clock time as an existing PIN-protected one. Without this, response
+// latency leaks whether a profile name exists (username enumeration). The
+// comparison result is intentionally discarded.
+var dummyPINHash = sync.OnceValue(func() []byte {
+	h, err := bcrypt.GenerateFromPassword([]byte("sayumi timing equalizer"), bcrypt.DefaultCost)
+	if err != nil {
+		return nil
+	}
+	return h
+})
+
 func loginHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -385,6 +399,12 @@ func loginHandler(deps *Dependencies) http.HandlerFunc {
 
 		profile, err := deps.ProfilesDB.GetProfileContext(r.Context(), body.Name)
 		if errors.Is(err, sql.ErrNoRows) {
+			// Equalize timing with the existing-profile path below (which runs
+			// bcrypt) so response latency can't be used to enumerate valid
+			// profile names. The result is intentionally discarded.
+			if h := dummyPINHash(); h != nil {
+				_ = bcrypt.CompareHashAndPassword(h, []byte(body.Pin))
+			}
 			deps.throttle.recordFailure(key)
 			writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid name or PIN")
 			return
