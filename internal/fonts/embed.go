@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -218,20 +217,4 @@ func writePlainStatus(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
 	_, _ = w.Write([]byte(message + "\n"))
-}
-
-type FontInfo struct {
-	Name string `json:"name"`
-	Size int64  `json:"size"`
-}
-
-func ListFonts() []FontInfo {
-	fonts := make([]FontInfo, 0, len(fontData))
-	for name, data := range fontData {
-		fonts = append(fonts, FontInfo{Name: name, Size: int64(len(data))})
-	}
-	slices.SortFunc(fonts, func(a, b FontInfo) int {
-		return strings.Compare(a.Name, b.Name)
-	})
-	return fonts
 }
