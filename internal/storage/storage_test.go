@@ -73,9 +73,9 @@ func TestInsertBookIsIdempotentByHash(t *testing.T) {
 		t.Errorf("duplicate-hash insert canonical id = %q, want id1", second)
 	}
 
-	books, err := db.ListBooksContext(ctx)
+	books, err := db.ListBookSummariesContext(ctx)
 	if err != nil {
-		t.Fatalf("list books: %v", err)
+		t.Fatalf("list book summaries: %v", err)
 	}
 	if len(books) != 1 {
 		t.Errorf("book count = %d, want 1", len(books))
@@ -91,9 +91,9 @@ func TestInsertBookEmptyHashDoesNotCollide(t *testing.T) {
 	mustInsertBook(t, db, sampleBook("a", "", "/lib/a.epub"))
 	mustInsertBook(t, db, sampleBook("b", "", "/lib/b.epub"))
 
-	books, err := db.ListBooksContext(ctx)
+	books, err := db.ListBookSummariesContext(ctx)
 	if err != nil {
-		t.Fatalf("list books: %v", err)
+		t.Fatalf("list book summaries: %v", err)
 	}
 	if len(books) != 2 {
 		t.Errorf("book count = %d, want 2", len(books))

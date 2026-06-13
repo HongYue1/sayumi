@@ -67,8 +67,8 @@ func seedBooksWithSpines(tb testing.TB, db *DB, n, spineLen int) {
 
 // BenchmarkNewBookCache measures profile-open cache construction over a
 // realistic library (books carry full spines). Because spine parsing is now
-// lazy, this should track ListBooksContext cost and NOT the former per-book
-// unmarshal that dominated cold start.
+// lazy, this should track ListBookSummariesContext cost and NOT the former
+// per-book unmarshal that dominated cold start.
 func BenchmarkNewBookCache(b *testing.B) {
 	db, err := Open(b.TempDir())
 	if err != nil {
@@ -86,7 +86,7 @@ func BenchmarkNewBookCache(b *testing.B) {
 	}
 }
 
-func BenchmarkListBooks(b *testing.B) {
+func BenchmarkListBookSummaries(b *testing.B) {
 	db, err := Open(b.TempDir())
 	if err != nil {
 		b.Fatalf("open: %v", err)
@@ -97,8 +97,8 @@ func BenchmarkListBooks(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := db.ListBooksContext(ctx); err != nil {
-			b.Fatalf("list books: %v", err)
+		if _, err := db.ListBookSummariesContext(ctx); err != nil {
+			b.Fatalf("list book summaries: %v", err)
 		}
 	}
 }

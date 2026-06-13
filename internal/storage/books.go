@@ -34,37 +34,6 @@ type BookRecord struct {
 	TocJSON   string
 }
 
-func (db *DB) ListBooksContext(ctx context.Context) (out []BookRecord, err error) {
-	rows, err := db.QueryContext(ctx, `
-		SELECT id, title, author, language, publisher, description, pub_date, isbn,
-		       file_path, file_hash, file_size, cover_path, has_cover,
-		       spine_json, toc_json, direction, chapter_count,
-		       created_at, updated_at
-		FROM books
-		ORDER BY title COLLATE NOCASE ASC
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("list books: %w", err)
-	}
-	defer func() {
-		if cerr := rows.Close(); cerr != nil && err == nil {
-			err = fmt.Errorf("close rows: %w", cerr)
-		}
-	}()
-
-	for rows.Next() {
-		book, scanErr := scanBook(rows)
-		if scanErr != nil {
-			return nil, fmt.Errorf("scan book: %w", scanErr)
-		}
-		out = append(out, book)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate books: %w", err)
-	}
-	return out, nil
-}
-
 // ListBookSummariesContext returns every book's summary metadata, deliberately
 // omitting the heavy spine_json / toc_json columns. NewBookCache uses this to
 // build the library list: a spine/toc is only needed when a book is actually

@@ -45,6 +45,15 @@ func Open(libraryPath string) (*DB, error) {
 	sqlDB.SetMaxOpenConns(maxReadPoolConns)
 	sqlDB.SetMaxIdleConns(maxReadPoolConns)
 
+	// SetConnMaxLifetime / SetConnMaxIdleTime are deliberately left unset. Those
+	// knobs exist to recycle connections to a networked database server that can
+	// drop or stale them mid-process; this pool only ever talks to a local,
+	// embedded SQLite file that never disappears under us. Capping connection
+	// lifetime would instead periodically discard the connections pre-warmed just
+	// below and force the one-time _pragma DSN setup (WAL, 256 MB mmap, 32 MB
+	// cache) to run again on the next interactive request -- a pure regression
+	// for an always-local DB -- so they stay at their no-expiry default.
+
 	db := &DB{DB: sqlDB}
 	if err := db.migrate(); err != nil {
 		_ = sqlDB.Close()
