@@ -113,7 +113,7 @@ func uploadBookHandler(_ *Dependencies) http.HandlerFunc {
 
 			book, err := pd.DB.GetBookContext(r.Context(), existingID)
 			if err != nil {
-				slog.Error("load duplicate book failed", "filename", header.Filename, "existingID", existingID, "err", err)
+				slog.Error("load duplicate book failed", "filename", header.Filename, "existing_id", existingID, "err", err)
 				writeError(w, http.StatusInternalServerError, "db_error", "failed to load duplicate book")
 				return
 			}
@@ -177,7 +177,7 @@ func uploadBookHandler(_ *Dependencies) http.HandlerFunc {
 
 		book, err := pd.DB.GetBookContext(r.Context(), bookID)
 		if err != nil {
-			slog.Error("retrieve imported book failed", "filename", header.Filename, "bookID", bookID, "err", err)
+			slog.Error("retrieve imported book failed", "filename", header.Filename, "book_id", bookID, "err", err)
 			writeError(w, http.StatusInternalServerError, "db_error", "book imported but failed to retrieve")
 			return
 		}
@@ -207,7 +207,7 @@ func validateEPUB(filePath string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("file is not a valid EPUB (missing container.xml)")
+	return errors.New("file is not a valid EPUB (missing container.xml)")
 }
 
 func sanitizeFilename(name string) string {

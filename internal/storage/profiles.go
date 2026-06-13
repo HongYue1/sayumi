@@ -45,7 +45,8 @@ func OpenProfilesDB(libraryRoot string) (*ProfilesDB, error) {
 }
 
 func (p *ProfilesDB) migrate() error {
-	_, err := p.db.Exec(`
+	// Runs once at startup; use a background context (see storage.migrate).
+	_, err := p.db.ExecContext(context.Background(), `
 		CREATE TABLE IF NOT EXISTS profiles (
 			name       TEXT PRIMARY KEY,
 			pin_hash   TEXT NOT NULL DEFAULT '',

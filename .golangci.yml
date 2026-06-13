@@ -1,8 +1,14 @@
 # golangci-lint v2 config (matches installed 2.12.2).
+#
 # Builds on the default "standard" set (errcheck, govet, ineffassign,
-# staticcheck, unused) with a few high-signal, low-noise extras. Formatting is
-# intentionally left to check.sh (gofumpt + goimports) to avoid version skew
-# between the standalone formatters and golangci-lint's bundled copies.
+# staticcheck, unused). Formatting is intentionally left to check.sh
+# (gofumpt + goimports) to avoid version skew between the standalone
+# formatters and golangci-lint's bundled copies.
+#
+# Linters are grouped by intent below. Everything in `enable` is expected to be
+# either already-clean on this codebase or auto-fixable via `make fix`. The
+# commented "opt-in" block at the bottom lists higher-value-but-noisier linters
+# to turn on deliberately, one at a time.
 version: "2"
 
 run:
@@ -11,17 +17,66 @@ run:
 linters:
   default: standard
   enable:
-    - bodyclose
-    - gocritic
-    - misspell
-    - nilerr
-    - unconvert
+    # --- existing ---
+    - bodyclose # HTTP response bodies are closed
+    - gocritic # bug/perf/style diagnostics
+    - misspell # common English misspellings
+    - nilerr # don't return nil after checking err != nil
+    - unconvert # remove redundant type conversions
+
+    # --- correctness: highest signal for this stack ---
+    - sqlclosecheck # sql.Rows / sql.Stmt are always closed (raw database/sql)
+    - rowserrcheck # rows.Err() is checked after iterating
+    - errorlint # Go 1.13 wrapping: errors.Is/As + %w, no bare == on errors
+    - makezero # no append to a non-zero-length make()'d slice
+    - nilnil # no simultaneous (nil, nil) return
+    - nilnesserr # return the error you actually checked
+    - predeclared # don't shadow builtins (len, cap, error, min, max, ...)
+    - noctx # no HTTP/SQL calls without a context.Context
+
+    # --- logging: you use log/slog throughout ---
+    - sloglint # consistent slog usage
+
+    # --- performance ---
+    - perfsprint # fmt.Sprintf -> strconv / concat where it's a clear win
+    - usestdlibvars # http.StatusOK, time.RFC3339, etc. instead of literals
+    - prealloc # pre-size slices grown in a loop
+
+    # --- modernization (you're on Go 1.26) ---
+    - copyloopvar # drop redundant `x := x` loop copies (Go 1.22+ semantics)
+    - intrange # `for i := range n` instead of C-style counting loops
+    - fatcontext # no context re-derivation inside loops
+
   settings:
     misspell:
       locale: US
+    sloglint:
+      no-mixed-args: true # never mix key-value pairs and slog.Attr in one call
+      key-naming-case: snake # keys like "db_open", "book_cache" stay consistent
+    perfsprint:
+      strconcat: false # don't push a+b+c rewrites; only flag the clear wins
+
   exclusions:
     generated: lax
     rules:
+      # Tests legitimately open raw sql.DB handles, call Exec without a context,
+      # and build fixture strings with Sprintf. Keep those linters for prod code
+      # only so the test files don't fight the helpers.
       - path: _test\.go
         linters:
           - bodyclose
+          - noctx
+          - perfsprint
+
+# ---------------------------------------------------------------------------
+# Opt-in candidates (enable one at a time; each may surface real findings):
+#
+#   - gosec        # security scanner. High value (auth, uploads, path handling)
+#                  # but noisy; pair with a `settings.gosec.excludes` list.
+#   - contextcheck # enforces inherited context. Will flag intentional detached
+#                  # background contexts (e.g. context.WithoutCancel for warm-up)
+#                  # -- annotate those with //nolint:contextcheck.
+#   - unparam      # unused function parameters.
+#   - depguard     # enforce your "no new dependencies" rule with an allow-list,
+#                  # e.g. only stdlib + golang.org/x/* + modernc.org/sqlite.
+# ---------------------------------------------------------------------------

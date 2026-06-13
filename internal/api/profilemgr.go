@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"sayumi/internal/epub"
 	"sayumi/internal/library"
@@ -147,22 +148,40 @@ func (pm *ProfileManager) openProfile(ctx context.Context, profileName string) (
 		return nil, fmt.Errorf("profile dir %q is not a directory", profileName)
 	}
 
+	// Diagnostics: time each stage of profile open so the ~60 ms first-request
+	// latency can be attributed to DB open, library scan, or book-cache build.
+	// These lines are Debug-level and only surface under --debug.
+	openStart := time.Now()
 	db, err := storage.Open(libPath)
 	if err != nil {
 		return nil, fmt.Errorf("open db for %q: %w", profileName, err)
 	}
+	dbOpenDur := time.Since(openStart)
 
+	scanStart := time.Now()
 	scanner := library.NewScanner(libPath, db)
 	if _, err := scanner.ScanNow(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("scan library for %q: %w", profileName, err)
 	}
+	scanDur := time.Since(scanStart)
 
+	cacheStart := time.Now()
 	books, err := storage.NewBookCache(ctx, db)
 	if err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("build book cache for %q: %w", profileName, err)
 	}
+	cacheDur := time.Since(cacheStart)
+
+	slog.Debug(
+		"profile open timing",
+		"profile", profileName,
+		"db_open", dbOpenDur,
+		"scan", scanDur,
+		"book_cache", cacheDur,
+		"total", time.Since(openStart),
+	)
 
 	return newProfileDeps(db, books, scanner, libPath), nil
 }

@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"path"
 	"slices"
@@ -110,7 +111,7 @@ func findOPFPath(zr *zip.Reader) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("no rootfile found in container.xml")
+	return "", errors.New("no rootfile found in container.xml")
 }
 
 type opfPackage struct {

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -22,25 +23,8 @@ func Open(libraryPath string) (*DB, error) {
 	}
 
 	dbPath := filepath.Join(sayumiDir, "sayumi.db")
-	// modernc.org/sqlite does NOT understand mattn/go-sqlite3 "_param=" DSN
-	// keys; it silently ignores unknown query parameters. The previous
-	// "_journal_mode=WAL&_foreign_keys=on&..." form therefore left every pragma
-	// at its default (journal_mode=delete, foreign_keys=OFF, busy_timeout=0).
-	// modernc instead executes any "_pragma=" directive on every connection it
-	// opens, which also keeps the per-connection pragmas (foreign_keys,
-	// busy_timeout) correct should the pool ever be widened past one conn.
-	dsn := dbPath +
-		"?_pragma=journal_mode(WAL)" +
-		"&_pragma=synchronous(NORMAL)" +
-		"&_pragma=cache_size(-32000)" +
-		"&_pragma=busy_timeout(5000)" +
-		"&_pragma=foreign_keys(1)" +
-		// 256 MB mmap window per profile DB. On a typical desktop this is
-		// virtual address space only (no RSS until pages are read).
-		// On 32-bit hosts or constrained environments this should be lowered.
-		"&_pragma=mmap_size(268435456)"
 
-	sqlDB, err := sql.Open("sqlite", dsn)
+	sqlDB, err := sql.Open("sqlite", dataSourceName(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
@@ -56,8 +40,32 @@ func Open(libraryPath string) (*DB, error) {
 	return db, nil
 }
 
+// dataSourceName builds the modernc.org/sqlite DSN for a profile database.
+//
+// modernc.org/sqlite does NOT understand mattn/go-sqlite3 "_param=" DSN keys;
+// it silently ignores unknown query parameters. The previous
+// "_journal_mode=WAL&_foreign_keys=on&..." form therefore left every pragma at
+// its default (journal_mode=delete, foreign_keys=OFF, busy_timeout=0). modernc
+// instead executes any "_pragma=" directive on every connection it opens, which
+// also keeps the per-connection pragmas (foreign_keys, busy_timeout) correct
+// should the pool ever be widened past one conn.
+func dataSourceName(dbPath string) string {
+	return dbPath +
+		"?_pragma=journal_mode(WAL)" +
+		"&_pragma=synchronous(NORMAL)" +
+		"&_pragma=cache_size(-32000)" +
+		"&_pragma=busy_timeout(5000)" +
+		"&_pragma=foreign_keys(1)" +
+		// 256 MB mmap window per profile DB. On a typical desktop this is
+		// virtual address space only (no RSS until pages are read).
+		// On 32-bit hosts or constrained environments this should be lowered.
+		"&_pragma=mmap_size(268435456)"
+}
+
 func (db *DB) migrate() error {
-	if _, err := db.Exec(schema); err != nil {
+	// Migrations run once at startup and must complete atomically, so they use
+	// context.Background() rather than a cancelable request context.
+	if _, err := db.ExecContext(context.Background(), schema); err != nil {
 		return fmt.Errorf("execute schema: %w", err)
 	}
 	// Additive column migrations for databases created before the column existed.
@@ -84,7 +92,7 @@ var columnMigrations = []columnMigration{
 // addColumnIfMissing runs ALTER TABLE ... ADD COLUMN only when the column is
 // absent, so the migration is safe to run on every startup.
 func (db *DB) addColumnIfMissing(table, column, definition string) error {
-	rows, err := db.Query("SELECT name FROM pragma_table_info(?)", table)
+	rows, err := db.QueryContext(context.Background(), "SELECT name FROM pragma_table_info(?)", table)
 	if err != nil {
 		return fmt.Errorf("inspect columns: %w", err)
 	}
@@ -104,7 +112,7 @@ func (db *DB) addColumnIfMissing(table, column, definition string) error {
 	}
 
 	stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition)
-	if _, err := db.Exec(stmt); err != nil {
+	if _, err := db.ExecContext(context.Background(), stmt); err != nil {
 		return fmt.Errorf("add column: %w", err)
 	}
 	return nil

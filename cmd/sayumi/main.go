@@ -60,6 +60,10 @@ func main() {
 	network := flag.Bool("network", false, "Allow LAN access (bind to 0.0.0.0)")
 	debugFlag := flag.Bool("debug", false, "Enable verbose debug logging")
 	showVersion := flag.Bool("version", false, "Print version and exit")
+	pprofFlag := flag.Bool("pprof", false, "Expose net/http/pprof on 127.0.0.1:<pprof-port> (diagnostics)")
+	pprofPort := flag.Int("pprof-port", 6060, "Port for the localhost-only pprof debug server")
+	cpuProfile := flag.String("cpuprofile", "", "Write a CPU profile to this file (diagnostics)")
+	traceFile := flag.String("trace", "", "Write an execution trace to this file (diagnostics)")
 	flag.Parse()
 
 	if *showVersion {
@@ -96,6 +100,13 @@ func main() {
 		slog.SetDefault(slog.New(newPrettyHandler(os.Stderr, slog.LevelWarn)))
 		log.SetOutput(io.Discard)
 	}
+
+	// Diagnostics (all no-ops unless the matching flag is set): an optional CPU
+	// profile / execution trace written to a file, and an optional localhost-only
+	// pprof server. See cmd/sayumi/debug.go.
+	stopProfiling := startProfiling(*cpuProfile, *traceFile)
+	defer stopProfiling()
+	startDebugServer(*pprofFlag, *pprofPort)
 
 	profilesDB, err := storage.OpenProfilesDB(absLibRoot)
 	if err != nil {
@@ -204,7 +215,7 @@ func (sm *serverManager) start() error {
 	defer sm.mu.Unlock()
 
 	addr := sm.addr()
-	listener, err := net.Listen("tcp", addr)
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("cannot listen on %s: %w", addr, err)
 	}
@@ -440,7 +451,10 @@ func shouldServeAppShell(urlPath string) bool {
 }
 
 func lanIP() string {
-	conn, err := net.Dial("udp4", "8.8.8.8:80")
+	// Best-effort probe to discover the outbound interface IP (no packets are
+	// sent for UDP). The 2s timeout keeps startup snappy if the network is down.
+	dialer := net.Dialer{Timeout: 2 * time.Second}
+	conn, err := dialer.DialContext(context.Background(), "udp4", "8.8.8.8:80")
 	if err != nil {
 		return ""
 	}
@@ -473,11 +487,11 @@ func openBrowser(url string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url)
+		cmd = exec.CommandContext(context.Background(), "cmd", "/c", "start", url)
 	case "darwin":
-		cmd = exec.Command("open", url)
+		cmd = exec.CommandContext(context.Background(), "open", url)
 	default:
-		cmd = exec.Command("xdg-open", url)
+		cmd = exec.CommandContext(context.Background(), "xdg-open", url)
 	}
 
 	go func() {
@@ -567,7 +581,7 @@ func (sw *statusWriter) Flush() {
 func (sw *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	hijacker, ok := sw.ResponseWriter.(http.Hijacker)
 	if !ok {
-		return nil, nil, fmt.Errorf("response writer does not support hijacking")
+		return nil, nil, errors.New("response writer does not support hijacking")
 	}
 	return hijacker.Hijack()
 }

@@ -116,7 +116,7 @@ func readCoverData(zr *zip.Reader, coverPathInZip string) ([]byte, error) {
 			continue
 		}
 		if file.UncompressedSize64 > uint64(maxCoverBytes) {
-			return nil, fmt.Errorf("cover image too large")
+			return nil, errors.New("cover image too large")
 		}
 
 		reader, err := file.Open()
@@ -130,7 +130,7 @@ func readCoverData(zr *zip.Reader, coverPathInZip string) ([]byte, error) {
 			return nil, fmt.Errorf("read cover: %w", readErr)
 		}
 		if int64(len(data)) > maxCoverBytes {
-			return nil, fmt.Errorf("cover image too large")
+			return nil, errors.New("cover image too large")
 		}
 		if closeErr != nil {
 			return nil, fmt.Errorf("close cover entry: %w", closeErr)

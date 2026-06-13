@@ -287,7 +287,7 @@ func (s *Scanner) ImportFile(ctx context.Context, filePath string, knownHash str
 	if id != "" {
 		return id, nil
 	}
-	return "", fmt.Errorf("book was not imported and could not be found")
+	return "", errors.New("book was not imported and could not be found")
 }
 
 func contentHash(ctx context.Context, filePath string) (hash string, size int64, err error) {

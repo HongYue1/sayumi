@@ -91,7 +91,7 @@ func (c *BookCache) ListSummaries() []BookSummary {
 func asciiToLower(s string) string {
 	// Fast path: scan for the first uppercase ASCII letter.
 	upper := -1
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		if s[i] >= 'A' && s[i] <= 'Z' {
 			upper = i
 			break
