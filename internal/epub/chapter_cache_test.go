@@ -2,6 +2,7 @@ package epub
 
 import (
 	"archive/zip"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,7 +58,7 @@ func TestProcessChapterSharesStylesheetCache(t *testing.T) {
 	defer store.Close()
 	spine := []SpineEntry{{Href: "ch1.xhtml"}, {Href: "ch2.xhtml"}}
 
-	r0, err := ProcessChapter(store, zipPath, spine, 0, "book1", "ltr", "tok123")
+	r0, err := ProcessChapter(context.Background(), store, zipPath, spine, 0, "book1", "ltr", "tok123")
 	if err != nil {
 		t.Fatalf("ProcessChapter(0): %v", err)
 	}
@@ -67,7 +68,7 @@ func TestProcessChapterSharesStylesheetCache(t *testing.T) {
 		t.Fatalf("expected style.css fragment to be cached after first render")
 	}
 
-	r1, err := ProcessChapter(store, zipPath, spine, 1, "book1", "ltr", "tok123")
+	r1, err := ProcessChapter(context.Background(), store, zipPath, spine, 1, "book1", "ltr", "tok123")
 	if err != nil {
 		t.Fatalf("ProcessChapter(1): %v", err)
 	}

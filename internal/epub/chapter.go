@@ -3,6 +3,7 @@ package epub
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -27,6 +28,7 @@ type ChapterResponse struct {
 }
 
 func ProcessChapter(
+	ctx context.Context,
 	store *EPUBStore,
 	filePath string,
 	spine []SpineEntry,
@@ -49,6 +51,10 @@ func ProcessChapter(
 		hrefPath = hrefPath[:idx]
 	}
 
+	if err := ctx.Err(); err != nil {
+		return ChapterResponse{}, err
+	}
+
 	_, index, err := store.OpenIndexed(filePath)
 	if err != nil {
 		return ChapterResponse{}, fmt.Errorf("open epub: %w", err)
@@ -67,6 +73,7 @@ func ProcessChapter(
 	resourceBase := fmt.Sprintf("/api/books/%s/resources", bookID)
 
 	resp, err := processChapterHTML(
+		ctx,
 		rawHTML,
 		chapterDir,
 		resourceBase,
@@ -91,6 +98,7 @@ func ProcessChapter(
 var writingModeRe = regexp.MustCompile(`(?i)writing-mode\s*:\s*(vertical-rl|vertical-lr)`)
 
 func processChapterHTML(
+	ctx context.Context,
 	rawHTML []byte,
 	chapterDir string,
 	resourceBase string,
@@ -101,6 +109,10 @@ func processChapterHTML(
 	filePath string,
 	resourceToken string,
 ) (ChapterResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return ChapterResponse{}, err
+	}
+
 	doc, err := html.Parse(bytes.NewReader(rawHTML))
 	if err != nil {
 		return ChapterResponse{}, fmt.Errorf("parse html: %w", err)
@@ -173,6 +185,10 @@ func processChapterHTML(
 	}
 	if writingMode == "horizontal-tb" && bodyWritingMode != "" {
 		writingMode = bodyWritingMode
+	}
+
+	if err := ctx.Err(); err != nil {
+		return ChapterResponse{}, err
 	}
 
 	bodyHTML, err := extractBodyHTML(bodyNode, doc)

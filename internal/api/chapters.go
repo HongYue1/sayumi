@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -77,6 +79,7 @@ func getChapterHandler(_ *Dependencies) http.HandlerFunc {
 		}
 
 		resp, err := epub.ProcessChapter(
+			r.Context(),
 			pd.Store,
 			book.FilePath,
 			spine,
@@ -86,6 +89,11 @@ func getChapterHandler(_ *Dependencies) http.HandlerFunc {
 			resourceTokenForBook(book.FileHash),
 		)
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				// Client disconnected mid-render; the response is moot and this
+				// is not a server fault, so don't log it as an error.
+				return
+			}
 			slog.Error("process chapter failed", "book", id, "chapter", chapterIndex, "err", err)
 			writeError(w, http.StatusInternalServerError, "process_error", "failed to process chapter")
 			return
