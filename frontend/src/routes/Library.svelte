@@ -22,7 +22,12 @@
   onMount(() => {
     library.load();
     // Reflect the profile's saved theme in the library (not just the reader).
-    settings.load().then(() => applyTheme(settings.value.theme));
+    // Guard the fetch: on failure, apply whatever theme we already have rather
+    // than leaving an unhandled rejection (and a stuck default theme).
+    settings
+      .load()
+      .then(() => applyTheme(settings.value.theme))
+      .catch(() => applyTheme(settings.value.theme));
   });
 
   function openBook(id: string): void {
@@ -96,7 +101,8 @@
         class="search"
         type="search"
         placeholder="Search title or author…"
-        bind:value={library.query}
+        value={library.query}
+        oninput={(e) => library.setQuery(e.currentTarget.value)}
         aria-label="Search library"
       />
 
