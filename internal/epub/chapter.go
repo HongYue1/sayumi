@@ -148,28 +148,31 @@ func processChapterHTML(
 	extractCSS(headNode, chapterDir, resourceBase, index, store, filePath, &cssBuilder, &fontFaceBuilder, resourceToken)
 
 	css := cssBuilder.String()
-	// Head CSS takes priority for writing-mode. EPUBs that instead set it on a
-	// body <style> block or an inline style attribute must still be detected, so
-	// when head CSS doesn't resolve a vertical mode we collect it from the body.
-	// That collection is folded into the URL-rewrite traversal below (wmOut) so
-	// the body subtree is walked once per render instead of twice.
-	var bodyWritingMode string
-	var wmOut *string
+	// Head CSS is the highest-priority writing-mode source. If it sets a
+	// vertical mode we're done and don't need to inspect the body at all.
 	if m := writingModeRe.FindStringSubmatch(css); m != nil {
 		writingMode = strings.ToLower(m[1])
-	} else {
-		wmOut = &bodyWritingMode
 	}
 
+	// Rewrite resource URLs across the body and, in the SAME traversal, detect a
+	// body-level writing-mode (the body's own inline style="…" attribute, any
+	// element's inline style, or a body-embedded <style> block) when head CSS
+	// didn't already specify one. Detection used to be a separate full-subtree
+	// walk (detectWritingModeFromBody); folding it into the rewrite walk removes
+	// one complete DOM traversal per chapter on the cold render path. wmOut is
+	// nil once we already have a mode, so the walk skips the extra checks.
+	var bodyWritingMode string
+	wmOut := &bodyWritingMode
+	if writingMode != "horizontal-tb" {
+		wmOut = nil
+	}
 	if bodyNode != nil {
 		rewriteNodeURLs(bodyNode, chapterDir, resourceBase, resourceToken, wmOut)
-		if wmOut != nil && bodyWritingMode != "" {
-			writingMode = bodyWritingMode
-		}
 	} else {
-		// No <body>: rewrite the whole document and, matching prior behavior,
-		// leave writing-mode at the default.
-		rewriteNodeURLs(doc, chapterDir, resourceBase, resourceToken, nil)
+		rewriteNodeURLs(doc, chapterDir, resourceBase, resourceToken, wmOut)
+	}
+	if writingMode == "horizontal-tb" && bodyWritingMode != "" {
+		writingMode = bodyWritingMode
 	}
 
 	bodyHTML, err := extractBodyHTML(bodyNode, doc)
@@ -369,15 +372,14 @@ func rewriteCSSURLs(cssText, cssDir, resourceBase, resourceToken string) string 
 	return result
 }
 
+// rewriteNodeURLs rewrites in-EPUB resource URLs throughout the subtree. When
+// wmOut is non-nil it also records the first vertical writing-mode it finds in
+// a <style> block or inline style attribute (set *wmOut once, in document
+// order), letting the caller detect a body writing-mode without a second walk.
 func rewriteNodeURLs(n *html.Node, chapterDir, resourceBase, resourceToken string, wmOut *string) {
 	rewriteNodeURLsDepth(n, chapterDir, resourceBase, resourceToken, 0, wmOut)
 }
 
-// rewriteNodeURLsDepth rewrites resource URLs across the subtree and, when wmOut
-// is non-nil and still empty, opportunistically records the first vertical
-// writing-mode found in an inline style attribute or a <style> block. Detection
-// is gated on *wmOut == "" so it stops after the first hit; the rewrite itself
-// always continues. wmOut is nil when head CSS already resolved writing-mode.
 func rewriteNodeURLsDepth(n *html.Node, chapterDir, resourceBase, resourceToken string, depth int, wmOut *string) {
 	if depth > maxSanitizeDepth {
 		return
@@ -385,7 +387,17 @@ func rewriteNodeURLsDepth(n *html.Node, chapterDir, resourceBase, resourceToken 
 
 	if n.Type == html.ElementNode {
 		if n.DataAtom == atom.Style {
-			rewriteStyleElementText(n, chapterDir, resourceBase, resourceToken, wmOut)
+			if wmOut != nil && *wmOut == "" {
+				for c := n.FirstChild; c != nil; c = c.NextSibling {
+					if c.Type == html.TextNode {
+						if m := writingModeRe.FindStringSubmatch(c.Data); m != nil {
+							*wmOut = strings.ToLower(m[1])
+							break
+						}
+					}
+				}
+			}
+			rewriteStyleElementText(n, chapterDir, resourceBase, resourceToken)
 		}
 
 		for i, attr := range n.Attr {
@@ -434,15 +446,10 @@ func rewriteNodeURLsDepth(n *html.Node, chapterDir, resourceBase, resourceToken 
 	}
 }
 
-func rewriteStyleElementText(n *html.Node, chapterDir, resourceBase, resourceToken string, wmOut *string) {
+func rewriteStyleElementText(n *html.Node, chapterDir, resourceBase, resourceToken string) {
 	for child := n.FirstChild; child != nil; child = child.NextSibling {
 		if child.Type != html.TextNode {
 			continue
-		}
-		if wmOut != nil && *wmOut == "" {
-			if m := writingModeRe.FindStringSubmatch(child.Data); m != nil {
-				*wmOut = strings.ToLower(m[1])
-			}
 		}
 		child.Data = rewriteCSSURLs(child.Data, chapterDir, resourceBase, resourceToken)
 	}
