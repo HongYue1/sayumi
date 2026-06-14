@@ -82,6 +82,29 @@ func (db *DB) GetBookContentContext(ctx context.Context, id string) (spineJSON, 
 	return spineJSON, tocJSON, nil
 }
 
+// GetBookSummaryContext loads a single book's summary metadata by id, omitting
+// the heavy spine_json / toc_json columns (see ListBookSummariesContext). Use it
+// when only summary fields are needed -- e.g. warming the book cache after an
+// import -- so the large overflow-page TEXT columns are not read. found is false
+// when no row matches.
+func (db *DB) GetBookSummaryContext(ctx context.Context, id string) (summary BookSummary, found bool, err error) {
+	row := db.QueryRowContext(ctx, `
+		SELECT id, title, author, language, publisher, description, pub_date, isbn,
+		       file_path, file_hash, file_size, cover_path, has_cover,
+		       direction, chapter_count,
+		       created_at, updated_at
+		FROM books WHERE id = ?
+	`, id)
+	summary, err = scanBookSummary(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return BookSummary{}, false, nil
+	}
+	if err != nil {
+		return BookSummary{}, false, fmt.Errorf("get book summary %s: %w", id, err)
+	}
+	return summary, true, nil
+}
+
 func (db *DB) GetBookContext(ctx context.Context, id string) (BookRecord, error) {
 	row := db.QueryRowContext(ctx, `
 		SELECT id, title, author, language, publisher, description, pub_date, isbn,

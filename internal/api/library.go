@@ -2,12 +2,12 @@ package api
 
 import (
 	"cmp"
-	"database/sql"
-	"errors"
 	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
+
+	"sayumi/internal/storage"
 )
 
 // rescanLibraryHandler re-scans the on-disk library folder for newly added
@@ -28,16 +28,22 @@ func rescanLibraryHandler(_ *Dependencies) http.HandlerFunc {
 		}
 
 		for _, id := range importedIDs {
-			book, err := pd.DB.GetBookContext(r.Context(), id)
+			// Only summary fields are needed to warm the cache: BookCache.Add stores
+			// the summary and invalidates any spine, which GetSpine reloads lazily
+			// when the book is first opened. Reading the heavy spine_json / toc_json
+			// here would pay N overflow-page reads on a bulk import for spines that
+			// are usually never opened right after a rescan.
+			summary, found, err := pd.DB.GetBookSummaryContext(r.Context(), id)
 			if err != nil {
 				// The book was imported into the DB but could not be reloaded for
 				// the cache; skip it (a future restart will pick it up).
-				if !errors.Is(err, sql.ErrNoRows) {
-					slog.Warn("rescan: reload imported book failed", "book", id, "err", err)
-				}
+				slog.Warn("rescan: reload imported book failed", "book", id, "err", err)
 				continue
 			}
-			pd.Books.Add(book)
+			if !found {
+				continue
+			}
+			pd.Books.Add(storage.BookRecord{BookSummary: summary})
 		}
 
 		writeJSON(w, http.StatusOK, map[string]int{"imported": len(importedIDs)})
