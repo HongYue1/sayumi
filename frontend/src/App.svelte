@@ -6,11 +6,30 @@
   import { applyTheme } from "~/lib/theme";
   import Login from "~/routes/Login.svelte";
   import Library from "~/routes/Library.svelte";
-  import Read from "~/routes/Read.svelte";
   import Toaster from "~/components/Toaster.svelte";
   import OfflineBanner from "~/components/OfflineBanner.svelte";
-  import CommandPalette from "~/components/CommandPalette.svelte";
-  import ShortcutsHelp from "~/components/ShortcutsHelp.svelte";
+
+  // Lazily-loaded chunks kept out of the initial bundle. Each loader memoises
+  // its import() promise (??=) so re-renders reuse the same module-cached
+  // promise instead of re-triggering the load and re-flashing the await block.
+  // - Read pulls in the whole reader engine (ChapterFrame -> buildFrameHtml ->
+  //   the inlined frame.ts script), only needed once a book is open.
+  // - The command palette and shortcuts sheet render only on demand (Ctrl+K / ?),
+  //   so their code is fetched the first time they are opened.
+  let readModule: Promise<typeof import("~/routes/Read.svelte")> | undefined;
+  const loadRead = () => (readModule ??= import("~/routes/Read.svelte"));
+
+  let paletteModule:
+    | Promise<typeof import("~/components/CommandPalette.svelte")>
+    | undefined;
+  const loadPalette = () =>
+    (paletteModule ??= import("~/components/CommandPalette.svelte"));
+
+  let shortcutsModule:
+    | Promise<typeof import("~/components/ShortcutsHelp.svelte")>
+    | undefined;
+  const loadShortcuts = () =>
+    (shortcutsModule ??= import("~/components/ShortcutsHelp.svelte"));
 
   onMount(() => {
     applyTheme("light");
@@ -45,16 +64,28 @@
 {:else if !session.authenticated}
   <Login />
 {:else if router.route.path === "/read/:id"}
-  {#key router.route.params.id}
-    <Read bookId={router.route.params.id} />
-  {/key}
+  {#await loadRead()}
+    <div class="boot"></div>
+  {:then Read}
+    {#key router.route.params.id}
+      <Read.default bookId={router.route.params.id} />
+    {/key}
+  {/await}
 {:else}
   <Library />
 {/if}
 </main>
 
-<CommandPalette />
-<ShortcutsHelp />
+{#if ui.palette}
+  {#await loadPalette() then Palette}
+    <Palette.default />
+  {/await}
+{/if}
+{#if ui.shortcuts}
+  {#await loadShortcuts() then Shortcuts}
+    <Shortcuts.default />
+  {/await}
+{/if}
 <Toaster />
 
 <style>
