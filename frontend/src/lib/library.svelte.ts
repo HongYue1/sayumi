@@ -35,6 +35,10 @@ class Library {
   rescanning = $state(false);
   error = $state("");
   query = $state("");
+  /** Debounced mirror of `query`; the heavy `visible` filter reads this so
+   *  typing doesn't re-filter+sort the whole library on every keystroke. */
+  debouncedQuery = $state("");
+  private queryTimer: ReturnType<typeof setTimeout> | null = null;
   sort = $state<SortKey>("title");
   customFlairs = $state<FlairDef[]>([]);
   /** Active flair filters (OR semantics); empty = no flair filtering. */
@@ -43,16 +47,21 @@ class Library {
   /** Built-in plus custom flairs, for pickers and filter chips. */
   allFlairs = $derived<FlairDef[]>([...DEFAULT_FLAIRS, ...this.customFlairs]);
 
+  /** Lowercased "title author" haystack per book; recomputed only when `books`
+   *  changes, so per-keystroke filtering doesn't re-lowercase every title. */
+  private searchIndex = $derived(
+    this.books.map((b) => ({
+      book: b,
+      hay: `${b.title} ${b.author}`.toLowerCase(),
+    })),
+  );
+
   /** Books after search + flair filtering, then sorting (memoised). */
   visible = $derived.by<BookMeta[]>(() => {
-    const q = this.query.trim().toLowerCase();
+    const q = this.debouncedQuery.trim().toLowerCase();
     const filters = this.flairFilters;
     let list = q
-      ? this.books.filter(
-          (b) =>
-            b.title.toLowerCase().includes(q) ||
-            b.author.toLowerCase().includes(q),
-        )
+      ? this.searchIndex.filter((x) => x.hay.includes(q)).map((x) => x.book)
       : this.books.slice();
 
     if (filters.length > 0) {
@@ -105,6 +114,16 @@ class Library {
     getFlairs()
       .then((f) => (this.customFlairs = f))
       .catch(() => {});
+  }
+
+  /** Update the search box value instantly but debounce the expensive filter. */
+  setQuery(value: string): void {
+    this.query = value;
+    if (this.queryTimer) clearTimeout(this.queryTimer);
+    this.queryTimer = setTimeout(() => {
+      this.debouncedQuery = value;
+      this.queryTimer = null;
+    }, 140);
   }
 
   toggleFlairFilter(id: string): void {
@@ -176,14 +195,26 @@ class Library {
     this.uploading = true;
     let ok = 0;
     let failed = 0;
-    for (const file of epubs) {
-      try {
-        await uploadBook(file);
-        ok += 1;
-      } catch {
-        failed += 1;
+    // Import with a small concurrency cap rather than strictly one-at-a-time:
+    // faster for multi-file drops without hammering the backend. The shared
+    // cursor is safe to increment — JS is single-threaded and there is no await
+    // between reading and bumping it.
+    const CONCURRENCY = 3;
+    let cursor = 0;
+    const worker = async (): Promise<void> => {
+      while (cursor < epubs.length) {
+        const file = epubs[cursor++];
+        try {
+          await uploadBook(file);
+          ok += 1;
+        } catch {
+          failed += 1;
+        }
       }
-    }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, epubs.length) }, worker),
+    );
     try {
       await this.load();
     } catch (e) {
