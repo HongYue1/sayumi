@@ -97,8 +97,18 @@ func getResourceHandler(deps *Dependencies) http.HandlerFunc {
 			w.Header().Set("Content-Length", strconv.FormatInt(resourceReader.Size, 10))
 		}
 
-		if _, err := io.Copy(w, resourceReader); err != nil {
+		written, err := io.Copy(w, resourceReader)
+		if err != nil {
 			slog.Error("copy resource failed", "book", bookID, "resource", resourcePath, "err", err)
+		} else if resourceReader.Size >= 0 && written != resourceReader.Size {
+			// archive/zip enforces the central-directory size during decode and
+			// net/http drops the keep-alive on a short write, so this is not a
+			// security gap. But a clean copy whose length disagrees with the
+			// advertised Content-Length means the client received a truncated
+			// body — surface it instead of letting it pass silently.
+			slog.Warn("resource size mismatch; response truncated",
+				"book", bookID, "resource", resourcePath,
+				"declared", resourceReader.Size, "written", written)
 		}
 	}
 }
