@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -232,23 +231,22 @@ func (s *Scanner) importFile(ctx context.Context, filePath string, knownHash str
 		}
 	}
 
-	existing, err := s.db.GetBookByHashContext(ctx, hash)
-	switch {
-	case err == nil:
+	existingID, existingPath, found, err := s.db.GetBookIDByHashContext(ctx, hash)
+	if err != nil {
+		return "", false, fmt.Errorf("check existing by hash: %w", err)
+	}
+	if found {
 		// Reconcile the stored path: if the file has been moved, renamed, or
 		// copied into a cloned profile, update the DB so future reads use the
 		// correct location. Failures are non-fatal — the book is still usable
 		// at its old path until the next successful reconciliation.
-		if existing.FilePath != absPath {
-			if updateErr := s.db.UpdateBookFilePathContext(ctx, existing.ID, absPath); updateErr != nil {
+		if existingPath != absPath {
+			if updateErr := s.db.UpdateBookFilePathContext(ctx, existingID, absPath); updateErr != nil {
 				slog.Warn("reconcile book path after hash match failed",
-					"id", existing.ID, "old", existing.FilePath, "new", absPath, "err", updateErr)
+					"id", existingID, "old", existingPath, "new", absPath, "err", updateErr)
 			}
 		}
-		return existing.ID, false, nil
-	case errors.Is(err, sql.ErrNoRows):
-	default:
-		return "", false, fmt.Errorf("check existing by hash: %w", err)
+		return existingID, false, nil
 	}
 
 	zr, err := zip.OpenReader(absPath)
@@ -328,15 +326,16 @@ func (s *Scanner) CheckDuplicate(ctx context.Context, filePath string) (existing
 		return "", "", false
 	}
 
-	existing, err := s.db.GetBookByHashContext(ctx, h)
+	existingID, _, found, err := s.db.GetBookIDByHashContext(ctx, h)
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			slog.Warn("duplicate check failed", "path", filePath, "err", err)
-		}
+		slog.Warn("duplicate check failed", "path", filePath, "err", err)
+		return "", h, false
+	}
+	if !found {
 		return "", h, false
 	}
 
-	return existing.ID, h, true
+	return existingID, h, true
 }
 
 // ImportFile imports a single EPUB file into the library, returning its book ID.

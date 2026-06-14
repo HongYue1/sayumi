@@ -112,6 +112,22 @@ func (db *DB) GetBookByHashContext(ctx context.Context, hash string) (BookRecord
 	return book, nil
 }
 
+// GetBookIDByHashContext returns only the id and file_path for the book matching
+// hash, without reading the heavy spine_json / toc_json columns. The library
+// scan and duplicate-check paths only need to reconcile a path or resolve an ID,
+// so this avoids pulling the large overflow-page TEXT blobs for every
+// already-known book on every scan. found is false when no row matches.
+func (db *DB) GetBookIDByHashContext(ctx context.Context, hash string) (id, filePath string, found bool, err error) {
+	err = db.QueryRowContext(ctx, "SELECT id, file_path FROM books WHERE file_hash = ?", hash).Scan(&id, &filePath)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, fmt.Errorf("get book id by hash %s: %w", hash, err)
+	}
+	return id, filePath, true, nil
+}
+
 func (db *DB) BookExistsByPathContext(ctx context.Context, filePath string) (id string, found bool, err error) {
 	err = db.QueryRowContext(ctx, "SELECT id FROM books WHERE file_path = ?", filePath).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -159,20 +175,17 @@ func (db *DB) InsertBookContext(ctx context.Context, book BookRecord) (canonical
 	}
 
 	// Another goroutine inserted a row with the same file_hash first (OR IGNORE
-	// suppressed our insert). Return whichever ID is actually in the DB.
-	var existing BookRecord
-	row := db.QueryRowContext(ctx, `
-		SELECT id, title, author, language, publisher, description, pub_date, isbn,
-		       file_path, file_hash, file_size, cover_path, has_cover,
-		       spine_json, toc_json, direction, chapter_count,
-		       created_at, updated_at
-		FROM books WHERE file_hash = ?
-	`, book.FileHash)
-	existing, err = scanBook(row)
+	// suppressed our insert). Return whichever ID is actually in the DB; only the
+	// id is needed, so skip the heavy spine_json / toc_json columns. This read
+	// does not take writeMu (already held) and never re-locks it.
+	existingID, _, found, err := db.GetBookIDByHashContext(ctx, book.FileHash)
 	if err != nil {
 		return "", fmt.Errorf("fetch existing book after ignored insert: %w", err)
 	}
-	return existing.ID, nil
+	if !found {
+		return "", fmt.Errorf("insert ignored but no existing book for hash %q", book.FileHash)
+	}
+	return existingID, nil
 }
 
 // UpdateBookFilePathContext updates the on-disk path stored for a book. It is
