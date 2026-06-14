@@ -2,7 +2,9 @@ package fonts
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,6 +24,8 @@ import (
 // pre-fill the role pickers.
 type Scanner struct {
 	dir string
+
+	loadMu sync.Mutex // serializes the lazy initial scan (see Families)
 
 	mu     sync.RWMutex
 	loaded bool
@@ -68,10 +72,31 @@ func NewScanner(dir string) *Scanner {
 func (s *Scanner) Families() []Family {
 	s.mu.RLock()
 	if s.loaded {
-		defer s.mu.RUnlock()
-		return s.cache
+		cache := s.cache
+		s.mu.RUnlock()
+		return cache
 	}
 	s.mu.RUnlock()
+	return s.ensureLoaded()
+}
+
+// ensureLoaded performs the lazy initial scan at most once even under
+// concurrent first requests: loadMu serializes would-be scanners, and the
+// double-check means only the first runs Rescan while the rest return the
+// freshly populated cache. Explicit Rescan calls bypass this and always
+// re-read the directory.
+func (s *Scanner) ensureLoaded() []Family {
+	s.loadMu.Lock()
+	defer s.loadMu.Unlock()
+
+	s.mu.RLock()
+	if s.loaded {
+		cache := s.cache
+		s.mu.RUnlock()
+		return cache
+	}
+	s.mu.RUnlock()
+
 	return s.Rescan()
 }
 
@@ -183,8 +208,13 @@ func (s *Scanner) scan() []Family {
 
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
-		// Missing dir is the normal "no user fonts" case; any other error is
-		// also treated as best-effort — report no families rather than failing.
+		// A missing directory is the normal "no user fonts" case and stays
+		// silent. Any other error (e.g. permissions) is still best-effort —
+		// report no families rather than failing — but log it so it is
+		// diagnosable instead of vanishing.
+		if !errors.Is(err, os.ErrNotExist) {
+			slog.Warn("scan user fonts dir", "dir", s.dir, "err", err)
+		}
 		return []Family{}
 	}
 
