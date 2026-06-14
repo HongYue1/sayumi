@@ -3,6 +3,7 @@ package library
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"image"
@@ -39,7 +40,58 @@ const maxConcurrentCoverDecodes = 4
 // calls extractCover (notably the scan worker pool).
 var coverDecodeSem = make(chan struct{}, maxConcurrentCoverDecodes)
 
-func extractCover(libraryPath, bookID string, zr *zip.Reader, coverPathInZip string) (err error) {
+// errCoverSkipped is returned by decodeAndResizeCover when a cover is valid but
+// intentionally not rendered (oversized or too many pixels). Callers treat it
+// as a non-fatal skip rather than a failure.
+var errCoverSkipped = errors.New("cover skipped")
+
+// decodeAndResizeCover reads the cover bytes from the zip, validates its
+// dimensions, and returns a resized image ready for JPEG encoding. It returns
+// errCoverSkipped when the cover should be skipped (oversized or too many pixels).
+//
+// The entire read + decode + resize runs while holding coverDecodeSem, so both
+// the encoded source buffer (up to maxCoverBytes) and the decoded RGBA buffer
+// (up to maxCoverPixels*4) are bounded by maxConcurrentCoverDecodes rather than
+// by the scan worker count — otherwise every worker could hold a multi-MB
+// encoded buffer while merely waiting for a decode slot. The acquire honors ctx
+// so a canceled scan unblocks here instead of waiting for an in-flight decode.
+func decodeAndResizeCover(ctx context.Context, bookID string, zr *zip.Reader, coverPathInZip string) (image.Image, error) {
+	select {
+	case coverDecodeSem <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-coverDecodeSem }()
+
+	coverData, err := readCoverData(zr, coverPathInZip)
+	if err != nil {
+		return nil, err
+	}
+
+	config, _, err := image.DecodeConfig(bytes.NewReader(coverData))
+	if err != nil {
+		return nil, fmt.Errorf("decode cover config: %w", err)
+	}
+	if config.Width > maxCoverDimension || config.Height > maxCoverDimension {
+		slog.Warn("skipping oversized cover", "book", bookID, "width", config.Width, "height", config.Height)
+		return nil, errCoverSkipped
+	}
+	// Reject high pixel counts even when each side is within bounds: decoding
+	// expands to a 4-byte-per-pixel RGBA buffer, so capping total pixels keeps a
+	// crafted cover from exhausting memory.
+	if int64(config.Width)*int64(config.Height) > maxCoverPixels {
+		slog.Warn("skipping high-pixel-count cover", "book", bookID, "width", config.Width, "height", config.Height, "pixels", int64(config.Width)*int64(config.Height))
+		return nil, errCoverSkipped
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(coverData))
+	if err != nil {
+		return nil, fmt.Errorf("decode cover image: %w", err)
+	}
+	return resizeToFit(img, maxCoverWidth, maxCoverHeight), nil
+}
+
+func extractCover(ctx context.Context, libraryPath, bookID string, zr *zip.Reader, coverPathInZip string) (err error) {
 	coversDir := filepath.Join(libraryPath, ".sayumi", "covers")
 	if err := os.MkdirAll(coversDir, 0o755); err != nil {
 		return fmt.Errorf("create covers dir: %w", err)
@@ -53,40 +105,14 @@ func extractCover(libraryPath, bookID string, zr *zip.Reader, coverPathInZip str
 		return fmt.Errorf("stat cover file: %w", err)
 	}
 
-	coverData, err := readCoverData(zr, coverPathInZip)
+	img, err := decodeAndResizeCover(ctx, bookID, zr, coverPathInZip)
 	if err != nil {
+		if errors.Is(err, errCoverSkipped) {
+			// Cover was valid but intentionally not rendered; not a failure.
+			return nil
+		}
 		return err
 	}
-
-	config, _, err := image.DecodeConfig(bytes.NewReader(coverData))
-	if err != nil {
-		return fmt.Errorf("decode cover config: %w", err)
-	}
-	if config.Width > maxCoverDimension || config.Height > maxCoverDimension {
-		slog.Warn("skipping oversized cover", "book", bookID, "width", config.Width, "height", config.Height)
-		return nil
-	}
-	// Reject high pixel counts even when each side is within bounds: decoding
-	// expands to a 4-byte-per-pixel RGBA buffer, so capping total pixels keeps a
-	// crafted cover from exhausting memory — important now that scans decode
-	// covers concurrently across the worker pool.
-	if int64(config.Width)*int64(config.Height) > maxCoverPixels {
-		slog.Warn("skipping high-pixel-count cover", "book", bookID, "width", config.Width, "height", config.Height, "pixels", int64(config.Width)*int64(config.Height))
-		return nil
-	}
-
-	// Bound concurrent decode+resize so the scan worker pool can't hold one
-	// full-size image buffer per core at once. The semaphore is held across
-	// resizeToFit because the decoded buffer stays live until the smaller
-	// resized image replaces it.
-	coverDecodeSem <- struct{}{}
-	img, _, err := image.Decode(bytes.NewReader(coverData))
-	if err != nil {
-		<-coverDecodeSem
-		return fmt.Errorf("decode cover image: %w", err)
-	}
-	img = resizeToFit(img, maxCoverWidth, maxCoverHeight)
-	<-coverDecodeSem
 
 	coversRoot, rootErr := os.OpenRoot(coversDir)
 	if rootErr != nil {

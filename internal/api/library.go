@@ -2,6 +2,7 @@ package api
 
 import (
 	"cmp"
+	"context"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -20,20 +21,22 @@ func rescanLibraryHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		importedIDs, err := pd.Scanner.ScanNow(r.Context())
-		if err != nil {
-			slog.Error("library rescan failed", "err", err)
-			writeError(w, http.StatusInternalServerError, "scan_error", "failed to rescan library")
-			return
-		}
+		importedIDs, scanErr := pd.Scanner.ScanNow(r.Context())
 
+		// Warm the cache for everything imported, even if the scan was canceled
+		// partway (scanErr != nil with a non-empty importedIDs). Those rows are
+		// committed, and the next scan's dedup snapshot would treat them as known
+		// and never re-report them — so without this they stay out of the cache
+		// until a profile reopen. Use a cancel-free context for the reloads since
+		// r.Context() may already be done on the cancellation path.
+		reloadCtx := context.WithoutCancel(r.Context())
 		for _, id := range importedIDs {
 			// Only summary fields are needed to warm the cache: BookCache.Add stores
 			// the summary and invalidates any spine, which GetSpine reloads lazily
 			// when the book is first opened. Reading the heavy spine_json / toc_json
 			// here would pay N overflow-page reads on a bulk import for spines that
 			// are usually never opened right after a rescan.
-			summary, found, err := pd.DB.GetBookSummaryContext(r.Context(), id)
+			summary, found, err := pd.DB.GetBookSummaryContext(reloadCtx, id)
 			if err != nil {
 				// The book was imported into the DB but could not be reloaded for
 				// the cache; skip it (a future restart will pick it up).
@@ -44,6 +47,12 @@ func rescanLibraryHandler(_ *Dependencies) http.HandlerFunc {
 				continue
 			}
 			pd.Books.Add(storage.BookRecord{BookSummary: summary})
+		}
+
+		if scanErr != nil {
+			slog.Error("library rescan failed", "err", scanErr)
+			writeError(w, http.StatusInternalServerError, "scan_error", "failed to rescan library")
+			return
 		}
 
 		writeJSON(w, http.StatusOK, map[string]int{"imported": len(importedIDs)})

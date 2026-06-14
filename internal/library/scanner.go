@@ -160,7 +160,12 @@ func (s *Scanner) scan(ctx context.Context) ([]string, error) {
 	wg.Wait()
 
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		// Return the IDs already imported (and committed) alongside the error so a
+		// canceled scan still lets the caller warm its cache for them. The next
+		// scan's dedup snapshot would otherwise treat these rows as known and never
+		// re-report them, leaving the books absent from the cache until a reopen.
+		slog.Info("scan canceled", "imported", len(importedIDs), "err", err)
+		return importedIDs, err
 	}
 
 	slog.Info("scan complete", "imported", len(importedIDs))
@@ -196,7 +201,10 @@ func (s *Scanner) collectEPUBPaths(ctx context.Context) ([]string, error) {
 			return nil
 		}
 
-		if strings.HasPrefix(dirEntry.Name(), ".") || !strings.HasSuffix(strings.ToLower(dirEntry.Name()), ".epub") {
+		// filepath.Ext returns a substring (no allocation) and EqualFold compares
+		// without lowercasing, so the suffix test stays alloc-free per entry —
+		// unlike strings.ToLower, which copies any name containing an uppercase rune.
+		if strings.HasPrefix(dirEntry.Name(), ".") || !strings.EqualFold(filepath.Ext(dirEntry.Name()), ".epub") {
 			return nil
 		}
 
@@ -367,7 +375,7 @@ func (s *Scanner) importFile(ctx context.Context, filePath string, knownHash str
 	id = canonicalID
 
 	if meta.CoverPath != "" {
-		if coverErr := extractCover(s.libraryPath, id, &zr.Reader, meta.CoverPath); coverErr != nil {
+		if coverErr := extractCover(ctx, s.libraryPath, id, &zr.Reader, meta.CoverPath); coverErr != nil {
 			slog.Warn("cover extraction failed", "title", meta.Title, "err", coverErr)
 		} else {
 			coverRelPath := filepath.Join(".sayumi", "covers", id+".jpg")
