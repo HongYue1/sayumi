@@ -34,11 +34,25 @@ function onAccentColor(hex: string): string {
  */
 export function applyTheme(id: string): void {
   const t = getTheme(id);
+  const accentFg = onAccentColor(t.accent);
+  const scheme = t.group === "dark" ? "dark" : "light";
   const root = document.documentElement;
   root.style.setProperty("--bg", t.bg);
   root.style.setProperty("--fg", t.fg);
   root.style.setProperty("--accent", t.accent);
-  root.style.setProperty("--accent-fg", onAccentColor(t.accent));
-  root.style.colorScheme = t.group === "dark" ? "dark" : "light";
+  root.style.setProperty("--accent-fg", accentFg);
+  root.style.colorScheme = scheme;
   root.dataset.theme = t.id;
+  // Cache the resolved tokens so the inline <head> bootstrap in index.html can
+  // paint the saved theme before first paint, avoiding a flash of the default
+  // light theme on reload (server settings arrive too late to prevent it).
+  try {
+    localStorage.setItem("sayumi:theme", t.id);
+    localStorage.setItem(
+      "sayumi:theme-vars",
+      JSON.stringify({ id: t.id, bg: t.bg, fg: t.fg, accent: t.accent, accentFg, scheme }),
+    );
+  } catch {
+    // Private-mode / disabled storage: the theme still applies, just no cache.
+  }
 }
