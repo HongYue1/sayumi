@@ -238,10 +238,19 @@ export async function requestWithRetry<T>(
         throw error;
       if (sig?.aborted) throw abortError(sig);
 
+      // Only retry idempotent methods. Retrying a POST/PATCH that timed out
+      // after the server already committed would duplicate the write.
+      const idempotent =
+        method === "GET" ||
+        method === "HEAD" ||
+        method === "PUT" ||
+        method === "DELETE" ||
+        method === "OPTIONS";
       const isRetryable =
-        !(error instanceof ApiError) ||
-        error.status === undefined ||
-        error.status >= 500;
+        idempotent &&
+        (!(error instanceof ApiError) ||
+          error.status === undefined ||
+          error.status >= 500);
 
       if (!isRetryable || attempt === maxAttempts - 1) {
         throw error;

@@ -1,6 +1,7 @@
 import { getSettings, saveSettings, type UserSettings } from "~/api/client";
 import { getFontById, getFontFamily } from "~/lib/fonts";
 import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry.svelte";
+import { toast } from "~/lib/toast.svelte";
 
 // Shape the reader iframe expects (see iframe/frame.ts apply-settings handler).
 export interface IframeSettings {
@@ -80,6 +81,7 @@ class Settings {
 
   #loaded = false;
   #saveTimer: ReturnType<typeof setTimeout> | undefined;
+  #saveController: AbortController | undefined;
 
   /** Loads server settings once; keeps defaults on failure (non-fatal). */
   async load(): Promise<void> {
@@ -116,6 +118,8 @@ class Settings {
       clearTimeout(this.#saveTimer);
       this.#saveTimer = undefined;
     }
+    this.#saveController?.abort();
+    this.#saveController = undefined;
     this.value = { ...DEFAULT_USER_SETTINGS };
   }
 
@@ -123,10 +127,22 @@ class Settings {
     if (this.#saveTimer) clearTimeout(this.#saveTimer);
     this.#saveTimer = setTimeout(() => {
       this.#saveTimer = undefined;
+      // Supersede any in-flight save so a slow older request can't land after
+      // a newer one and clobber the latest settings.
+      this.#saveController?.abort();
+      const controller = new AbortController();
+      this.#saveController = controller;
       const snapshot = { ...this.value };
-      saveSettings(snapshot).catch(() => {
-        // Best-effort debounced save; the next user action will retry.
-      });
+      saveSettings(snapshot, controller.signal)
+        .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === "AbortError")
+            return;
+          toast.show("Couldn't save settings");
+        })
+        .finally(() => {
+          if (this.#saveController === controller)
+            this.#saveController = undefined;
+        });
     }, 500);
   }
 }

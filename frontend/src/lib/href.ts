@@ -23,14 +23,25 @@ export function resolveHref(
   const hrefBase = hashIdx >= 0 ? href.slice(0, hashIdx) : href;
   const fragment = hashIdx >= 0 ? href.slice(hashIdx + 1) : "";
 
+  // Pass 1: exact or path-suffix match (the reliable signals). Run to
+  // completion before falling back so a stronger match later in the spine
+  // always wins over a weaker basename-only match earlier in it.
   for (let i = 0; i < spine.length; i++) {
     const spineBase = spine[i].href.split("#")[0];
     if (
       spineBase === hrefBase ||
       spineBase.endsWith("/" + hrefBase) ||
-      hrefBase.endsWith("/" + spineBase) ||
-      pathBasename(spineBase) === pathBasename(hrefBase)
+      hrefBase.endsWith("/" + spineBase)
     ) {
+      return { chapterIndex: i, fragment };
+    }
+  }
+  // Pass 2: basename equality, only when nothing stronger matched. Handles
+  // links that differ only by directory prefix, but can collide when two
+  // spine files share a basename, so it stays the last resort.
+  for (let i = 0; i < spine.length; i++) {
+    const spineBase = spine[i].href.split("#")[0];
+    if (pathBasename(spineBase) === pathBasename(hrefBase)) {
       return { chapterIndex: i, fragment };
     }
   }
