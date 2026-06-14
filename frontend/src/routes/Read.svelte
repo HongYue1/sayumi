@@ -67,6 +67,7 @@
   let book = $state<BookDetail | null>(null);
   let currentChapter = $state(0);
   let chapterPercent = $state(0);
+  let chapterDirection = $state("ltr");
   let chapterLoading = $state(false);
   let error = $state("");
   type Panel = "none" | "toc" | "settings" | "search" | "bookmarks";
@@ -75,6 +76,7 @@
   let chromeVisible = $state(true);
 
   const isPaged = $derived(settings.value.displayMode !== "scroll");
+  const isRTL = $derived(chapterDirection === "rtl");
   // Combined reader @font-face CSS (embedded + user families), recomputed when
   // the user font registry or the per-family role mapping change.
   const fontFaceCSS = $derived(
@@ -362,6 +364,7 @@
 
       currentChapter = index;
       chapterPercent = nextPercent;
+      chapterDirection = data.direction === "rtl" ? "rtl" : "ltr";
       saveData = { chapter: index, percent: nextPercent, cfi: nextCFI };
 
       if (!pendingNav) {
@@ -614,10 +617,14 @@
         } else handleBack();
         return true;
       case "ArrowLeft":
-        goPrev();
+        // In RTL paged mode, visual-left advances reading order, mirroring the
+        // swipe handler so keyboard and touch agree.
+        if (isPaged && isRTL) goNext();
+        else goPrev();
         return true;
       case "ArrowRight":
-        goNext();
+        if (isPaged && isRTL) goPrev();
+        else goNext();
         return true;
       case "t":
       case "T":
