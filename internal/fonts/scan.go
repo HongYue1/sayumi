@@ -30,6 +30,7 @@ type Scanner struct {
 	mu     sync.RWMutex
 	loaded bool
 	cache  []Family
+	byDir  map[string]familyIndex // dir name -> set of font file names in that family
 }
 
 // Family is a user font family discovered under ./Fonts/<Dir>/.
@@ -55,6 +56,12 @@ type familyMeta struct {
 	Label    string `json:"label"`
 	Category string `json:"category"`
 }
+
+// familyIndex is the set of font file names in one family, keyed for O(1)
+// membership. The scanner keeps one per family dir (see Scanner.byDir) so a
+// user-font request can validate <dir>/<file> without a linear scan over every
+// family and its files. It is rebuilt alongside the cache on each scan.
+type familyIndex map[string]struct{}
 
 var fontExts = map[string]bool{
 	".woff2": true,
@@ -100,40 +107,45 @@ func (s *Scanner) ensureLoaded() []Family {
 	return s.Rescan()
 }
 
-// Rescan re-reads the fonts directory and replaces the cache.
+// Rescan re-reads the fonts directory and replaces the cache (and its lookup
+// index) with a fresh snapshot.
 func (s *Scanner) Rescan() []Family {
 	families := s.scan()
 
+	byDir := make(map[string]familyIndex, len(families))
+	for _, fam := range families {
+		fileSet := make(familyIndex, len(fam.Files))
+		for _, name := range fam.Files {
+			fileSet[name] = struct{}{}
+		}
+		byDir[fam.Dir] = fileSet
+	}
+
 	s.mu.Lock()
 	s.cache = families
+	s.byDir = byDir
 	s.loaded = true
 	s.mu.Unlock()
 
 	return families
 }
 
-// lookupDir returns the family for an on-disk directory name, if known.
-func (s *Scanner) lookupDir(dirName string) (Family, bool) {
-	for _, f := range s.Families() {
-		if f.Dir == dirName {
-			return f, true
-		}
-	}
-	return Family{}, false
-}
-
 // resolveUserFont validates that dirName/file names a known font file in a
 // discovered family and returns the path relative to s.dir. It consults only
-// the cached scan and does not touch the disk.
+// the cached scan via the O(1) byDir index and does not touch the disk.
 func (s *Scanner) resolveUserFont(dirName, file string) (relPath string, ok bool) {
 	if s.dir == "" {
 		return "", false
 	}
-	fam, found := s.lookupDir(dirName)
+	s.Families() // ensure the cache and its index are populated (lazy first scan)
+
+	s.mu.RLock()
+	files, found := s.byDir[dirName]
+	s.mu.RUnlock()
 	if !found {
 		return "", false
 	}
-	if !slices.Contains(fam.Files, file) {
+	if _, isFont := files[file]; !isFont {
 		return "", false
 	}
 	return filepath.Join(dirName, file), true

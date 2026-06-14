@@ -104,13 +104,9 @@ func Handler(scanner *Scanner) http.Handler {
 
 		if etag, ok := fontETags[reqPath]; ok {
 			w.Header().Set("ETag", etag)
-			if ifNoneMatch := r.Header.Get("If-None-Match"); ifNoneMatch != "" {
-				for candidate := range strings.SplitSeq(ifNoneMatch, ",") {
-					if strings.TrimSpace(candidate) == etag {
-						w.WriteHeader(http.StatusNotModified)
-						return
-					}
-				}
+			if etagMatches(r.Header.Get("If-None-Match"), etag) {
+				w.WriteHeader(http.StatusNotModified)
+				return
 			}
 		}
 
@@ -145,51 +141,71 @@ func serveUserFont(w http.ResponseWriter, r *http.Request, scanner *Scanner, dir
 		writePlainStatus(w, http.StatusNotFound, "not found")
 		return
 	}
-	// Stat first so conditional (If-None-Match) and HEAD requests are answered
-	// without ever reading the font bytes off disk.
-	size, etag, ok := scanner.StatUserFont(dir, file)
-	if !ok {
-		writePlainStatus(w, http.StatusNotFound, "not found")
-		return
+
+	setUserFontHeaders := func(etag string) {
+		w.Header().Set("Content-Type", epub.ContentTypeByExt(file))
+		// User fonts can change on disk, so allow revalidation via ETag rather
+		// than marking immutable like the embedded set.
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Header().Set("ETag", etag)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 	}
 
-	w.Header().Set("Content-Type", epub.ContentTypeByExt(file))
-	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
-	// User fonts can change on disk, so allow revalidation via ETag rather than
-	// marking immutable like the embedded set.
-	w.Header().Set("Cache-Control", "public, max-age=3600")
-	w.Header().Set("ETag", etag)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-
-	if ifNoneMatch := r.Header.Get("If-None-Match"); ifNoneMatch != "" {
-		for candidate := range strings.SplitSeq(ifNoneMatch, ",") {
-			if strings.TrimSpace(candidate) == etag {
-				w.WriteHeader(http.StatusNotModified)
-				return
-			}
+	// HEAD and conditional (If-None-Match) requests are answered from a stat
+	// alone, so the font bytes are never read off disk for a 304 or a HEAD. A
+	// plain GET skips this pre-stat and reads exactly once below — otherwise
+	// every cache-miss load would pay two os.OpenRoot+stat round-trips to serve
+	// one file.
+	ifNoneMatch := r.Header.Get("If-None-Match")
+	if r.Method == http.MethodHead || ifNoneMatch != "" {
+		size, etag, ok := scanner.StatUserFont(dir, file)
+		if !ok {
+			writePlainStatus(w, http.StatusNotFound, "not found")
+			return
 		}
+		setUserFontHeaders(etag)
+		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+
+		if etagMatches(ifNoneMatch, etag) {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		// Conditional GET whose ETag did not match: fall through and read the
+		// body, re-syncing the headers from the bytes actually read.
 	}
 
-	if r.Method == http.MethodHead {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	data, readETag, ok := scanner.ReadUserFont(dir, file)
+	data, etag, ok := scanner.ReadUserFont(dir, file)
 	if !ok {
-		// Raced with a change or removal between the stat above and this read;
-		// drop the stale length/ETag so we don't emit a mismatched response.
+		// File is gone or no longer part of a known family (possibly raced with a
+		// rescan); clear any stale length/ETag set on the conditional path so we
+		// never emit a mismatched response.
 		w.Header().Del("Content-Length")
 		w.Header().Del("ETag")
 		writePlainStatus(w, http.StatusNotFound, "not found")
 		return
 	}
-	// Re-sync length and ETag from the bytes actually read, in case the file
-	// changed on disk between the stat above and this read.
+	setUserFontHeaders(etag)
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	w.Header().Set("ETag", readETag)
 
 	_, _ = w.Write(data)
+}
+
+// etagMatches reports whether the comma-separated If-None-Match header value
+// contains the given (already-quoted) ETag. An empty header never matches.
+func etagMatches(ifNoneMatch, etag string) bool {
+	if ifNoneMatch == "" {
+		return false
+	}
+	for candidate := range strings.SplitSeq(ifNoneMatch, ",") {
+		if strings.TrimSpace(candidate) == etag {
+			return true
+		}
+	}
+	return false
 }
 
 func setFontCORSHeaders(header http.Header) {
