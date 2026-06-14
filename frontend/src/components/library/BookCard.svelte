@@ -106,7 +106,7 @@
     {#if showCover}
       <img
         src={getCoverUrl(book.id)}
-        alt={book.title}
+        alt=""
         loading={index < 8 ? "eager" : "lazy"}
         fetchpriority={index === 0 ? "high" : undefined}
         decoding="async"

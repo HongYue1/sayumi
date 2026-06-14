@@ -27,7 +27,39 @@
       e.preventDefault();
       e.stopPropagation();
       close();
+      return;
     }
+    if (
+      e.key !== "ArrowDown" &&
+      e.key !== "ArrowUp" &&
+      e.key !== "Home" &&
+      e.key !== "End"
+    ) {
+      return;
+    }
+    // Roving focus across all swatches (light + dark) so the menu role's
+    // keyboard model works, matching the flair menu in BookCard.
+    const menu = e.currentTarget as HTMLElement;
+    const items = Array.from(menu.querySelectorAll<HTMLButtonElement>(".pick"));
+    if (items.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const cur = items.indexOf(document.activeElement as HTMLButtonElement);
+    let next: number;
+    switch (e.key) {
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = items.length - 1;
+        break;
+      case "ArrowDown":
+        next = cur < 0 ? 0 : (cur + 1) % items.length;
+        break;
+      default:
+        next = cur < 0 ? items.length - 1 : (cur - 1 + items.length) % items.length;
+    }
+    items[next].focus();
   }
 </script>
 
@@ -49,22 +81,24 @@
   {#if open}
     <button class="scrim" aria-label="Close theme menu" onclick={() => close(false)}></button>
     <div class="menu" role="menu" tabindex="-1" aria-label="Theme" onkeydown={onKeydown}>
-      <p class="group eyebrow">Light</p>
-      <div class="swatches">
-        {#each lightThemes as t, i (t.id)}
+      <p class="group eyebrow" id="theme-grp-light">Light</p>
+      <div class="swatches" role="group" aria-labelledby="theme-grp-light">
+        {#each lightThemes as t (t.id)}
           {@const active = settings.value.theme === t.id}
           <button
             class="swatch pick"
             class:active
             role="menuitemradio"
             aria-checked={active}
+            tabindex={active ? 0 : -1}
             title={t.label}
             aria-label={t.label}
             style:background={t.bg}
             style:color={t.fg}
             onclick={() => choose(t.id)}
             {@attach (el) => {
-              if (i === 0) (el as HTMLButtonElement).focus();
+              // Focus the currently-selected theme on open (menuitemradio model).
+              if (active) (el as HTMLButtonElement).focus();
             }}
           >
             <span class="aa">Aa</span>
@@ -72,8 +106,8 @@
           </button>
         {/each}
       </div>
-      <p class="group eyebrow">Dark</p>
-      <div class="swatches">
+      <p class="group eyebrow" id="theme-grp-dark">Dark</p>
+      <div class="swatches" role="group" aria-labelledby="theme-grp-dark">
         {#each darkThemes as t (t.id)}
           {@const active = settings.value.theme === t.id}
           <button
@@ -81,11 +115,15 @@
             class:active
             role="menuitemradio"
             aria-checked={active}
+            tabindex={active ? 0 : -1}
             title={t.label}
             aria-label={t.label}
             style:background={t.bg}
             style:color={t.fg}
             onclick={() => choose(t.id)}
+            {@attach (el) => {
+              if (active) (el as HTMLButtonElement).focus();
+            }}
           >
             <span class="aa">Aa</span>
             <span class="dot" style:background={t.accent}></span>
