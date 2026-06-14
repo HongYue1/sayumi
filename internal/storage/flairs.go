@@ -138,6 +138,20 @@ func (db *DB) GetAllBookFlairsContext(ctx context.Context, userID string) (out m
 	return out, nil
 }
 
+// FlairExistsContext reports whether a flair with the given id exists for the
+// user. There is no foreign key from book_flairs.flair_id to flairs.id, so the
+// caller must check this before assigning to avoid a dangling reference.
+func (db *DB) FlairExistsContext(ctx context.Context, id, userID string) (bool, error) {
+	var exists bool
+	err := db.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM flairs WHERE id = ? AND user_id = ?)
+	`, id, userID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("flair exists: %w", err)
+	}
+	return exists, nil
+}
+
 // SetBookFlairContext assigns a flair to a book, or clears it when flairID is
 // empty. The book must exist (enforced by the foreign key).
 func (db *DB) SetBookFlairContext(ctx context.Context, bookID, userID, flairID string) error {

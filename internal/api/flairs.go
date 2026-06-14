@@ -143,7 +143,21 @@ func setBookFlairHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		if err := pd.DB.SetBookFlairContext(r.Context(), bookID, getUserID(r), flairID); err != nil {
+		userID := getUserID(r)
+		if flairID != "" {
+			exists, err := pd.DB.FlairExistsContext(r.Context(), flairID, userID)
+			if err != nil {
+				slog.Error("check flair failed", "flair", flairID, "err", err)
+				writeError(w, http.StatusInternalServerError, "db_error", "failed to set flair")
+				return
+			}
+			if !exists {
+				writeError(w, http.StatusNotFound, "not_found", "flair not found")
+				return
+			}
+		}
+
+		if err := pd.DB.SetBookFlairContext(r.Context(), bookID, userID, flairID); err != nil {
 			slog.Error("set book flair failed", "book", bookID, "err", err)
 			writeError(w, http.StatusInternalServerError, "db_error", "failed to set flair")
 			return
