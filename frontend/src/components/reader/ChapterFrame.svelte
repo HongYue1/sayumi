@@ -227,8 +227,8 @@
     prevPage: () => sendToFrame({ type: "prev-page" }),
     goToPage: (page) => sendToFrame({ type: "go-to-page", page }),
     goToLastPage: () => sendToFrame({ type: "go-to-last-page" }),
-    highlightSearch: (charOffset, matchLen, query) =>
-      sendToFrame({ type: "highlight-search", seq, charOffset, matchLen, query }),
+    highlightSearch: (charOffset, matchLen, query, forSeq) =>
+      sendToFrame({ type: "highlight-search", seq: forSeq ?? seq, charOffset, matchLen, query }),
     clearHighlights: () => sendToFrame({ type: "clear-highlights" }),
     setFontFaces: (css) => sendToFrame({ type: "set-font-faces", fontFaces: css }),
   };

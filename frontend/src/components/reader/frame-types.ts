@@ -32,7 +32,14 @@ export interface ChapterFrameAPI {
   prevPage: () => void;
   goToPage: (page: number) => void;
   goToLastPage: () => void;
-  highlightSearch: (charOffset: number, matchLen: number, query: string) => void;
+  highlightSearch: (
+    charOffset: number,
+    matchLen: number,
+    query: string,
+    /** Seq of the chapter load this highlight was computed for. When set, the
+     *  iframe drops the highlight if a newer chapter has since loaded. */
+    forSeq?: number,
+  ) => void;
   clearHighlights: () => void;
   /** Replace the reader @font-face CSS (embedded + user fonts) in the iframe. */
   setFontFaces: (css: string) => void;

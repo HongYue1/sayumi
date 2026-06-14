@@ -988,6 +988,7 @@
     | { type: "get-position" }
     | {
         type: "highlight-search";
+        seq?: number;
         charOffset?: number;
         matchLen?: number;
         query?: unknown;
@@ -2161,6 +2162,12 @@
         ) {
           break;
         }
+        // Drop highlights computed for a superseded chapter load. A deferred
+        // cross-chapter highlight can arrive after a faster re-navigation has
+        // already swapped in a different chapter; without this guard it would
+        // mark the wrong text. Messages without a seq still apply (same-chapter
+        // highlights, where the live seq is authoritative).
+        if (typeof msg.seq === "number" && msg.seq !== activeSeq) break;
         highlightSearchMatch(
           msg.charOffset,
           msg.matchLen,

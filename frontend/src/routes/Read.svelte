@@ -57,7 +57,12 @@
   const PROGRESS_SAVE_INTERVAL_MS = 15_000;
   const BOUNDARY_COOLDOWN_MS = 400;
   const CHAPTER_LOAD_RETRY_ATTEMPTS = 3;
-  const MAX_CHAPTER_CACHE = 6;
+  // Each cached chapter retains full decoded HTML + CSS, so this is the largest
+  // retained-memory knob in the reader. Active navigation only needs the
+  // current chapter ± 1 (3 chapters); 4 keeps one extra recently-read chapter
+  // for instant back-nav without holding several full chapters' worth of
+  // detached HTML/CSS strings in memory.
+  const MAX_CHAPTER_CACHE = 4;
   // bookId is read once at mount; App.svelte wraps Read in {#key params.id} so a
   // different book remounts this component rather than mutating bookId in place.
   // svelte-ignore state_referenced_locally
@@ -113,15 +118,23 @@
 
   const CHROME_AUTO_HIDE_MS = 4000;
 
+  // Single choke point for panel changes. Leaving the search panel drops its
+  // in-book highlight as an explicit side effect of the transition, instead of
+  // a reactive $effect that watches activePanel on every change.
+  function setPanel(p: Panel): void {
+    if (p === activePanel) return;
+    if (activePanel === "search" && p !== "search") api?.clearHighlights();
+    activePanel = p;
+  }
   function togglePanel(p: Panel): void {
-    activePanel = activePanel === p ? "none" : p;
+    setPanel(activePanel === p ? "none" : p);
     // A panel is part of the chrome — keep it visible while open.
     if (activePanel !== "none") showChrome(false);
     else resetChromeTimer();
   }
   function closePanel(): void {
     if (activePanel === "none") return;
-    activePanel = "none";
+    setPanel("none");
     resetChromeTimer();
   }
   function showToast(msg: string): void {
@@ -223,16 +236,6 @@
     applyTheme(settings.value.theme);
   });
 
-  // Drop any in-book search highlight as soon as the search panel is dismissed.
-  // Closing search shouldn't leave the matched text highlighted until the
-  // reader is exited.
-  let searchPanelWasOpen = false;
-  $effect(() => {
-    const searchOpen = activePanel === "search";
-    if (searchPanelWasOpen && !searchOpen) api?.clearHighlights();
-    searchPanelWasOpen = searchOpen;
-  });
-
   onMount(() => {
     void boot();
     resetChromeTimer();
@@ -303,7 +306,10 @@
     if (initialLoadDone || !bookLoaded || !frameReady || !api) return;
     initialLoadDone = true;
     const { chapter, percent, cfi } = saveData;
-    if (percent > 0.001) void loadChapter(chapter, "top", undefined, { percent, cfi });
+    // Restore when we have either a meaningful percent OR a stored CFI. A saved
+    // CFI at the very start of a chapter (percent ≈ 0) is still a real position
+    // worth honoring, so don't gate restoration on percent alone.
+    if (percent > 0.001 || cfi) void loadChapter(chapter, "top", undefined, { percent, cfi });
     else void loadChapter(chapter, "top");
   }
 
@@ -452,20 +458,28 @@
     frameReady = true;
     tryInitialLoad();
   }
-  function handleLoaded(): void {
+  function handleLoaded(seq: number): void {
     // Apply a pending search highlight once the new chapter has settled.
     if (!pendingHighlight) return;
     const h = pendingHighlight;
     pendingHighlight = null;
     if (highlightTimer) clearTimeout(highlightTimer);
+    // Tag the deferred highlight with the seq of the chapter it was computed
+    // for. If a faster re-navigation supersedes this chapter before the timer
+    // fires, the iframe drops the now-stale highlight instead of marking the
+    // wrong chapter.
     highlightTimer = setTimeout(() => {
       highlightTimer = undefined;
-      api?.highlightSearch(h.charOffset, h.matchLen, h.query);
+      api?.highlightSearch(h.charOffset, h.matchLen, h.query, seq);
     }, 120);
   }
   function handlePosition(chapterIndex: number, percent: number, cfi?: string): void {
     chapterPercent = percent;
-    saveData = { chapter: chapterIndex, percent, cfi };
+    // A position report can omit the CFI (e.g. no first visible block was
+    // resolvable). Don't let that wipe a good CFI we already hold for the same
+    // chapter — only overwrite when the report actually carries one.
+    const keptCfi = cfi ?? (chapterIndex === saveData.chapter ? saveData.cfi : undefined);
+    saveData = { chapter: chapterIndex, percent, cfi: keptCfi };
   }
   function handleBoundary(boundary: "start" | "end"): void {
     const now = Date.now();
@@ -496,7 +510,7 @@
     }
   }
   function handleTocNavigate(href: string): void {
-    activePanel = "none";
+    setPanel("none");
     const b = book;
     if (!b) return;
     const resolved = resolveHref(href, b.spine);
@@ -563,7 +577,7 @@
   }
 
   function navigateBookmark(bm: Bookmark): void {
-    activePanel = "none";
+    setPanel("none");
     if (bm.chapter === currentChapter) {
       if (bm.cfi) api?.scrollToCfi(bm.cfi);
       else api?.scrollTo(bm.percent);
@@ -612,7 +626,7 @@
         return true;
       case "Escape":
         if (activePanel !== "none") {
-          activePanel = "none";
+          setPanel("none");
           resetChromeTimer();
         } else handleBack();
         return true;
@@ -664,7 +678,7 @@
   // An open panel always closes first.
   function handleClickRegion(region: "left" | "center" | "right"): void {
     if (activePanel !== "none") {
-      activePanel = "none";
+      setPanel("none");
       resetChromeTimer();
       return;
     }
