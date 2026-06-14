@@ -81,9 +81,16 @@
     const name = newName.trim();
     try {
       await createProfile(name, newPin);
-      await session.login(name, newPin, remember);
     } catch (e2) {
       error = e2 instanceof ApiError ? e2.message : "Could not create profile";
+      busy = false;
+      return;
+    }
+    try {
+      await session.login(name, newPin, remember);
+    } catch (e2) {
+      error =
+        e2 instanceof ApiError ? e2.message : "Profile created, but sign-in failed";
       busy = false;
     }
   }
@@ -115,7 +122,7 @@
         {#each profiles as p (p.name)}
           <li>
             <button class="profile" onclick={() => pick(p)} disabled={busy}>
-              <span class="avatar">{p.name.slice(0, 1).toUpperCase()}</span>
+              <span class="avatar" aria-hidden="true">{p.name.slice(0, 1).toUpperCase()}</span>
               <span class="name">{p.name}</span>
               {#if p.hasPin}
                 <span class="lock">
@@ -139,6 +146,7 @@
           type="password"
           inputmode="numeric"
           autocomplete="off"
+          aria-label="PIN"
           autofocus
           bind:value={pin}
           placeholder="PIN"
@@ -168,6 +176,7 @@
           class="field"
           type="text"
           autocomplete="off"
+          aria-label="Profile name"
           autofocus
           bind:value={newName}
           placeholder="Profile name"
@@ -178,6 +187,7 @@
           type="password"
           inputmode="numeric"
           autocomplete="off"
+          aria-label="PIN (optional)"
           bind:value={newPin}
           placeholder="PIN (optional)"
           disabled={busy}
@@ -458,7 +468,7 @@
     justify-content: center;
     gap: var(--sp-2);
     margin: 0;
-    color: #b3402f;
+    color: var(--danger);
     text-align: left;
     font-size: var(--text-sm);
     line-height: var(--lh-snug);

@@ -45,6 +45,13 @@
   --muted: color-mix(in srgb, var(--fg) 70%, var(--bg));
   --accent: #7c6f64;
 
+  /* Danger / error. --danger mixes a red toward the active --fg so error
+     text keeps ~AA contrast on every theme (same trick as --muted). The
+     surface pair is for filled alert bars that supply their own background. */
+  --danger: color-mix(in srgb, #e5484d 70%, var(--fg));
+  --danger-surface: #b3261e;
+  --danger-surface-fg: #ffffff;
+
   /* Literary-press typefaces. */
   --font-display: "Literata", Georgia, "Times New Roman", serif;
   --font-ui: "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, sans-serif;

@@ -10,6 +10,7 @@
 
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
   let checkInFlight = false;
+  let mounted = true;
 
   function clearPoll(): void {
     if (pollTimer) {
@@ -31,6 +32,7 @@
     checkInFlight = true;
     try {
       const healthy = await checkHealth();
+      if (!mounted) return;
       offline = !healthy;
       if (healthy) clearPoll();
       else schedulePoll();
@@ -49,7 +51,10 @@
 
   onMount(() => {
     void check();
-    return clearPoll;
+    return () => {
+      mounted = false;
+      clearPoll();
+    };
   });
 </script>
 
@@ -75,8 +80,8 @@
     justify-content: center;
     gap: var(--sp-2);
     padding: 0.5rem 1rem;
-    background: #b3261e;
-    color: #fff;
+    background: var(--danger-surface);
+    color: var(--danger-surface-fg);
     font-size: var(--text-sm);
     animation: slide-down var(--dur) var(--ease-out) forwards;
   }
