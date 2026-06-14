@@ -512,12 +512,14 @@ func readInput(ch chan string) {
 			continue
 		}
 
-		select {
-		case ch <- line:
-		default:
-			<-ch
-			ch <- line
-		}
+		// Block until the main loop consumes the command. Console input is
+		// low-rate, so backpressure here is harmless. The previous coalescing
+		// select drained a full buffer with <-ch in its default branch, which
+		// raced the main loop's own receive: if main consumed the buffered
+		// command in that window, the drain blocked forever (this goroutine is
+		// the channel's only sender), permanently wedging console input until
+		// the process was signaled.
+		ch <- line
 	}
 
 	if err := scanner.Err(); err != nil && debugMode {
