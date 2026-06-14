@@ -132,6 +132,7 @@
   let pageScrollRafHandle: number | null = null;
   let pageTurnFinishTimer: ReturnType<typeof setTimeout> | null = null;
   let reportPositionRafHandle: number | null = null;
+  let scrollRafHandle: number | null = null;
   let revealFallbackTimer: ReturnType<typeof setTimeout> | null = null;
   let loadCommitTimer: ReturnType<typeof setTimeout> | null = null;
   let loadTransitionToken = 0;
@@ -1046,6 +1047,7 @@
     if (fragment) {
       revealScrollShell();
       requestAnimationFrame(() => {
+        if (destroyed) return;
         scrollToFragmentById(fragment);
         reportPositionRafHandle = requestAnimationFrame(reportPosition);
       });
@@ -1425,11 +1427,17 @@
   }
 
   function handleScroll(): void {
-    if (destroyed) return;
-    if (isPagedMode) return;
-    updateBoundaryState();
-    throttledReportPosition();
-    if (!atTop && !atBottom && boundaryDirection) resetBoundary();
+    if (destroyed || isPagedMode) return;
+    // Scroll events can fire several times per frame during momentum scrolling;
+    // coalesce the layout reads + position report into a single rAF tick.
+    if (scrollRafHandle !== null) return;
+    scrollRafHandle = requestAnimationFrame(() => {
+      scrollRafHandle = null;
+      if (destroyed || isPagedMode) return;
+      updateBoundaryState();
+      throttledReportPosition();
+      if (!atTop && !atBottom && boundaryDirection) resetBoundary();
+    });
   }
 
   function handleWheel(e: WheelEvent): void {
@@ -1995,6 +2003,10 @@
       cancelAnimationFrame(reportPositionRafHandle);
       reportPositionRafHandle = null;
     }
+    if (scrollRafHandle !== null) {
+      cancelAnimationFrame(scrollRafHandle);
+      scrollRafHandle = null;
+    }
 
     teardownPagedResizeObserver();
 
@@ -2085,8 +2097,11 @@
         if (contentReady) {
           const max =
             document.documentElement.scrollHeight - window.innerHeight;
+          const pct = Number.isFinite(msg.percent)
+            ? Math.min(1, Math.max(0, msg.percent))
+            : 0;
           window.scrollTo({
-            top: max * msg.percent,
+            top: max * pct,
             behavior: "instant" as ScrollBehavior,
           });
           resetBoundary();
