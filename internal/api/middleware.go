@@ -33,6 +33,11 @@ type apiError struct {
 	Code  string `json:"code"`
 }
 
+// jsonNewline is the trailing newline appended after every JSON response body.
+// It is a shared package-level slice so writeJSON can emit it as a separate
+// tiny write rather than reallocating the marshaled body to append one byte.
+var jsonNewline = []byte{'\n'}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	// Marshal before writing headers so a marshal error can still return a
 	// proper 500 instead of a truncated response after headers are committed.
@@ -48,10 +53,14 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
-	// Append the newline to the marshaled slice before the single Write call
-	// to avoid a second syscall and a second chunk through the gzip compressor.
-	data = append(data, '\n')
+	// Write the body and its trailing newline as two writes instead of
+	// append(data, '\n'): json.Marshal returns a len==cap slice, so appending
+	// would reallocate and copy the entire body on every response. gzip buffers
+	// internally (the 1-byte write is not a flush) and net/http's response bufio
+	// coalesces both writes on the uncompressed path, so this stays a single
+	// effective write without the per-response copy.
 	_, _ = w.Write(data)
+	_, _ = w.Write(jsonNewline)
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {

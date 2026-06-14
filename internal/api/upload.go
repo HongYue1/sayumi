@@ -74,7 +74,11 @@ func uploadBookHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		tmpFile, err := os.CreateTemp("", "sayumi-upload-*.epub")
+		// Stage the upload in a temp file inside the destination library dir so it
+		// can be placed with a single atomic hard link (see linkOrCopyExclusive)
+		// rather than copied a second full-size time. The dot prefix keeps an
+		// in-progress upload invisible to the scanner, which skips dotfiles.
+		tmpFile, err := os.CreateTemp(pd.LibPath, ".sayumi-upload-*.epub")
 		if err != nil {
 			slog.Error("create temp file failed", "filename", header.Filename, "err", err)
 			writeError(w, http.StatusInternalServerError, "server_error", "failed to create temp file")
@@ -145,10 +149,12 @@ func uploadBookHandler(_ *Dependencies) http.HandlerFunc {
 		destName := sanitizeFilename(header.Filename)
 		baseName := strings.TrimSuffix(destName, ".epub")
 
-		// Atomically reserve a destination filename with O_EXCL so that two
-		// concurrent uploads of the same file cannot both claim the same path.
-		// If the first candidate is taken we append a numeric suffix and retry,
-		// up to maxFilenameCollisions times.
+		// Atomically reserve a destination filename so two concurrent uploads
+		// cannot both claim the same path: linkOrCopyExclusive hard-links the
+		// staged temp into place (falling back to an O_EXCL copy where links are
+		// unsupported) and reports os.ErrExist when the name is taken. If the
+		// first candidate is taken we append a numeric suffix and retry, up to
+		// maxFilenameCollisions times.
 		var destPath string
 		var copyErr error
 		for index := 0; index <= maxFilenameCollisions; index++ {
@@ -157,7 +163,7 @@ func uploadBookHandler(_ *Dependencies) http.HandlerFunc {
 			} else {
 				destPath = filepath.Join(pd.LibPath, fmt.Sprintf("%s (%d).epub", baseName, index))
 			}
-			copyErr = copyFileExclusive(tmpPath, destPath)
+			copyErr = linkOrCopyExclusive(tmpPath, destPath)
 			if copyErr == nil {
 				break
 			}
@@ -262,12 +268,40 @@ func sanitizeFilename(name string) string {
 	return name + ".epub"
 }
 
+// linkOrCopyExclusive places src at dst without overwriting an existing file,
+// preferring a hard link so the staged upload is not copied a second time.
+//
+// os.Link is atomic and fails with os.ErrExist when dst already exists, giving
+// the same no-clobber guarantee as an O_EXCL create, so callers retry with a
+// new name on os.ErrExist. The link shares src's inode (mode 0o600 from the
+// staging temp), so the mode is widened to 0o644 to match a normal library
+// file. On filesystems without hard-link support (e.g. FAT, some network
+// mounts) Link fails with a non-ErrExist error and we fall back to a full
+// O_EXCL copy.
+func linkOrCopyExclusive(src, dst string) error {
+	switch err := os.Link(src, dst); {
+	case err == nil:
+		if chmodErr := os.Chmod(dst, 0o644); chmodErr != nil {
+			slog.Warn("set library file permissions failed", "path", dst, "err", chmodErr)
+		}
+		return nil
+	case errors.Is(err, os.ErrExist):
+		return err // name taken: caller tries the next candidate
+	default:
+		// Link unsupported on this filesystem (or otherwise failed); fall back to
+		// copying the bytes under the same O_EXCL no-clobber contract.
+		return copyFileExclusive(src, dst)
+	}
+}
+
 // copyFileExclusive atomically reserves dst with O_EXCL and streams src into
 // it. Returns os.ErrExist (wrapped) if dst already exists, allowing callers to
 // retry with a different name. On any write failure the partial file is removed.
+// It is the fallback for linkOrCopyExclusive on filesystems lacking hard-link
+// support.
 //
-// src is a temp file in os.TempDir, not inside the library, so os.Root is not
-// applicable here; path safety is ensured by sanitizeFilename on the dst side.
+// src is a server-controlled staging temp and dst is derived from
+// sanitizeFilename, so os.Root is not needed for path safety here.
 func copyFileExclusive(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
