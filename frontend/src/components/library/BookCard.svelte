@@ -56,23 +56,52 @@
       e.preventDefault();
       e.stopPropagation();
       closeMenu();
+      return;
     }
+    if (
+      e.key !== "ArrowDown" &&
+      e.key !== "ArrowUp" &&
+      e.key !== "Home" &&
+      e.key !== "End"
+    ) {
+      return;
+    }
+    // Roving focus across the radio items, matching the menu role's keyboard
+    // model so arrow keys move between flairs.
+    const menu = e.currentTarget as HTMLElement;
+    const items = Array.from(
+      menu.querySelectorAll<HTMLButtonElement>(".menu-item"),
+    );
+    if (items.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const cur = items.indexOf(document.activeElement as HTMLButtonElement);
+    let next: number;
+    switch (e.key) {
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = items.length - 1;
+        break;
+      case "ArrowDown":
+        next = cur < 0 ? 0 : (cur + 1) % items.length;
+        break;
+      default:
+        next = cur < 0 ? items.length - 1 : (cur - 1 + items.length) % items.length;
+    }
+    items[next].focus();
   }
 </script>
 
-<div
-  class="card"
-  role="button"
-  tabindex="0"
-  style:--enter-delay={`${enterDelay}ms`}
-  onclick={() => onopen(book.id)}
-  onkeydown={(e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      onopen(book.id);
-    }
-  }}
->
+<div class="card" style:--enter-delay={`${enterDelay}ms`}>
+  <!-- A real button carries native Enter/Space + focus semantics for "open",
+       so the card no longer nests action buttons inside a role="button". -->
+  <button
+    class="open-overlay"
+    aria-label={`Open ${book.title}`}
+    onclick={() => onopen(book.id)}
+  ></button>
   <div class="cover">
     {#if showCover}
       <img
@@ -169,6 +198,20 @@
     animation: card-in var(--dur-slow) var(--ease-out) both;
     animation-delay: var(--enter-delay, 0ms);
   }
+
+  /* Transparent full-card hit target for "open". Sits above the cover art but
+     below the corner action buttons (z-index: 2) and the flair menu/scrim. */
+  .open-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    padding: 0;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    cursor: pointer;
+  }
+
   @keyframes card-in {
     from {
       opacity: 0;
@@ -195,16 +238,16 @@
     transition: transform var(--dur) var(--ease-out);
   }
   .card:hover .cover,
-  .card:focus-visible .cover {
+  .card:has(.open-overlay:focus-visible) .cover {
     transform: translateY(-3px);
   }
-  /* Rely on a cover-targeted ring rather than the global card ring, so the
-     focus indicator hugs the artwork instead of the whole card column. */
-  .card:focus-visible {
+  /* Cover-targeted focus ring hugs the artwork instead of the whole column.
+     Driven off the overlay button via :has, since the card itself is no longer
+     the focusable element. */
+  .open-overlay:focus-visible {
     outline: none;
-    box-shadow: none;
   }
-  .card:focus-visible .cover {
+  .card:has(.open-overlay:focus-visible) .cover {
     border-color: var(--accent);
     box-shadow: var(--focus);
   }
@@ -249,6 +292,7 @@
   .chip-btn {
     position: absolute;
     top: var(--sp-1);
+    z-index: 2;
     display: grid;
     place-items: center;
     width: 1.6rem;
