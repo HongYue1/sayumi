@@ -129,6 +129,11 @@
   let isRTL = false;
   let pagedResizeObserver: ResizeObserver | null = null;
   let pagedResizeDebounce: ReturnType<typeof setTimeout> | null = null;
+  // Viewport dims (innerWidth/innerHeight) at the last pagination. Lets the
+  // resize handler skip relayouts that don't change the viewport box.
+  // -1 = nothing laid out yet, so the next relayout always runs.
+  let lastLayoutW = -1;
+  let lastLayoutH = -1;
   let pageScrollRafHandle: number | null = null;
   let pageTurnFinishTimer: ReturnType<typeof setTimeout> | null = null;
   let reportPositionRafHandle: number | null = null;
@@ -797,6 +802,10 @@
   function relayoutPagedContentPreservingPosition(): void {
     if (!isPagedMode || destroyed) return;
     setPagedHeights();
+    // Record the viewport box this layout is computed against so the resize
+    // handler can skip no-op relayouts (see handlePagedResize).
+    lastLayoutW = window.innerWidth;
+    lastLayoutH = window.innerHeight;
     const ratio = totalPages > 1 ? currentPage / (totalPages - 1) : 0;
     totalPages = calculateTotalPages();
     currentPage = Math.max(
@@ -866,6 +875,8 @@
 
     setPageTurning(false);
     setPagedHeights();
+    lastLayoutW = window.innerWidth;
+    lastLayoutH = window.innerHeight;
     totalPages = calculateTotalPages();
 
     if (pendingFragment) {
@@ -912,6 +923,18 @@
     pagedResizeDebounce = setTimeout(() => {
       if (destroyed) return;
       pagedResizeDebounce = null;
+      // ResizeObserver(documentElement) and the window resize listener both feed
+      // this path and can fire for churn that doesn't change the viewport box
+      // (scrollbar toggling, sub-pixel rounding, visual-viewport-only changes).
+      // A relayout forces a full reflow + scroll reset, so skip when neither
+      // dimension changed since the last pagination. innerWidth/innerHeight
+      // reads don't force layout, unlike the clientWidth reads inside relayout.
+      if (
+        window.innerWidth === lastLayoutW &&
+        window.innerHeight === lastLayoutH
+      ) {
+        return;
+      }
       relayoutPagedContentPreservingPosition();
     }, 120);
   }
@@ -1902,6 +1925,8 @@
     isPagedMode = false;
     currentPage = 0;
     totalPages = 0;
+    lastLayoutW = -1;
+    lastLayoutH = -1;
     isRTL = msg.direction === "rtl";
     teardownPagedResizeObserver();
 
