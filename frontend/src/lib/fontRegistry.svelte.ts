@@ -26,13 +26,16 @@ export function userFamilyCSSValue(fam: UserFontFamily): string {
 class FontRegistry {
   families = $state<UserFontFamily[]>([]);
 
-  #loaded = false;
+  /** True once a load/rescan has succeeded. Reactive (unlike a plain field) so
+   *  consumers can tell "registry not loaded yet" apart from "loaded with no
+   *  user fonts". A failed load leaves this false so the next attempt retries. */
+  loaded = $state(false);
 
   async load(): Promise<void> {
-    if (this.#loaded) return;
+    if (this.loaded) return;
     try {
       this.families = await getFonts();
-      this.#loaded = true;
+      this.loaded = true;
     } catch {
       // No user fonts is a normal, non-fatal state.
     }
@@ -41,7 +44,7 @@ class FontRegistry {
   async rescan(): Promise<void> {
     try {
       this.families = await rescanFonts();
-      this.#loaded = true;
+      this.loaded = true;
     } catch {
       // Keep the previous list on failure.
     }

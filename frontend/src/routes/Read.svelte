@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import {
     getBook,
     getProgress,
@@ -16,7 +16,7 @@
     type Bookmark,
     type SearchResult,
   } from "~/api/client";
-  import { settings } from "~/lib/settings.svelte";
+  import { settings, type IframeSettings } from "~/lib/settings.svelte";
   import { toast } from "~/lib/toast.svelte";
   import { fontRegistry } from "~/lib/fontRegistry.svelte";
   import { buildAllFontFaces } from "~/lib/readerFontFaces";
@@ -26,11 +26,15 @@
   import { getErrorMessage } from "~/lib/errors";
   import { applyTheme } from "~/lib/theme";
   import ChapterFrame from "~/components/reader/ChapterFrame.svelte";
-  import TocPanel from "~/components/reader/TocPanel.svelte";
-  import SettingsPanel from "~/components/reader/SettingsPanel.svelte";
-  import SearchPanel from "~/components/reader/SearchPanel.svelte";
-  import BookmarksPanel from "~/components/reader/BookmarksPanel.svelte";
   import type { ChapterFrameAPI, KeyEvent } from "~/components/reader/frame-types";
+
+  // Reader side-panels load on first open so they don't inflate the reader
+  // route's initial JS bundle. import() results are module-cached, so reopening
+  // a panel is instant.
+  const tocPanel = () => import("~/components/reader/TocPanel.svelte");
+  const settingsPanel = () => import("~/components/reader/SettingsPanel.svelte");
+  const searchPanel = () => import("~/components/reader/SearchPanel.svelte");
+  const bookmarksPanel = () => import("~/components/reader/BookmarksPanel.svelte");
   import Icon from "~/lib/Icon.svelte";
   import { focusTrap } from "~/lib/focusTrap";
   import {
@@ -152,8 +156,20 @@
       showChrome();
     }
   }
+  // pointermove fires continuously; resetting the auto-hide timer on every
+  // event churns timers needlessly. Poke it at most a couple times a second —
+  // the 4s hide window makes the small delay imperceptible.
+  let lastChromePoke = 0;
   function handlePointerActivity(): void {
-    if (!chromeVisible) chromeVisible = true;
+    if (!chromeVisible) {
+      chromeVisible = true;
+      lastChromePoke = Date.now();
+      resetChromeTimer();
+      return;
+    }
+    const now = Date.now();
+    if (now - lastChromePoke < 500) return;
+    lastChromePoke = now;
     resetChromeTimer();
   }
 
@@ -163,16 +179,41 @@
     api?.setFontFaces(fontFaceCSS);
   }
 
-  // Push settings into the iframe whenever they change (after the first load).
-  // Font faces are pushed first so a role/registry change takes effect in the
-  // same applySettings pass.
+  // Coalesce settings pushes into one per animation frame: dragging a slider
+  // fires oninput many times per frame, but the iframe only needs the latest
+  // value. This keeps live preview smooth without flooding postMessage.
+  let applyRaf: number | null = null;
+  let pendingSettings: IframeSettings | null = null;
+  function scheduleApplySettings(s: IframeSettings): void {
+    pendingSettings = s;
+    if (applyRaf !== null) return;
+    applyRaf = requestAnimationFrame(() => {
+      applyRaf = null;
+      const next = pendingSettings;
+      pendingSettings = null;
+      if (next) api?.applySettings(next);
+    });
+  }
+
+  // Re-inject the @font-face CSS only when it actually changes (a font role or
+  // registry change) — not on every settings tweak. The frame stores the faces
+  // and needs a following applySettings to inject them, so re-apply the current
+  // settings without subscribing to them here (untrack), keeping this effect
+  // keyed solely on fontFaceCSS.
   $effect(() => {
-    const s = settings.iframe;
     const faces = fontFaceCSS;
     if (api && initialLoadDone) {
       api.setFontFaces(faces);
-      api.applySettings(s);
+      scheduleApplySettings(untrack(() => settings.iframe));
     }
+  });
+
+  // Push reader settings whenever they change (after the first load). Split out
+  // from the font-face effect so a settings change no longer re-sends the
+  // (large) font-face CSS to the iframe.
+  $effect(() => {
+    const s = settings.iframe;
+    if (api && initialLoadDone) scheduleApplySettings(s);
   });
 
   // Keep the app chrome (reader bar, panels) in sync with the reading theme.
@@ -198,6 +239,7 @@
       fetchAbort?.abort();
       if (highlightTimer) clearTimeout(highlightTimer);
       if (chromeHideTimer) clearTimeout(chromeHideTimer);
+      if (applyRaf !== null) cancelAnimationFrame(applyRaf);
     };
   });
 
@@ -431,6 +473,14 @@
     if (boundary === "end" && currentChapter + 1 < b.chapterCount) void loadChapter(currentChapter + 1, "top");
     else if (boundary === "start" && currentChapter > 0) void loadChapter(currentChapter - 1, "end");
   }
+  function handleFrameError(_code: string, message: string): void {
+    // An in-iframe render failure: stop the spinner and show the error UI with
+    // Retry instead of silently swallowing it.
+    chapterLoadInProgress = false;
+    chapterLoading = false;
+    error = message || "Failed to render this chapter.";
+  }
+
   function handleLinkClicked(href: string): void {
     const b = book;
     if (!b) return;
@@ -685,11 +735,14 @@
         onlinkclicked={handleLinkClicked}
         onkey={handleFrameKey}
         onclickregion={handleClickRegion}
+        onframeerror={handleFrameError}
       />
     {/if}
 
     {#if chapterLoading}
-      <div class="loading" aria-hidden="true"></div>
+      <div class="loading" role="status" aria-live="polite">
+        <span class="sr-only">Loading chapter…</span>
+      </div>
     {/if}
 
     {#if error}
@@ -701,38 +754,46 @@
 
     {#if activePanel === "toc" && book}
       <div class="panel left" role="dialog" aria-modal="true" aria-label="Table of contents" {@attach focusTrap}>
-        <TocPanel toc={book.toc} onnavigate={handleTocNavigate} />
+        {#await tocPanel() then { default: TocPanel }}
+          <TocPanel toc={book.toc} onnavigate={handleTocNavigate} />
+        {/await}
       </div>
       <button class="scrim" aria-label="Close" onclick={closePanel}></button>
     {/if}
 
     {#if activePanel === "bookmarks"}
       <div class="panel left" role="dialog" aria-modal="true" aria-label="Bookmarks" {@attach focusTrap}>
-        <BookmarksPanel
-          {bookmarks}
-          onnavigate={navigateBookmark}
-          ondelete={(id) => void removeBookmark(id)}
-          onupdate={(id, label, comment) => void editBookmark(id, label, comment)}
-          onclose={closePanel}
-        />
+        {#await bookmarksPanel() then { default: BookmarksPanel }}
+          <BookmarksPanel
+            {bookmarks}
+            onnavigate={navigateBookmark}
+            ondelete={(id) => void removeBookmark(id)}
+            onupdate={(id, label, comment) => void editBookmark(id, label, comment)}
+            onclose={closePanel}
+          />
+        {/await}
       </div>
       <button class="scrim" aria-label="Close" onclick={closePanel}></button>
     {/if}
 
     {#if activePanel === "search"}
       <div class="panel right" role="dialog" aria-modal="true" aria-label="Search in book" {@attach focusTrap}>
-        <SearchPanel
-          {bookId}
-          onresultclick={navigateToResult}
-          onclose={closePanel}
-        />
+        {#await searchPanel() then { default: SearchPanel }}
+          <SearchPanel
+            {bookId}
+            onresultclick={navigateToResult}
+            onclose={closePanel}
+          />
+        {/await}
       </div>
       <button class="scrim" aria-label="Close" onclick={closePanel}></button>
     {/if}
 
     {#if activePanel === "settings"}
       <div class="panel right" role="dialog" aria-modal="true" aria-label="Settings" {@attach focusTrap}>
-        <SettingsPanel onclose={closePanel} />
+        {#await settingsPanel() then { default: SettingsPanel }}
+          <SettingsPanel onclose={closePanel} />
+        {/await}
       </div>
       <button class="scrim" aria-label="Close" onclick={closePanel}></button>
     {/if}
@@ -841,6 +902,17 @@
     background: var(--bg);
     opacity: 0.6;
     pointer-events: none;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
   .error {
     position: absolute;

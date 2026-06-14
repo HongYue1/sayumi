@@ -1,5 +1,5 @@
 import { getSettings, saveSettings, type UserSettings } from "~/api/client";
-import { getFontFamily } from "~/lib/fonts";
+import { getFontById, getFontFamily } from "~/lib/fonts";
 import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry.svelte";
 
 // Shape the reader iframe expects (see iframe/frame.ts apply-settings handler).
@@ -85,7 +85,19 @@ class Settings {
   async load(): Promise<void> {
     if (this.#loaded) return;
     try {
-      this.value = await getSettings();
+      const loaded = await getSettings();
+      // Merge over defaults so a sparse/new-profile response (missing or empty
+      // fields) still yields a complete, valid settings object. Without this a
+      // new profile can come back without a fontFamily, leaving the font
+      // <select> with no matching option (blank instead of the default font).
+      this.value = { ...DEFAULT_USER_SETTINGS, ...loaded };
+      // Coerce an unusable built-in font id (empty or unknown) to the default.
+      // User fonts ("user:" prefix) can't be validated until the registry has
+      // loaded, so SettingsPanel reconciles those reactively once families load.
+      const fam = this.value.fontFamily;
+      if (!isUserFamilyId(fam) && !getFontById(fam)) {
+        this.value.fontFamily = DEFAULT_USER_SETTINGS.fontFamily;
+      }
       this.#loaded = true;
     } catch {
       // Keep defaults if settings cannot be loaded.

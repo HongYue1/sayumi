@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { settings } from "~/lib/settings.svelte";
+  import { settings, DEFAULT_USER_SETTINGS } from "~/lib/settings.svelte";
   import { THEMES } from "~/lib/themes";
-  import { READER_FONTS } from "~/lib/fonts";
+  import { READER_FONTS, getFontById } from "~/lib/fonts";
   import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry.svelte";
   import type { UserSettings } from "~/api/client";
   import Icon from "~/lib/Icon.svelte";
@@ -36,6 +36,20 @@
   const selectedUserFamily = $derived(
     isUserFamilyId(s.fontFamily) ? fontRegistry.get(s.fontFamily) : undefined,
   );
+
+  // The id to *display* as selected. A user font can't be validated until the
+  // registry loads; once it has, an id with no matching family (e.g. the user
+  // removed that font) falls back to the default so the <select> shows a real
+  // option instead of going blank. Storage is left untouched (non-destructive);
+  // changing the selection writes the chosen id back via onchange.
+  const effectiveFontFamily = $derived.by(() => {
+    const id = s.fontFamily;
+    if (isUserFamilyId(id)) {
+      if (!fontRegistry.loaded) return id;
+      return fontRegistry.get(id) ? id : DEFAULT_USER_SETTINGS.fontFamily;
+    }
+    return getFontById(id) ? id : DEFAULT_USER_SETTINGS.fontFamily;
+  });
 
   const ROLES: { key: "regular" | "italic" | "bold"; label: string }[] = [
     { key: "regular", label: "Regular" },
@@ -112,6 +126,7 @@
         {step}
         value={value ?? fallback}
         disabled={value === null}
+        aria-label={label}
         oninput={(e) => apply(+e.currentTarget.value)}
       />
       <span class="val">{value === null ? "Auto" : `${value}${unit}`}</span>
@@ -179,7 +194,8 @@
       <h3>Font</h3>
       <select
         class="font-select"
-        value={s.fontFamily}
+        value={effectiveFontFamily}
+        aria-label="Reading font"
         onchange={(e) => set("fontFamily", e.currentTarget.value)}
       >
         <optgroup label="Built-in">
@@ -242,6 +258,7 @@
             max="40"
             step="1"
             value={s.fontSize}
+            aria-label="Font size"
             oninput={(e) => set("fontSize", +e.currentTarget.value)}
           />
           <span class="val">{s.fontSize}px</span>

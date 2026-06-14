@@ -24,6 +24,7 @@
   let errorMsg = $state("");
 
   let input = $state<HTMLInputElement | null>(null);
+  let listEl = $state<HTMLDivElement | null>(null);
   let debounce: ReturnType<typeof setTimeout> | undefined;
   let token = 0;
   let abort: AbortController | undefined;
@@ -53,6 +54,15 @@
         ? `${results.length}+ results`
         : `${results.length} result${results.length === 1 ? "" : "s"}`,
   );
+
+  // Keep the keyboard-selected result visible as the user arrows through it.
+  $effect(() => {
+    currentIdx;
+    if (status !== "done") return;
+    listEl
+      ?.querySelector<HTMLElement>(".result.active")
+      ?.scrollIntoView({ block: "nearest" });
+  });
 
   onMount(() => {
     input?.focus();
@@ -173,24 +183,30 @@
       onkeydown={onKey}
       autocomplete="off"
       spellcheck="false"
+      role="combobox"
+      aria-label="Search book"
+      aria-controls="search-results"
+      aria-expanded={results.length > 0}
+      aria-autocomplete="list"
+      aria-activedescendant={results.length > 0 ? `sr-${currentIdx}` : undefined}
     />
-    {#if countText}<span class="count tnum">{countText}</span>{/if}
+    {#if countText}<span class="count tnum" aria-live="polite">{countText}</span>{/if}
     <button class="close" onclick={onclose} aria-label="Close search"><Icon icon={X} size={18} /></button>
   </header>
 
-  <div class="list">
+  <div class="list" bind:this={listEl} id="search-results" role="listbox" aria-label="Search results">
     {#if status === "loading"}
-      <p class="state">Searching…</p>
+      <p class="state" role="status">Searching…</p>
     {:else if status === "error"}
-      <div class="state">
+      <div class="state" role="alert">
         <p>{errorMsg}</p>
         <button class="ghost-btn" onclick={() => run(lastQuery)}>Try again</button>
       </div>
     {:else if status === "done" && results.length === 0}
-      <p class="state">No results for “{query}”.</p>
+      <p class="state" role="status">No results for “{query}”.</p>
     {:else if status === "done"}
       {#each groups as group (group.chapterIndex + "-" + group.items[0].globalIdx)}
-        <div class="group">
+        <div class="group" role="group" aria-label={`Chapter ${group.chapterIndex + 1}`}>
           <div class="group-head">
             Chapter {group.chapterIndex + 1}
             <span class="group-count tnum">{group.items.length}</span>
@@ -199,6 +215,9 @@
             {@const p = parts(it.result)}
             <button
               class="result"
+              id={`sr-${it.globalIdx}`}
+              role="option"
+              aria-selected={it.globalIdx === currentIdx}
               class:active={it.globalIdx === currentIdx}
               onclick={() => pick(it.result, it.globalIdx)}
             >

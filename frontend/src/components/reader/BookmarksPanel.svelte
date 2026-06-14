@@ -45,8 +45,8 @@
         <div class="bm">
           {#if editingId === bm.id}
             <div class="edit">
-              <input class="field" bind:value={editLabel} placeholder="Label" />
-              <textarea class="field" bind:value={editComment} placeholder="Note…" rows="3"></textarea>
+              <input class="field" bind:value={editLabel} placeholder="Label" aria-label="Bookmark label" />
+              <textarea class="field" bind:value={editComment} placeholder="Note…" rows="3" aria-label="Bookmark note"></textarea>
               <div class="actions">
                 <button class="primary" onclick={() => saveEdit(bm.id)}>Save</button>
                 <button class="ghost-btn" onclick={() => (editingId = null)}>Cancel</button>

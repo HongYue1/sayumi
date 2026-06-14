@@ -81,6 +81,7 @@
     | { type: "key"; seq: number; key: string; code: string; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean }
     | { type: "click"; seq: number; region: "left" | "center" | "right" }
     | { type: "error"; seq: number; code: string; message: string }
+    | { type: "load-error"; seq: number; error: string }
     | { type: "page-changed"; seq: number; current: number; total: number };
 
   const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -126,6 +127,8 @@
         return isNum(v.seq) && isRegion(v.region);
       case "error":
         return isNum(v.seq) && isStr(v.code) && isStr(v.message);
+      case "load-error":
+        return isNum(v.seq) && isStr(v.error);
       case "page-changed":
         return isNum(v.seq) && isNum(v.current) && isNum(v.total);
       default:
@@ -179,6 +182,11 @@
         break;
       case "error":
         if (m.seq === seq) onframeerror?.(m.code, m.message);
+        break;
+      case "load-error":
+        // frame.ts reports chapter render failures as "load-error"; surface
+        // them through the same callback so the reader can show its error UI.
+        if (m.seq === seq) onframeerror?.("load-error", m.error);
         break;
       case "page-changed":
         if (m.seq === seq) onpagechanged?.(m.current, m.total);
