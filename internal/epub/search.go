@@ -1,6 +1,7 @@
 package epub
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -81,11 +82,22 @@ func Search(
 	// not allocate until the first append.)
 	results := []SearchResult{}
 
+	// Acquire the indexed zip reader once for the whole search instead of
+	// reopening it per chapter. This collapses 2*N store lock/refcount cycles
+	// (open+release per chapter) down to one, and pins the book in the store
+	// LRU for the scan so a concurrent open of another book can't evict and
+	// close the reader out from under us mid-search.
+	_, index, err := store.OpenIndexed(filePath)
+	if err != nil {
+		return SearchResponse{}, fmt.Errorf("open epub for search: %w", err)
+	}
+	defer store.Release(filePath)
+
 	for chapterIndex := startChapter; chapterIndex < len(spine); chapterIndex++ {
 		if err := ctx.Err(); err != nil {
 			return SearchResponse{}, err
 		}
-		orig, textLower, err := chapterPlainText(store, filePath, spine, chapterIndex)
+		orig, textLower, err := chapterPlainText(store, filePath, index, spine, chapterIndex)
 		if err != nil {
 			slog.Warn("skipping chapter during search: failed to extract text",
 				"chapter", chapterIndex, "err", err)
@@ -153,6 +165,7 @@ func Search(
 func chapterPlainText(
 	store *EPUBStore,
 	filePath string,
+	index map[string]*zip.File,
 	spine []SpineEntry,
 	chapterIndex int,
 ) (orig, lower string, err error) {
@@ -163,12 +176,6 @@ func chapterPlainText(
 	if orig, lower, ok := store.GetText(filePath, chapterIndex); ok {
 		return orig, lower, nil
 	}
-
-	_, index, err := store.OpenIndexed(filePath)
-	if err != nil {
-		return "", "", fmt.Errorf("open epub for text extraction: %w", err)
-	}
-	defer store.Release(filePath)
 
 	hrefPath := spine[chapterIndex].Href
 	if idx := strings.Index(hrefPath, "#"); idx != -1 {
