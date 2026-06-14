@@ -15,16 +15,19 @@
     label: string;
     hint?: string;
     run: () => void;
+    /** Precomputed lowercased "label + hint" so filtering avoids per-key allocs. */
+    haystack: string;
   }
 
   let query = $state("");
   let active = $state(0);
   let input = $state<HTMLInputElement | null>(null);
+  let listEl = $state<HTMLUListElement | null>(null);
 
   // Only build the (potentially large) command list while the palette is open.
   const commands = $derived.by<Command[]>(() => {
     if (!ui.palette) return [];
-    const list: Command[] = [
+    const list: Omit<Command, "haystack">[] = [
       { id: "nav-library", label: "Go to Library", hint: "Navigate", run: () => router.navigate("/") },
       { id: "act-rescan", label: "Rescan library folder", hint: "Action", run: () => void library.rescan() },
       { id: "act-shortcuts", label: "Keyboard shortcuts", hint: "Help", run: () => ui.openShortcuts() },
@@ -49,7 +52,10 @@
         },
       });
     }
-    return list;
+    return list.map((c) => ({
+      ...c,
+      haystack: (c.label + " " + (c.hint ?? "")).toLowerCase(),
+    }));
   });
 
   const filtered = $derived.by<Command[]>(() => {
@@ -58,10 +64,7 @@
     // Match every typed word somewhere in the label/hint (order-independent),
     // so "theme sepia" matches "Theme: Sepia".
     return commands
-      .filter((c) => {
-        const hay = (c.label + " " + (c.hint ?? "")).toLowerCase();
-        return words.every((w) => hay.includes(w));
-      })
+      .filter((c) => words.every((w) => c.haystack.includes(w)))
       .slice(0, 50);
   });
 
@@ -88,6 +91,14 @@
     close();
     cmd.run();
   }
+  // Keep the highlighted option visible as ↑/↓ walk past the viewport edge.
+  function scrollActiveIntoView(i: number): void {
+    queueMicrotask(() => {
+      listEl
+        ?.querySelector<HTMLElement>(`#cmd-opt-${i}`)
+        ?.scrollIntoView({ block: "nearest" });
+    });
+  }
   function onKeydown(e: KeyboardEvent): void {
     switch (e.key) {
       case "Escape":
@@ -100,11 +111,15 @@
         break;
       case "ArrowDown":
         e.preventDefault();
-        active = filtered.length ? (active + 1) % filtered.length : 0;
+        // Step from the clamped `sel`, not raw `active`, so a shrunk filter
+        // set can't make the first arrow skip a row.
+        active = filtered.length ? (sel + 1) % filtered.length : 0;
+        scrollActiveIntoView(active);
         break;
       case "ArrowUp":
         e.preventDefault();
-        active = filtered.length ? (active - 1 + filtered.length) % filtered.length : 0;
+        active = filtered.length ? (sel - 1 + filtered.length) % filtered.length : 0;
+        scrollActiveIntoView(active);
         break;
       case "Enter":
         e.preventDefault();
@@ -132,32 +147,41 @@
           bind:this={input}
           class="cmd-input"
           type="text"
+          role="combobox"
           placeholder="Type a command, book, or theme…"
           aria-label="Command palette search"
           aria-controls="cmd-list"
+          aria-expanded="true"
+          aria-activedescendant={filtered.length ? `cmd-opt-${sel}` : undefined}
           autocomplete="off"
           spellcheck="false"
           bind:value={query}
           onkeydown={onKeydown}
         />
       </div>
-      <ul class="cmd-list" id="cmd-list" role="listbox" aria-label="Commands">
+      <ul
+        class="cmd-list"
+        id="cmd-list"
+        role="listbox"
+        aria-label="Commands"
+        bind:this={listEl}
+      >
         {#each filtered as cmd, i (cmd.id)}
-          <li>
-            <button
-              class="cmd"
-              class:active={i === sel}
-              role="option"
-              aria-selected={i === sel}
-              onmousemove={() => (active = i)}
-              onclick={() => choose(cmd)}
-            >
-              <span class="cmd-label">{cmd.label}</span>
-              {#if cmd.hint}<span class="cmd-hint">{cmd.hint}</span>{/if}
-            </button>
+          <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
+          <li
+            id="cmd-opt-{i}"
+            class="cmd"
+            class:active={i === sel}
+            role="option"
+            aria-selected={i === sel}
+            onmousemove={() => (active = i)}
+            onclick={() => choose(cmd)}
+          >
+            <span class="cmd-label">{cmd.label}</span>
+            {#if cmd.hint}<span class="cmd-hint">{cmd.hint}</span>{/if}
           </li>
         {:else}
-          <li class="cmd-empty">No matches</li>
+          <li class="cmd-empty" role="presentation">No matches</li>
         {/each}
       </ul>
     </div>
