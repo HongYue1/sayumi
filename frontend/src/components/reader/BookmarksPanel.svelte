@@ -41,11 +41,12 @@
     {#if sorted.length === 0}
       <p class="empty">No bookmarks yet. Press <kbd>B</kbd> while reading to add one.</p>
     {:else}
-      {#each sorted as bm (bm.id)}
-        <div class="bm">
+      <ul class="bm-list">
+        {#each sorted as bm (bm.id)}
+          <li class="bm">
           {#if editingId === bm.id}
             <div class="edit">
-              <input class="field" bind:value={editLabel} placeholder="Label" aria-label="Bookmark label" />
+              <input class="field" bind:value={editLabel} placeholder="Label" aria-label="Bookmark label" {@attach (el) => (el as HTMLInputElement).focus()} />
               <textarea class="field" bind:value={editComment} placeholder="Note…" rows="3" aria-label="Bookmark note"></textarea>
               <div class="actions">
                 <button class="primary" onclick={() => saveEdit(bm.id)}>Save</button>
@@ -63,8 +64,9 @@
               <button class="icon-btn danger" onclick={() => ondelete(bm.id)} aria-label="Delete bookmark"><Icon icon={Trash2} size={15} /></button>
             </div>
           {/if}
-        </div>
-      {/each}
+          </li>
+        {/each}
+      </ul>
     {/if}
   </div>
 </div>
@@ -117,6 +119,11 @@
   .list {
     overflow-y: auto;
     padding: var(--sp-2) var(--sp-3) var(--sp-8);
+  }
+  .bm-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
   }
   .empty {
     color: var(--muted);
@@ -198,7 +205,7 @@
   .primary {
     border: none;
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     font: inherit;
     font-size: var(--text-sm);
     font-weight: 700;
@@ -257,6 +264,6 @@
     transform: scale(0.95);
   }
   .icon-btn.danger:hover {
-    color: #b3402f;
+    color: var(--danger);
   }
 </style>

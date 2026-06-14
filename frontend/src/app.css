@@ -44,6 +44,9 @@
      instead of staying a fixed light-theme gray on dark backgrounds. */
   --muted: color-mix(in srgb, var(--fg) 70%, var(--bg));
   --accent: #7c6f64;
+  /* Foreground for text/icons on --accent; recomputed per theme by applyTheme
+     via WCAG luminance so accent buttons stay legible on light accents. */
+  --accent-fg: #ffffff;
 
   /* Danger / error. --danger mixes a red toward the active --fg so error
      text keeps ~AA contrast on every theme (same trick as --muted). The

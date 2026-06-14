@@ -145,7 +145,11 @@
       <h3>Reading mode</h3>
       <div class="segmented">
         {#each MODES as m (m.id)}
-          <button class:active={s.displayMode === m.id} onclick={() => set("displayMode", m.id)}>
+          <button
+            class:active={s.displayMode === m.id}
+            aria-pressed={s.displayMode === m.id}
+            onclick={() => set("displayMode", m.id)}
+          >
             {m.label}
           </button>
         {/each}
@@ -160,6 +164,7 @@
           <button
             class="swatch"
             class:active={s.theme === t.id}
+            aria-pressed={s.theme === t.id}
             style:background={t.bg}
             style:color={t.fg}
             title={t.label}
@@ -177,6 +182,7 @@
           <button
             class="swatch"
             class:active={s.theme === t.id}
+            aria-pressed={s.theme === t.id}
             style:background={t.bg}
             style:color={t.fg}
             title={t.label}
@@ -297,6 +303,7 @@
           {#each TITLE_ALIGNS as a (a.id ?? "auto")}
             <button
               class:active={s.chapterTitleAlign === a.id}
+              aria-pressed={s.chapterTitleAlign === a.id}
               onclick={() => set("chapterTitleAlign", a.id)}
             >
               {a.label}
@@ -415,7 +422,7 @@
   }
   .segmented button.active {
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     border-color: var(--accent);
   }
   .segmented.small button {

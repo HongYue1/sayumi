@@ -117,13 +117,17 @@
     if (!q) return;
     abort?.abort();
     abort = new AbortController();
+    token += 1;
+    const my = token;
     loadingMore = true;
     try {
       const resp = await searchBook(bookId, q, nextCursor, 200, abort.signal);
+      if (my !== token) return;
       results = [...results, ...(resp.results ?? [])];
       hasMore = resp.hasMore;
       nextCursor = resp.nextCursor ?? "";
     } catch (e) {
+      if (my !== token) return;
       if (!(e instanceof DOMException && e.name === "AbortError")) {
         errorMsg = getErrorMessage(e, "Failed to load more.");
       }
