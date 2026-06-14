@@ -27,6 +27,14 @@ type profileDeps struct {
 	Scanner *library.Scanner
 	LibPath string
 
+	// coverRoot is a long-lived os.Root anchored at LibPath, opened once when the
+	// profile opens and reused by every cover request. It replaces a per-request
+	// os.OpenRoot (a directory open + fd) on the cover-serving path while keeping
+	// the same sandboxed-traversal guarantee. os.Root.Open is safe for concurrent
+	// use; the root is closed in closeProfile after refs drain to zero, so no
+	// in-flight request can touch a closed root.
+	coverRoot *os.Root
+
 	lifetimeMu   sync.Mutex
 	lifetimeCond *sync.Cond
 	refs         int
@@ -129,6 +137,11 @@ func (pm *ProfileManager) closeProfile(profileName string, pd *profileDeps) {
 
 	pd.markClosingAndWait()
 	pd.Store.Close()
+	if pd.coverRoot != nil {
+		if err := pd.coverRoot.Close(); err != nil {
+			slog.Error("profile cover root close failed", "profile", profileName, "err", err)
+		}
+	}
 	if err := pd.DB.Close(); err != nil {
 		slog.Error("profile db close failed", "profile", profileName, "err", err)
 	}
@@ -183,7 +196,15 @@ func (pm *ProfileManager) openProfile(ctx context.Context, profileName string) (
 		"total", time.Since(openStart),
 	)
 
-	return newProfileDeps(db, books, scanner, libPath), nil
+	coverRoot, err := os.OpenRoot(libPath)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("open cover root for %q: %w", profileName, err)
+	}
+
+	pd := newProfileDeps(db, books, scanner, libPath)
+	pd.coverRoot = coverRoot
+	return pd, nil
 }
 
 func (pm *ProfileManager) lockProfiles(ctx context.Context, profileNames ...string) func() {

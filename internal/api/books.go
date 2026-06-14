@@ -298,19 +298,13 @@ func getCoverHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		libRoot, err := os.OpenRoot(pd.LibPath)
-		if err != nil {
-			slog.Error("open library root for cover failed", "book", id, "err", err)
+		if pd.coverRoot == nil {
+			slog.Error("cover root not available", "book", id)
 			writeError(w, http.StatusInternalServerError, "server_error", "failed to read cover")
 			return
 		}
-		defer func() {
-			if closeErr := libRoot.Close(); closeErr != nil {
-				slog.Error("close library root failed", "book", id, "err", closeErr)
-			}
-		}()
 
-		file, err := libRoot.Open(book.CoverPath)
+		file, err := pd.coverRoot.Open(book.CoverPath)
 		if err != nil {
 			writeError(w, http.StatusNotFound, "no_cover", "cover file not found")
 			return

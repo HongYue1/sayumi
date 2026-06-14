@@ -58,10 +58,13 @@ func TestFilterAndSortBooks(t *testing.T) {
 	}
 }
 
-func TestFilterAndSortBooksDoesNotMutateOnEmptyQuery(t *testing.T) {
+func TestFilterAndSortBooksSortsInPlaceOnEmptyQuery(t *testing.T) {
 	in := books()
-	_ = filterAndSortBooks(in, "", "title", "asc")
-	if in[0].ID != "1" {
-		t.Errorf("input slice order changed unexpectedly: first ID = %q", in[0].ID)
+	got := filterAndSortBooks(in, "", "title", "asc")
+	// No-query path sorts the caller's slice in place and returns it. The list
+	// handler owns the slice it passes, so this avoided clone is intentional.
+	if got[0].ID != "2" || in[0].ID != "2" {
+		t.Errorf("expected in-place title-asc sort (alpha first), got %v / in %v",
+			ids(got), ids(in))
 	}
 }

@@ -28,12 +28,25 @@ const (
 	sessionRemember = 30 * 24 * time.Hour
 	sessionDuration = 24 * time.Hour // server-side expiry for non-remember sessions
 	tokenLen        = 32
+
+	// sessionProfileCheckTTL bounds how long validateSession trusts a cached
+	// profile-existence result before re-checking ProfilesDB. See
+	// session.verifiedUntil.
+	sessionProfileCheckTTL = 60 * time.Second
 )
 
 type session struct {
 	profile  string
 	expiry   time.Time
 	remember bool
+	// verifiedUntil is the wall-clock time until which sess.profile is known to
+	// exist in ProfilesDB. validateSession re-confirms existence only once this
+	// passes. ProfilesDB runs at maxOpenConns=1, so an unconditional per-request
+	// check serializes all authenticated traffic (a library page fires one
+	// request per cover) behind a single connection; the cache collapses that
+	// burst into one lookup. Out-of-band profile deletion stays visible within
+	// sessionProfileCheckTTL (in-band deletes call deleteAllForProfile).
+	verifiedUntil time.Time
 }
 
 // sessionStore holds active sessions in memory. The map is unbounded between
@@ -88,6 +101,20 @@ func (ss *sessionStore) deleteToken(token string) {
 	ss.mu.Lock()
 	delete(ss.data, token)
 	ss.mu.Unlock()
+}
+
+// markProfileVerified records that token's profile was just confirmed to exist,
+// suppressing the per-request existence check until "until". It is a no-op if
+// the token is gone (logged out or swept) so it never resurrects a dead session.
+func (ss *sessionStore) markProfileVerified(token string, until time.Time) {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	sess, ok := ss.data[token]
+	if !ok {
+		return
+	}
+	sess.verifiedUntil = until
+	ss.data[token] = sess
 }
 
 func (ss *sessionStore) deleteAllForProfile(profile string) {
@@ -183,6 +210,13 @@ func validateSession(deps *Dependencies, w http.ResponseWriter, r *http.Request)
 		return session{}, false, nil
 	}
 
+	// Fast path: existence was confirmed within the TTL, so skip the DB hit.
+	// This is the hot path — every authenticated request (including each cover
+	// and chapter asset) lands here, and ProfilesDB serializes at maxOpenConns=1.
+	if time.Now().Before(sess.verifiedUntil) {
+		return sess, true, nil
+	}
+
 	if err := sessionProfileExists(r.Context(), deps, sess); err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			deps.sessions.deleteToken(token)
@@ -192,6 +226,7 @@ func validateSession(deps *Dependencies, w http.ResponseWriter, r *http.Request)
 		return session{}, false, fmt.Errorf("verify session profile %q: %w", sess.profile, err)
 	}
 
+	deps.sessions.markProfileVerified(token, time.Now().Add(sessionProfileCheckTTL))
 	return sess, true, nil
 }
 

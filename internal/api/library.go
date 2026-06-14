@@ -52,7 +52,13 @@ func rescanLibraryHandler(_ *Dependencies) http.HandlerFunc {
 
 // filterAndSortBooks applies optional query (q), sort field, and order to a
 // book list. Unknown/empty values fall back to no-filter and title-ascending,
-// matching the client's default ordering. The input slice is never mutated.
+// matching the client's default ordering.
+//
+// The books slice is sorted in place and may be reordered. The sole caller
+// (listBooksHandler) passes a freshly built slice it owns, so cloning it just
+// to sort would allocate and immediately discard a second N-element slice on
+// the most-hit endpoint. When q matches, a new filtered slice is built and the
+// input is left untouched.
 func filterAndSortBooks(books []BookResponse, q, sortField, order string) []BookResponse {
 	if query := strings.ToLower(strings.TrimSpace(q)); query != "" {
 		filtered := make([]BookResponse, 0, len(books))
@@ -63,9 +69,6 @@ func filterAndSortBooks(books []BookResponse, q, sortField, order string) []Book
 			}
 		}
 		books = filtered
-	} else {
-		// Copy so the stable sort below doesn't reorder the caller's slice.
-		books = slices.Clone(books)
 	}
 
 	desc := strings.EqualFold(strings.TrimSpace(order), "desc")

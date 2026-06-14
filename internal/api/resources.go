@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/subtle"
+	"hash/fnv"
 	"io"
 	"log/slog"
 	"net/http"
@@ -31,6 +32,18 @@ func validResourceToken(fileHash, token string) bool {
 	return fileHash != "" && subtle.ConstantTimeCompare([]byte(token), []byte(fileHash)) == 1
 }
 
+// resourceETag derives a validator unique to (book, resource). The bare file
+// hash is shared by every resource in a book, so a client revalidating one
+// asset could be told 304 for a different one; folding the resource path in
+// fixes that. The path is hashed rather than concatenated so the tag stays a
+// fixed-width, quote-free token — a raw request path may contain a double
+// quote, which would otherwise break the ETag header grammar.
+func resourceETag(fileHash, resourcePath string) string {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(resourcePath))
+	return `"` + fileHash + ":" + strconv.FormatUint(h.Sum64(), 16) + `"`
+}
+
 func getResourceHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		bookID := r.PathValue("id")
@@ -57,7 +70,7 @@ func getResourceHandler(deps *Dependencies) http.HandlerFunc {
 		defer access.pd.release()
 
 		if access.fileHash != "" {
-			etag := `"` + access.fileHash + `"`
+			etag := resourceETag(access.fileHash, resourcePath)
 			w.Header().Set("ETag", etag)
 			if ifNoneMatchMatches(r, etag) {
 				w.WriteHeader(http.StatusNotModified)
