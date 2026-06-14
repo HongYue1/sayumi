@@ -350,7 +350,7 @@ func removeManagedLibraryFile(libPath, targetPath, kind string) {
 		// Absolute path (e.g. book.FilePath): verify it is still inside the
 		// library before removing, then call os.Remove directly.
 		rel, err := filepath.Rel(libPath, targetPath)
-		if err != nil || strings.HasPrefix(rel, "..") {
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 			slog.Error("managed file path escapes library root", "kind", kind, "path", targetPath)
 			return
 		}
