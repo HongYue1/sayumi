@@ -305,7 +305,7 @@
     height: 1rem;
     border-radius: 50%;
     background: var(--accent);
-    color: var(--bg);
+    color: var(--accent-fg);
   }
   .name {
     overflow: hidden;
