@@ -204,8 +204,12 @@
     let current: Element = body;
 
     for (const part of parts) {
+      // Strict integer parse: a malformed/foreign CFI segment (e.g. "3x", "",
+      // "1.5") should cleanly fail to null so callers fall back to percent,
+      // rather than parseInt leniently coercing it to a wrong-but-valid index.
+      if (!/^\d+$/.test(part)) return null;
       const index = parseInt(part, 10);
-      if (isNaN(index) || index < 1) return null;
+      if (index < 1) return null;
       const child = current.children[index - 1];
       if (!child) return null;
       current = child;
