@@ -181,6 +181,10 @@ func getBookHandler(_ *Dependencies) http.HandlerFunc {
 
 		spineJSON, tocJSON, err := pd.DB.GetBookContentContext(r.Context(), book.ID)
 		if err != nil {
+			if errors.Is(err, storage.ErrNotFound) {
+				writeError(w, http.StatusNotFound, "not_found", "book not found")
+				return
+			}
 			slog.Error("load book content failed", "book", book.ID, "err", err)
 			writeError(w, http.StatusInternalServerError, "db_error", "failed to load book")
 			return
@@ -263,6 +267,10 @@ func getTocHandler(_ *Dependencies) http.HandlerFunc {
 
 		_, tocJSON, err := pd.DB.GetBookContentContext(r.Context(), id)
 		if err != nil {
+			if errors.Is(err, storage.ErrNotFound) {
+				writeError(w, http.StatusNotFound, "not_found", "book not found")
+				return
+			}
 			slog.Error("load book toc failed", "book", id, "err", err)
 			writeError(w, http.StatusInternalServerError, "db_error", "failed to load toc")
 			return

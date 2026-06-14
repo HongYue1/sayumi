@@ -113,6 +113,9 @@ func (db *DB) ListBookPathsContext(ctx context.Context) (out []BookPath, err err
 func (db *DB) GetBookContentContext(ctx context.Context, id string) (spineJSON, tocJSON string, err error) {
 	row := db.QueryRowContext(ctx, "SELECT spine_json, toc_json FROM books WHERE id = ?", id)
 	if err := row.Scan(&spineJSON, &tocJSON); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", "", ErrNotFound
+		}
 		return "", "", fmt.Errorf("get book content %s: %w", id, err)
 	}
 	return spineJSON, tocJSON, nil
@@ -209,10 +212,41 @@ func (db *DB) BookExistsByPathContext(ctx context.Context, filePath string) (id 
 // is silently ignored and the existing row's ID is returned instead. This makes
 // concurrent imports idempotent even without an application-level lock.
 func (db *DB) InsertBookContext(ctx context.Context, book BookRecord) (canonicalID string, err error) {
+	now := time.Now().UTC().Format(time.DateTime)
+
+	inserted, err := db.insertBookOrIgnore(ctx, book, now)
+	if err != nil {
+		return "", err
+	}
+	if inserted {
+		// Our row was inserted; the proposed ID is canonical.
+		return book.ID, nil
+	}
+
+	// Another goroutine inserted a row with the same file_hash first (OR IGNORE
+	// suppressed our insert). Resolve the canonical ID with a plain indexed read;
+	// only the id is needed, so skip the heavy spine_json / toc_json columns. The
+	// write lock was released by insertBookOrIgnore, so this lookup does not
+	// extend the writer critical section.
+	existingID, _, found, err := db.GetBookIDByHashContext(ctx, book.FileHash)
+	if err != nil {
+		return "", fmt.Errorf("fetch existing book after ignored insert: %w", err)
+	}
+	if !found {
+		return "", fmt.Errorf("insert ignored but no existing book for hash %q", book.FileHash)
+	}
+	return existingID, nil
+}
+
+// insertBookOrIgnore runs the INSERT OR IGNORE under the write lock and reports
+// whether a row was actually inserted. inserted is false when a row with the
+// same file_hash already existed (OR IGNORE suppressed the insert). The lock is
+// held only for the write itself, never across the caller's follow-up hash
+// lookup.
+func (db *DB) insertBookOrIgnore(ctx context.Context, book BookRecord, now string) (inserted bool, err error) {
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
 
-	now := time.Now().UTC().Format(time.DateTime)
 	res, err := db.ExecContext(
 		ctx, `
 		INSERT OR IGNORE INTO books (id, title, author, language, publisher, description, pub_date, isbn,
@@ -227,30 +261,14 @@ func (db *DB) InsertBookContext(ctx context.Context, book BookRecord) (canonical
 		book.Direction, book.ChapterCount, now, now,
 	)
 	if err != nil {
-		return "", fmt.Errorf("insert book: %w", err)
+		return false, fmt.Errorf("insert book: %w", err)
 	}
 
 	rows, err := res.RowsAffected()
 	if err != nil {
-		return "", fmt.Errorf("insert book rows affected: %w", err)
+		return false, fmt.Errorf("insert book rows affected: %w", err)
 	}
-	if rows > 0 {
-		// Our row was inserted; the proposed ID is canonical.
-		return book.ID, nil
-	}
-
-	// Another goroutine inserted a row with the same file_hash first (OR IGNORE
-	// suppressed our insert). Return whichever ID is actually in the DB; only the
-	// id is needed, so skip the heavy spine_json / toc_json columns. This read
-	// does not take writeMu (already held) and never re-locks it.
-	existingID, _, found, err := db.GetBookIDByHashContext(ctx, book.FileHash)
-	if err != nil {
-		return "", fmt.Errorf("fetch existing book after ignored insert: %w", err)
-	}
-	if !found {
-		return "", fmt.Errorf("insert ignored but no existing book for hash %q", book.FileHash)
-	}
-	return existingID, nil
+	return rows > 0, nil
 }
 
 // UpdateBookFilePathContext updates the on-disk path stored for a book. It is
