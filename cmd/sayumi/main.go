@@ -401,14 +401,12 @@ func buildHandler(deps *api.Dependencies) http.Handler {
 	})
 
 	handler := api.NewHandler(deps, fontHandler, staticHandler)
-	// recoverMiddleware must be inner (closer to the handler) so that when a
-	// handler panics, recover catches it and writes a 500 before returning
-	// normally to logMiddleware. logMiddleware then logs the request with the
-	// correct 500 status. The previous order (recover outer, log inner) meant
-	// panics propagated past the log line before being caught, so panicking
-	// requests were never access-logged.
-	handler = recoverMiddleware(handler)
-	handler = logMiddleware(handler)
+	// A single middleware both recovers panics and access-logs the request,
+	// sharing one statusWriter so each request pays for just one wrapper instead
+	// of two. The deferred closure recovers first (writing a 500 if the handler
+	// panicked before writing anything), then logs the request with the final
+	// status — so panicking requests are still access-logged.
+	handler = instrumentMiddleware(handler)
 	return handler
 }
 
@@ -588,22 +586,35 @@ func (sw *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 
 func (sw *statusWriter) Unwrap() http.ResponseWriter { return sw.ResponseWriter }
 
-// logMiddleware records every request at Debug level so it only appears
-// when --debug is active and never pollutes the normal terminal UI.
-func logMiddleware(next http.Handler) http.Handler {
+// instrumentMiddleware recovers panics and access-logs every request through a
+// single statusWriter. The request is logged at Debug level (so it only appears
+// under --debug and never pollutes the terminal UI). Recovering and logging in
+// one deferred closure means a panicking handler still gets a 500 written and a
+// log line with the final status, without a second wrapper allocation.
+func instrumentMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		writer := &statusWriter{ResponseWriter: w, status: http.StatusOK}
-		next.ServeHTTP(writer, r)
 
-		slog.Log(
-			r.Context(), slog.LevelDebug, "request",
-			"method", r.Method,
-			"path", r.URL.Path,
-			"status", writer.status,
-			"size", humanizeBytes(writer.bytes),
-			"duration", time.Since(start),
-		)
+		defer func() {
+			if rec := recover(); rec != nil {
+				slog.Error("panic recovered", "panic", rec, "stack", string(debug.Stack()))
+				if !writer.wrote {
+					writeInternalServerError(writer, r)
+				}
+			}
+
+			slog.Log(
+				r.Context(), slog.LevelDebug, "request",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", writer.status,
+				"size", humanizeBytes(writer.bytes),
+				"duration", time.Since(start),
+			)
+		}()
+
+		next.ServeHTTP(writer, r)
 	})
 }
 
@@ -618,23 +629,6 @@ func humanizeBytes(n int) string {
 	default:
 		return fmt.Sprintf("%.1fMB", float64(n)/(1024*1024))
 	}
-}
-
-func recoverMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writer := &statusWriter{ResponseWriter: w, status: http.StatusOK}
-
-		defer func() {
-			if rec := recover(); rec != nil {
-				slog.Error("panic recovered", "panic", rec, "stack", string(debug.Stack()))
-				if !writer.wrote {
-					writeInternalServerError(writer, r)
-				}
-			}
-		}()
-
-		next.ServeHTTP(writer, r)
-	})
 }
 
 func writeInternalServerError(w http.ResponseWriter, r *http.Request) {
