@@ -122,13 +122,21 @@ func uploadBookHandler(_ *Dependencies) http.HandlerFunc {
 				return
 			}
 
-			book, err := pd.DB.GetBookContext(r.Context(), existingID)
+			// Only summary fields are needed here (cache warm + JSON response); the
+			// heavy spine_json / toc_json are loaded lazily by GetSpine on first open.
+			summary, found, err := pd.DB.GetBookSummaryContext(r.Context(), existingID)
 			if err != nil {
 				slog.Error("load duplicate book failed", "filename", header.Filename, "existing_id", existingID, "err", err)
 				writeError(w, http.StatusInternalServerError, "db_error", "failed to load duplicate book")
 				return
 			}
+			if !found {
+				slog.Error("duplicate book missing after dedup match", "filename", header.Filename, "existing_id", existingID)
+				writeError(w, http.StatusInternalServerError, "db_error", "failed to load duplicate book")
+				return
+			}
 
+			book := storage.BookRecord{BookSummary: summary}
 			pd.Books.Add(book)
 			writeJSON(w, http.StatusOK, bookResponseFromRecord(book))
 			return
@@ -186,12 +194,20 @@ func uploadBookHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		book, err := pd.DB.GetBookContext(r.Context(), bookID)
+		// Cache warm + JSON response need only summary fields; the spine/toc are
+		// loaded lazily on first open, so skip the heavy columns here too.
+		summary, found, err := pd.DB.GetBookSummaryContext(r.Context(), bookID)
 		if err != nil {
 			slog.Error("retrieve imported book failed", "filename", header.Filename, "book_id", bookID, "err", err)
 			writeError(w, http.StatusInternalServerError, "db_error", "book imported but failed to retrieve")
 			return
 		}
+		if !found {
+			slog.Error("imported book missing after import", "filename", header.Filename, "book_id", bookID)
+			writeError(w, http.StatusInternalServerError, "db_error", "book imported but failed to retrieve")
+			return
+		}
+		book := storage.BookRecord{BookSummary: summary}
 		pd.Books.Add(book)
 
 		writeJSON(w, http.StatusCreated, bookResponseFromRecord(book))
