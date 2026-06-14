@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -26,6 +27,9 @@ func (db *DB) GetProgressContext(ctx context.Context, bookID, userID string) (Pr
 	var progress ProgressRecord
 	err := row.Scan(&progress.BookID, &progress.UserID, &progress.Chapter, &progress.Percent, &progress.CFI, &progress.UpdatedAt)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return progress, ErrNotFound
+		}
 		return progress, fmt.Errorf("get progress: %w", err)
 	}
 	return progress, nil

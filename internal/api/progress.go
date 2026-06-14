@@ -32,7 +32,7 @@ func getProgressHandler(_ *Dependencies) http.HandlerFunc {
 
 		prog, err := pd.DB.GetProgressContext(r.Context(), bookID, getUserID(r))
 		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+			if errors.Is(err, storage.ErrNotFound) {
 				writeJSON(w, http.StatusOK, progressBody{Chapter: 0, Percent: 0})
 				return
 			}

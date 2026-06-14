@@ -1,7 +1,6 @@
 package api
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -158,7 +157,7 @@ func getBookHandler(_ *Dependencies) http.HandlerFunc {
 		case err == nil:
 			progress = calcProgress(prog.Chapter, prog.Percent, book.ChapterCount)
 			lastReadAt = prog.UpdatedAt
-		case errors.Is(err, sql.ErrNoRows):
+		case errors.Is(err, storage.ErrNotFound):
 		default:
 			slog.Error("load book progress failed", "book", book.ID, "user", userID, "err", err)
 			writeError(w, http.StatusInternalServerError, "db_error", "failed to load progress")
@@ -217,7 +216,7 @@ func deleteBookHandler(_ *Dependencies) http.HandlerFunc {
 		if !ok {
 			dbBook, err := pd.DB.GetBookContext(r.Context(), id)
 			if err != nil {
-				if errors.Is(err, sql.ErrNoRows) {
+				if errors.Is(err, storage.ErrNotFound) {
 					writeError(w, http.StatusNotFound, "not_found", "book not found")
 					return
 				}
@@ -229,7 +228,7 @@ func deleteBookHandler(_ *Dependencies) http.HandlerFunc {
 		}
 
 		if err := pd.DB.DeleteBookContext(r.Context(), id); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+			if errors.Is(err, storage.ErrNotFound) {
 				pd.Books.Remove(id)
 				writeError(w, http.StatusNotFound, "not_found", "book not found")
 				return

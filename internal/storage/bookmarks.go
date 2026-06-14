@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -62,6 +63,9 @@ func (db *DB) GetBookmarkContext(ctx context.Context, id, userID string) (Bookma
 	err := row.Scan(&bookmark.ID, &bookmark.BookID, &bookmark.UserID, &bookmark.Chapter, &bookmark.Percent,
 		&bookmark.CFI, &bookmark.Label, &bookmark.Comment, &bookmark.CreatedAt)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return bookmark, ErrNotFound
+		}
 		return bookmark, fmt.Errorf("get bookmark %s: %w", id, err)
 	}
 	return bookmark, nil
@@ -100,7 +104,7 @@ func (db *DB) UpdateBookmarkContext(ctx context.Context, id, userID, label, comm
 		return fmt.Errorf("update bookmark rows affected: %w", err)
 	}
 	if n == 0 {
-		return sql.ErrNoRows
+		return ErrNotFound
 	}
 	return nil
 }
@@ -118,7 +122,7 @@ func (db *DB) DeleteBookmarkContext(ctx context.Context, id, userID string) erro
 		return fmt.Errorf("delete bookmark rows affected: %w", err)
 	}
 	if n == 0 {
-		return sql.ErrNoRows
+		return ErrNotFound
 	}
 	return nil
 }

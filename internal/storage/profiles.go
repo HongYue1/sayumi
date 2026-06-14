@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -104,6 +105,9 @@ func (p *ProfilesDB) GetProfileContext(ctx context.Context, name string) (Profil
 		name,
 	).Scan(&profile.Name, &profile.PinHash, &profile.CreatedAt)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return profile, ErrNotFound
+		}
 		return profile, fmt.Errorf("get profile %q: %w", name, err)
 	}
 	return profile, nil
@@ -132,7 +136,7 @@ func (p *ProfilesDB) DeleteProfileContext(ctx context.Context, name string) erro
 		return fmt.Errorf("delete profile %q rows affected: %w", name, err)
 	}
 	if n == 0 {
-		return sql.ErrNoRows
+		return ErrNotFound
 	}
 	return nil
 }

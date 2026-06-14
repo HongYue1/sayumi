@@ -115,6 +115,9 @@ func (db *DB) GetBookContext(ctx context.Context, id string) (BookRecord, error)
 	`, id)
 	book, err := scanBook(row)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return book, ErrNotFound
+		}
 		return book, fmt.Errorf("get book %s: %w", id, err)
 	}
 	return book, nil
@@ -130,6 +133,9 @@ func (db *DB) GetBookByHashContext(ctx context.Context, hash string) (BookRecord
 	`, hash)
 	book, err := scanBook(row)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return book, ErrNotFound
+		}
 		return book, fmt.Errorf("get book by hash %s: %w", hash, err)
 	}
 	return book, nil
@@ -260,6 +266,9 @@ func (db *DB) DeleteBookContext(ctx context.Context, id string) error {
 
 	var filePath string
 	if err := tx.QueryRowContext(ctx, "SELECT file_path FROM books WHERE id = ?", id).Scan(&filePath); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
 		return fmt.Errorf("find book %s: %w", id, err)
 	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM books WHERE id = ?", id); err != nil {

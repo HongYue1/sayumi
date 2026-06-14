@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -53,6 +54,9 @@ func (db *DB) GetSettingsContext(ctx context.Context, userID string) (SettingsRe
 		&settings.FontRoles, &settings.UpdatedAt,
 	)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return settings, ErrNotFound
+		}
 		return settings, fmt.Errorf("get settings: %w", err)
 	}
 	return settings, nil

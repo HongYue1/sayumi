@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -20,6 +19,8 @@ import (
 	sqlite3 "modernc.org/sqlite/lib"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"sayumi/internal/storage"
 )
 
 const (
@@ -183,7 +184,7 @@ func validateSession(deps *Dependencies, w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := sessionProfileExists(r.Context(), deps, sess); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, storage.ErrNotFound) {
 			deps.sessions.deleteToken(token)
 			clearCookie(w, r)
 			return session{}, false, nil
@@ -398,7 +399,7 @@ func loginHandler(deps *Dependencies) http.HandlerFunc {
 		}
 
 		profile, err := deps.ProfilesDB.GetProfileContext(r.Context(), body.Name)
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, storage.ErrNotFound) {
 			// Equalize timing with the existing-profile path below (which runs
 			// bcrypt) so response latency can't be used to enumerate valid
 			// profile names. The result is intentionally discarded.
@@ -624,7 +625,7 @@ func deleteProfileHandler(deps *Dependencies) http.HandlerFunc {
 		}
 
 		profile, err := deps.ProfilesDB.GetProfileContext(r.Context(), sess.profile)
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, storage.ErrNotFound) {
 			deps.sessions.deleteAllForProfile(sess.profile)
 			clearCookie(w, r)
 			writeError(w, http.StatusNotFound, "not_found", "profile not found")

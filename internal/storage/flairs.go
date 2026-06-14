@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -96,7 +95,7 @@ func (db *DB) DeleteFlairContext(ctx context.Context, id, userID string) error {
 		return fmt.Errorf("delete flair rows affected: %w", err)
 	}
 	if n == 0 {
-		return sql.ErrNoRows
+		return ErrNotFound
 	}
 
 	if _, err := tx.ExecContext(ctx, "DELETE FROM book_flairs WHERE flair_id = ? AND user_id = ?", id, userID); err != nil {

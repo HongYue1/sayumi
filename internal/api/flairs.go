@@ -1,7 +1,6 @@
 package api
 
 import (
-	"database/sql"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -104,7 +103,7 @@ func deleteFlairHandler(_ *Dependencies) http.HandlerFunc {
 
 		id := r.PathValue("id")
 		if err := pd.DB.DeleteFlairContext(r.Context(), id, getUserID(r)); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+			if errors.Is(err, storage.ErrNotFound) {
 				writeError(w, http.StatusNotFound, "not_found", "flair not found")
 				return
 			}

@@ -270,7 +270,7 @@ func getSettingsHandler(_ *Dependencies) http.HandlerFunc {
 
 		record, err := pd.DB.GetSettingsContext(r.Context(), getUserID(r))
 		if err != nil {
-			if !errors.Is(err, sql.ErrNoRows) {
+			if !errors.Is(err, storage.ErrNotFound) {
 				slog.Error("load settings failed", "err", err)
 				writeError(w, http.StatusInternalServerError, "db_error", "failed to load settings")
 				return

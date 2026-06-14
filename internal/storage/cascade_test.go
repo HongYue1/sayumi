@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"testing"
 )
@@ -45,7 +44,7 @@ func TestDeleteBookCascadesChildRows(t *testing.T) {
 		t.Fatalf("delete book: %v", err)
 	}
 
-	if _, err := db.GetProgressContext(ctx, "id1", "default"); !errors.Is(err, sql.ErrNoRows) {
+	if _, err := db.GetProgressContext(ctx, "id1", "default"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("progress row survived book deletion (cascade off?): err = %v", err)
 	}
 

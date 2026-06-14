@@ -166,7 +166,7 @@ func updateBookmarkHandler(_ *Dependencies) http.HandlerFunc {
 
 		existing, err := pd.DB.GetBookmarkContext(r.Context(), bookmarkID, userID)
 		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+			if errors.Is(err, storage.ErrNotFound) {
 				writeError(w, http.StatusNotFound, "not_found", "bookmark not found")
 				return
 			}
@@ -194,7 +194,7 @@ func updateBookmarkHandler(_ *Dependencies) http.HandlerFunc {
 		}
 
 		if err := pd.DB.UpdateBookmarkContext(r.Context(), bookmarkID, userID, body.Label, body.Comment); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+			if errors.Is(err, storage.ErrNotFound) {
 				writeError(w, http.StatusNotFound, "not_found", "bookmark not found")
 				return
 			}
@@ -222,7 +222,7 @@ func deleteBookmarkHandler(_ *Dependencies) http.HandlerFunc {
 
 		existing, err := pd.DB.GetBookmarkContext(r.Context(), bookmarkID, userID)
 		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+			if errors.Is(err, storage.ErrNotFound) {
 				writeError(w, http.StatusNotFound, "not_found", "bookmark not found")
 				return
 			}
@@ -236,7 +236,7 @@ func deleteBookmarkHandler(_ *Dependencies) http.HandlerFunc {
 		}
 
 		if err := pd.DB.DeleteBookmarkContext(r.Context(), bookmarkID, userID); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+			if errors.Is(err, storage.ErrNotFound) {
 				writeError(w, http.StatusNotFound, "not_found", "bookmark not found")
 				return
 			}

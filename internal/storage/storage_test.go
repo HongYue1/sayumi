@@ -137,8 +137,8 @@ func TestGetBookAndLookups(t *testing.T) {
 		t.Error("missing path reported as found")
 	}
 
-	if _, err := db.GetBookContext(ctx, "nope"); !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("get missing book err = %v, want sql.ErrNoRows", err)
+	if _, err := db.GetBookContext(ctx, "nope"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("get missing book err = %v, want ErrNotFound", err)
 	}
 }
 
@@ -171,8 +171,8 @@ func TestProgressUpsert(t *testing.T) {
 	ctx := context.Background()
 	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub"))
 
-	if _, err := db.GetProgressContext(ctx, "id1", "default"); !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("progress before save err = %v, want sql.ErrNoRows", err)
+	if _, err := db.GetProgressContext(ctx, "id1", "default"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("progress before save err = %v, want ErrNotFound", err)
 	}
 
 	if err := db.SaveProgressContext(ctx, ProgressRecord{
@@ -209,8 +209,8 @@ func TestSettingsUpsert(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 
-	if _, err := db.GetSettingsContext(ctx, "default"); !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("settings before save err = %v, want sql.ErrNoRows", err)
+	if _, err := db.GetSettingsContext(ctx, "default"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("settings before save err = %v, want ErrNotFound", err)
 	}
 
 	// font_roles is NOT NULL, so it must be a valid (possibly empty) string.
@@ -286,8 +286,8 @@ func TestFlairDeleteClearsAssignments(t *testing.T) {
 		t.Error("assignment to deleted flair was not cleared")
 	}
 
-	if err := db.DeleteFlairContext(ctx, "missing", "default"); !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("delete missing flair err = %v, want sql.ErrNoRows", err)
+	if err := db.DeleteFlairContext(ctx, "missing", "default"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("delete missing flair err = %v, want ErrNotFound", err)
 	}
 }
 
@@ -355,11 +355,11 @@ func TestBookmarksCRUD(t *testing.T) {
 		t.Errorf("bookmark count after delete = %d, want 0", len(list))
 	}
 
-	if err := db.UpdateBookmarkContext(ctx, "missing", "default", "x", "y"); !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("update missing bookmark err = %v, want sql.ErrNoRows", err)
+	if err := db.UpdateBookmarkContext(ctx, "missing", "default", "x", "y"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("update missing bookmark err = %v, want ErrNotFound", err)
 	}
-	if err := db.DeleteBookmarkContext(ctx, "missing", "default"); !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("delete missing bookmark err = %v, want sql.ErrNoRows", err)
+	if err := db.DeleteBookmarkContext(ctx, "missing", "default"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("delete missing bookmark err = %v, want ErrNotFound", err)
 	}
 }
 
@@ -372,8 +372,8 @@ func TestDeleteBookRecordsIgnoredFile(t *testing.T) {
 		t.Fatalf("delete book: %v", err)
 	}
 
-	if _, err := db.GetBookContext(ctx, "id1"); !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("get deleted book err = %v, want sql.ErrNoRows", err)
+	if _, err := db.GetBookContext(ctx, "id1"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("get deleted book err = %v, want ErrNotFound", err)
 	}
 
 	ignored, err := db.IsFileIgnoredContext(ctx, "/lib/a.epub")
