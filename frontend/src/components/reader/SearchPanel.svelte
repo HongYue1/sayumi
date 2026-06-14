@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { searchBook, type SearchResult } from "~/api/client";
   import { getErrorMessage } from "~/lib/errors";
   import Icon from "~/lib/Icon.svelte";
@@ -56,13 +56,15 @@
   );
 
   // Keep the keyboard-selected result visible as the user arrows through it.
-  $effect(() => {
-    currentIdx;
-    if (status !== "done") return;
+  // Driven directly from the arrow-key handler rather than a $effect on
+  // currentIdx: scrolling is a discrete consequence of a keypress, not derived
+  // state, so an effect that re-subscribes on every index change is overkill.
+  async function scrollActiveIntoView(): Promise<void> {
+    await tick();
     listEl
       ?.querySelector<HTMLElement>(".result.active")
       ?.scrollIntoView({ block: "nearest" });
-  });
+  }
 
   onMount(() => {
     input?.focus();
@@ -147,11 +149,13 @@
         if (total === 0) return;
         e.preventDefault();
         currentIdx = (currentIdx + 1) % total;
+        void scrollActiveIntoView();
         break;
       case "ArrowUp":
         if (total === 0) return;
         e.preventDefault();
         currentIdx = (currentIdx - 1 + total) % total;
+        void scrollActiveIntoView();
         break;
       case "Enter":
         if (total > 0) {
