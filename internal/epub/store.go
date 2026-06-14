@@ -109,6 +109,13 @@ type zipEntry struct {
 	index    map[string]*zip.File
 	refs     int
 	evicted  bool
+
+	// ready is closed once the entry finishes loading (reader+index attached,
+	// or loadErr set). A goroutine that finds an existing entry must wait on
+	// ready before reading reader/index, since the entry may be a placeholder
+	// installed by another goroutine whose zip.OpenReader is still running.
+	ready   chan struct{}
+	loadErr error
 }
 
 type zipLRU struct {
@@ -221,31 +228,61 @@ func buildIndex(zr *zip.Reader) map[string]*zip.File {
 	return idx
 }
 
-func (s *EPUBStore) acquireLocked(filePath string) (*zipEntry, error) {
+// acquire returns a referenced entry for filePath, opening the zip on a cache
+// miss. The disk open runs WITHOUT s.mu held: a miss installs a loading
+// placeholder (holding one ref, with a fresh ready channel), releases the lock
+// to run zip.OpenReader, then re-acquires the lock to attach the reader.
+// Concurrent callers for the same path find the placeholder and block on
+// e.ready rather than opening the file again, so a burst of first requests
+// collapses to a single open and opens of other books never serialize behind
+// this one. The caller must Release the returned entry.
+func (s *EPUBStore) acquire(filePath string) (*zipEntry, error) {
+	s.mu.Lock()
 	if e, ok := s.openFiles[filePath]; ok {
 		e.refs++
-		if e.evicted {
-			e.evicted = false
-			s.lru.touch(filePath, e)
-			s.evictExcess()
-		} else {
-			s.lru.touch(filePath, e)
+		e.evicted = false
+		s.lru.touch(filePath, e)
+		s.evictExcess()
+		s.mu.Unlock()
+		// The entry may still be loading; wait without holding s.mu. We hold a
+		// ref, so the reader cannot be closed out from under us.
+		<-e.ready
+		if e.loadErr != nil {
+			// The loader failed and removed the entry from the store, so our
+			// ref is on an orphaned placeholder with no reader to release.
+			return nil, e.loadErr
 		}
 		return e, nil
 	}
-	rc, err := zip.OpenReader(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("open epub %s: %w", filePath, err)
-	}
-	e := &zipEntry{
-		filePath: filePath,
-		reader:   rc,
-		index:    buildIndex(&rc.Reader),
-		refs:     1,
-	}
+
+	// Miss: install a loading placeholder holding our ref, then open the file
+	// with the lock released so other store operations proceed meanwhile.
+	e := &zipEntry{filePath: filePath, refs: 1, ready: make(chan struct{})}
 	s.openFiles[filePath] = e
 	s.lru.touch(filePath, e)
+	s.mu.Unlock()
+
+	rc, err := zip.OpenReader(filePath)
+
+	s.mu.Lock()
+	if err != nil {
+		e.loadErr = fmt.Errorf("open epub %s: %w", filePath, err)
+		// Drop the placeholder so future opens retry instead of finding a
+		// permanently failed entry. Guard cur == e in case it was replaced.
+		if cur, ok := s.openFiles[filePath]; ok && cur == e {
+			delete(s.openFiles, filePath)
+			s.lru.remove(filePath)
+		}
+		s.mu.Unlock()
+		close(e.ready)
+		return nil, e.loadErr
+	}
+	e.reader = rc
+	e.index = buildIndex(&rc.Reader)
+	// Reader attached and protected by our ref; safe to count against the cap.
 	s.evictExcess()
+	s.mu.Unlock()
+	close(e.ready)
 	return e, nil
 }
 
@@ -257,8 +294,10 @@ func (s *EPUBStore) evictExcess() {
 		}
 		if victim.refs == 0 {
 			delete(s.openFiles, victim.filePath)
-			if err := victim.reader.Close(); err != nil {
-				slog.Error("failed to close evicted epub reader", "path", victim.filePath, "err", err)
+			if victim.reader != nil {
+				if err := victim.reader.Close(); err != nil {
+					slog.Error("failed to close evicted epub reader", "path", victim.filePath, "err", err)
+				}
 			}
 		} else {
 			victim.evicted = true
@@ -267,12 +306,12 @@ func (s *EPUBStore) evictExcess() {
 }
 
 func (s *EPUBStore) OpenIndexed(filePath string) (*zip.Reader, map[string]*zip.File, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	e, err := s.acquireLocked(filePath)
+	e, err := s.acquire(filePath)
 	if err != nil {
 		return nil, nil, err
 	}
+	// Safe without s.mu: acquire only returns once e.ready is observed, which
+	// happens-after the reader/index writes, and our ref keeps them alive.
 	return &e.reader.Reader, e.index, nil
 }
 
@@ -289,8 +328,10 @@ func (s *EPUBStore) Release(filePath string) {
 	}
 	e.refs--
 	if e.refs == 0 && e.evicted {
-		if err := e.reader.Close(); err != nil {
-			slog.Error("failed to close released epub reader", "path", filePath, "err", err)
+		if e.reader != nil {
+			if err := e.reader.Close(); err != nil {
+				slog.Error("failed to close released epub reader", "path", filePath, "err", err)
+			}
 		}
 		delete(s.openFiles, filePath)
 	}
@@ -313,8 +354,10 @@ func (s *EPUBStore) CloseBook(filePath string) {
 	}
 	s.lru.remove(filePath)
 	if e.refs == 0 {
-		if err := e.reader.Close(); err != nil {
-			slog.Error("failed to close book reader", "path", filePath, "err", err)
+		if e.reader != nil {
+			if err := e.reader.Close(); err != nil {
+				slog.Error("failed to close book reader", "path", filePath, "err", err)
+			}
 		}
 		delete(s.openFiles, filePath)
 	} else {
@@ -488,6 +531,9 @@ func (s *EPUBStore) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for fp, e := range s.openFiles {
+		if e.reader == nil {
+			continue
+		}
 		if err := e.reader.Close(); err != nil {
 			slog.Error("failed to close epub reader during shutdown", "path", fp, "err", err)
 		}
