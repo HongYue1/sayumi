@@ -71,6 +71,42 @@ func (db *DB) ListBookSummariesContext(ctx context.Context) (out []BookSummary, 
 	return out, nil
 }
 
+// BookPath is the minimal (id, file_path) pair used by the library scanner's
+// dedup snapshot, avoiding the cost of loading full BookSummary rows when only
+// the path index is needed.
+type BookPath struct {
+	ID       string
+	FilePath string
+}
+
+// ListBookPathsContext returns the id and file_path of every book. It backs the
+// library scanner's path->id dedup map; unlike ListBookSummariesContext it
+// reads only two columns and skips the title collation sort, neither of which
+// the dedup map needs.
+func (db *DB) ListBookPathsContext(ctx context.Context) (out []BookPath, err error) {
+	rows, err := db.QueryContext(ctx, "SELECT id, file_path FROM books")
+	if err != nil {
+		return nil, fmt.Errorf("list book paths: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close rows: %w", cerr)
+		}
+	}()
+
+	for rows.Next() {
+		var bp BookPath
+		if scanErr := rows.Scan(&bp.ID, &bp.FilePath); scanErr != nil {
+			return nil, fmt.Errorf("scan book path: %w", scanErr)
+		}
+		out = append(out, bp)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate book paths: %w", err)
+	}
+	return out, nil
+}
+
 // GetBookContentContext loads only the spine_json and toc_json for a book. The
 // book cache no longer holds these (see ListBookSummariesContext); they are
 // fetched on demand when a book is opened (chapter render, search, book detail).

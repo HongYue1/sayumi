@@ -142,14 +142,19 @@ func (s *Scanner) scan(ctx context.Context) ([]string, error) {
 		}()
 	}
 
-	// This goroutine is the sole sender on pathCh, so it owns closing it. It
-	// stops feeding early on cancellation; in-flight workers then unwind quickly
-	// because importFile observes ctx through its DB and hashing calls.
+	// This goroutine is the sole sender on pathCh, so it owns closing it. The
+	// select lets it stop feeding promptly on cancellation even when every
+	// worker is mid-decode (a bare send would block until a worker frees up);
+	// in-flight workers then unwind quickly because importFile observes ctx
+	// through its DB and hashing calls.
 	for _, filePath := range paths {
+		select {
+		case pathCh <- filePath:
+		case <-ctx.Done():
+		}
 		if ctx.Err() != nil {
 			break
 		}
-		pathCh <- filePath
 	}
 	close(pathCh)
 	wg.Wait()
@@ -217,7 +222,7 @@ type dedupSnapshot struct {
 // loadDedupSnapshot builds a dedupSnapshot from the current DB state with two
 // bulk queries, replacing the previous two point reads per scanned file.
 func (s *Scanner) loadDedupSnapshot(ctx context.Context) (*dedupSnapshot, error) {
-	summaries, err := s.db.ListBookSummariesContext(ctx)
+	bookPaths, err := s.db.ListBookPathsContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("load existing book paths: %w", err)
 	}
@@ -227,11 +232,11 @@ func (s *Scanner) loadDedupSnapshot(ctx context.Context) (*dedupSnapshot, error)
 	}
 
 	snap := &dedupSnapshot{
-		existingByPath: make(map[string]string, len(summaries)),
+		existingByPath: make(map[string]string, len(bookPaths)),
 		ignored:        make(map[string]struct{}, len(ignoredPaths)),
 	}
-	for _, summary := range summaries {
-		snap.existingByPath[summary.FilePath] = summary.ID
+	for _, bp := range bookPaths {
+		snap.existingByPath[bp.FilePath] = bp.ID
 	}
 	for _, path := range ignoredPaths {
 		snap.ignored[path] = struct{}{}

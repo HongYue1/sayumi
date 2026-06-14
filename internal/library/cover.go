@@ -185,6 +185,9 @@ func resizeToFit(img image.Image, maxW, maxH int) image.Image {
 	newHeight := max(int(float64(height)*scale), 1)
 
 	dst := image.NewRGBA(image.Rect(0, 0, newWidth, newHeight))
-	draw.BiLinear.Scale(dst, dst.Bounds(), img, bounds, draw.Over, nil)
+	// ApproxBiLinear is markedly faster than BiLinear and the quality
+	// difference is imperceptible when downscaling to cover-thumbnail sizes
+	// (<=400x600), so it is the better tradeoff on the import path.
+	draw.ApproxBiLinear.Scale(dst, dst.Bounds(), img, bounds, draw.Over, nil)
 	return dst
 }
