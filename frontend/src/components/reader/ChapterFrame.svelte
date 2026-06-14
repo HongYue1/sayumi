@@ -49,14 +49,38 @@
   let ready = false;
   let messageQueue: unknown[] = [];
 
+  // Pre-ready, these carry "latest wins" state: a newer one makes any earlier
+  // queued message of the same type obsolete (a fresh `load` replaces the
+  // chapter; for `apply-settings`/`set-font-faces` only the latest value
+  // matters). Coalescing stops the brief startup flush from replaying chapters
+  // the user already navigated past. Relative order is preserved, so the
+  // set-font-faces → load → apply-settings sequence still arrives in order.
+  const COALESCE_TYPES = new Set(["load", "apply-settings", "set-font-faces"]);
+  // Safety valve: if the frame never signals ready (e.g. its script is blocked),
+  // bound the queue instead of letting it grow with every interaction.
+  const MAX_QUEUED = 64;
+
   function frameWindow(): Window | null {
     return iframeEl?.contentWindow ?? null;
+  }
+
+  function queueMessage(message: unknown): void {
+    const type = isRecord(message) ? message.type : undefined;
+    if (typeof type === "string" && COALESCE_TYPES.has(type)) {
+      messageQueue = messageQueue.filter(
+        (m) => !(isRecord(m) && m.type === type),
+      );
+    }
+    messageQueue.push(message);
+    // Only reachable when the frame never readied; the coalesced types above
+    // can't grow unbounded, so this just caps stray non-coalesced messages.
+    if (messageQueue.length > MAX_QUEUED) messageQueue.shift();
   }
 
   function sendToFrame(message: unknown): void {
     const target = frameWindow();
     if (!ready || !target) {
-      messageQueue.push(message);
+      queueMessage(message);
       return;
     }
     target.postMessage(message, FRAME_TARGET_ORIGIN);
