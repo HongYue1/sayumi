@@ -143,6 +143,10 @@
   let scrollRafHandle: number | null = null;
   let revealFallbackTimer: ReturnType<typeof setTimeout> | null = null;
   let loadCommitTimer: ReturnType<typeof setTimeout> | null = null;
+  let chapterAnimTimer: ReturnType<typeof setTimeout> | null = null;
+  // Slightly longer than the longest #paged-clip transition (transform 0.3s) so
+  // the compositor hint stays for the whole swap, then is removed.
+  const CHAPTER_ANIM_SETTLE_MS = 360;
   let loadTransitionToken = 0;
   let pendingSettingsMessage: IframeSettings | null = null;
 
@@ -556,7 +560,19 @@
   }
 
   function setChapterHidden(hidden: boolean): void {
-    document.documentElement.classList.toggle("chapter-hidden", hidden);
+    const root = document.documentElement;
+    // Promote the swap layer for the duration of the transition, then demote it.
+    // Leaving will-change on permanently (in CSS) wastes a compositor layer and
+    // a blur buffer; toggling a transient class around the swap is the
+    // recommended will-change pattern. Covers both swap-out (hidden=true) and
+    // reveal (hidden=false) since both route through here.
+    root.classList.add("chapter-anim");
+    if (chapterAnimTimer !== null) clearTimeout(chapterAnimTimer);
+    chapterAnimTimer = setTimeout(() => {
+      chapterAnimTimer = null;
+      document.documentElement.classList.remove("chapter-anim");
+    }, CHAPTER_ANIM_SETTLE_MS);
+    root.classList.toggle("chapter-hidden", hidden);
   }
 
   function setPageTurning(turning: boolean): void {
@@ -976,6 +992,7 @@
     fontFaceCSS?: string;
     direction?: string;
     writingMode?: string;
+    language?: string;
     html?: string;
     scrollTo?: "top" | "end";
     fragment?: string | null;
@@ -1970,6 +1987,11 @@
     if (msg.writingMode) {
       document.documentElement.style.writingMode = msg.writingMode;
     }
+    if (typeof msg.language === "string" && msg.language) {
+      // Sanitize to BCP-47-ish chars before reflecting into the DOM lang attr.
+      const safeLang = msg.language.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 35);
+      if (safeLang) document.documentElement.lang = safeLang;
+    }
 
     sendMessage({ type: "loaded", seq: activeSeq });
 
@@ -2009,6 +2031,10 @@
     if (loadCommitTimer !== null) {
       clearTimeout(loadCommitTimer);
       loadCommitTimer = null;
+    }
+    if (chapterAnimTimer !== null) {
+      clearTimeout(chapterAnimTimer);
+      chapterAnimTimer = null;
     }
     pendingSettingsMessage = null;
     if (pageScrollRafHandle !== null) {

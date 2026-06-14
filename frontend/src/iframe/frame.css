@@ -487,7 +487,6 @@ html.paged #paged-clip {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
     filter: blur(0);
-    will-change: opacity, transform, filter;
     transition:
         opacity 0.22s cubic-bezier(0.22, 1, 0.36, 1),
         transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
@@ -515,7 +514,6 @@ html.paged #content {
     min-width: 100vw;
     overscroll-behavior-x: contain;
     overscroll-behavior-y: none;
-    will-change: scroll-position;
     contain: paint;
     transform: translateZ(0);
 }
@@ -546,7 +544,6 @@ html.paged-two #paged-clip {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
     filter: blur(0);
-    will-change: opacity, transform, filter;
     transition:
         opacity 0.22s cubic-bezier(0.22, 1, 0.36, 1),
         transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
@@ -574,7 +571,6 @@ html.paged-two #content {
     min-width: 100vw;
     overscroll-behavior-x: contain;
     overscroll-behavior-y: none;
-    will-change: scroll-position;
     contain: paint;
     transform: translateZ(0);
 }
@@ -599,6 +595,15 @@ html.chapter-hidden.paged-two #paged-clip {
     opacity: 0;
     transform: translate3d(0, 10px, 0) scale(0.997);
     filter: blur(1px);
+}
+
+/* Promote the swap layer ONLY while a chapter transition is in flight. A
+   transient .chapter-anim class is toggled from JS around each swap so the
+   compositor hint is never left on permanently (persistent will-change keeps a
+   layer alive and a blur buffer allocated even at rest). */
+html.chapter-anim.paged #paged-clip,
+html.chapter-anim.paged-two #paged-clip {
+    will-change: opacity, transform, filter;
 }
 
 html.page-turning.paged #content,

@@ -363,9 +363,9 @@
       // Ensure the iframe has the current font faces before it applies settings.
       pushFontFaces();
       if (restore) {
-        api.loadChapter(data, settings.iframe, "top", undefined, hasPrev, hasNext, restore.percent, restore.cfi);
+        api.loadChapter(data, settings.iframe, "top", undefined, hasPrev, hasNext, restore.percent, restore.cfi, b.language);
       } else {
-        api.loadChapter(data, settings.iframe, scrollTo, fragment, hasPrev, hasNext);
+        api.loadChapter(data, settings.iframe, scrollTo, fragment, hasPrev, hasNext, undefined, undefined, b.language);
       }
 
       currentChapter = index;

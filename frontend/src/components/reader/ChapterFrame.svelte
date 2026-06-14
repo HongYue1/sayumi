@@ -195,7 +195,7 @@
   }
 
   const api: ChapterFrameAPI = {
-    loadChapter(data, settings, scrollTo, fragment, hasPrev, hasNext, restorePercent, restoreCfi) {
+    loadChapter(data, settings, scrollTo, fragment, hasPrev, hasNext, restorePercent, restoreCfi, language) {
       const nextSeq = ++seq;
       sendToFrame({
         type: "load",
@@ -207,6 +207,7 @@
         fontFaceCSS: data.fontFaceCSS,
         direction: data.direction,
         writingMode: data.writingMode,
+        language: language || undefined,
         resourceBase: data.resourceBase ?? null,
         scrollTo: scrollTo || "top",
         fragment: fragment || null,

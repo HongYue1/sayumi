@@ -21,6 +21,7 @@ export interface ChapterFrameAPI {
     hasNext?: boolean,
     restorePercent?: number,
     restoreCfi?: string,
+    language?: string,
   ) => void;
   applySettings: (settings: IframeSettings) => void;
   scrollTo: (percent: number) => void;
