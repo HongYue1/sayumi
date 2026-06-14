@@ -332,9 +332,29 @@ func separateFontFaces(
 	}
 }
 
+// rewriteCSSURLs rewrites in-EPUB resource references in a full CSS context:
+// the text of a <style> element, a linked stylesheet, or a @font-face block.
+// It handles both url(...) tokens and bare @import "path" / @import 'path'
+// rules. For inline style="..." attribute values use rewriteCSSURLsInline,
+// which skips the @import pass that can never match there.
 func rewriteCSSURLs(cssText, cssDir, resourceBase, resourceToken string) string {
-	// Rewrite url(...) tokens.
-	result := cssURLRegex.ReplaceAllStringFunc(cssText, func(match string) string {
+	result := rewriteCSSURLTokens(cssText, cssDir, resourceBase, resourceToken)
+	return rewriteCSSImportStrings(result, cssDir, resourceBase, resourceToken)
+}
+
+// rewriteCSSURLsInline rewrites only url(...) tokens. It is for inline
+// style="..." attribute values, where @import is not valid CSS, so the
+// @import string pass that rewriteCSSURLs performs would scan every inline
+// style for a rule that can never appear. Skipping it removes one regexp pass
+// over every styled element on the cold render path.
+func rewriteCSSURLsInline(cssText, cssDir, resourceBase, resourceToken string) string {
+	return rewriteCSSURLTokens(cssText, cssDir, resourceBase, resourceToken)
+}
+
+// rewriteCSSURLTokens rewrites url(...) tokens, neutralizing external refs and
+// resolving in-EPUB refs against cssDir.
+func rewriteCSSURLTokens(cssText, cssDir, resourceBase, resourceToken string) string {
+	return cssURLRegex.ReplaceAllStringFunc(cssText, func(match string) string {
 		paren := strings.IndexByte(match, '(')
 		if paren < 0 || match[len(match)-1] != ')' {
 			return match
@@ -358,13 +378,15 @@ func rewriteCSSURLs(cssText, cssDir, resourceBase, resourceToken string) string 
 		}
 		return fmt.Sprintf("url('%s')", rewritten)
 	})
+}
 
-	// Rewrite bare @import "path" / @import 'path' strings. The url() pass
-	// above already handles @import url(...), so only the string form remains.
-	// Group layout: [1]=@import+space [2]=open-quote [3]=path [4]=close-quote.
-	// We validate that open and close quotes match because RE2 has no
-	// backreference support.
-	result = cssImportStringRegex.ReplaceAllStringFunc(result, func(match string) string {
+// rewriteCSSImportStrings rewrites bare @import "path" / @import 'path' rules.
+// The url() pass already handles @import url(...), so only the string form
+// remains. Group layout: [1]=@import+space [2]=open-quote [3]=path
+// [4]=close-quote. Open and close quotes are validated for equality because
+// RE2 has no backreference support.
+func rewriteCSSImportStrings(cssText, cssDir, resourceBase, resourceToken string) string {
+	return cssImportStringRegex.ReplaceAllStringFunc(cssText, func(match string) string {
 		subs := cssImportStringRegex.FindStringSubmatch(match)
 		if len(subs) < 5 || subs[2] != subs[4] {
 			return match
@@ -384,8 +406,6 @@ func rewriteCSSURLs(cssText, cssDir, resourceBase, resourceToken string) string 
 		}
 		return subs[1] + subs[2] + rewritten + subs[4]
 	})
-
-	return result
 }
 
 // rewriteNodeURLs rewrites in-EPUB resource URLs throughout the subtree. When
@@ -426,7 +446,7 @@ func rewriteNodeURLsDepth(n *html.Node, chapterDir, resourceBase, resourceToken 
 						*wmOut = strings.ToLower(m[1])
 					}
 				}
-				n.Attr[i].Val = rewriteCSSURLs(attr.Val, chapterDir, resourceBase, resourceToken)
+				n.Attr[i].Val = rewriteCSSURLsInline(attr.Val, chapterDir, resourceBase, resourceToken)
 				continue
 			case "srcset":
 				n.Attr[i].Val = rewriteSrcsetValue(attr.Val, chapterDir, resourceBase, resourceToken)
@@ -639,7 +659,6 @@ func extractBodyHTML(bodyNode *html.Node, doc *html.Node) (string, error) {
 	var buf bytes.Buffer
 	if bodyNode == nil {
 		if err := html.Render(&buf, doc); err != nil {
-			slog.Error("failed to render full document", "err", err)
 			return "", fmt.Errorf("render document: %w", err)
 		}
 		return buf.String(), nil
@@ -647,7 +666,6 @@ func extractBodyHTML(bodyNode *html.Node, doc *html.Node) (string, error) {
 
 	for child := bodyNode.FirstChild; child != nil; child = child.NextSibling {
 		if err := html.Render(&buf, child); err != nil {
-			slog.Error("failed to render body child node", "err", err)
 			return "", fmt.Errorf("render body child: %w", err)
 		}
 	}

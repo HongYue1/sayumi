@@ -324,7 +324,14 @@ func runeOffsetToByteIndex(s string, runeOffset int) int {
 }
 
 func encodeCursor(c searchCursor) string {
-	b, _ := json.Marshal(c)
+	// searchCursor holds two ints, so json.Marshal cannot fail here; the error
+	// is checked only to satisfy errcheck and to fail loudly rather than
+	// silently base64-encoding nil if that invariant ever changes.
+	b, err := json.Marshal(c)
+	if err != nil {
+		slog.Error("encoding search cursor", "err", err)
+		return ""
+	}
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
