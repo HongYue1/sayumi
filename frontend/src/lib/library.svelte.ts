@@ -47,21 +47,27 @@ class Library {
   /** Built-in plus custom flairs, for pickers and filter chips. */
   allFlairs = $derived<FlairDef[]>([...DEFAULT_FLAIRS, ...this.customFlairs]);
 
-  /** Lowercased "title author" haystack per book; recomputed only when `books`
-   *  changes, so per-keystroke filtering doesn't re-lowercase every title. */
-  private searchIndex = $derived(
-    this.books.map((b) => ({
-      book: b,
-      hay: `${b.title} ${b.author}`.toLowerCase(),
-    })),
-  );
+  /** id → lowercased "title author" haystack, computed once per book and reused
+   *  across books-array replacements. Optimistic flair/progress updates replace
+   *  the books array but leave title/author untouched, so this avoids
+   *  re-lowercasing every title on each such change; an entry is refreshed only
+   *  when its title or author actually changes. (Plain Map, not reactive state:
+   *  it's a memo cache read inside `visible`, never a render dependency.) */
+  private hayCache = new Map<string, { title: string; author: string; hay: string }>();
+  private hayFor(b: BookMeta): string {
+    const hit = this.hayCache.get(b.id);
+    if (hit && hit.title === b.title && hit.author === b.author) return hit.hay;
+    const hay = `${b.title} ${b.author}`.toLowerCase();
+    this.hayCache.set(b.id, { title: b.title, author: b.author, hay });
+    return hay;
+  }
 
   /** Books after search + flair filtering, then sorting (memoised). */
   visible = $derived.by<BookMeta[]>(() => {
     const q = this.debouncedQuery.trim().toLowerCase();
     const filters = this.flairFilters;
     let list = q
-      ? this.searchIndex.filter((x) => x.hay.includes(q)).map((x) => x.book)
+      ? this.books.filter((b) => this.hayFor(b).includes(q))
       : this.books.slice();
 
     if (filters.length > 0) {
@@ -190,6 +196,14 @@ class Library {
     );
     if (epubs.length === 0) {
       toast.show("Only .epub files can be added");
+      return;
+    }
+    // Guard against a re-entrant call (e.g. a drag-drop while the previous batch
+    // is still importing): a second worker pool would double-load, and the
+    // first to finish would clear `uploading` mid-flight, re-enabling the UI
+    // and emitting a duplicate "Added N books" toast.
+    if (this.uploading) {
+      toast.show("Still importing the previous batch…");
       return;
     }
     this.uploading = true;
