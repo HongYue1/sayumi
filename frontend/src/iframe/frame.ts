@@ -90,7 +90,6 @@
   let preparedBookFontFamilies = new Set<string>();
 
   let _contentEl: HTMLElement | null = null;
-  let _contentInnerEl: HTMLElement | null = null;
   let _clipEl: HTMLElement | null = null;
   const _styleEls: Record<string, HTMLStyleElement> = {};
   let _boundaryTop: HTMLElement | null = null;
@@ -274,12 +273,6 @@
 
   function getContentEl(): HTMLElement {
     return (_contentEl ??= document.getElementById("content") as HTMLElement);
-  }
-
-  function getContentInnerEl(): HTMLElement {
-    return (_contentInnerEl ??= document.getElementById(
-      "content-inner",
-    ) as HTMLElement);
   }
 
   function getClipEl(): HTMLElement {
@@ -601,46 +594,6 @@
     return Math.max(0, content.scrollWidth - content.clientWidth);
   }
 
-  function getLastMeaningfulRect(root: Node): DOMRect | null {
-    for (let node = root.lastChild; node; node = node.previousSibling) {
-      if (node.nodeType === Node.TEXT_NODE) {
-        const text = node.textContent ?? "";
-        let end = text.length;
-        while (end > 0 && /\s/u.test(text[end - 1])) end--;
-        if (end === 0) continue;
-
-        const range = document.createRange();
-        range.setStart(node, Math.max(0, end - 1));
-        range.setEnd(node, end);
-
-        const rects = range.getClientRects();
-        if (rects.length > 0) return rects[rects.length - 1];
-
-        const rect = range.getBoundingClientRect();
-        if (rect.width > 0 || rect.height > 0) return rect;
-        continue;
-      }
-
-      if (node.nodeType !== Node.ELEMENT_NODE) continue;
-
-      const el = node as Element;
-      if (el.tagName === "SCRIPT" || el.tagName === "STYLE") continue;
-
-      const nested = getLastMeaningfulRect(node);
-      if (nested) return nested;
-
-      if (el.tagName === "BR") continue;
-
-      const rects = el.getClientRects();
-      if (rects.length > 0) return rects[rects.length - 1];
-
-      const rect = el.getBoundingClientRect();
-      if (rect.width > 0 || rect.height > 0) return rect;
-    }
-
-    return null;
-  }
-
   function calculateTotalPages(): number {
     const content = getContentEl();
     if (!content) return 1;
@@ -648,15 +601,12 @@
     const stride = getPageStride();
     if (stride <= 0) return 1;
 
-    const lastRect = getLastMeaningfulRect(getContentInnerEl());
-    if (lastRect) {
-      const contentRect = content.getBoundingClientRect();
-      const rightEdge =
-        lastRect.right - contentRect.left + content.scrollLeft - 1;
-      return Math.max(1, Math.floor(Math.max(0, rightEdge) / stride) + 1);
-    }
-
-    return Math.max(1, Math.ceil(getMaxPageScrollLeft() / stride) + 1);
+    // Pages are stride-aligned scroll positions, so the last page begins at
+    // maxScrollLeft. Round (not ceil) so sub-pixel column rounding can't invent
+    // a phantom trailing page; +1 converts the last page index to a count.
+    // Reads two layout metrics instead of walking the DOM for the last
+    // meaningful rect on every relayout.
+    return Math.max(1, Math.round(getMaxPageScrollLeft() / stride) + 1);
   }
 
   function reportPagePosition(): void {
@@ -1958,7 +1908,6 @@
     lastReportedCfi = null;
 
     beginChapterSwapOut();
-    _contentInnerEl = null;
 
     const rawContentInnerEl = document.getElementById("content-inner");
     if (!rawContentInnerEl) {
