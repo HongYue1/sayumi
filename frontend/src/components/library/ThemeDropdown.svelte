@@ -2,6 +2,8 @@
   import { settings } from "~/lib/settings.svelte";
   import { THEMES } from "~/lib/themes";
   import { applyTheme, getTheme } from "~/lib/theme";
+  import Icon from "~/lib/Icon.svelte";
+  import { Check, ChevronDown } from "@lucide/svelte";
 
   let open = $state(false);
   let trigger = $state<HTMLButtonElement | null>(null);
@@ -67,6 +69,7 @@
   <button
     bind:this={trigger}
     class="trigger"
+    class:open
     aria-haspopup="menu"
     aria-expanded={open}
     aria-label="Change theme"
@@ -76,6 +79,7 @@
       <span class="aa">Aa</span>
       <span class="dot" style:background={current.accent}></span>
     </span>
+    <Icon icon={ChevronDown} size={14} class="caret" />
   </button>
 
   {#if open}
@@ -86,23 +90,27 @@
         {#each lightThemes as t (t.id)}
           {@const active = settings.value.theme === t.id}
           <button
-            class="swatch pick"
+            class="pick"
             class:active
             role="menuitemradio"
             aria-checked={active}
             tabindex={active ? 0 : -1}
             title={t.label}
             aria-label={t.label}
-            style:background={t.bg}
-            style:color={t.fg}
             onclick={() => choose(t.id)}
             {@attach (el) => {
               // Focus the currently-selected theme on open (menuitemradio model).
               if (active) (el as HTMLButtonElement).focus();
             }}
           >
-            <span class="aa">Aa</span>
-            <span class="dot" style:background={t.accent}></span>
+            <span class="preview" style:background={t.bg} style:color={t.fg}>
+              <span class="aa">Aa</span>
+              <span class="dot" style:background={t.accent}></span>
+              {#if active}
+                <span class="check" aria-hidden="true"><Icon icon={Check} size={11} /></span>
+              {/if}
+            </span>
+            <span class="name">{t.label}</span>
           </button>
         {/each}
       </div>
@@ -111,22 +119,26 @@
         {#each darkThemes as t (t.id)}
           {@const active = settings.value.theme === t.id}
           <button
-            class="swatch pick"
+            class="pick"
             class:active
             role="menuitemradio"
             aria-checked={active}
             tabindex={active ? 0 : -1}
             title={t.label}
             aria-label={t.label}
-            style:background={t.bg}
-            style:color={t.fg}
             onclick={() => choose(t.id)}
             {@attach (el) => {
               if (active) (el as HTMLButtonElement).focus();
             }}
           >
-            <span class="aa">Aa</span>
-            <span class="dot" style:background={t.accent}></span>
+            <span class="preview" style:background={t.bg} style:color={t.fg}>
+              <span class="aa">Aa</span>
+              <span class="dot" style:background={t.accent}></span>
+              {#if active}
+                <span class="check" aria-hidden="true"><Icon icon={Check} size={11} /></span>
+              {/if}
+            </span>
+            <span class="name">{t.label}</span>
           </button>
         {/each}
       </div>
@@ -140,12 +152,14 @@
     display: inline-flex;
   }
   .trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
     border: 1px solid var(--hairline-strong);
     background: var(--bg);
     border-radius: var(--radius);
-    padding: 0.25rem;
+    padding: 0.25rem 0.4rem;
     cursor: pointer;
-    line-height: 0;
     transition:
       border-color var(--dur) var(--ease-out),
       transform var(--dur-fast) var(--ease-out);
@@ -155,6 +169,13 @@
   }
   .trigger:active {
     transform: scale(0.97);
+  }
+  .trigger :global(.caret) {
+    color: var(--muted);
+    transition: transform var(--dur-fast) var(--ease-out);
+  }
+  .trigger.open :global(.caret) {
+    transform: rotate(180deg);
   }
   .swatch {
     position: relative;
@@ -191,7 +212,10 @@
     top: calc(100% + 0.4rem);
     right: 0;
     z-index: 21;
-    width: 16rem;
+    width: 18.5rem;
+    max-height: min(70vh, 28rem);
+    overflow-x: hidden;
+    overflow-y: auto;
     padding: var(--sp-3);
     background: var(--bg);
     border: 1px solid var(--hairline-strong);
@@ -218,26 +242,81 @@
   }
   .swatches {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(2.4rem, 1fr));
-    gap: var(--sp-2);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.4rem;
   }
-  .swatch.pick {
-    width: 100%;
-    height: 2rem;
-    border: 2px solid var(--hairline);
+  .pick {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 0.3rem;
+    padding: 0.35rem;
+    border: 1px solid var(--hairline);
+    border-radius: 0.5rem;
+    background: var(--bg);
+    color: var(--fg);
+    font: inherit;
     cursor: pointer;
     transition:
       border-color var(--dur) var(--ease-out),
+      background var(--dur-fast) var(--ease-out),
       transform var(--dur-fast) var(--ease-out);
   }
-  .swatch.pick:hover {
+  .pick:hover {
     border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 7%, var(--bg));
   }
-  .swatch.pick:active {
-    transform: scale(0.95);
+  .pick:active {
+    transform: scale(0.97);
   }
-  .swatch.pick.active {
+  .pick.active {
     border-color: var(--accent);
-    box-shadow: 0 0 0 2px var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  .preview {
+    position: relative;
+    display: grid;
+    place-items: center;
+    height: 2.2rem;
+    border-radius: 0.4rem;
+    border: 1px solid color-mix(in srgb, var(--fg) 12%, transparent);
+  }
+  .preview .aa {
+    font-family: var(--font-display);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  .preview .dot {
+    position: absolute;
+    right: 4px;
+    bottom: 4px;
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 50%;
+  }
+  .preview .check {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--bg);
+  }
+  .name {
+    overflow: hidden;
+    font-size: var(--text-xs);
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+  }
+  .pick.active .name {
+    color: var(--fg);
+    font-weight: 500;
   }
 </style>
