@@ -155,7 +155,7 @@
         {#each library.allFlairs as f (f.id)}
           {@const active = library.flairFilters.includes(f.id)}
           <span class="chip" class:active style:--chip={f.color}>
-            <button class="chip-toggle" onclick={() => library.toggleFlairFilter(f.id)}>
+            <button class="chip-toggle" aria-pressed={active} onclick={() => library.toggleFlairFilter(f.id)}>
               {#if active}
                 <span class="chip-check" style:color={f.color} aria-hidden="true"><Icon icon={Check} size={14} /></span>
               {:else}
@@ -384,7 +384,7 @@
     padding: 0 1rem;
     border: none;
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     font-weight: 700;
   }
   .upload:hover:not(:disabled) {
@@ -532,7 +532,7 @@
     transition: color var(--dur-fast) var(--ease-out);
   }
   .chip-del:hover {
-    color: #b3402f;
+    color: var(--danger);
   }
   .addflair {
     display: inline-flex;
@@ -604,7 +604,7 @@
   }
 
   .error {
-    color: #b3402f;
+    color: var(--danger);
   }
 
   .empty {
