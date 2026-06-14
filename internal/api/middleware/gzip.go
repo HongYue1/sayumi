@@ -222,10 +222,10 @@ func (g *gzipResponseWriter) decide() {
 	g.writeHeaderOnce()
 }
 
-// commitCompressed commits a buffered, compression-eligible response to gzip: it
-// sets the encoding headers, flushes the status line, and writes any pending
-// bytes through the gzip writer.
-func (g *gzipResponseWriter) commitCompressed() error {
+// beginCompressed transitions the writer into committed gzip mode: it sets the
+// encoding headers, flushes the status line, and prepares the gzip writer. It
+// writes no body bytes, so callers stream the body themselves afterwards.
+func (g *gzipResponseWriter) beginCompressed() {
 	g.decided = true
 	g.buffering = false
 	g.compress = true
@@ -235,6 +235,13 @@ func (g *gzipResponseWriter) commitCompressed() error {
 	header.Set("Content-Encoding", "gzip")
 	g.writeHeaderOnce()
 	g.ensureWriter()
+}
+
+// commitCompressed commits a buffered, compression-eligible response to gzip: it
+// sets the encoding headers, flushes the status line, and writes any pending
+// bytes through the gzip writer.
+func (g *gzipResponseWriter) commitCompressed() error {
+	g.beginCompressed()
 
 	if len(g.pending) > 0 {
 		_, err := g.gz.Write(g.pending)
@@ -299,6 +306,17 @@ func (g *gzipResponseWriter) Write(data []byte) (int, error) {
 	if !g.eligible() {
 		g.decide()
 		return g.ResponseWriter.Write(data)
+	}
+
+	// Fast path: a single first write that already clears the size floor commits
+	// to compression and streams straight through, skipping the pending copy. This
+	// is the common case for writeJSON, which marshals the whole body and issues a
+	// single Write -- buffering it would memcpy the entire body into pending for no
+	// reason. Only valid when nothing is buffered yet; otherwise earlier chunks
+	// must be flushed in order via the buffering path below.
+	if !g.buffering && len(data) >= minGzipSize {
+		g.beginCompressed()
+		return g.gz.Write(data)
 	}
 
 	// Compressible: buffer until we cross the size floor (or the response ends
