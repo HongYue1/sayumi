@@ -227,6 +227,10 @@ func parseOPF(data []byte, opfDir string) (BookMeta, opfPackage, error) {
 
 	meta.CoverPath = findCoverPath(pkg, manifest, opfDir)
 
+	// Preallocate to the itemref count (an upper bound, since some refs may not
+	// resolve). Large books carry thousands of spine entries; growing from nil
+	// would reallocate and copy the backing array ~log2(n) times during parse.
+	meta.Spine = make([]SpineEntry, 0, len(pkg.Spine.ItemRefs))
 	for _, ref := range pkg.Spine.ItemRefs {
 		item, ok := manifest[ref.IDRef]
 		if !ok {
@@ -508,7 +512,10 @@ func buildNavPoints(points []ncxNavPoint, basePath string, depth int) []TocEntry
 		return nil
 	}
 
-	var entries []TocEntry
+	// Sized to the navPoint count at this level (upper bound; entries with empty
+	// titles are skipped). An empty result stays len 0 and is dropped by the
+	// Children `omitempty` tag, so output is unchanged versus a nil slice.
+	entries := make([]TocEntry, 0, len(points))
 
 	for _, point := range points {
 		title := strings.TrimSpace(point.Label.Text)
