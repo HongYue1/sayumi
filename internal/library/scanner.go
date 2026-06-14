@@ -96,6 +96,17 @@ func (s *Scanner) scan(ctx context.Context) ([]string, error) {
 		return nil, nil
 	}
 
+	// Load the existing path->id map and the ignored-path set once so each
+	// importFile resolves the common "already imported at this path" / "ignored"
+	// cases from memory instead of issuing two indexed point reads per file. The
+	// snapshot is point-in-time at scan start, which is safe: WalkDir visits each
+	// path once (no two workers race the same path) and content-level dedup via
+	// GetBookIDByHashContext is still a live query inside importFile.
+	snap, err := s.loadDedupSnapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	// Hashing, EPUB parsing, and cover decode/resize/encode dominate a
 	// first-time import and are independent per file, so fan them out across a
 	// bounded worker pool sized to the CPU count. The walk itself stays
@@ -117,7 +128,7 @@ func (s *Scanner) scan(ctx context.Context) ([]string, error) {
 		go func() {
 			defer wg.Done()
 			for filePath := range pathCh {
-				id, imported, importErr := s.importFile(ctx, filePath, "")
+				id, imported, importErr := s.importFile(ctx, filePath, "", snap)
 				if importErr != nil {
 					slog.Warn("scan import failed", "path", filePath, "err", importErr)
 					continue
@@ -193,24 +204,70 @@ func (s *Scanner) collectEPUBPaths(ctx context.Context) ([]string, error) {
 	return paths, nil
 }
 
-func (s *Scanner) importFile(ctx context.Context, filePath string, knownHash string) (id string, imported bool, err error) {
+// dedupSnapshot is a point-in-time view of which library paths are already
+// imported or ignored. The scan loads it once so importFile can resolve the
+// common "already known" cases from memory instead of per-file DB reads. Its
+// maps are read-only after construction and so are safe for concurrent reads
+// across the scan worker pool.
+type dedupSnapshot struct {
+	existingByPath map[string]string   // absolute file path -> book ID
+	ignored        map[string]struct{} // ignored absolute file paths
+}
+
+// loadDedupSnapshot builds a dedupSnapshot from the current DB state with two
+// bulk queries, replacing the previous two point reads per scanned file.
+func (s *Scanner) loadDedupSnapshot(ctx context.Context) (*dedupSnapshot, error) {
+	summaries, err := s.db.ListBookSummariesContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load existing book paths: %w", err)
+	}
+	ignoredPaths, err := s.db.ListIgnoredPathsContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load ignored paths: %w", err)
+	}
+
+	snap := &dedupSnapshot{
+		existingByPath: make(map[string]string, len(summaries)),
+		ignored:        make(map[string]struct{}, len(ignoredPaths)),
+	}
+	for _, summary := range summaries {
+		snap.existingByPath[summary.FilePath] = summary.ID
+	}
+	for _, path := range ignoredPaths {
+		snap.ignored[path] = struct{}{}
+	}
+	return snap, nil
+}
+
+// importFile imports a single EPUB. When snap is non-nil (the scan path) the
+// ignored/known-path pre-checks are served from the snapshot; when nil (a
+// one-off ImportFile) they hit the DB directly.
+func (s *Scanner) importFile(ctx context.Context, filePath string, knownHash string, snap *dedupSnapshot) (id string, imported bool, err error) {
 	absPath, err := filepath.Abs(filePath)
 	if err != nil {
 		return "", false, fmt.Errorf("abs path: %w", err)
 	}
 
-	ignored, err := s.db.IsFileIgnoredContext(ctx, absPath)
-	if err != nil {
-		return "", false, fmt.Errorf("check ignored: %w", err)
-	}
-	if ignored {
-		return "", false, nil
-	}
-
-	if existingID, found, err := s.db.BookExistsByPathContext(ctx, absPath); err != nil {
-		return "", false, fmt.Errorf("check existing by path: %w", err)
-	} else if found {
-		return existingID, false, nil
+	if snap != nil {
+		if _, ok := snap.ignored[absPath]; ok {
+			return "", false, nil
+		}
+		if existingID, ok := snap.existingByPath[absPath]; ok {
+			return existingID, false, nil
+		}
+	} else {
+		ignored, err := s.db.IsFileIgnoredContext(ctx, absPath)
+		if err != nil {
+			return "", false, fmt.Errorf("check ignored: %w", err)
+		}
+		if ignored {
+			return "", false, nil
+		}
+		if existingID, found, err := s.db.BookExistsByPathContext(ctx, absPath); err != nil {
+			return "", false, fmt.Errorf("check existing by path: %w", err)
+		} else if found {
+			return existingID, false, nil
+		}
 	}
 
 	var hash string
@@ -340,7 +397,7 @@ func (s *Scanner) CheckDuplicate(ctx context.Context, filePath string) (existing
 
 // ImportFile imports a single EPUB file into the library, returning its book ID.
 func (s *Scanner) ImportFile(ctx context.Context, filePath string, knownHash string) (string, error) {
-	id, _, err := s.importFile(ctx, filePath, knownHash)
+	id, _, err := s.importFile(ctx, filePath, knownHash, nil)
 	if err != nil {
 		return "", err
 	}

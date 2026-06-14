@@ -306,6 +306,34 @@ func (db *DB) RemoveIgnoredFileContext(ctx context.Context, filePath string) err
 	return nil
 }
 
+// ListIgnoredPathsContext returns every path currently in the ignored_files
+// table. The library scan loads this once up front so it can skip ignored
+// files with an in-memory lookup instead of one IsFileIgnoredContext query per
+// file walked.
+func (db *DB) ListIgnoredPathsContext(ctx context.Context) (out []string, err error) {
+	rows, err := db.QueryContext(ctx, "SELECT file_path FROM ignored_files")
+	if err != nil {
+		return nil, fmt.Errorf("list ignored paths: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close rows: %w", cerr)
+		}
+	}()
+
+	for rows.Next() {
+		var path string
+		if scanErr := rows.Scan(&path); scanErr != nil {
+			return nil, fmt.Errorf("scan ignored path: %w", scanErr)
+		}
+		out = append(out, path)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate ignored paths: %w", err)
+	}
+	return out, nil
+}
+
 type scanner interface {
 	Scan(dest ...any) error
 }
