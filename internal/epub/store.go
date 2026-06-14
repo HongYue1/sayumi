@@ -92,6 +92,17 @@ func (c *LRUCache[K, V]) DeleteFunc(keep func(K) bool) {
 	}
 }
 
+// Clear drops every entry while holding the cache's own mutex. Callers that
+// need to empty the cache must use this rather than swapping the *LRUCache
+// pointer, since readers reach the cache through that pointer without any
+// external lock.
+func (c *LRUCache[K, V]) Clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.items = make(map[K]*list.Element, c.cap+4)
+	c.order.Init()
+}
+
 type zipEntry struct {
 	filePath string
 	reader   *zip.ReadCloser
@@ -195,7 +206,7 @@ func NewStore(maxSize int) *EPUBStore {
 	}
 }
 
-func buildIndex(zr *zip.ReadCloser) map[string]*zip.File {
+func buildIndex(zr *zip.Reader) map[string]*zip.File {
 	idx := make(map[string]*zip.File, len(zr.File))
 	for _, f := range zr.File {
 		normalized := strings.TrimPrefix(f.Name, "/")
@@ -229,7 +240,7 @@ func (s *EPUBStore) acquireLocked(filePath string) (*zipEntry, error) {
 	e := &zipEntry{
 		filePath: filePath,
 		reader:   rc,
-		index:    buildIndex(rc),
+		index:    buildIndex(&rc.Reader),
 		refs:     1,
 	}
 	s.openFiles[filePath] = e
@@ -483,7 +494,12 @@ func (s *EPUBStore) Close() {
 	}
 	s.openFiles = make(map[string]*zipEntry)
 	s.lru = newZipLRU(s.lru.cap)
-	s.chapters = newLRUCache[chapterRenderKey, ChapterResponse](s.chapters.cap)
-	s.texts = newLRUCache[chapterTextKey, textPair](s.texts.cap)
-	s.cssFrags = newLRUCache[cssFragmentKey, cssFragment](s.cssFrags.cap)
+	// Clear the content caches through their own mutex instead of swapping the
+	// pointer fields. GetChapter/SetChapter/GetText/... read these fields
+	// without holding s.mu, so reassigning them here would be a data race if a
+	// request ever slipped past markClosingAndWait. Clear() takes each cache's
+	// own lock — the one those readers actually synchronize on.
+	s.chapters.Clear()
+	s.texts.Clear()
+	s.cssFrags.Clear()
 }

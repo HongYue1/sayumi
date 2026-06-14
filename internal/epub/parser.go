@@ -45,12 +45,18 @@ type TocEntry struct {
 }
 
 func Parse(zr *zip.Reader) (BookMeta, error) {
-	opfPath, err := findOPFPath(zr)
+	// Build the entry index once up front so every OPF/TOC lookup below resolves
+	// in O(1). The previous path rescanned zr.File linearly — and allocated a
+	// lowercased copy of every entry name — on each lookup, which adds up on
+	// EPUBs with thousands of entries during a library scan.
+	index := buildIndex(zr)
+
+	opfPath, err := findOPFPath(index)
 	if err != nil {
 		return BookMeta{}, fmt.Errorf("find OPF: %w", err)
 	}
 
-	opfData, err := readZipFile(zr, opfPath)
+	opfData, err := readZipFileIndexed(index, opfPath)
 	if err != nil {
 		return BookMeta{}, fmt.Errorf("read OPF: %w", err)
 	}
@@ -61,7 +67,7 @@ func Parse(zr *zip.Reader) (BookMeta, error) {
 		return BookMeta{}, fmt.Errorf("parse OPF: %w", err)
 	}
 
-	if toc := parseTOCFromZip(zr, pkg, opfDir); len(toc) > 0 {
+	if toc := parseTOCFromZip(index, pkg, opfDir); len(toc) > 0 {
 		meta.TOC = toc
 	} else {
 		meta.TOC = []TocEntry{}
@@ -82,8 +88,8 @@ type containerXML struct {
 	} `xml:"rootfiles>rootfile"`
 }
 
-func findOPFPath(zr *zip.Reader) (string, error) {
-	data, err := readZipFile(zr, "META-INF/container.xml")
+func findOPFPath(index map[string]*zip.File) (string, error) {
+	data, err := readZipFileIndexed(index, "META-INF/container.xml")
 	if err != nil {
 		return "", fmt.Errorf("read container.xml: %w", err)
 	}
@@ -269,14 +275,14 @@ func findCoverPath(pkg opfPackage, manifest map[string]opfItem, opfDir string) s
 	return ""
 }
 
-func parseTOCFromZip(zr *zip.Reader, pkg opfPackage, opfDir string) []TocEntry {
-	if toc := parseNav(zr, pkg, opfDir); len(toc) > 0 {
+func parseTOCFromZip(index map[string]*zip.File, pkg opfPackage, opfDir string) []TocEntry {
+	if toc := parseNav(index, pkg, opfDir); len(toc) > 0 {
 		return toc
 	}
-	return parseNCX(zr, pkg, opfDir)
+	return parseNCX(index, pkg, opfDir)
 }
 
-func parseNav(zr *zip.Reader, pkg opfPackage, opfDir string) []TocEntry {
+func parseNav(index map[string]*zip.File, pkg opfPackage, opfDir string) []TocEntry {
 	var navHref string
 	for _, item := range pkg.Manifest.Items {
 		if hasToken(item.Properties, "nav") {
@@ -288,7 +294,7 @@ func parseNav(zr *zip.Reader, pkg opfPackage, opfDir string) []TocEntry {
 		return nil
 	}
 
-	data, err := readZipFile(zr, navHref)
+	data, err := readZipFileIndexed(index, navHref)
 	if err != nil {
 		return nil
 	}
@@ -431,7 +437,7 @@ func nodeText(node *html.Node) string {
 	return builder.String()
 }
 
-func parseNCX(zr *zip.Reader, pkg opfPackage, opfDir string) []TocEntry {
+func parseNCX(index map[string]*zip.File, pkg opfPackage, opfDir string) []TocEntry {
 	tocID := pkg.Spine.Toc
 	var ncxHref string
 
@@ -457,7 +463,7 @@ func parseNCX(zr *zip.Reader, pkg opfPackage, opfDir string) []TocEntry {
 		return nil
 	}
 
-	data, err := readZipFile(zr, ncxHref)
+	data, err := readZipFileIndexed(index, ncxHref)
 	if err != nil {
 		return nil
 	}

@@ -7,19 +7,6 @@ import (
 	"strings"
 )
 
-func readZipFile(zr *zip.Reader, name string) ([]byte, error) {
-	name = strings.TrimPrefix(name, "/")
-	lower := strings.ToLower(name)
-
-	for _, f := range zr.File {
-		fName := strings.TrimPrefix(f.Name, "/")
-		if fName == name || strings.ToLower(fName) == lower {
-			return readZipEntry(f)
-		}
-	}
-	return nil, fmt.Errorf("file not found in ZIP: %s", name)
-}
-
 func readZipFileIndexed(index map[string]*zip.File, name string) ([]byte, error) {
 	name = strings.TrimPrefix(name, "/")
 
