@@ -135,6 +135,10 @@
   let lastLayoutH = -1;
   let pageScrollRafHandle: number | null = null;
   let pageTurnFinishTimer: ReturnType<typeof setTimeout> | null = null;
+  // Live target/phase for the cross-fade turn, so rapid presses can retarget
+  // the running animation instead of restarting it.
+  let pageTurnTarget = 0;
+  let pageTurnSwapped = false;
   let reportPositionRafHandle: number | null = null;
   let scrollRafHandle: number | null = null;
   let revealFallbackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -632,53 +636,90 @@
       pageTurnFinishTimer = null;
     }
 
-    if (pageScrollRafHandle !== null) {
-      cancelAnimationFrame(pageScrollRafHandle);
-      pageScrollRafHandle = null;
-    }
+    const reduceMotion =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    if (!animated) {
+    if (!animated || reduceMotion) {
+      if (pageScrollRafHandle !== null) {
+        cancelAnimationFrame(pageScrollRafHandle);
+        pageScrollRafHandle = null;
+      }
       content.scrollLeft = target;
+      content.style.opacity = "";
+      pageTurnTarget = target;
       setPageTurning(false);
       return;
     }
 
-    const start = content.scrollLeft;
-    const delta = target - start;
-    if (Math.abs(delta) < 1) {
+    pageTurnTarget = target;
+
+    // A fade is already running: retarget it instead of restarting. If it has
+    // already swapped and is fading the new page in, drop back to the fade-out
+    // phase so the latest target gets shown. This coalesces rapid page presses
+    // into one cross-fade to the final destination, instead of restarting the
+    // fade (and visibly flickering the current page) on every keystroke.
+    if (pageScrollRafHandle !== null) {
+      if (pageTurnSwapped) pageTurnSwapped = false;
+      return;
+    }
+
+    if (Math.abs(target - content.scrollLeft) < 1) {
       content.scrollLeft = target;
+      content.style.opacity = "";
       setPageTurning(false);
       return;
     }
 
     setPageTurning(true);
+    pageTurnSwapped = false;
 
-    const distancePages = Math.max(1, Math.abs(delta) / getPageStride());
-    const duration = Math.min(
-      PAGE_TURN_MAX_MS,
-      PAGE_TURN_BASE_MS + distancePages * PAGE_TURN_PER_PAGE_MS,
-    );
-    const startTime = performance.now();
+    // Cross-fade page turn: fade the current page out, swap scrollLeft once
+    // while it is invisible (hiding the jump), then fade the new page in. Only
+    // composited opacity animates, and the single scroll write avoids the
+    // sub-pixel drift a per-frame scroll/transform tween produces. Opacity
+    // tracks a real elapsed delta so a retargeted turn resumes from the current
+    // opacity rather than snapping back to 1. A literal two-page blend is not
+    // possible here: every page is a column in one multicol scroller, not its
+    // own layer.
+    const FADE_MS = (PAGE_TURN_BASE_MS + PAGE_TURN_PER_PAGE_MS) / 2;
+    let lastTime = performance.now();
 
     const animate = (now: number): void => {
       if (destroyed) return;
 
-      const t = Math.min((now - startTime) / duration, 1);
-      const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      const step = FADE_MS > 0 ? (now - lastTime) / FADE_MS : 1;
+      lastTime = now;
 
-      content.scrollLeft = Math.round(start + delta * ease);
+      let opacity = parseFloat(content.style.opacity || "1");
 
-      if (t < 1) {
-        pageScrollRafHandle = requestAnimationFrame(animate);
+      if (!pageTurnSwapped) {
+        opacity -= step;
+        if (opacity <= 0) {
+          opacity = 0;
+          content.scrollLeft = pageTurnTarget;
+          pageTurnSwapped = true;
+        }
       } else {
-        content.scrollLeft = target;
+        opacity += step;
+      }
+
+      if (pageTurnSwapped && opacity >= 1) {
+        content.scrollLeft = pageTurnTarget;
+        content.style.opacity = "";
         pageScrollRafHandle = null;
         const timer = setTimeout(() => {
           if (pageTurnFinishTimer === timer) pageTurnFinishTimer = null;
           if (!destroyed) setPageTurning(false);
         }, 34);
         pageTurnFinishTimer = timer;
+        return;
       }
+
+      content.style.opacity = String(
+        opacity < 0 ? 0 : opacity > 1 ? 1 : opacity,
+      );
+      pageScrollRafHandle = requestAnimationFrame(animate);
     };
 
     pageScrollRafHandle = requestAnimationFrame(animate);

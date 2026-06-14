@@ -604,6 +604,8 @@ html.chapter-hidden.paged-two #paged-clip {
 html.page-turning.paged #content,
 html.page-turning.paged-two #content {
     scroll-snap-type: none !important;
+    /* The cross-fade animates opacity from JS; hint a layer for the turn. */
+    will-change: opacity;
 }
 
 * {
