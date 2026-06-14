@@ -76,7 +76,10 @@ func Search(
 	qLen := utf8.RuneCountInString(query)
 	queryByteLen := len(query)
 	resultCap := limit + 1
-	var results []SearchResult
+	// Non-nil so a no-match search marshals as [] like the empty-query path,
+	// rather than null. ([]SearchResult{} shares the zero-base pointer and does
+	// not allocate until the first append.)
+	results := []SearchResult{}
 
 	for chapterIndex := startChapter; chapterIndex < len(spine); chapterIndex++ {
 		if err := ctx.Err(); err != nil {
