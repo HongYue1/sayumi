@@ -168,7 +168,7 @@
         aria-label={label}
         oninput={(e) => apply(+e.currentTarget.value)}
       />
-      <span class="val">{disabledReason ? "\u2014" : value === null ? "Auto" : valueLabel ? valueLabel(value) : `${value}${unit}`}</span>
+      <span class="val" class:val-wide={!!valueLabel}>{disabledReason ? "\u2014" : value === null ? "Auto" : valueLabel ? valueLabel(value) : `${value}${unit}`}</span>
     </div>
   </div>
 {/snippet}
@@ -251,6 +251,8 @@
            picker, per-style role overrides, and rescan are disabled to match. -->
       <select
         class="font-select"
+        id="reading-font"
+        name="reading-font"
         value={effectiveFontFamily}
         aria-label="Reading font"
         disabled={s.preserveFonts}
@@ -278,6 +280,8 @@
               <span class="role-label">{role.label}</span>
               <select
                 class="role-select"
+                id={`font-role-${role.key}`}
+                name={`font-role-${role.key}`}
                 value={roleValue(role.key)}
                 disabled={s.preserveFonts}
                 onchange={(e) => setRole(role.key, e.currentTarget.value)}
@@ -654,6 +658,7 @@
   }
   .slider input[type="range"] {
     flex: 1;
+    min-width: 0;
     accent-color: var(--accent);
   }
   .val {
@@ -662,6 +667,14 @@
     font-size: 0.78rem;
     color: var(--muted);
     font-variant-numeric: tabular-nums;
+  }
+  /* Worded readouts (e.g. weight "700 · Bold") change text width as the value
+     changes; pin a stable width so the flex slider track can't resize and make
+     the thumb jump back and forth mid-drag. */
+  .val-wide {
+    flex: 0 0 auto;
+    width: 7.5rem;
+    white-space: nowrap;
   }
   .hint {
     font-size: 0.78rem;
