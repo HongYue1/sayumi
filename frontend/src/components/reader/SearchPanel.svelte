@@ -78,6 +78,9 @@
     query = value;
     if (debounce) clearTimeout(debounce);
     if (!value.trim()) {
+      // Cancel any in-flight request too: bumping the token alone discards a
+      // late response but leaves the fetch running; aborting frees it now.
+      abort?.abort();
       token += 1;
       status = "idle";
       results = [];
