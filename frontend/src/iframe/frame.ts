@@ -10,6 +10,7 @@ import {
   extractBookFontFamilies,
   filterReaderFontFaces,
 } from "./cssText";
+import { generateCFI, resolveCFI } from "~/lib/cfi";
 
 (function () {
   "use strict";
@@ -208,57 +209,6 @@ import {
       /url\(\s*['\"]?(\/api\/[^'"\s)]+)['\"]?\s*\)/gi,
       (_, path) => `url('${parentOrigin}${path}')`,
     );
-  }
-
-  function generateCFIForElement(el: Element): string | null {
-    const body = document.body;
-    if (!body || !body.contains(el) || el === body) return null;
-
-    const path: number[] = [];
-    let current: Element | null = el;
-
-    while (current && current !== body) {
-      const parent: Element | null = current.parentElement;
-      if (!parent) return null;
-
-      let index = 0;
-      for (let i = 0; i < parent.children.length; i++) {
-        if (parent.children[i] === current) {
-          index = i + 1;
-          break;
-        }
-      }
-      if (index === 0) return null;
-
-      path.unshift(index);
-      current = parent === body ? null : parent;
-    }
-
-    if (path.length === 0) return null;
-    return "cfi:" + path.join("/");
-  }
-
-  function resolveCFILocal(cfi: string): Element | null {
-    if (!cfi.startsWith("cfi:")) return null;
-    const body = document.body;
-    if (!body) return null;
-
-    const parts = cfi.slice(4).split("/");
-    let current: Element = body;
-
-    for (const part of parts) {
-      // Strict integer parse: a malformed/foreign CFI segment (e.g. "3x", "",
-      // "1.5") should cleanly fail to null so callers fall back to percent,
-      // rather than parseInt leniently coercing it to a wrong-but-valid index.
-      if (!/^\d+$/.test(part)) return null;
-      const index = parseInt(part, 10);
-      if (index < 1) return null;
-      const child = current.children[index - 1];
-      if (!child) return null;
-      current = child;
-    }
-
-    return current;
   }
 
   function isUsableVisibleBlock(node: Element, content: HTMLElement): boolean {
@@ -986,7 +936,7 @@ import {
     });
 
     if (restoreCfi) {
-      const el = resolveCFILocal(restoreCfi);
+      const el = resolveCFI(restoreCfi, document);
       if (el) {
         el.scrollIntoView({ behavior: "instant" as ScrollBehavior });
       } else if (restorePercent !== null) {
@@ -1267,7 +1217,7 @@ import {
   // bookmark in the chapter already on screen). Mirrors scrollToFragmentById
   // but resolves the position via the CFI path instead of an element id.
   function scrollToCfiLocal(cfi: string): void {
-    const el = resolveCFILocal(cfi);
+    const el = resolveCFI(cfi, document);
     if (!el) return;
 
     if (isPagedMode) {
@@ -1323,7 +1273,7 @@ import {
       if (el === lastReportedAnchor) {
         cfi = lastReportedCfi;
       } else {
-        cfi = generateCFIForElement(el);
+        cfi = generateCFI(el, document);
         lastReportedAnchor = el;
         lastReportedCfi = cfi;
       }

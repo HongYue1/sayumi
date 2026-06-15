@@ -8,9 +8,10 @@
 // scroll it into view. Percent-based position is always the reliable
 // fallback when CFI resolution fails.
 //
-// These functions are the canonical reference implementation. The identical
-// logic is also inlined into frame.ts (IIFE) since that file cannot import
-// modules at runtime.
+// These functions are the canonical implementation, imported directly by both
+// the main app and the reader frame (src/iframe/frame.ts) — the frame is now
+// bundled (esbuild iife) and can import modules at runtime, so the previously
+// inlined copy in frame.ts has been removed in favour of these.
 
 /**
  * Generates a CFI string for the given element within document.body.
