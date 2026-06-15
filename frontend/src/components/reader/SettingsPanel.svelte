@@ -384,22 +384,26 @@
   }
   .body {
     overflow-y: auto;
-    padding: 0.5rem 1rem 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+    padding: var(--sp-4) var(--sp-4) var(--sp-8);
   }
+  /* Each section reads as its own editorial card rather than a divider-
+     separated list: a subtle raised surface, generous internal padding, and a
+     display-font heading give the panel rhythm and clearer hierarchy. */
   section {
-    padding: 0.85rem 0;
-    border-bottom: 1px solid var(--hairline);
-  }
-  section:last-child {
-    border-bottom: none;
+    padding: var(--sp-4);
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
   }
   h3 {
-    margin: 0 0 0.6rem;
-    font-size: var(--text-xs);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: var(--muted);
+    margin: 0 0 var(--sp-3);
+    font-family: var(--font-display);
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--fg);
   }
 
   .segmented {
@@ -444,8 +448,8 @@
   }
   .swatches {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
-    gap: 0.4rem;
+    grid-template-columns: repeat(auto-fill, minmax(54px, 1fr));
+    gap: var(--sp-2);
   }
   .swatch {
     position: relative;
@@ -499,7 +503,7 @@
     padding: 0.5rem 0.6rem;
     border: 1px solid var(--hairline);
     border-radius: 0.45rem;
-    background: var(--surface);
+    background: var(--bg);
   }
   .roles-hint {
     margin: 0 0 0.5rem;
