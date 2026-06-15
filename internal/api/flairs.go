@@ -31,6 +31,20 @@ type setBookFlairBody struct {
 	FlairID *string `json:"flairId"`
 }
 
+// builtinFlairIDs mirrors the client-side DEFAULT_FLAIRS in
+// frontend/src/lib/flairs.ts. Built-in flairs live on the client (like the
+// theme catalogue) and are never written to the flairs table, so
+// FlairExistsContext (which only queries that table) can't find them. They are
+// still valid assignment targets — book_flairs.flair_id intentionally has no
+// FK to flairs.id — so accept them without a DB lookup.
+// KEEP IN SYNC with DEFAULT_FLAIRS in frontend/src/lib/flairs.ts.
+var builtinFlairIDs = map[string]struct{}{
+	"reading":      {},
+	"finished":     {},
+	"dropped":      {},
+	"plan-to-read": {},
+}
+
 func flairToResponse(f storage.FlairRecord) flairResponse {
 	return flairResponse{ID: f.ID, Label: f.Label, Color: f.Color}
 }
@@ -143,7 +157,7 @@ func setBookFlairHandler(_ *Dependencies) http.HandlerFunc {
 		}
 
 		userID := getUserID(r)
-		if flairID != "" {
+		if _, builtin := builtinFlairIDs[flairID]; flairID != "" && !builtin {
 			exists, err := pd.DB.FlairExistsContext(r.Context(), flairID, userID)
 			if err != nil {
 				slog.Error("check flair failed", "flair", flairID, "err", err)
