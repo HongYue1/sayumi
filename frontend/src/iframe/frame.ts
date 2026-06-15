@@ -89,6 +89,16 @@
   let preparedFontFaceCSS = "";
   let preparedBookFontFamilies = new Set<string>();
 
+  // Last values written to the #font-face-css / #book-css <style> nodes. Only
+  // applySettings writes those nodes, so these stay authoritative. Assigning
+  // .textContent rebuilds the element's CSSOM stylesheet (a full reparse of the
+  // whole book stylesheet) even when the text is identical, so we skip writes
+  // that don't change. These two only vary on chapter swap or a
+  // preserveBookStyles/preserveBookFonts toggle; font-size/line-height/margin
+  // drags only touch #override-css (still rewritten unconditionally below).
+  let _lastFontFaceContent: string | null = null;
+  let _lastBookCSS: string | null = null;
+
   let _contentEl: HTMLElement | null = null;
   let _clipEl: HTMLElement | null = null;
   const _styleEls: Record<string, HTMLStyleElement> = {};
@@ -1226,7 +1236,10 @@
     } else {
       fontFaceContent = readerFontFaces;
     }
-    getStyleEl("font-face-css").textContent = fontFaceContent;
+    if (fontFaceContent !== _lastFontFaceContent) {
+      getStyleEl("font-face-css").textContent = fontFaceContent;
+      _lastFontFaceContent = fontFaceContent;
+    }
 
     let bookCSS = "";
     if (settings.preserveBookStyles && settings.preserveBookFonts) {
@@ -1236,7 +1249,10 @@
     } else if (!settings.preserveBookStyles && settings.preserveBookFonts) {
       bookCSS = preparedFontCSS;
     }
-    getStyleEl("book-css").textContent = bookCSS;
+    if (bookCSS !== _lastBookCSS) {
+      getStyleEl("book-css").textContent = bookCSS;
+      _lastBookCSS = bookCSS;
+    }
 
     const css: string[] = [
       "html, body { color: var(--text-primary) !important; background: var(--bg-primary) !important; }",
