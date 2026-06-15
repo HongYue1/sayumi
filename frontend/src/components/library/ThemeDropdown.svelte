@@ -72,7 +72,7 @@
     class:open
     aria-haspopup="menu"
     aria-expanded={open}
-    aria-label="Change theme"
+    aria-label={`Change theme (current: ${current.label})`}
     onclick={toggle}
   >
     <span class="swatch" style:background={current.bg} style:color={current.fg} aria-hidden="true">

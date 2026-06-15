@@ -203,6 +203,7 @@
           class:active={isActive}
           role="menuitemradio"
           aria-checked={isActive}
+          tabindex={isActive || (i === 0 && !hasActiveFlair) ? 0 : -1}
           {@attach (el) => {
             // Open with focus on the checked flair (menuitemradio model); fall
             // back to the first item only when the book has no flair set.
