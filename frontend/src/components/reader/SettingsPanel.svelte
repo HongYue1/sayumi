@@ -305,7 +305,7 @@
           <input
             type="range"
             min="14"
-            max="40"
+            max="50"
             step="1"
             value={s.fontSize}
             aria-label="Font size"
