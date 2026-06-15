@@ -549,6 +549,13 @@
     font: inherit;
     font-size: var(--text-xs);
     transition: border-color var(--dur) var(--ease-out);
+    /* Adding a flair inserts a new .chip before .addflair, so this input gets
+       relaid-out (shifted/wrapped) in the flex flow. Without its own layer,
+       the rounded border's paint backing isn't fully invalidated at the old
+       rect, so the :hover border ghosts at the pre-shift position. Promoting
+       to a compositor layer makes the reflow reposition the input's paint
+       atomically (no extra cost — one tiny static layer). */
+    transform: translateZ(0);
   }
   .addflair input:hover {
     border-color: var(--accent);
