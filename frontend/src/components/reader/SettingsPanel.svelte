@@ -3,6 +3,7 @@
   import { THEMES } from "~/lib/themes";
   import { READER_FONTS, getFontById } from "~/lib/fonts";
   import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry.svelte";
+  import { toast } from "~/lib/toast.svelte";
   import type { UserSettings } from "~/api/client";
   import Icon from "~/lib/Icon.svelte";
   import { X } from "@lucide/svelte";
@@ -84,7 +85,9 @@
     if (rescanning) return;
     rescanning = true;
     try {
-      await fontRegistry.rescan();
+      if (!(await fontRegistry.rescan())) {
+        toast.show("Couldn't rescan fonts. Please try again.");
+      }
     } finally {
       rescanning = false;
     }
@@ -289,8 +292,7 @@
       <h3>Layout</h3>
       {@render autoRow("Side margin", s.marginSide, 0, 160, 4, 48, "px", (v) => set("marginSide", v))}
       {@render autoRow("Vertical margin", s.marginTop, 0, 160, 4, 48, "px", (v) => {
-        set("marginTop", v);
-        set("marginBottom", v);
+        settings.update({ marginTop: v, marginBottom: v });
       })}
       {@render autoRow("Content width", s.contentWidth, 480, 1200, 20, 720, "px", (v) => set("contentWidth", v))}
     </section>

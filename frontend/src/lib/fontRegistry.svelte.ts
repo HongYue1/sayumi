@@ -41,12 +41,15 @@ class FontRegistry {
     }
   }
 
-  async rescan(): Promise<void> {
+  /** Returns true on success, false if the rescan failed (previous list kept). */
+  async rescan(): Promise<boolean> {
     try {
       this.families = await rescanFonts();
       this.loaded = true;
+      return true;
     } catch {
       // Keep the previous list on failure.
+      return false;
     }
   }
 
