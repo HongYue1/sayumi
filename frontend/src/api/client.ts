@@ -92,13 +92,12 @@ async function parseSuccessResponse<T>(res: Response): Promise<T> {
     return undefined as T;
   }
 
-  const rawBody = await res.text();
-  if (!rawBody.trim()) {
-    return undefined as T;
-  }
+  const contentType = (res.headers.get("Content-Type") ?? "").toLowerCase();
 
-  const contentType = res.headers.get("Content-Type") ?? "";
-  if (!contentType.toLowerCase().includes("application/json")) {
+  // Non-JSON responses: tolerate a blank body as "no content", else it's an error.
+  if (!contentType.includes("application/json")) {
+    const rawBody = await res.text();
+    if (!rawBody.trim()) return undefined as T;
     throw new ApiError(
       "Invalid server response",
       res.status,
@@ -106,8 +105,12 @@ async function parseSuccessResponse<T>(res: Response): Promise<T> {
     );
   }
 
+  // Parse the JSON body in a single native pass (res.json()) instead of first
+  // materializing the full response text, which matters for large chapter
+  // payloads. The backend returns 204 (handled above) for no-content rather than
+  // an empty 200, so a parse failure here is a genuinely malformed body.
   try {
-    return JSON.parse(rawBody) as T;
+    return (await res.json()) as T;
   } catch (error) {
     throw new ApiError(
       "Invalid server response",
@@ -118,17 +121,34 @@ async function parseSuccessResponse<T>(res: Response): Promise<T> {
   }
 }
 
+// Per-attempt network timeout. Without it a connection that is accepted but
+// never answered would hang forever and never reach the retry path.
+const DEFAULT_TIMEOUT_MS = 20_000;
+
+// Combines an optional caller signal with a timeout. AbortSignal.timeout aborts
+// with a TimeoutError (not an AbortError), so request()'s catch routes it to the
+// retryable network-error branch instead of treating it as a user cancellation.
+function withTimeout(
+  signal: AbortSignal | undefined,
+  timeoutMs: number | undefined,
+): AbortSignal | undefined {
+  if (!timeoutMs || timeoutMs <= 0) return signal;
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
 async function request<T>(
   method: HttpMethod,
   path: string,
   body?: unknown,
   signal?: AbortSignal,
+  timeoutMs?: number,
 ): Promise<T> {
   const options: RequestInit = {
     method,
     headers: buildHeaders(),
     credentials: "same-origin",
-    signal,
+    signal: withTimeout(signal, timeoutMs),
   };
 
   if (body != null) {
@@ -192,6 +212,8 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 export interface RequestWithRetryOptions {
   attempts?: number;
   signal?: AbortSignal;
+  /** Per-attempt timeout in ms. Defaults to DEFAULT_TIMEOUT_MS; pass 0 to disable. */
+  timeoutMs?: number;
 }
 
 export function requestWithRetry<T>(
@@ -216,23 +238,26 @@ export async function requestWithRetry<T>(
 ): Promise<T> {
   let maxAttempts: number;
   let sig: AbortSignal | undefined;
+  let timeoutMs: number | undefined;
 
   if (typeof attemptsOrOptions === "object" && attemptsOrOptions !== null) {
     const raw = attemptsOrOptions.attempts ?? 3;
     maxAttempts = Number.isFinite(raw) ? Math.max(1, Math.trunc(raw)) : 3;
     sig = attemptsOrOptions.signal;
+    timeoutMs = attemptsOrOptions.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   } else {
     maxAttempts = Number.isFinite(attemptsOrOptions)
       ? Math.max(1, Math.trunc(attemptsOrOptions))
       : 3;
     sig = signal;
+    timeoutMs = DEFAULT_TIMEOUT_MS;
   }
 
   let lastError: unknown;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      return await request<T>(method, path, body, sig);
+      return await request<T>(method, path, body, sig, timeoutMs);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError")
         throw error;
