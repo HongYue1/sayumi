@@ -33,7 +33,7 @@ type setBookFlairBody struct {
 
 // builtinFlairIDs mirrors the client-side DEFAULT_FLAIRS in
 // frontend/src/lib/flairs.ts. Built-in flairs live on the client (like the
-// theme catalogue) and are never written to the flairs table, so
+// theme catalog) and are never written to the flairs table, so
 // FlairExistsContext (which only queries that table) can't find them. They are
 // still valid assignment targets — book_flairs.flair_id intentionally has no
 // FK to flairs.id — so accept them without a DB lookup.
