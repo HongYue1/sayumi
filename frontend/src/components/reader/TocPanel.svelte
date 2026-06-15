@@ -20,7 +20,7 @@
     </button>
     {#if entry.children?.length}
       <ul>
-        {#each entry.children as child (child.href + child.title)}
+        {#each entry.children as child, i (child.href + child.title + "@" + i)}
           {@render node(child)}
         {/each}
       </ul>
@@ -34,7 +34,7 @@
     <p class="empty">No table of contents.</p>
   {:else}
     <ul class="root">
-      {#each toc as entry (entry.href + entry.title)}
+      {#each toc as entry, i (entry.href + entry.title + "@" + i)}
         {@render node(entry)}
       {/each}
     </ul>
