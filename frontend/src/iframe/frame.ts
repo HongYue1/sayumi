@@ -99,6 +99,21 @@
   let _pageIndicator: HTMLElement | null = null;
   let _stripCSSCache: { input: string; output: string } | null = null;
 
+  // Memoised, finished output of prepareChapterCSS() keyed by the inputs that
+  // determine it. Bounded LRU (matches the host's chapter cache size) so
+  // revisiting a recent chapter skips the CSSStyleSheet reparses below.
+  const PREPARED_CSS_CACHE_MAX = 4;
+  const _preparedCSSCache = new Map<
+    string,
+    {
+      fontCSS: string;
+      layoutCSS: string;
+      rawCSS: string;
+      fontFaceCSS: string;
+      bookFontFamilies: Set<string>;
+    }
+  >();
+
   let activeThemeClass =
     Array.from(document.documentElement.classList).find((c) =>
       c.startsWith("theme-"),
@@ -551,12 +566,43 @@
   }
 
   function prepareChapterCSS(): void {
+    // Each prepare runs several CSSStyleSheet parses (splitBookCSS + two
+    // stripColorsFromCSS passes); memoise the finished bundle so revisiting a
+    // recently-read chapter (back / forward, boundary cross) reuses it instead
+    // of reparsing on the main thread. This is pure memoisation of the existing
+    // output: the same CSS is parsed, split, stripped and absolutified exactly
+    // as before on a miss, so the sandbox CSP, nonce handling and color/style
+    // stripping behaviour are completely unchanged. parentOrigin is part of the
+    // key because absolutifyCSS rewrites /api/ urls against it.
+    const cacheKey = `${parentOrigin ?? ""}\u0000${rawBookCSS}\u0000${bookFontFaceCSS}`;
+    const hit = _preparedCSSCache.get(cacheKey);
+    if (hit) {
+      _preparedCSSCache.delete(cacheKey);
+      _preparedCSSCache.set(cacheKey, hit); // refresh LRU position
+      preparedFontCSS = hit.fontCSS;
+      preparedLayoutCSS = hit.layoutCSS;
+      preparedRawCSS = hit.rawCSS;
+      preparedFontFaceCSS = hit.fontFaceCSS;
+      preparedBookFontFamilies = hit.bookFontFamilies;
+      return;
+    }
     const { fontCSS, layoutCSS } = splitBookCSS(rawBookCSS);
     preparedFontCSS = fontCSS;
     preparedLayoutCSS = stripColorsFromCSS(absolutifyCSS(layoutCSS));
     preparedRawCSS = stripColorsFromCSS(absolutifyCSS(rawBookCSS));
     preparedFontFaceCSS = absolutifyCSS(bookFontFaceCSS);
     preparedBookFontFamilies = extractBookFontFamilies(bookFontFaceCSS);
+    if (_preparedCSSCache.size >= PREPARED_CSS_CACHE_MAX) {
+      const lru = _preparedCSSCache.keys().next().value;
+      if (lru !== undefined) _preparedCSSCache.delete(lru);
+    }
+    _preparedCSSCache.set(cacheKey, {
+      fontCSS: preparedFontCSS,
+      layoutCSS: preparedLayoutCSS,
+      rawCSS: preparedRawCSS,
+      fontFaceCSS: preparedFontFaceCSS,
+      bookFontFamilies: preparedBookFontFamilies,
+    });
   }
 
   function setChapterHidden(hidden: boolean): void {
