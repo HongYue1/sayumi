@@ -26,6 +26,10 @@
   const showCover = $derived(book.hasCover && !coverFailed);
   const pct = $derived(Math.round(Math.max(0, Math.min(1, book.progress)) * 100));
   const flair = $derived(findFlair(book.flairId, flairs));
+  // Whether the book's current flair is one of the selectable options, so the
+  // menu can open with focus on the checked item (menuitemradio model, matching
+  // ThemeDropdown) and fall back to the first item only when nothing is set.
+  const hasActiveFlair = $derived(flairs.some((f) => f.id === book.flairId));
 
   function remove(e: MouseEvent): void {
     e.stopPropagation();
@@ -171,8 +175,10 @@
           role="menuitemradio"
           aria-checked={isActive}
           {@attach (el) => {
-            // Move focus into the menu on open so keyboard users land inside it.
-            if (i === 0) (el as HTMLButtonElement).focus();
+            // Open with focus on the checked flair (menuitemradio model); fall
+            // back to the first item only when the book has no flair set.
+            if (isActive || (i === 0 && !hasActiveFlair))
+              (el as HTMLButtonElement).focus();
           }}
           onclick={(e) => pick(e, f.id)}
         >
