@@ -107,7 +107,14 @@ class Settings {
   }
 
   update(partial: Partial<UserSettings>): void {
-    this.value = { ...this.value, ...partial };
+    // Mutate fields in place on the deep-reactive $state proxy instead of
+    // replacing the whole object. A wholesale reassign invalidates *every*
+    // settings.value consumer (isPaged, fontFaceCSS / buildAllFontFaces, the
+    // iframe derived -> apply-settings postMessage) on every change; per-field
+    // assignment only wakes the consumers that read the changed fields, so a
+    // font-size / line-height slider drag no longer rebuilds @font-face CSS or
+    // re-derives unrelated values each frame.
+    Object.assign(this.value, partial);
     this.#scheduleSave();
   }
 
