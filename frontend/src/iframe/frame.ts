@@ -13,6 +13,7 @@ import {
 import { generateCFI, resolveCFI } from "~/lib/cfi";
 import { createSearchHighlight } from "./searchHighlight";
 import { createBoundary } from "./boundary";
+import { createPagination } from "./pagination";
 
 (function () {
   "use strict";
@@ -36,9 +37,6 @@ import { createBoundary } from "./boundary";
   const CHAPTER_SWAP_OUT_MS = 110;
   const REVEAL_FALLBACK_SCROLL_MS = 400;
   const REVEAL_FALLBACK_PAGED_MS = 550;
-  const PAGE_TURN_BASE_MS = 240;
-  const PAGE_TURN_PER_PAGE_MS = 70;
-  const PAGE_TURN_MAX_MS = 420;
 
   let activeSeq = -1;
   let activeChapterIndex = -1;
@@ -71,7 +69,6 @@ import { createBoundary } from "./boundary";
   let _contentEl: HTMLElement | null = null;
   let _clipEl: HTMLElement | null = null;
   const _styleEls: Record<string, HTMLStyleElement> = {};
-  let _pageIndicator: HTMLElement | null = null;
 
   // Memoised, finished output of prepareChapterCSS() keyed by the inputs that
   // determine it. Bounded LRU (matches the host's chapter cache size) so
@@ -113,23 +110,28 @@ import { createBoundary } from "./boundary";
     hasNextChapter: () => hasNextChapter,
   });
 
+  const pagination = createPagination({
+    getContentEl,
+    getClipEl,
+    sendMessage,
+    getActiveSeq: () => activeSeq,
+    getActiveChapterIndex: () => activeChapterIndex,
+    isDestroyed: () => destroyed,
+    isContentReady: () => contentReady,
+    isPagedMode: () => isPagedMode,
+    hasNextChapter: () => hasNextChapter,
+    hasPrevChapter: () => hasPrevChapter,
+    setChapterHidden,
+    ensureBoundaryElements: () => boundary.ensureElements(),
+    updateBoundaryState,
+    takePendingFragment: () => {
+      const f = pendingFragment;
+      pendingFragment = null;
+      return f;
+    },
+  });
+
   let isPagedMode = false;
-  let currentPage = 0;
-  let totalPages = 0;
-  let isRTL = false;
-  let pagedResizeObserver: ResizeObserver | null = null;
-  let pagedResizeDebounce: ReturnType<typeof setTimeout> | null = null;
-  // Viewport dims (innerWidth/innerHeight) at the last pagination. Lets the
-  // resize handler skip relayouts that don't change the viewport box.
-  // -1 = nothing laid out yet, so the next relayout always runs.
-  let lastLayoutW = -1;
-  let lastLayoutH = -1;
-  let pageScrollRafHandle: number | null = null;
-  let pageTurnFinishTimer: ReturnType<typeof setTimeout> | null = null;
-  // Live target/phase for the cross-fade turn, so rapid presses can retarget
-  // the running animation instead of restarting it.
-  let pageTurnTarget = 0;
-  let pageTurnSwapped = false;
   let reportPositionRafHandle: number | null = null;
   let scrollRafHandle: number | null = null;
   let revealFallbackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -245,21 +247,6 @@ import { createBoundary } from "./boundary";
     }
   }
 
-  function ensurePageIndicator(): HTMLElement {
-    if (!_pageIndicator) {
-      const el = document.createElement("div");
-      el.id = "page-indicator";
-      document.body.appendChild(el);
-      _pageIndicator = el;
-    }
-    return _pageIndicator;
-  }
-
-  function updatePageIndicator(): void {
-    ensurePageIndicator().textContent =
-      totalPages > 0 ? `${currentPage + 1} / ${totalPages}` : "";
-  }
-
   function prepareChapterCSS(): void {
     // Each prepare runs several CSSStyleSheet parses (splitBookCSS + two
     // stripColorsFromCSS passes); memoise the finished bundle so revisiting a
@@ -316,15 +303,6 @@ import { createBoundary } from "./boundary";
     root.classList.toggle("chapter-hidden", hidden);
   }
 
-  function setPageTurning(turning: boolean): void {
-    const enabled = turning && isPagedMode;
-    document.documentElement.classList.toggle("page-turning", enabled);
-    if (!enabled && pageTurnFinishTimer !== null) {
-      clearTimeout(pageTurnFinishTimer);
-      pageTurnFinishTimer = null;
-    }
-  }
-
   function shouldAnimateChapterSwap(): boolean {
     const root = document.documentElement;
     return (
@@ -341,369 +319,7 @@ import { createBoundary } from "./boundary";
     document.body.style.opacity = "0";
     document.documentElement.style.overflow = "hidden";
     setChapterHidden(true);
-    setPageTurning(false);
-  }
-
-  function getPageStride(): number {
-    const content = getContentEl();
-    return Math.max(1, content?.clientWidth || window.innerWidth || 1);
-  }
-
-  function getMaxPageScrollLeft(): number {
-    const content = getContentEl();
-    if (!content) return 0;
-    return Math.max(0, content.scrollWidth - content.clientWidth);
-  }
-
-  function calculateTotalPages(): number {
-    const content = getContentEl();
-    if (!content) return 1;
-
-    const stride = getPageStride();
-    if (stride <= 0) return 1;
-
-    // Pages are stride-aligned scroll positions, so the last page begins at
-    // maxScrollLeft. Round (not ceil) so sub-pixel column rounding can't invent
-    // a phantom trailing page; +1 converts the last page index to a count.
-    // Reads two layout metrics instead of walking the DOM for the last
-    // meaningful rect on every relayout.
-    return Math.max(1, Math.round(getMaxPageScrollLeft() / stride) + 1);
-  }
-
-  function reportPagePosition(): void {
-    sendMessage({
-      type: "position",
-      seq: activeSeq,
-      chapterIndex: activeChapterIndex,
-      percent: totalPages > 1 ? currentPage / (totalPages - 1) : 0,
-    });
-  }
-
-  function applyPageScroll(page: number, animated: boolean): void {
-    const content = getContentEl();
-    if (!content) return;
-
-    const target = Math.max(
-      0,
-      Math.min(page * getPageStride(), getMaxPageScrollLeft()),
-    );
-
-    if (pageTurnFinishTimer !== null) {
-      clearTimeout(pageTurnFinishTimer);
-      pageTurnFinishTimer = null;
-    }
-
-    const reduceMotion =
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    if (!animated || reduceMotion) {
-      if (pageScrollRafHandle !== null) {
-        cancelAnimationFrame(pageScrollRafHandle);
-        pageScrollRafHandle = null;
-      }
-      content.scrollLeft = target;
-      content.style.opacity = "";
-      pageTurnTarget = target;
-      setPageTurning(false);
-      return;
-    }
-
-    pageTurnTarget = target;
-
-    // A fade is already running: retarget it instead of restarting. If it has
-    // already swapped and is fading the new page in, drop back to the fade-out
-    // phase so the latest target gets shown. This coalesces rapid page presses
-    // into one cross-fade to the final destination, instead of restarting the
-    // fade (and visibly flickering the current page) on every keystroke.
-    if (pageScrollRafHandle !== null) {
-      if (pageTurnSwapped) pageTurnSwapped = false;
-      return;
-    }
-
-    if (Math.abs(target - content.scrollLeft) < 1) {
-      content.scrollLeft = target;
-      content.style.opacity = "";
-      setPageTurning(false);
-      return;
-    }
-
-    setPageTurning(true);
-    pageTurnSwapped = false;
-
-    // Cross-fade page turn: fade the current page out, swap scrollLeft once
-    // while it is invisible (hiding the jump), then fade the new page in. Only
-    // composited opacity animates, and the single scroll write avoids the
-    // sub-pixel drift a per-frame scroll/transform tween produces. Opacity
-    // tracks a real elapsed delta so a retargeted turn resumes from the current
-    // opacity rather than snapping back to 1. A literal two-page blend is not
-    // possible here: every page is a column in one multicol scroller, not its
-    // own layer.
-    const FADE_MS = (PAGE_TURN_BASE_MS + PAGE_TURN_PER_PAGE_MS) / 2;
-    let lastTime = performance.now();
-
-    const animate = (now: number): void => {
-      if (destroyed) return;
-
-      const step = FADE_MS > 0 ? (now - lastTime) / FADE_MS : 1;
-      lastTime = now;
-
-      let opacity = parseFloat(content.style.opacity || "1");
-
-      if (!pageTurnSwapped) {
-        opacity -= step;
-        if (opacity <= 0) {
-          opacity = 0;
-          content.scrollLeft = pageTurnTarget;
-          pageTurnSwapped = true;
-        }
-      } else {
-        opacity += step;
-      }
-
-      if (pageTurnSwapped && opacity >= 1) {
-        content.scrollLeft = pageTurnTarget;
-        content.style.opacity = "";
-        pageScrollRafHandle = null;
-        const timer = setTimeout(() => {
-          if (pageTurnFinishTimer === timer) pageTurnFinishTimer = null;
-          if (!destroyed) setPageTurning(false);
-        }, 34);
-        pageTurnFinishTimer = timer;
-        return;
-      }
-
-      content.style.opacity = String(
-        opacity < 0 ? 0 : opacity > 1 ? 1 : opacity,
-      );
-      pageScrollRafHandle = requestAnimationFrame(animate);
-    };
-
-    pageScrollRafHandle = requestAnimationFrame(animate);
-  }
-
-  function goToPageInternal(page: number, animated: boolean): void {
-    currentPage = Math.max(0, Math.min(totalPages - 1, page));
-    applyPageScroll(currentPage, animated);
-    sendMessage({
-      type: "page-changed",
-      seq: activeSeq,
-      current: currentPage + 1,
-      total: totalPages,
-    });
-    reportPagePosition();
-    updatePageIndicator();
-  }
-
-  function nextPage(): void {
-    if (totalPages === 0) return;
-    if (currentPage >= totalPages - 1) {
-      if (hasNextChapter) {
-        sendMessage({ type: "at-boundary", seq: activeSeq, boundary: "end" });
-      }
-      return;
-    }
-    goToPageInternal(currentPage + 1, true);
-  }
-
-  function prevPage(): void {
-    if (totalPages === 0) return;
-    if (currentPage <= 0) {
-      if (hasPrevChapter) {
-        sendMessage({ type: "at-boundary", seq: activeSeq, boundary: "start" });
-      }
-      return;
-    }
-    goToPageInternal(currentPage - 1, true);
-  }
-
-  function setPagedHeights(): void {
-    const height = window.innerHeight;
-    const clip = getClipEl();
-    const content = getContentEl();
-    if (clip) clip.style.height = height + "px";
-    if (content) content.style.height = height + "px";
-  }
-
-  function getElementPageIndex(el: Element): number {
-    const content = getContentEl();
-    if (!content) return 0;
-    const stride = getPageStride();
-    if (stride <= 0) return 0;
-
-    const contentRect = content.getBoundingClientRect();
-    const rect = el.getBoundingClientRect();
-    const x = rect.left - contentRect.left + content.scrollLeft;
-    return Math.max(0, Math.min(totalPages - 1, Math.floor(x / stride)));
-  }
-
-  function scrollToFragmentPaged(id: string): void {
-    const el = document.getElementById(id);
-    if (!el) return;
-    if (totalPages <= 0) {
-      el.scrollIntoView({ behavior: "auto" });
-      return;
-    }
-    goToPageInternal(getElementPageIndex(el), true);
-  }
-
-  function relayoutPagedContentPreservingPosition(): void {
-    if (!isPagedMode || destroyed) return;
-    setPagedHeights();
-    // Record the viewport box this layout is computed against so the resize
-    // handler can skip no-op relayouts (see handlePagedResize).
-    lastLayoutW = window.innerWidth;
-    lastLayoutH = window.innerHeight;
-    const ratio = totalPages > 1 ? currentPage / (totalPages - 1) : 0;
-    totalPages = calculateTotalPages();
-    currentPage = Math.max(
-      0,
-      Math.min(Math.round(ratio * (totalPages - 1)), totalPages - 1),
-    );
-    applyPageScroll(currentPage, false);
-    sendMessage({
-      type: "page-changed",
-      seq: activeSeq,
-      current: currentPage + 1,
-      total: totalPages,
-    });
-    reportPagePosition();
-    updatePageIndicator();
-  }
-
-  function scheduleFinalFontRelayout(seqAtStart: number): void {
-    document.fonts.ready.then(() => {
-      if (
-        destroyed ||
-        activeSeq !== seqAtStart ||
-        !isPagedMode ||
-        !contentReady
-      )
-        return;
-
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
-          if (
-            destroyed ||
-            activeSeq !== seqAtStart ||
-            !isPagedMode ||
-            !contentReady
-          ) {
-            return;
-          }
-          relayoutPagedContentPreservingPosition();
-        }),
-      );
-    });
-  }
-
-  function revealPagedShell(seqAtStart: number): void {
-    if (destroyed || activeSeq !== seqAtStart) return;
-    document.body.style.opacity = "1";
-    document.documentElement.style.overflow = "";
-    boundary.ensureElements();
-    updateBoundaryState();
-    updatePageIndicator();
-    setupPagedResizeObserver();
-    requestAnimationFrame(() => {
-      if (!destroyed && activeSeq === seqAtStart) {
-        setChapterHidden(false);
-      }
-    });
-    scheduleFinalFontRelayout(seqAtStart);
-  }
-
-  function restorePagedPosition(
-    scrollTarget: "top" | "end",
-    restorePercent: number | null,
-  ): void {
-    const seqAtStart = activeSeq;
-    const content = getContentEl();
-    if (content) content.scrollLeft = 0;
-
-    setPageTurning(false);
-    setPagedHeights();
-    lastLayoutW = window.innerWidth;
-    lastLayoutH = window.innerHeight;
-    totalPages = calculateTotalPages();
-
-    if (pendingFragment) {
-      const fragment = pendingFragment;
-      pendingFragment = null;
-
-      requestAnimationFrame(() => {
-        if (destroyed || activeSeq !== seqAtStart) return;
-        scrollToFragmentPaged(fragment);
-        revealPagedShell(seqAtStart);
-      });
-      return;
-    }
-
-    currentPage =
-      restorePercent !== null && totalPages > 1
-        ? Math.max(
-            0,
-            Math.min(
-              totalPages - 1,
-              Math.round(restorePercent * (totalPages - 1)),
-            ),
-          )
-        : scrollTarget === "end"
-          ? Math.max(0, totalPages - 1)
-          : 0;
-
-    applyPageScroll(currentPage, false);
-    sendMessage({
-      type: "page-changed",
-      seq: activeSeq,
-      current: currentPage + 1,
-      total: totalPages,
-    });
-    reportPagePosition();
-
-    requestAnimationFrame(() => revealPagedShell(seqAtStart));
-  }
-
-  function handlePagedResize(): void {
-    if (!isPagedMode || !contentReady) return;
-    if (pagedResizeDebounce) clearTimeout(pagedResizeDebounce);
-
-    pagedResizeDebounce = setTimeout(() => {
-      if (destroyed) return;
-      pagedResizeDebounce = null;
-      // ResizeObserver(documentElement) and the window resize listener both feed
-      // this path and can fire for churn that doesn't change the viewport box
-      // (scrollbar toggling, sub-pixel rounding, visual-viewport-only changes).
-      // A relayout forces a full reflow + scroll reset, so skip when neither
-      // dimension changed since the last pagination. innerWidth/innerHeight
-      // reads don't force layout, unlike the clientWidth reads inside relayout.
-      if (
-        window.innerWidth === lastLayoutW &&
-        window.innerHeight === lastLayoutH
-      ) {
-        return;
-      }
-      relayoutPagedContentPreservingPosition();
-    }, 120);
-  }
-
-  function setupPagedResizeObserver(): void {
-    teardownPagedResizeObserver();
-    pagedResizeObserver = new ResizeObserver(handlePagedResize);
-    pagedResizeObserver.observe(document.documentElement);
-    window.addEventListener("resize", handlePagedResize);
-  }
-
-  function teardownPagedResizeObserver(): void {
-    if (pagedResizeObserver) {
-      pagedResizeObserver.disconnect();
-      pagedResizeObserver = null;
-    }
-    window.removeEventListener("resize", handlePagedResize);
-    if (pagedResizeDebounce) {
-      clearTimeout(pagedResizeDebounce);
-      pagedResizeDebounce = null;
-    }
+    pagination.setPageTurning(false);
   }
 
   function applyRootClasses(theme: string, mode: string): void {
@@ -833,7 +449,7 @@ import { createBoundary } from "./boundary";
             loadScrollTarget = null;
             loadRestorePercent = null;
             loadRestoreCfi = null;
-            restorePagedPosition(target, pagedRestore);
+            pagination.restorePagedPosition(target, pagedRestore);
           }, REVEAL_FALLBACK_PAGED_MS);
         });
       });
@@ -1024,7 +640,7 @@ import { createBoundary } from "./boundary";
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
           if (destroyed) return;
-          relayoutPagedContentPreservingPosition();
+          pagination.relayout();
         }),
       );
     }
@@ -1032,7 +648,7 @@ import { createBoundary } from "./boundary";
 
   function scrollToFragmentById(id: string): void {
     if (isPagedMode) {
-      scrollToFragmentPaged(id);
+      pagination.scrollToFragmentPaged(id);
       boundary.reset();
       return;
     }
@@ -1061,11 +677,7 @@ import { createBoundary } from "./boundary";
     if (!el) return;
 
     if (isPagedMode) {
-      if (totalPages <= 0) {
-        el.scrollIntoView({ behavior: "auto" });
-      } else {
-        goToPageInternal(getElementPageIndex(el), true);
-      }
+      pagination.goToElementPaged(el);
       boundary.reset();
       return;
     }
@@ -1101,7 +713,7 @@ import { createBoundary } from "./boundary";
 
   function reportPosition(): void {
     if (isPagedMode) {
-      reportPagePosition();
+      pagination.reportPagePosition();
       return;
     }
 
@@ -1237,9 +849,9 @@ import { createBoundary } from "./boundary";
       const dy = Math.abs(touchStartY - touchLastY);
       if (Math.abs(dx) >= 50 && Math.abs(dx) > dy * 0.7) {
         if (dx > 0) {
-          isRTL ? prevPage() : nextPage();
+          pagination.isRTL() ? pagination.prevPage() : pagination.nextPage();
         } else {
-          isRTL ? nextPage() : prevPage();
+          pagination.isRTL() ? pagination.nextPage() : pagination.prevPage();
         }
       }
       return;
@@ -1363,8 +975,8 @@ import { createBoundary } from "./boundary";
     getContentEl,
     isContentReady: () => contentReady,
     isPagedMode: () => isPagedMode,
-    goToPageInternal,
-    getElementPageIndex,
+    goToPageInternal: pagination.goToPage,
+    getElementPageIndex: pagination.getElementPageIndex,
   });
 
   function commitLoad(msg: LoadMessage): void {
@@ -1376,21 +988,7 @@ import { createBoundary } from "./boundary";
 
     contentReady = false;
     isPagedMode = false;
-    currentPage = 0;
-    totalPages = 0;
-    lastLayoutW = -1;
-    lastLayoutH = -1;
-    isRTL = msg.direction === "rtl";
-    teardownPagedResizeObserver();
-
-    if (pageScrollRafHandle !== null) {
-      cancelAnimationFrame(pageScrollRafHandle);
-      pageScrollRafHandle = null;
-    }
-    if (pageTurnFinishTimer !== null) {
-      clearTimeout(pageTurnFinishTimer);
-      pageTurnFinishTimer = null;
-    }
+    pagination.resetForLoad(msg.direction === "rtl");
 
     const contentEl = getContentEl();
     contentEl.scrollLeft = 0;
@@ -1453,10 +1051,7 @@ import { createBoundary } from "./boundary";
     destroyed = true;
 
     boundary.disposeTimers();
-    if (pagedResizeDebounce) {
-      clearTimeout(pagedResizeDebounce);
-      pagedResizeDebounce = null;
-    }
+    pagination.dispose();
     if (scrollThrottleTimer) {
       clearTimeout(scrollThrottleTimer);
       scrollThrottleTimer = null;
@@ -1475,14 +1070,6 @@ import { createBoundary } from "./boundary";
       chapterAnimTimer = null;
     }
     pendingSettingsMessage = null;
-    if (pageScrollRafHandle !== null) {
-      cancelAnimationFrame(pageScrollRafHandle);
-      pageScrollRafHandle = null;
-    }
-    if (pageTurnFinishTimer !== null) {
-      clearTimeout(pageTurnFinishTimer);
-      pageTurnFinishTimer = null;
-    }
     if (reportPositionRafHandle !== null) {
       cancelAnimationFrame(reportPositionRafHandle);
       reportPositionRafHandle = null;
@@ -1491,8 +1078,6 @@ import { createBoundary } from "./boundary";
       cancelAnimationFrame(scrollRafHandle);
       scrollRafHandle = null;
     }
-
-    teardownPagedResizeObserver();
 
     window.removeEventListener("message", handleMessage);
     document.removeEventListener("click", handleClick);
@@ -1605,21 +1190,21 @@ import { createBoundary } from "./boundary";
         break;
 
       case "next-page":
-        if (isPagedMode) nextPage();
+        if (isPagedMode) pagination.nextPage();
         break;
 
       case "prev-page":
-        if (isPagedMode) prevPage();
+        if (isPagedMode) pagination.prevPage();
         break;
 
       case "go-to-page":
         if (isPagedMode && typeof msg.page === "number") {
-          goToPageInternal(msg.page - 1, false);
+          pagination.goToPage(msg.page - 1, false);
         }
         break;
 
       case "go-to-last-page":
-        if (isPagedMode) goToPageInternal(totalPages - 1, false);
+        if (isPagedMode) pagination.goToLastPage();
         break;
 
       case "scroll-to-fragment":
