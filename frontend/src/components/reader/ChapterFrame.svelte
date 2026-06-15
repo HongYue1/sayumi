@@ -5,6 +5,10 @@
   import type { ChapterData } from "~/api/client";
   import type { IframeSettings } from "~/lib/settings.svelte";
   import type { ChapterFrameAPI, KeyEvent } from "./frame-types";
+  import type {
+    ParentToFrameMessage,
+    FrameToParentMessage,
+  } from "~/lib/frameMessages";
 
   interface Props {
     initialTheme: string;
@@ -47,7 +51,7 @@
   let iframeEl: HTMLIFrameElement | null = null;
   let seq = 0;
   let ready = false;
-  let messageQueue: unknown[] = [];
+  let messageQueue: ParentToFrameMessage[] = [];
 
   // Pre-ready, these carry "latest wins" state: a newer one makes any earlier
   // queued message of the same type obsolete (a fresh `load` replaces the
@@ -64,12 +68,9 @@
     return iframeEl?.contentWindow ?? null;
   }
 
-  function queueMessage(message: unknown): void {
-    const type = isRecord(message) ? message.type : undefined;
-    if (typeof type === "string" && COALESCE_TYPES.has(type)) {
-      messageQueue = messageQueue.filter(
-        (m) => !(isRecord(m) && m.type === type),
-      );
+  function queueMessage(message: ParentToFrameMessage): void {
+    if (COALESCE_TYPES.has(message.type)) {
+      messageQueue = messageQueue.filter((m) => m.type !== message.type);
     }
     messageQueue.push(message);
     // Only reachable when the frame never readied; the coalesced types above
@@ -77,7 +78,7 @@
     if (messageQueue.length > MAX_QUEUED) messageQueue.shift();
   }
 
-  function sendToFrame(message: unknown): void {
+  function sendToFrame(message: ParentToFrameMessage): void {
     const target = frameWindow();
     if (!ready || !target) {
       queueMessage(message);
@@ -96,18 +97,6 @@
   }
 
   // ---- inbound message validation -----------------------------------------
-  type FrameInboundMessage =
-    | { type: "ready" }
-    | { type: "loaded"; seq: number }
-    | { type: "position"; seq: number; chapterIndex: number; percent: number; cfi?: string | null }
-    | { type: "at-boundary"; seq: number; boundary: "start" | "end" }
-    | { type: "link-clicked"; href: string }
-    | { type: "key"; seq: number; key: string; code: string; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean }
-    | { type: "click"; seq: number; region: "left" | "center" | "right" }
-    | { type: "error"; seq: number; code: string; message: string }
-    | { type: "load-error"; seq: number; error: string }
-    | { type: "page-changed"; seq: number; current: number; total: number };
-
   const isRecord = (v: unknown): v is Record<string, unknown> =>
     typeof v === "object" && v !== null;
   const isNum = (v: unknown): v is number =>
@@ -119,7 +108,7 @@
   const isRegion = (v: unknown): v is "left" | "center" | "right" =>
     v === "left" || v === "center" || v === "right";
 
-  function isInbound(v: unknown): v is FrameInboundMessage {
+  function isInbound(v: unknown): v is FrameToParentMessage {
     if (!isRecord(v) || !isStr(v.type)) return false;
     switch (v.type) {
       case "ready":
@@ -149,8 +138,6 @@
         );
       case "click":
         return isNum(v.seq) && isRegion(v.region);
-      case "error":
-        return isNum(v.seq) && isStr(v.code) && isStr(v.message);
       case "load-error":
         return isNum(v.seq) && isStr(v.error);
       case "page-changed":
@@ -203,9 +190,6 @@
         break;
       case "click":
         if (m.seq === seq) onclickregion?.(m.region);
-        break;
-      case "error":
-        if (m.seq === seq) onframeerror?.(m.code, m.message);
         break;
       case "load-error":
         // frame.ts reports chapter render failures as "load-error"; surface

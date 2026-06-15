@@ -1,3 +1,10 @@
+import type {
+  IframeSettings,
+  LoadMessage,
+  ParentToFrameMessage,
+  FrameToParentMessage,
+} from "~/lib/frameMessages";
+
 (function () {
   "use strict";
 
@@ -312,7 +319,7 @@
     return (_clipEl ??= document.getElementById("paged-clip") as HTMLElement);
   }
 
-  function sendMessage(msg: Record<string, unknown>): void {
+  function sendMessage(msg: FrameToParentMessage): void {
     if (destroyed) return;
     window.parent.postMessage(msg, parentOrigin || "*");
   }
@@ -1021,67 +1028,6 @@
     }
   }
 
-  interface IframeSettings {
-    mode: "scroll" | "paged" | "paged-two";
-    fontSize: number;
-    fontFamily: string;
-    preserveBookStyles: boolean;
-    preserveBookFonts: boolean;
-    lineHeight: number | null;
-    paragraphSpacing: number | null;
-    textIndent: number | null;
-    contentWidth: number | null;
-    margins: { top: number | null; bottom: number | null; side: number | null };
-    justify: boolean;
-    hyphenation: boolean;
-    theme: string;
-    chapterTitleAlign: "left" | "center" | "right" | null;
-    chapterTitleSize: number | null;
-    chapterTitleSpacing: number | null;
-  }
-
-  interface LoadMessage {
-    type: "load";
-    seq: number;
-    chapterIndex: number;
-    css?: string;
-    fontFaceCSS?: string;
-    direction?: string;
-    writingMode?: string;
-    language?: string;
-    html?: string;
-    scrollTo?: "top" | "end";
-    fragment?: string | null;
-    hasNext?: boolean;
-    hasPrev?: boolean;
-    restorePercent?: number | null;
-    restoreCfi?: string | null;
-    origin?: string;
-  }
-
-  type ParentMessage =
-    | { type: "destroy" }
-    | { type: "set-font-faces"; fontFaces?: string }
-    | LoadMessage
-    | { type: "apply-settings"; settings: IframeSettings }
-    | { type: "scroll-to"; percent: number }
-    | { type: "scroll-to-end" }
-    | { type: "next-page" }
-    | { type: "prev-page" }
-    | { type: "go-to-page"; page?: number }
-    | { type: "go-to-last-page" }
-    | { type: "scroll-to-fragment"; id?: string }
-    | { type: "scroll-to-cfi"; cfi?: string }
-    | { type: "get-position" }
-    | {
-        type: "highlight-search";
-        seq?: number;
-        charOffset?: number;
-        matchLen?: number;
-        query?: unknown;
-      }
-    | { type: "clear-highlights" };
-
   function applyRootClasses(theme: string, mode: string): void {
     const root = document.documentElement;
     const nextThemeClass = `theme-${theme}`;
@@ -1498,7 +1444,7 @@
       lastReportedCfi = null;
     }
 
-    const msg: Record<string, unknown> = {
+    const msg: Extract<FrameToParentMessage, { type: "position" }> = {
       type: "position",
       seq: activeSeq,
       chapterIndex: activeChapterIndex,
@@ -2153,7 +2099,7 @@
     if (!raw || typeof (raw as Record<string, unknown>).type !== "string")
       return;
     if (!acceptParentMessage(e)) return;
-    const msg = raw as ParentMessage;
+    const msg = raw as ParentToFrameMessage;
 
     switch (msg.type) {
       case "destroy":
@@ -2281,6 +2227,13 @@
       case "clear-highlights":
         clearSearchHighlights();
         break;
+
+      default: {
+        // Exhaustiveness guard: a new ParentToFrameMessage kind that is not
+        // handled above will fail type-checking here.
+        const _exhaustive: never = msg;
+        void _exhaustive;
+      }
     }
   }
 
