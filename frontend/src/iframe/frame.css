@@ -463,11 +463,23 @@ mark.search-highlight-active {
     position: fixed;
     bottom: 12px;
     right: 16px;
-    font-size: 11px;
-    color: var(--text-muted);
+    /* Only meaningful in paged modes; hidden in scroll (toggled via the
+       html.paged / html.paged-two root classes set by applyRootClasses). */
+    display: none;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    padding: 2px 8px;
+    border-radius: 999px;
     font-variant-numeric: tabular-nums;
     pointer-events: none;
     z-index: 10;
+}
+
+html.paged #page-indicator,
+html.paged-two #page-indicator {
+    display: block;
 }
 
 /* ── Single-column paged ──────────────────────────────────────────── */
