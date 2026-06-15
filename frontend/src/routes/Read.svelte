@@ -1013,19 +1013,4 @@
     background: var(--accent);
     transition: width var(--dur-fast) var(--ease-out);
   }
-  /* Honor reduced-motion: drop chrome slide/fade + icon press scaling. The
-     paged page-turn cross-fade in frame.ts already respects this; mirror it
-     on the outer reader chrome so nothing animates when the user opts out. */
-  @media (prefers-reduced-motion: reduce) {
-    .bar,
-    .bar.hidden,
-    .icon,
-    .progress,
-    .fill {
-      transition: none;
-    }
-    .icon:active {
-      transform: none;
-    }
-  }
 </style>
