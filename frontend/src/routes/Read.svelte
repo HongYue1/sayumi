@@ -683,8 +683,11 @@
       return;
     }
     if (isPaged) {
-      if (region === "left") api?.prevPage();
-      else if (region === "right") api?.nextPage();
+      // Mirror reading order in RTL so tap edges agree with the keyboard
+      // (ArrowLeft/ArrowRight) and the swipe handler: visual-left turns one
+      // step *back* in reading order for LTR and *forward* for RTL.
+      if (region === "left") isRTL ? api?.nextPage() : api?.prevPage();
+      else if (region === "right") isRTL ? api?.prevPage() : api?.nextPage();
       else toggleChrome();
       return;
     }
