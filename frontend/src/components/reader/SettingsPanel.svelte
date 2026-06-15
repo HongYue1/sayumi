@@ -206,10 +206,23 @@
 
     <section>
       <h3>Font</h3>
+      <label class="toggle">
+        <input
+          type="checkbox"
+          checked={s.preserveFonts}
+          onchange={(e) => set("preserveFonts", e.currentTarget.checked)}
+        />
+        Use the book's fonts
+      </label>
+
+      <!-- The font choice is moot while the book's own fonts are in use: the
+           iframe only applies fontFamily when preserveBookFonts is off, so the
+           picker, per-style role overrides, and rescan are disabled to match. -->
       <select
         class="font-select"
         value={effectiveFontFamily}
         aria-label="Reading font"
+        disabled={s.preserveFonts}
         onchange={(e) => set("fontFamily", e.currentTarget.value)}
       >
         <optgroup label="Built-in">
@@ -227,7 +240,7 @@
       </select>
 
       {#if selectedUserFamily}
-        <div class="roles">
+        <div class="roles" class:row-disabled={s.preserveFonts}>
           <p class="roles-hint">Pick which file to use for each style.</p>
           {#each ROLES as role (role.key)}
             <label class="role-row">
@@ -235,6 +248,7 @@
               <select
                 class="role-select"
                 value={roleValue(role.key)}
+                disabled={s.preserveFonts}
                 onchange={(e) => setRole(role.key, e.currentTarget.value)}
               >
                 <option value="">Auto</option>
@@ -247,18 +261,9 @@
         </div>
       {/if}
 
-      <button class="rescan" onclick={rescan} disabled={rescanning}>
+      <button class="rescan" onclick={rescan} disabled={rescanning || s.preserveFonts}>
         {rescanning ? "Scanning…" : "Rescan ./Fonts"}
       </button>
-
-      <label class="toggle">
-        <input
-          type="checkbox"
-          checked={s.preserveFonts}
-          onchange={(e) => set("preserveFonts", e.currentTarget.checked)}
-        />
-        Use the book's fonts
-      </label>
     </section>
 
     <section>
@@ -496,6 +501,11 @@
     color: var(--fg);
     font: inherit;
     margin-bottom: 0.6rem;
+  }
+  .font-select:disabled,
+  .role-select:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   .roles {
