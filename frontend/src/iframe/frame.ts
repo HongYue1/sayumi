@@ -630,10 +630,26 @@ import { createPagination } from "./pagination";
 
     if (settings.chapterTitleAlign != null) {
       css.push(
-        `h1, h2, h3 { text-align: ${settings.chapterTitleAlign} !important; }`,
+        `h1, h2, h3, h4, h5, h6 { text-align: ${settings.chapterTitleAlign} !important; }`,
       );
     }
-    if (settings.chapterTitleSize != null) {
+    if (settings.headerSizesEnabled) {
+      // Per-heading override: each level sets its own size (null = leave that
+      // level alone). While on, the single "Title size" is ignored.
+      const perHeader: [string, number | null][] = [
+        ["h1", settings.h1Size],
+        ["h2", settings.h2Size],
+        ["h3", settings.h3Size],
+        ["h4", settings.h4Size],
+        ["h5", settings.h5Size],
+        ["h6", settings.h6Size],
+      ];
+      for (const [tag, size] of perHeader) {
+        if (size != null) {
+          css.push(`${tag} { font-size: ${size}px !important; }`);
+        }
+      }
+    } else if (settings.chapterTitleSize != null) {
       // "Title size" applies to every heading level (h1–h6), not just the top
       // three, so the single slider scales all headers uniformly.
       css.push(
@@ -642,8 +658,22 @@ import { createPagination } from "./pagination";
     }
     if (settings.chapterTitleSpacing != null) {
       css.push(
-        `h1, h2, h3 { margin-bottom: ${settings.chapterTitleSpacing}em !important; }`,
+        `h1, h2, h3, h4, h5, h6 { margin-bottom: ${settings.chapterTitleSpacing}em !important; }`,
       );
+    }
+    // Font weight: text weight applies to body copy; header weight to every
+    // heading. Heading rules are pushed last so they win over the body weight
+    // headings would otherwise inherit. When only text weight is set, headings
+    // revert to their natural (book/UA) weight instead of inheriting it.
+    if (settings.textWeight != null) {
+      css.push(`body { font-weight: ${settings.textWeight} !important; }`);
+    }
+    if (settings.headerWeight != null) {
+      css.push(
+        `h1, h2, h3, h4, h5, h6 { font-weight: ${settings.headerWeight} !important; }`,
+      );
+    } else if (settings.textWeight != null) {
+      css.push(`h1, h2, h3, h4, h5, h6 { font-weight: revert !important; }`);
     }
 
     getStyleEl("override-css").textContent = css.join("\n");

@@ -378,7 +378,12 @@ export function createFlair(
 }
 
 export function deleteFlair(id: string, signal?: AbortSignal): Promise<void> {
-  return request<void>("DELETE", `/flairs/${pathSegment(id)}`, undefined, signal);
+  return request<void>(
+    "DELETE",
+    `/flairs/${pathSegment(id)}`,
+    undefined,
+    signal,
+  );
 }
 
 /** Assigns a flair to a book, or clears it when flairId is null. */
@@ -433,6 +438,18 @@ export interface UserSettings {
   chapterTitleAlign: "left" | "center" | "right" | null;
   chapterTitleSize: number | null;
   chapterTitleSpacing: number | null;
+  /** When true, per-heading sizes (h1Size..h6Size) apply and chapterTitleSize is ignored. */
+  headerSizesEnabled: boolean;
+  h1Size: number | null;
+  h2Size: number | null;
+  h3Size: number | null;
+  h4Size: number | null;
+  h5Size: number | null;
+  h6Size: number | null;
+  /** CSS font-weight (100-900) for all headings; null leaves them untouched. */
+  headerWeight: number | null;
+  /** CSS font-weight (100-900) for body text; null leaves it untouched. */
+  textWeight: number | null;
   /**
    * Per-family override of which file fills each role, keyed by font family id.
    * Only meaningful for user (./Fonts/) families; embedded fonts ignore it.
@@ -456,15 +473,21 @@ export interface UserFontFamily {
 }
 
 export function getFonts(signal?: AbortSignal): Promise<UserFontFamily[]> {
-  return request<{ user: UserFontFamily[] }>("GET", "/fonts", undefined, signal).then(
-    (r) => r.user ?? [],
-  );
+  return request<{ user: UserFontFamily[] }>(
+    "GET",
+    "/fonts",
+    undefined,
+    signal,
+  ).then((r) => r.user ?? []);
 }
 
 export function rescanFonts(signal?: AbortSignal): Promise<UserFontFamily[]> {
-  return request<{ user: UserFontFamily[] }>("POST", "/fonts/rescan", undefined, signal).then(
-    (r) => r.user ?? [],
-  );
+  return request<{ user: UserFontFamily[] }>(
+    "POST",
+    "/fonts/rescan",
+    undefined,
+    signal,
+  ).then((r) => r.user ?? []);
 }
 
 /** Absolute URL for a user font file (used in @font-face src across the iframe boundary). */
@@ -483,8 +506,15 @@ export function getBooks(signal?: AbortSignal): Promise<BookMeta[]> {
 }
 
 /** Re-scans the on-disk library folder for newly added EPUBs. Returns the count imported. */
-export function rescanLibrary(signal?: AbortSignal): Promise<{ imported: number }> {
-  return request<{ imported: number }>("POST", "/library/rescan", undefined, signal);
+export function rescanLibrary(
+  signal?: AbortSignal,
+): Promise<{ imported: number }> {
+  return request<{ imported: number }>(
+    "POST",
+    "/library/rescan",
+    undefined,
+    signal,
+  );
 }
 
 export function getBook(id: string, signal?: AbortSignal): Promise<BookDetail> {

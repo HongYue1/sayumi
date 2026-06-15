@@ -96,6 +96,36 @@
   function set<K extends keyof UserSettings>(key: K, value: UserSettings[K]): void {
     settings.update({ [key]: value } as Partial<UserSettings>);
   }
+
+  // Heading levels for the optional per-heading size overrides.
+  const HEADERS: {
+    key: "h1Size" | "h2Size" | "h3Size" | "h4Size" | "h5Size" | "h6Size";
+    label: string;
+  }[] = [
+    { key: "h1Size", label: "H1" },
+    { key: "h2Size", label: "H2" },
+    { key: "h3Size", label: "H3" },
+    { key: "h4Size", label: "H4" },
+    { key: "h5Size", label: "H5" },
+    { key: "h6Size", label: "H6" },
+  ];
+
+  // Named CSS weights for the weight sliders' value readout.
+  const WEIGHT_NAMES: Record<number, string> = {
+    100: "Thin",
+    200: "Extra-light",
+    300: "Light",
+    400: "Normal",
+    500: "Medium",
+    600: "Semibold",
+    700: "Bold",
+    800: "Extra-bold",
+    900: "Black",
+  };
+  function weightLabel(v: number): string {
+    const name = WEIGHT_NAMES[v];
+    return name ? `${v} · ${name}` : `${v}`;
+  }
 </script>
 
 <!-- Numeric row with an "Auto" toggle for nullable settings. -->
@@ -109,6 +139,7 @@
   unit: string,
   apply: (v: number | null) => void,
   disabledReason?: string | null,
+  valueLabel?: (v: number) => string,
 )}
   <div class="row" class:row-disabled={!!disabledReason}>
     <div class="row-head">
@@ -137,7 +168,7 @@
         aria-label={label}
         oninput={(e) => apply(+e.currentTarget.value)}
       />
-      <span class="val">{disabledReason ? "\u2014" : value === null ? "Auto" : `${value}${unit}`}</span>
+      <span class="val">{disabledReason ? "\u2014" : value === null ? "Auto" : valueLabel ? valueLabel(value) : `${value}${unit}`}</span>
     </div>
   </div>
 {/snippet}
@@ -287,6 +318,7 @@
       {@render autoRow("Line height", s.lineHeight, 1.2, 2.4, 0.05, 1.6, "", (v) => set("lineHeight", v))}
       {@render autoRow("Paragraph spacing", s.paragraphSpacing, 0, 2, 0.1, 0.8, "em", (v) => set("paragraphSpacing", v))}
       {@render autoRow("Paragraph indent", s.textIndent, 0, 4, 0.1, 1.2, "em", (v) => set("textIndent", v))}
+      {@render autoRow("Font weight", s.textWeight, 100, 900, 100, 400, "", (v) => set("textWeight", v), null, weightLabel)}
 
       <label class="toggle">
         <input type="checkbox" checked={s.justify} onchange={(e) => set("justify", e.currentTarget.checked)} />
@@ -324,7 +356,24 @@
         </div>
       </div>
 
-      {@render autoRow("Title size", s.chapterTitleSize, 16, 64, 1, 32, "px", (v) => set("chapterTitleSize", v))}
+      {@render autoRow("Title size", s.chapterTitleSize, 16, 64, 1, 32, "px", (v) => set("chapterTitleSize", v), s.headerSizesEnabled ? "Per-heading sizes on" : null)}
+
+      <details class="per-header">
+        <summary>Size each heading (H1–H6)</summary>
+        <label class="toggle">
+          <input
+            type="checkbox"
+            checked={s.headerSizesEnabled}
+            onchange={(e) => set("headerSizesEnabled", e.currentTarget.checked)}
+          />
+          Override each heading size
+        </label>
+        {#each HEADERS as h (h.key)}
+          {@render autoRow(h.label, s[h.key], 10, 100, 1, 32, "px", (v) => set(h.key, v), s.headerSizesEnabled ? null : "Turn on above to edit")}
+        {/each}
+      </details>
+
+      {@render autoRow("Title weight", s.headerWeight, 100, 900, 100, 700, "", (v) => set("headerWeight", v), null, weightLabel)}
       {@render autoRow("Title spacing", s.chapterTitleSpacing, 0, 4, 0.1, 1, "em", (v) => set("chapterTitleSpacing", v))}
     </section>
 
@@ -506,6 +555,22 @@
   .role-select:disabled {
     opacity: 0.5;
     cursor: default;
+  }
+  .per-header {
+    margin: 0.1rem 0 0.5rem;
+  }
+  .per-header > summary {
+    cursor: pointer;
+    padding: 0.25rem 0;
+    font-size: 0.82rem;
+    color: var(--muted);
+    user-select: none;
+  }
+  .per-header > summary:hover {
+    color: var(--fg);
+  }
+  .per-header[open] > summary {
+    margin-bottom: 0.25rem;
   }
 
   .roles {

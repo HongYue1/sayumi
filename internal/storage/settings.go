@@ -28,6 +28,15 @@ type SettingsRecord struct {
 	ChapterTitleAlign   sql.NullString
 	ChapterTitleSize    sql.NullInt64
 	ChapterTitleSpacing sql.NullFloat64
+	HeaderSizesEnabled  sql.NullBool
+	H1Size              sql.NullInt64
+	H2Size              sql.NullInt64
+	H3Size              sql.NullInt64
+	H4Size              sql.NullInt64
+	H5Size              sql.NullInt64
+	H6Size              sql.NullInt64
+	HeaderWeight        sql.NullInt64
+	TextWeight          sql.NullInt64
 	FontRoles           sql.NullString // JSON map: family id -> {regular,italic,bold}
 	UpdatedAt           string
 }
@@ -39,6 +48,8 @@ func (db *DB) GetSettingsContext(ctx context.Context, userID string) (SettingsRe
 		       margin_top, margin_bottom, margin_side,
 		       preserve_styles, preserve_fonts, justify, hyphenation, theme,
 		       chapter_title_align, chapter_title_size, chapter_title_spacing,
+		       header_sizes_enabled, h1_size, h2_size, h3_size, h4_size, h5_size, h6_size,
+		       header_weight, text_weight,
 		       font_roles, updated_at
 		FROM settings
 		WHERE user_id = ?
@@ -51,6 +62,9 @@ func (db *DB) GetSettingsContext(ctx context.Context, userID string) (SettingsRe
 		&settings.MarginTop, &settings.MarginBottom, &settings.MarginSide,
 		&settings.PreserveStyles, &settings.PreserveFonts, &settings.Justify, &settings.Hyphenation, &settings.Theme,
 		&settings.ChapterTitleAlign, &settings.ChapterTitleSize, &settings.ChapterTitleSpacing,
+		&settings.HeaderSizesEnabled, &settings.H1Size, &settings.H2Size, &settings.H3Size,
+		&settings.H4Size, &settings.H5Size, &settings.H6Size,
+		&settings.HeaderWeight, &settings.TextWeight,
 		&settings.FontRoles, &settings.UpdatedAt,
 	)
 	if err != nil {
@@ -75,8 +89,10 @@ func (db *DB) SaveSettingsContext(ctx context.Context, settings SettingsRecord) 
 			margin_top, margin_bottom, margin_side,
 			preserve_styles, preserve_fonts, justify, hyphenation, theme,
 			chapter_title_align, chapter_title_size, chapter_title_spacing,
+			header_sizes_enabled, h1_size, h2_size, h3_size, h4_size, h5_size, h6_size,
+			header_weight, text_weight,
 			font_roles, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id) DO UPDATE SET
 			font_size = excluded.font_size,
 			font_family = excluded.font_family,
@@ -96,6 +112,15 @@ func (db *DB) SaveSettingsContext(ctx context.Context, settings SettingsRecord) 
 			chapter_title_align = excluded.chapter_title_align,
 			chapter_title_size = excluded.chapter_title_size,
 			chapter_title_spacing = excluded.chapter_title_spacing,
+			header_sizes_enabled = excluded.header_sizes_enabled,
+			h1_size = excluded.h1_size,
+			h2_size = excluded.h2_size,
+			h3_size = excluded.h3_size,
+			h4_size = excluded.h4_size,
+			h5_size = excluded.h5_size,
+			h6_size = excluded.h6_size,
+			header_weight = excluded.header_weight,
+			text_weight = excluded.text_weight,
 			font_roles = excluded.font_roles,
 			updated_at = excluded.updated_at
 	`, settings.UserID, settings.FontSize, settings.FontFamily, settings.LineHeight, settings.ParagraphSpacing,
@@ -103,6 +128,9 @@ func (db *DB) SaveSettingsContext(ctx context.Context, settings SettingsRecord) 
 		settings.MarginTop, settings.MarginBottom, settings.MarginSide,
 		settings.PreserveStyles, settings.PreserveFonts, settings.Justify, settings.Hyphenation, settings.Theme,
 		settings.ChapterTitleAlign, settings.ChapterTitleSize, settings.ChapterTitleSpacing,
+		settings.HeaderSizesEnabled, settings.H1Size, settings.H2Size, settings.H3Size,
+		settings.H4Size, settings.H5Size, settings.H6Size,
+		settings.HeaderWeight, settings.TextWeight,
 		settings.FontRoles, now,
 	)
 	if err != nil {

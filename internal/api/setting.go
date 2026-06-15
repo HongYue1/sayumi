@@ -31,6 +31,15 @@ type settingsJSON struct {
 	ChapterTitleAlign   *string  `json:"chapterTitleAlign"`
 	ChapterTitleSize    *int     `json:"chapterTitleSize"`
 	ChapterTitleSpacing *float64 `json:"chapterTitleSpacing"`
+	HeaderSizesEnabled  bool     `json:"headerSizesEnabled"`
+	H1Size              *int     `json:"h1Size"`
+	H2Size              *int     `json:"h2Size"`
+	H3Size              *int     `json:"h3Size"`
+	H4Size              *int     `json:"h4Size"`
+	H5Size              *int     `json:"h5Size"`
+	H6Size              *int     `json:"h6Size"`
+	HeaderWeight        *int     `json:"headerWeight"`
+	TextWeight          *int     `json:"textWeight"`
 	// FontRoles maps a font family id -> the file chosen for each role. Only
 	// meaningful for user-supplied (./Fonts/) families; embedded fonts ignore it.
 	FontRoles map[string]fontRoleEntry `json:"fontRoles"`
@@ -110,6 +119,17 @@ func recordToJSON(s storage.SettingsRecord) settingsJSON {
 	j.ChapterTitleAlign = nullStringToPtr(s.ChapterTitleAlign)
 	j.ChapterTitleSize = nullInt64ToIntPtr(s.ChapterTitleSize)
 	j.ChapterTitleSpacing = nullFloat64ToPtr(s.ChapterTitleSpacing)
+	if s.HeaderSizesEnabled.Valid {
+		j.HeaderSizesEnabled = s.HeaderSizesEnabled.Bool
+	}
+	j.H1Size = nullInt64ToIntPtr(s.H1Size)
+	j.H2Size = nullInt64ToIntPtr(s.H2Size)
+	j.H3Size = nullInt64ToIntPtr(s.H3Size)
+	j.H4Size = nullInt64ToIntPtr(s.H4Size)
+	j.H5Size = nullInt64ToIntPtr(s.H5Size)
+	j.H6Size = nullInt64ToIntPtr(s.H6Size)
+	j.HeaderWeight = nullInt64ToIntPtr(s.HeaderWeight)
+	j.TextWeight = nullInt64ToIntPtr(s.TextWeight)
 
 	if s.FontRoles.Valid && strings.TrimSpace(s.FontRoles.String) != "" {
 		var roles map[string]fontRoleEntry
@@ -245,6 +265,17 @@ func validateSettings(j *settingsJSON) (string, bool) {
 	if j.ChapterTitleSpacing != nil && (*j.ChapterTitleSpacing < 0 || *j.ChapterTitleSpacing > 5.0) {
 		return "chapterTitleSpacing must be 0-5.0", false
 	}
+	for _, hs := range []*int{j.H1Size, j.H2Size, j.H3Size, j.H4Size, j.H5Size, j.H6Size} {
+		if hs != nil && (*hs < 10 || *hs > 100) {
+			return "per-heading sizes must be 10-100", false
+		}
+	}
+	if j.HeaderWeight != nil && (*j.HeaderWeight < 100 || *j.HeaderWeight > 900) {
+		return "headerWeight must be 100-900", false
+	}
+	if j.TextWeight != nil && (*j.TextWeight < 100 || *j.TextWeight > 900) {
+		return "textWeight must be 100-900", false
+	}
 	if len(j.FontRoles) > 100 {
 		return "too many font role mappings", false
 	}
@@ -338,6 +369,15 @@ func putSettingsHandler(_ *Dependencies) http.HandlerFunc {
 			ChapterTitleAlign:   ptrToNullString(j.ChapterTitleAlign),
 			ChapterTitleSize:    ptrToNullInt64(j.ChapterTitleSize),
 			ChapterTitleSpacing: ptrToNullFloat64(j.ChapterTitleSpacing),
+			HeaderSizesEnabled:  sql.NullBool{Bool: j.HeaderSizesEnabled, Valid: true},
+			H1Size:              ptrToNullInt64(j.H1Size),
+			H2Size:              ptrToNullInt64(j.H2Size),
+			H3Size:              ptrToNullInt64(j.H3Size),
+			H4Size:              ptrToNullInt64(j.H4Size),
+			H5Size:              ptrToNullInt64(j.H5Size),
+			H6Size:              ptrToNullInt64(j.H6Size),
+			HeaderWeight:        ptrToNullInt64(j.HeaderWeight),
+			TextWeight:          ptrToNullInt64(j.TextWeight),
 			FontRoles:           sql.NullString{String: fontRolesJSON, Valid: true},
 		}
 

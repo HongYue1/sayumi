@@ -1,4 +1,9 @@
-import { ApiError, getSettings, saveSettings, type UserSettings } from "~/api/client";
+import {
+  ApiError,
+  getSettings,
+  saveSettings,
+  type UserSettings,
+} from "~/api/client";
 import { getFontById, getFontFamily } from "~/lib/fonts";
 import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry.svelte";
 import { toast } from "~/lib/toast.svelte";
@@ -21,6 +26,15 @@ export interface IframeSettings {
   chapterTitleAlign: "left" | "center" | "right" | null;
   chapterTitleSize: number | null;
   chapterTitleSpacing: number | null;
+  headerSizesEnabled: boolean;
+  h1Size: number | null;
+  h2Size: number | null;
+  h3Size: number | null;
+  h4Size: number | null;
+  h5Size: number | null;
+  h6Size: number | null;
+  headerWeight: number | null;
+  textWeight: number | null;
 }
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
@@ -42,6 +56,15 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   chapterTitleAlign: null,
   chapterTitleSize: null,
   chapterTitleSpacing: null,
+  headerSizesEnabled: false,
+  h1Size: null,
+  h2Size: null,
+  h3Size: null,
+  h4Size: null,
+  h5Size: null,
+  h6Size: null,
+  headerWeight: null,
+  textWeight: null,
   fontRoles: {},
 };
 
@@ -71,6 +94,15 @@ export function toIframeSettings(s: UserSettings): IframeSettings {
     chapterTitleAlign: s.chapterTitleAlign,
     chapterTitleSize: s.chapterTitleSize,
     chapterTitleSpacing: s.chapterTitleSpacing,
+    headerSizesEnabled: s.headerSizesEnabled,
+    h1Size: s.h1Size,
+    h2Size: s.h2Size,
+    h3Size: s.h3Size,
+    h4Size: s.h4Size,
+    h5Size: s.h5Size,
+    h6Size: s.h6Size,
+    headerWeight: s.headerWeight,
+    textWeight: s.textWeight,
   };
 }
 

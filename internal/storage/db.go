@@ -146,6 +146,15 @@ type columnMigration struct {
 
 var columnMigrations = []columnMigration{
 	{table: "settings", column: "font_roles", definition: "TEXT NOT NULL DEFAULT ''"},
+	{table: "settings", column: "header_sizes_enabled", definition: "INTEGER"},
+	{table: "settings", column: "h1_size", definition: "INTEGER"},
+	{table: "settings", column: "h2_size", definition: "INTEGER"},
+	{table: "settings", column: "h3_size", definition: "INTEGER"},
+	{table: "settings", column: "h4_size", definition: "INTEGER"},
+	{table: "settings", column: "h5_size", definition: "INTEGER"},
+	{table: "settings", column: "h6_size", definition: "INTEGER"},
+	{table: "settings", column: "header_weight", definition: "INTEGER"},
+	{table: "settings", column: "text_weight", definition: "INTEGER"},
 }
 
 // addColumnIfMissing runs ALTER TABLE ... ADD COLUMN only when the column is
@@ -252,6 +261,15 @@ CREATE TABLE IF NOT EXISTS settings (
 	chapter_title_align   TEXT,
 	chapter_title_size    INTEGER,
 	chapter_title_spacing REAL,
+	header_sizes_enabled  INTEGER,
+	h1_size               INTEGER,
+	h2_size               INTEGER,
+	h3_size               INTEGER,
+	h4_size               INTEGER,
+	h5_size               INTEGER,
+	h6_size               INTEGER,
+	header_weight         INTEGER,
+	text_weight           INTEGER,
 	font_roles            TEXT NOT NULL DEFAULT '',
 	updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
 );
