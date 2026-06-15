@@ -634,8 +634,10 @@ import { createPagination } from "./pagination";
       );
     }
     if (settings.chapterTitleSize != null) {
+      // "Title size" applies to every heading level (h1–h6), not just the top
+      // three, so the single slider scales all headers uniformly.
       css.push(
-        `h1, h2, h3 { font-size: ${settings.chapterTitleSize}px !important; }`,
+        `h1, h2, h3, h4, h5, h6 { font-size: ${settings.chapterTitleSize}px !important; }`,
       );
     }
     if (settings.chapterTitleSpacing != null) {
