@@ -82,6 +82,10 @@
 
   const isPaged = $derived(settings.value.displayMode !== "scroll");
   const isRTL = $derived(chapterDirection === "rtl");
+  // When a modal panel (toc/settings/search/bookmarks) is open, the reader
+  // chrome + iframe behind it must leave the tab + AT order. focusTrap only
+  // traps Tab; `inert` also pulls the background out of the accessibility tree.
+  const panelOpen = $derived(activePanel !== "none");
   // Combined reader @font-face CSS (embedded + user families), recomputed when
   // the user font registry or the per-family role mapping change.
   const fontFaceCSS = $derived(
@@ -699,7 +703,7 @@
 <svelte:document onvisibilitychange={handleVisibility} />
 
 <div class="reader" class:chrome-hidden={!chromeVisible}>
-  <header class="bar" class:hidden={!chromeVisible}>
+  <header class="bar" class:hidden={!chromeVisible} inert={panelOpen}>
     <button class="icon" onclick={handleBack} aria-label="Back to library"><Icon icon={ArrowLeft} /></button>
     <div class="title">
       <span class="book">{book?.title ?? "…"}</span>
@@ -748,33 +752,35 @@
   </header>
 
   <div class="stage">
-    {#if book}
-      <ChapterFrame
-        initialTheme={settings.value.theme}
-        onapi={handleApi}
-        onready={handleReady}
-        onloaded={handleLoaded}
-        onposition={handlePosition}
-        onboundary={handleBoundary}
-        onlinkclicked={handleLinkClicked}
-        onkey={handleFrameKey}
-        onclickregion={handleClickRegion}
-        onframeerror={handleFrameError}
-      />
-    {/if}
+    <div class="stage-content" inert={panelOpen}>
+      {#if book}
+        <ChapterFrame
+          initialTheme={settings.value.theme}
+          onapi={handleApi}
+          onready={handleReady}
+          onloaded={handleLoaded}
+          onposition={handlePosition}
+          onboundary={handleBoundary}
+          onlinkclicked={handleLinkClicked}
+          onkey={handleFrameKey}
+          onclickregion={handleClickRegion}
+          onframeerror={handleFrameError}
+        />
+      {/if}
 
-    {#if chapterLoading}
-      <div class="loading" role="status" aria-live="polite">
-        <span class="sr-only">Loading chapter…</span>
-      </div>
-    {/if}
+      {#if chapterLoading}
+        <div class="loading" role="status" aria-live="polite">
+          <span class="sr-only">Loading chapter…</span>
+        </div>
+      {/if}
 
-    {#if error}
-      <div class="error" role="alert">
-        <p>{error}</p>
-        <button onclick={() => loadChapter(currentChapter)}>Retry</button>
-      </div>
-    {/if}
+      {#if error}
+        <div class="error" role="alert">
+          <p>{error}</p>
+          <button onclick={() => loadChapter(currentChapter)}>Retry</button>
+        </div>
+      {/if}
+    </div>
 
     {#if activePanel === "toc" && book}
       <div class="panel left" role="dialog" aria-modal="true" aria-label="Table of contents" {@attach focusTrap}>
@@ -920,6 +926,11 @@
     position: absolute;
     inset: 0;
   }
+  /* display:contents adds no box (zero layout / Lighthouse impact) but still
+     propagates `inert` to the iframe + overlays behind an open panel. */
+  .stage-content {
+    display: contents;
+  }
   .loading {
     position: absolute;
     inset: 0;
@@ -1001,5 +1012,20 @@
     height: 100%;
     background: var(--accent);
     transition: width var(--dur-fast) var(--ease-out);
+  }
+  /* Honor reduced-motion: drop chrome slide/fade + icon press scaling. The
+     paged page-turn cross-fade in frame.ts already respects this; mirror it
+     on the outer reader chrome so nothing animates when the user opts out. */
+  @media (prefers-reduced-motion: reduce) {
+    .bar,
+    .bar.hidden,
+    .icon,
+    .progress,
+    .fill {
+      transition: none;
+    }
+    .icon:active {
+      transform: none;
+    }
   }
 </style>
