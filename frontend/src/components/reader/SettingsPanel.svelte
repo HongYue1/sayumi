@@ -108,18 +108,23 @@
   fallback: number,
   unit: string,
   apply: (v: number | null) => void,
+  disabledReason?: string | null,
 )}
-  <div class="row">
+  <div class="row" class:row-disabled={!!disabledReason}>
     <div class="row-head">
       <span class="label">{label}</span>
-      <label class="auto">
-        <input
-          type="checkbox"
-          checked={value === null}
-          onchange={(e) => apply(e.currentTarget.checked ? null : fallback)}
-        />
-        Auto
-      </label>
+      {#if disabledReason}
+        <span class="hint">{disabledReason}</span>
+      {:else}
+        <label class="auto">
+          <input
+            type="checkbox"
+            checked={value === null}
+            onchange={(e) => apply(e.currentTarget.checked ? null : fallback)}
+          />
+          Auto
+        </label>
+      {/if}
     </div>
     <div class="slider">
       <input
@@ -128,11 +133,11 @@
         {max}
         {step}
         value={value ?? fallback}
-        disabled={value === null}
+        disabled={value === null || !!disabledReason}
         aria-label={label}
         oninput={(e) => apply(+e.currentTarget.value)}
       />
-      <span class="val">{value === null ? "Auto" : `${value}${unit}`}</span>
+      <span class="val">{disabledReason ? "\u2014" : value === null ? "Auto" : `${value}${unit}`}</span>
     </div>
   </div>
 {/snippet}
@@ -294,7 +299,7 @@
       {@render autoRow("Vertical margin", s.marginTop, 0, 160, 4, 48, "px", (v) => {
         settings.update({ marginTop: v, marginBottom: v });
       })}
-      {@render autoRow("Content width", s.contentWidth, 40, 100, 5, 70, "%", (v) => set("contentWidth", v))}
+      {@render autoRow("Content width", s.contentWidth, 40, 100, 5, 70, "%", (v) => set("contentWidth", v), s.displayMode === "scroll" ? null : "Scroll mode only")}
     </section>
 
     <section>
@@ -578,6 +583,14 @@
     font-size: 0.78rem;
     color: var(--muted);
     font-variant-numeric: tabular-nums;
+  }
+  .hint {
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-style: italic;
+  }
+  .row-disabled .label {
+    color: var(--muted);
   }
 
   .toggle {
