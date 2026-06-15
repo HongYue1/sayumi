@@ -515,7 +515,11 @@ import { createPagination } from "./pagination";
       css.push(
         "body { padding: 0 !important; height: 100vh !important; overflow: hidden !important; }",
       );
-      css.push(`#content-inner { padding: ${pt} ${ps} ${pb} !important; }`);
+      // Vertical margin is applied as the paged column-box inset (clip
+      // height/offset in pagination, via --paged-padding-top/bottom) so it
+      // insets EVERY page, not just the first/last page of the chapter. Only the
+      // side inset belongs on #content-inner here.
+      css.push(`#content-inner { padding: 0 ${ps} !important; }`);
       css.push(
         "#content-inner > * { margin-left: 0 !important; margin-right: 0 !important; padding-left: 0 !important; padding-right: 0 !important; }",
       );
@@ -526,10 +530,14 @@ import { createPagination } from "./pagination";
         "#content-inner > *:last-child { margin-bottom: 0 !important; padding-bottom: 0 !important; }",
       );
     } else if (settings.mode === "paged-two") {
-      // Double-page spread uses fixed safe insets. User margin sliders do not
-      // affect this mode so the spread geometry stays stable and predictable.
-      const pt = "24px";
-      const pb = "24px";
+      // Double-page spread now honors the user's vertical margin, clamped to a
+      // stable minimum so the spread geometry stays predictable. Side inset stays
+      // fixed. The vertical inset is applied to the column box itself (see
+      // pagination.setPagedHeights, which reads --paged-padding-top/bottom), not
+      // as #content-inner padding.
+      const MIN_TWO_MARGIN = 24;
+      const pt = `${Math.max(settings.margins.top ?? 24, MIN_TWO_MARGIN)}px`;
+      const pb = `${Math.max(settings.margins.bottom ?? 24, MIN_TWO_MARGIN)}px`;
       const ps = "48px";
 
       css.push(
@@ -538,7 +546,11 @@ import { createPagination } from "./pagination";
       css.push(
         "body { padding: 0 !important; height: 100vh !important; overflow: hidden !important; }",
       );
-      css.push(`#content-inner { padding: ${pt} ${ps} ${pb} !important; }`);
+      // Vertical margin is applied as the paged column-box inset (clip
+      // height/offset in pagination, via --paged-padding-top/bottom) so it
+      // insets EVERY page, not just the first/last page of the chapter. Only the
+      // side inset belongs on #content-inner here.
+      css.push(`#content-inner { padding: 0 ${ps} !important; }`);
       css.push(
         "#content-inner > * { margin-left: 0 !important; margin-right: 0 !important; padding-left: 0 !important; padding-right: 0 !important; }",
       );
@@ -632,6 +644,19 @@ import { createPagination } from "./pagination";
 
     isPagedMode = settings.mode === "paged" || settings.mode === "paged-two";
     applyRootClasses(settings.theme, settings.mode);
+
+    if (!isPagedMode) {
+      // Paged mode insets the column box by setting inline height/marginTop on
+      // the clip + content (see pagination.setPagedHeights). Clear them when
+      // returning to scroll so they don't constrain or offset the scroll flow.
+      const clip = getClipEl();
+      const content = getContentEl();
+      if (clip) {
+        clip.style.height = "";
+        clip.style.marginTop = "";
+      }
+      if (content) content.style.height = "";
+    }
 
     if (!contentReady) {
       contentReady = true;

@@ -3,6 +3,9 @@ import type { FrameToParentMessage } from "~/lib/frameMessages";
 const PAGE_TURN_BASE_MS = 240;
 const PAGE_TURN_PER_PAGE_MS = 70;
 const PAGE_TURN_MAX_MS = 420;
+// Minimum bottom inset for the paged column box so the last line never sits
+// under the fixed #page-indicator pill (bottom: 12px + pill height).
+const PAGE_INDICATOR_CLEARANCE = 32;
 
 export type PaginationDeps = {
   getContentEl: () => HTMLElement;
@@ -273,11 +276,34 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     goToPageInternal(currentPage - 1, true);
   }
 
+  // Vertical margins inset the paged column box itself rather than padding
+  // #content-inner (which, in a multicol flow, only insets the first/last page
+  // of the chapter). Read the values applySettings publishes on the root, and
+  // keep a minimum bottom inset so text never sits under the page indicator.
+  function getPagedVerticalInsets(): { top: number; bottom: number } {
+    const cs = getComputedStyle(document.documentElement);
+    const parse = (name: string, fallback: number): number => {
+      const v = parseFloat(cs.getPropertyValue(name));
+      return Number.isFinite(v) ? v : fallback;
+    };
+    return {
+      top: Math.max(0, parse("--paged-padding-top", 24)),
+      bottom: Math.max(parse("--paged-padding-bottom", 24), PAGE_INDICATOR_CLEARANCE),
+    };
+  }
+
   function setPagedHeights(): void {
-    const height = window.innerHeight;
+    const { top, bottom } = getPagedVerticalInsets();
+    // Shorten the column box by the vertical margins and offset it down by the
+    // top margin, so every page gets a real top/bottom frame margin and the
+    // indicator lives in the reserved bottom strip.
+    const height = Math.max(0, window.innerHeight - top - bottom);
     const clip = deps.getClipEl();
     const content = deps.getContentEl();
-    if (clip) clip.style.height = height + "px";
+    if (clip) {
+      clip.style.height = height + "px";
+      clip.style.marginTop = top + "px";
+    }
     if (content) content.style.height = height + "px";
   }
 
