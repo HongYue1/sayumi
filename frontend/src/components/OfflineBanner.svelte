@@ -114,9 +114,4 @@
   .retry:active {
     transform: scale(0.96);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .banner {
-      animation: none;
-    }
-  }
 </style>

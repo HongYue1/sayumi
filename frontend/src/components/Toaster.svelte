@@ -56,10 +56,4 @@
       transform: translateY(-6px) scale(0.96);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .toast,
-    .toast.exiting {
-      animation: none;
-    }
-  }
 </style>
