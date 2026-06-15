@@ -37,6 +37,7 @@
   }
 
   let flairBtn = $state<HTMLButtonElement | null>(null);
+  let menuEl = $state<HTMLDivElement | null>(null);
 
   function toggleMenu(e: MouseEvent): void {
     e.stopPropagation();
@@ -47,6 +48,38 @@
     menuOpen = false;
     if (restoreFocus) flairBtn?.focus();
   }
+
+  // Dismiss on outside-click / Escape via window listeners instead of a fixed
+  // scrim. `.card` keeps a `transform` after its entrance animation (fill mode
+  // `both` leaves translateY(0) applied), so the card is the containing block
+  // for `position: fixed` descendants — a "fixed inset:0" scrim was clipped to
+  // the card box, so only clicks ON the card closed the menu, and Escape was
+  // missed whenever focus sat on the trigger (a sibling of the menu, so its
+  // keydown never bubbled to the menu's handler). The capture-phase click also
+  // swallows the dismissing click (like the old scrim) so it doesn't fall
+  // through and open a book.
+  $effect(() => {
+    if (!menuOpen) return;
+    const onClick = (e: MouseEvent): void => {
+      const t = e.target as Node | null;
+      if (menuEl?.contains(t) || flairBtn?.contains(t)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      closeMenu(false);
+    };
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeMenu();
+      }
+    };
+    window.addEventListener("click", onClick, true);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("click", onClick, true);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  });
 
   function pick(e: MouseEvent, id: string): void {
     e.stopPropagation();
@@ -161,16 +194,7 @@
   </div>
 
   {#if menuOpen}
-    <!-- Scrim closes the menu; sits above the card, below the menu. -->
-    <button
-      class="menu-scrim"
-      aria-label="Close menu"
-      onclick={(e) => {
-        e.stopPropagation();
-        closeMenu();
-      }}
-    ></button>
-    <div class="flair-menu" role="menu" tabindex="-1" aria-label="Set flair" onkeydown={onMenuKeydown}>
+    <div bind:this={menuEl} class="flair-menu" role="menu" tabindex="-1" aria-label="Set flair" onkeydown={onMenuKeydown}>
       <p class="menu-heading eyebrow" aria-hidden="true">Set flair</p>
       {#each flairs as f, i (f.id)}
         {@const isActive = book.flairId === f.id}
@@ -355,14 +379,6 @@
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   }
 
-  .menu-scrim {
-    position: fixed;
-    inset: 0;
-    z-index: 20;
-    border: none;
-    background: transparent;
-    cursor: default;
-  }
   .flair-menu {
     position: absolute;
     top: 2rem;
