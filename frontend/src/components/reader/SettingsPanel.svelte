@@ -122,9 +122,8 @@
     800: "Extra-bold",
     900: "Black",
   };
-  function weightLabel(v: number): string {
-    const name = WEIGHT_NAMES[v];
-    return name ? `${v} · ${name}` : `${v}`;
+  function weightName(v: number): string {
+    return WEIGHT_NAMES[v] ?? "";
   }
 </script>
 
@@ -139,11 +138,11 @@
   unit: string,
   apply: (v: number | null) => void,
   disabledReason?: string | null,
-  valueLabel?: (v: number) => string,
+  headNote?: (v: number) => string,
 )}
   <div class="row" class:row-disabled={!!disabledReason}>
     <div class="row-head">
-      <span class="label">{label}</span>
+      <span class="label">{label}{#if value !== null && headNote}<span class="head-note"> · {headNote?.(value)}</span>{/if}</span>
       {#if disabledReason}
         <span class="hint">{disabledReason}</span>
       {:else}
@@ -168,7 +167,7 @@
         aria-label={label}
         oninput={(e) => apply(+e.currentTarget.value)}
       />
-      <span class="val" class:val-wide={!!valueLabel}>{disabledReason ? "\u2014" : value === null ? "Auto" : valueLabel ? valueLabel(value) : `${value}${unit}`}</span>
+      <span class="val">{disabledReason ? "\u2014" : value === null ? "Auto" : `${value}${unit}`}</span>
     </div>
   </div>
 {/snippet}
@@ -322,7 +321,7 @@
       {@render autoRow("Line height", s.lineHeight, 1.2, 2.4, 0.05, 1.6, "", (v) => set("lineHeight", v))}
       {@render autoRow("Paragraph spacing", s.paragraphSpacing, 0, 2, 0.1, 0.8, "em", (v) => set("paragraphSpacing", v))}
       {@render autoRow("Paragraph indent", s.textIndent, 0, 4, 0.1, 1.2, "em", (v) => set("textIndent", v))}
-      {@render autoRow("Font weight", s.textWeight, 100, 900, 100, 400, "", (v) => set("textWeight", v), null, weightLabel)}
+      {@render autoRow("Font weight", s.textWeight, 100, 900, 100, 400, "", (v) => set("textWeight", v), null, weightName)}
 
       <label class="toggle">
         <input type="checkbox" checked={s.justify} onchange={(e) => set("justify", e.currentTarget.checked)} />
@@ -377,7 +376,7 @@
         {/each}
       </details>
 
-      {@render autoRow("Title weight", s.headerWeight, 100, 900, 100, 700, "", (v) => set("headerWeight", v), null, weightLabel)}
+      {@render autoRow("Title weight", s.headerWeight, 100, 900, 100, 700, "", (v) => set("headerWeight", v), null, weightName)}
       {@render autoRow("Title spacing", s.chapterTitleSpacing, 0, 4, 0.1, 1, "em", (v) => set("chapterTitleSpacing", v))}
     </section>
 
@@ -668,13 +667,9 @@
     color: var(--muted);
     font-variant-numeric: tabular-nums;
   }
-  /* Worded readouts (e.g. weight "700 · Bold") change text width as the value
-     changes; pin a stable width so the flex slider track can't resize and make
-     the thumb jump back and forth mid-drag. */
-  .val-wide {
-    flex: 0 0 auto;
-    width: 7.5rem;
-    white-space: nowrap;
+  .head-note {
+    color: var(--muted);
+    font-weight: 400;
   }
   .hint {
     font-size: 0.78rem;
