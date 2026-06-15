@@ -1,4 +1,4 @@
-import { getSettings, saveSettings, type UserSettings } from "~/api/client";
+import { ApiError, getSettings, saveSettings, type UserSettings } from "~/api/client";
 import { getFontById, getFontFamily } from "~/lib/fonts";
 import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry.svelte";
 import { toast } from "~/lib/toast.svelte";
@@ -82,6 +82,10 @@ class Settings {
   #loaded = false;
   #saveTimer: ReturnType<typeof setTimeout> | undefined;
   #saveController: AbortController | undefined;
+  // Last server-accepted settings. A failed PUT sends the whole object, so a
+  // single invalid field would otherwise wedge every later save; on a 4xx we
+  // roll back to this snapshot.
+  #lastSaved: UserSettings = { ...DEFAULT_USER_SETTINGS };
 
   /** Loads server settings once; keeps defaults on failure (non-fatal). */
   async load(): Promise<void> {
@@ -100,6 +104,7 @@ class Settings {
       if (!isUserFamilyId(fam) && !getFontById(fam)) {
         this.value.fontFamily = DEFAULT_USER_SETTINGS.fontFamily;
       }
+      this.#lastSaved = { ...this.value };
       this.#loaded = true;
     } catch {
       // Keep defaults if settings cannot be loaded.
@@ -128,6 +133,7 @@ class Settings {
     this.#saveController?.abort();
     this.#saveController = undefined;
     this.value = { ...DEFAULT_USER_SETTINGS };
+    this.#lastSaved = { ...DEFAULT_USER_SETTINGS };
   }
 
   #scheduleSave(): void {
@@ -141,9 +147,27 @@ class Settings {
       this.#saveController = controller;
       const snapshot = { ...this.value };
       saveSettings(snapshot, controller.signal)
+        .then(() => {
+          // Remember the last payload the server accepted.
+          this.#lastSaved = snapshot;
+        })
         .catch((error: unknown) => {
           if (error instanceof DOMException && error.name === "AbortError")
             return;
+          // Only the latest save drives UI feedback; superseded saves abort.
+          if (this.#saveController !== controller) return;
+          // A 4xx means this payload is invalid and resending it on the next
+          // edit would fail again (the full object is PUT every time). Roll back
+          // to the last accepted settings so one bad field can't block every
+          // future save.
+          if (
+            error instanceof ApiError &&
+            error.status != null &&
+            error.status >= 400 &&
+            error.status < 500
+          ) {
+            Object.assign(this.value, this.#lastSaved);
+          }
           toast.show("Couldn't save settings");
         })
         .finally(() => {

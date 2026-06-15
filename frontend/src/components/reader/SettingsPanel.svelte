@@ -294,7 +294,7 @@
       {@render autoRow("Vertical margin", s.marginTop, 0, 160, 4, 48, "px", (v) => {
         settings.update({ marginTop: v, marginBottom: v });
       })}
-      {@render autoRow("Content width", s.contentWidth, 480, 1200, 20, 720, "px", (v) => set("contentWidth", v))}
+      {@render autoRow("Content width", s.contentWidth, 40, 100, 5, 70, "%", (v) => set("contentWidth", v))}
     </section>
 
     <section>

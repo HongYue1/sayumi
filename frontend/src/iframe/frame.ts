@@ -571,7 +571,7 @@ import { createPagination } from "./pagination";
       );
       if (settings.contentWidth != null) {
         css.push(
-          `#content { max-width: ${settings.contentWidth}px !important; margin-left: auto !important; margin-right: auto !important; }`,
+          `#content { max-width: ${settings.contentWidth}% !important; margin-left: auto !important; margin-right: auto !important; }`,
         );
       }
     }
