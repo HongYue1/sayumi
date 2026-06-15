@@ -3,6 +3,7 @@ import {
   login as apiLogin,
   logout as apiLogout,
 } from "~/api/client";
+import { settings } from "~/lib/settings.svelte";
 
 // Holds the currently authenticated profile. Replaces the legacy lib/profile.ts
 // module-level state with a Svelte 5 rune. The real session lives server-side in
@@ -39,6 +40,9 @@ class Session {
       await apiLogout();
     } finally {
       this.profile = null;
+      // Drop the previous profile's settings so the next login refetches its
+      // own from the server instead of inheriting this session's values.
+      settings.reset();
     }
   }
 }
