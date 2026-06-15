@@ -12,6 +12,7 @@ import {
 } from "./cssText";
 import { generateCFI, resolveCFI } from "~/lib/cfi";
 import { createSearchHighlight } from "./searchHighlight";
+import { createBoundary } from "./boundary";
 
 (function () {
   "use strict";
@@ -32,8 +33,6 @@ import { createSearchHighlight } from "./searchHighlight";
   ]);
 
   const WHEEL_THRESHOLD = 600;
-  const TOUCH_THRESHOLD = 200;
-  const BOUNDARY_RESET_MS = 600;
   const CHAPTER_SWAP_OUT_MS = 110;
   const REVEAL_FALLBACK_SCROLL_MS = 400;
   const REVEAL_FALLBACK_PAGED_MS = 550;
@@ -72,10 +71,6 @@ import { createSearchHighlight } from "./searchHighlight";
   let _contentEl: HTMLElement | null = null;
   let _clipEl: HTMLElement | null = null;
   const _styleEls: Record<string, HTMLStyleElement> = {};
-  let _boundaryTop: HTMLElement | null = null;
-  let _boundaryBottom: HTMLElement | null = null;
-  let _boundaryTopLabel: HTMLElement | null = null;
-  let _boundaryBottomLabel: HTMLElement | null = null;
   let _pageIndicator: HTMLElement | null = null;
 
   // Memoised, finished output of prepareChapterCSS() keyed by the inputs that
@@ -100,11 +95,6 @@ import { createSearchHighlight } from "./searchHighlight";
 
   let atTop = false;
   let atBottom = false;
-  let boundaryAccum = 0;
-  let boundaryDirection: "start" | "end" | null = null;
-  let boundaryResetTimer: ReturnType<typeof setTimeout> | null = null;
-  let boundaryFireTimer: ReturnType<typeof setTimeout> | null = null;
-  let boundarySent = false;
   let hasNextChapter = true;
   let hasPrevChapter = true;
 
@@ -115,6 +105,13 @@ import { createSearchHighlight } from "./searchHighlight";
   let touchTracking = false;
   let touchBoundaryBase = 0;
   let touchAtBoundaryOnStart = false;
+
+  const boundary = createBoundary({
+    sendMessage,
+    getActiveSeq: () => activeSeq,
+    hasPrevChapter: () => hasPrevChapter,
+    hasNextChapter: () => hasNextChapter,
+  });
 
   let isPagedMode = false;
   let currentPage = 0;
@@ -248,55 +245,6 @@ import { createSearchHighlight } from "./searchHighlight";
     }
   }
 
-  function resetBoundary(): void {
-    boundaryAccum = 0;
-    boundaryDirection = null;
-    boundarySent = false;
-    if (boundaryResetTimer) {
-      clearTimeout(boundaryResetTimer);
-      boundaryResetTimer = null;
-    }
-    updateBoundaryIndicator(null, 0);
-  }
-
-  function scheduleBoundaryReset(): void {
-    if (boundaryResetTimer) clearTimeout(boundaryResetTimer);
-    boundaryResetTimer = setTimeout(resetBoundary, BOUNDARY_RESET_MS);
-  }
-
-  function accumulateBoundary(
-    delta: number,
-    direction: "start" | "end",
-    threshold: number,
-  ): void {
-    if (boundarySent) return;
-    if (direction === "start" && !hasPrevChapter) {
-      updateBoundaryIndicator("edge-start", Math.min(1, Math.abs(delta) / 40));
-      scheduleBoundaryReset();
-      return;
-    }
-    if (direction === "end" && !hasNextChapter) {
-      updateBoundaryIndicator("edge-end", Math.min(1, Math.abs(delta) / 40));
-      scheduleBoundaryReset();
-      return;
-    }
-    if (boundaryDirection !== direction) {
-      boundaryAccum = 0;
-      boundaryDirection = direction;
-    }
-    boundaryAccum += Math.abs(delta);
-    scheduleBoundaryReset();
-    const progress = Math.min(1, boundaryAccum / threshold);
-    updateBoundaryIndicator(direction, progress);
-    if (boundaryAccum >= threshold) {
-      boundarySent = true;
-      updateBoundaryIndicator(direction, 1);
-      sendMessage({ type: "at-boundary", seq: activeSeq, boundary: direction });
-      if (boundaryFireTimer) clearTimeout(boundaryFireTimer);
-      boundaryFireTimer = setTimeout(resetBoundary, 300);
-    }
-  }
-
   function ensurePageIndicator(): HTMLElement {
     if (!_pageIndicator) {
       const el = document.createElement("div");
@@ -310,76 +258,6 @@ import { createSearchHighlight } from "./searchHighlight";
   function updatePageIndicator(): void {
     ensurePageIndicator().textContent =
       totalPages > 0 ? `${currentPage + 1} / ${totalPages}` : "";
-  }
-
-  function ensureIndicatorElements(): void {
-    if (!_boundaryTop) {
-      const el = document.createElement("div");
-      el.id = "boundary-indicator-top";
-      el.className = "boundary-indicator boundary-top";
-      const span = document.createElement("span");
-      span.className = "boundary-label";
-      el.appendChild(span);
-      document.body.appendChild(el);
-      _boundaryTop = el;
-      _boundaryTopLabel = span;
-    }
-    if (!_boundaryBottom) {
-      const el = document.createElement("div");
-      el.id = "boundary-indicator-bottom";
-      el.className = "boundary-indicator boundary-bottom";
-      const span = document.createElement("span");
-      span.className = "boundary-label";
-      el.appendChild(span);
-      document.body.appendChild(el);
-      _boundaryBottom = el;
-      _boundaryBottomLabel = span;
-    }
-  }
-
-  function updateBoundaryIndicator(
-    dir: "start" | "end" | "edge-start" | "edge-end" | null,
-    progress: number,
-  ): void {
-    const topEl = _boundaryTop;
-    const bottomEl = _boundaryBottom;
-    if (!topEl || !bottomEl) return;
-
-    // _boundaryTopLabel and _boundaryBottomLabel are always co-assigned with
-    // _boundaryTop/_boundaryBottom inside ensureIndicatorElements, so if the
-    // elements exist the labels exist too. Explicit checks make this invariant
-    // self-evident instead of relying on non-null assertions.
-    const topLabel = _boundaryTopLabel;
-    const bottomLabel = _boundaryBottomLabel;
-    if (!topLabel || !bottomLabel) return;
-
-    topEl.style.opacity = "0";
-    topEl.style.transform = "translateY(-40px)";
-    topEl.classList.remove("edge");
-    bottomEl.style.opacity = "0";
-    bottomEl.style.transform = "translateY(40px)";
-    bottomEl.classList.remove("edge");
-
-    if (dir === "start" || dir === "edge-start") {
-      topLabel.textContent =
-        dir === "start" ? "Previous chapter" : "Beginning of book";
-      if (dir === "edge-start") topEl.classList.add("edge");
-      topEl.style.opacity = String(
-        dir === "edge-start"
-          ? Math.min(0.8, progress)
-          : Math.min(1, progress * 1.5),
-      );
-      topEl.style.transform = `translateY(${-40 + progress * 40}px)`;
-    } else if (dir === "end" || dir === "edge-end") {
-      bottomLabel.textContent = dir === "end" ? "Next chapter" : "End of book";
-      if (dir === "edge-end") bottomEl.classList.add("edge");
-      bottomEl.style.opacity = String(
-        dir === "edge-end"
-          ? Math.min(0.8, progress)
-          : Math.min(1, progress * 1.5),
-      );
-      bottomEl.style.transform = `translateY(${40 - progress * 40}px)`;
-    }
   }
 
   function prepareChapterCSS(): void {
@@ -458,7 +336,7 @@ import { createSearchHighlight } from "./searchHighlight";
   }
 
   function beginChapterSwapOut(): void {
-    resetBoundary();
+    boundary.reset();
     killScrollMomentum();
     document.body.style.opacity = "0";
     document.documentElement.style.overflow = "hidden";
@@ -723,7 +601,7 @@ import { createSearchHighlight } from "./searchHighlight";
     if (destroyed || activeSeq !== seqAtStart) return;
     document.body.style.opacity = "1";
     document.documentElement.style.overflow = "";
-    ensureIndicatorElements();
+    boundary.ensureElements();
     updateBoundaryState();
     updatePageIndicator();
     setupPagedResizeObserver();
@@ -856,7 +734,7 @@ import { createSearchHighlight } from "./searchHighlight";
   function revealScrollShell(): void {
     document.body.style.opacity = "1";
     document.documentElement.style.overflow = "";
-    ensureIndicatorElements();
+    boundary.ensureElements();
     updateBoundaryState();
     requestAnimationFrame(() => {
       if (!destroyed) setChapterHidden(false);
@@ -1155,7 +1033,7 @@ import { createSearchHighlight } from "./searchHighlight";
   function scrollToFragmentById(id: string): void {
     if (isPagedMode) {
       scrollToFragmentPaged(id);
-      resetBoundary();
+      boundary.reset();
       return;
     }
 
@@ -1172,7 +1050,7 @@ import { createSearchHighlight } from "./searchHighlight";
     }
 
     el.scrollIntoView({ behavior: "smooth" });
-    resetBoundary();
+    boundary.reset();
   }
 
   // Jump to a previously reported CFI within the *current* chapter (e.g. a
@@ -1188,7 +1066,7 @@ import { createSearchHighlight } from "./searchHighlight";
       } else {
         goToPageInternal(getElementPageIndex(el), true);
       }
-      resetBoundary();
+      boundary.reset();
       return;
     }
 
@@ -1202,7 +1080,7 @@ import { createSearchHighlight } from "./searchHighlight";
     }
 
     el.scrollIntoView({ behavior: "smooth" });
-    resetBoundary();
+    boundary.reset();
   }
 
   function getScrollPercent(): number {
@@ -1280,7 +1158,7 @@ import { createSearchHighlight } from "./searchHighlight";
       if (destroyed || isPagedMode) return;
       updateBoundaryState();
       throttledReportPosition();
-      if (!atTop && !atBottom && boundaryDirection) resetBoundary();
+      if (!atTop && !atBottom && boundary.hasActiveDirection()) boundary.reset();
     });
   }
 
@@ -1289,14 +1167,14 @@ import { createSearchHighlight } from "./searchHighlight";
     if (isPagedMode) return;
     updateBoundaryState();
     if (atTop && e.deltaY < 0) {
-      accumulateBoundary(Math.abs(e.deltaY), "start", WHEEL_THRESHOLD);
+      boundary.accumulate(Math.abs(e.deltaY), "start", WHEEL_THRESHOLD);
       return;
     }
     if (atBottom && e.deltaY > 0) {
-      accumulateBoundary(Math.abs(e.deltaY), "end", WHEEL_THRESHOLD);
+      boundary.accumulate(Math.abs(e.deltaY), "end", WHEEL_THRESHOLD);
       return;
     }
-    if (boundaryDirection) resetBoundary();
+    if (boundary.hasActiveDirection()) boundary.reset();
   }
 
   function handleTouchStart(e: TouchEvent): void {
@@ -1309,37 +1187,6 @@ import { createSearchHighlight } from "./searchHighlight";
     touchBoundaryBase = 0;
     updateBoundaryState();
     touchAtBoundaryOnStart = atTop || atBottom;
-  }
-
-  function processTouchBoundary(
-    direction: "start" | "end",
-    hasAdjacentChapter: boolean,
-    boundaryDelta: number,
-  ): void {
-    if (boundaryDirection !== direction) {
-      boundaryAccum = 0;
-      boundaryDirection = direction;
-    }
-    boundaryAccum = boundaryDelta;
-    scheduleBoundaryReset();
-    if (!hasAdjacentChapter) {
-      updateBoundaryIndicator(
-        direction === "end" ? "edge-end" : "edge-start",
-        Math.min(1, boundaryDelta / 40),
-      );
-      return;
-    }
-    updateBoundaryIndicator(
-      direction,
-      Math.min(1, boundaryAccum / TOUCH_THRESHOLD),
-    );
-    if (boundaryAccum >= TOUCH_THRESHOLD && !boundarySent) {
-      boundarySent = true;
-      updateBoundaryIndicator(direction, 1);
-      sendMessage({ type: "at-boundary", seq: activeSeq, boundary: direction });
-      if (boundaryFireTimer) clearTimeout(boundaryFireTimer);
-      boundaryFireTimer = setTimeout(resetBoundary, 300);
-    }
   }
 
   function handleTouchMove(e: TouchEvent): void {
@@ -1362,7 +1209,7 @@ import { createSearchHighlight } from "./searchHighlight";
       }
       const boundaryDelta = totalDeltaY - touchBoundaryBase;
       if (boundaryDelta > 0) {
-        processTouchBoundary("end", hasNextChapter, boundaryDelta);
+        boundary.processTouch("end", hasNextChapter, boundaryDelta);
       }
       return;
     }
@@ -1373,7 +1220,7 @@ import { createSearchHighlight } from "./searchHighlight";
       }
       const boundaryDelta = Math.abs(totalDeltaY - touchBoundaryBase);
       if (boundaryDelta > 0) {
-        processTouchBoundary("start", hasPrevChapter, boundaryDelta);
+        boundary.processTouch("start", hasPrevChapter, boundaryDelta);
       }
       return;
     }
@@ -1400,7 +1247,7 @@ import { createSearchHighlight } from "./searchHighlight";
 
     touchBoundaryBase = 0;
     touchAtBoundaryOnStart = false;
-    if (!boundarySent) resetBoundary();
+    if (!boundary.isSent()) boundary.reset();
   }
 
   function handleKeyDown(e: KeyboardEvent): void {
@@ -1605,14 +1452,7 @@ import { createSearchHighlight } from "./searchHighlight";
     if (destroyed) return;
     destroyed = true;
 
-    if (boundaryResetTimer) {
-      clearTimeout(boundaryResetTimer);
-      boundaryResetTimer = null;
-    }
-    if (boundaryFireTimer) {
-      clearTimeout(boundaryFireTimer);
-      boundaryFireTimer = null;
-    }
+    boundary.disposeTimers();
     if (pagedResizeDebounce) {
       clearTimeout(pagedResizeDebounce);
       pagedResizeDebounce = null;
@@ -1748,7 +1588,7 @@ import { createSearchHighlight } from "./searchHighlight";
             top: max * pct,
             behavior: "instant" as ScrollBehavior,
           });
-          resetBoundary();
+          boundary.reset();
           updateBoundaryState();
         }
         break;
@@ -1759,7 +1599,7 @@ import { createSearchHighlight } from "./searchHighlight";
             top: document.documentElement.scrollHeight,
             behavior: "instant" as ScrollBehavior,
           });
-          resetBoundary();
+          boundary.reset();
           updateBoundaryState();
         }
         break;
