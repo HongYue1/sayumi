@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
+  import { isProgressDuplicate, chooseBootProgress, isBookmarkAtPosition } from "~/lib/progress";
   import {
     getBook,
     getProgress,
@@ -96,9 +97,7 @@
   );
   // A bookmark at (or very near) the current reading position, if any.
   const currentBookmarkId = $derived(
-    bookmarks.find(
-      (b) => b.chapter === currentChapter && Math.abs(b.percent - chapterPercent) < 0.02,
-    )?.id ?? null,
+    bookmarks.find((b) => isBookmarkAtPosition(b, currentChapter, chapterPercent))?.id ?? null,
   );
 
   // Non-reactive instance state.
@@ -278,10 +277,7 @@
       const raw = localStorage.getItem(progressCacheKey);
       if (raw) {
         const cached: ProgressData = JSON.parse(raw);
-        const serverAhead =
-          cached.chapter < saved.chapter ||
-          (cached.chapter === saved.chapter && cached.percent <= saved.percent);
-        if (!serverAhead || !serverLoaded) saved = cached;
+        saved = chooseBootProgress(saved, cached, serverLoaded);
       }
     } catch {
       // ignore malformed cache
@@ -402,7 +398,13 @@
     if (!force && now - lastFlushTime < PROGRESS_FLUSH_THROTTLE_MS) return Promise.resolve();
 
     const { chapter, percent } = saveData;
-    if (!force && chapter === lastPersistedChapter && Math.abs(percent - lastPersistedPercent) < 0.001) {
+    if (
+      !force &&
+      isProgressDuplicate(
+        { chapter, percent },
+        { chapter: lastPersistedChapter, percent: lastPersistedPercent },
+      )
+    ) {
       return Promise.resolve();
     }
 

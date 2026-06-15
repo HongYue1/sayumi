@@ -9,6 +9,7 @@
     ParentToFrameMessage,
     FrameToParentMessage,
   } from "~/lib/frameMessages";
+  import { createFrameMessageQueue } from "./frameMessageQueue";
 
   interface Props {
     initialTheme: string;
@@ -51,37 +52,16 @@
   let iframeEl: HTMLIFrameElement | null = null;
   let seq = 0;
   let ready = false;
-  let messageQueue: ParentToFrameMessage[] = [];
-
-  // Pre-ready, these carry "latest wins" state: a newer one makes any earlier
-  // queued message of the same type obsolete (a fresh `load` replaces the
-  // chapter; for `apply-settings`/`set-font-faces` only the latest value
-  // matters). Coalescing stops the brief startup flush from replaying chapters
-  // the user already navigated past. Relative order is preserved, so the
-  // set-font-faces → load → apply-settings sequence still arrives in order.
-  const COALESCE_TYPES = new Set(["load", "apply-settings", "set-font-faces"]);
-  // Safety valve: if the frame never signals ready (e.g. its script is blocked),
-  // bound the queue instead of letting it grow with every interaction.
-  const MAX_QUEUED = 64;
+  const messageQueue = createFrameMessageQueue();
 
   function frameWindow(): Window | null {
     return iframeEl?.contentWindow ?? null;
   }
 
-  function queueMessage(message: ParentToFrameMessage): void {
-    if (COALESCE_TYPES.has(message.type)) {
-      messageQueue = messageQueue.filter((m) => m.type !== message.type);
-    }
-    messageQueue.push(message);
-    // Only reachable when the frame never readied; the coalesced types above
-    // can't grow unbounded, so this just caps stray non-coalesced messages.
-    if (messageQueue.length > MAX_QUEUED) messageQueue.shift();
-  }
-
   function sendToFrame(message: ParentToFrameMessage): void {
     const target = frameWindow();
     if (!ready || !target) {
-      queueMessage(message);
+      messageQueue.enqueue(message);
       return;
     }
     target.postMessage(message, FRAME_TARGET_ORIGIN);
@@ -89,11 +69,10 @@
 
   function flushQueue(): void {
     const target = frameWindow();
-    if (!target || messageQueue.length === 0) return;
-    for (const message of messageQueue) {
+    if (!target) return;
+    for (const message of messageQueue.drain()) {
       target.postMessage(message, FRAME_TARGET_ORIGIN);
     }
-    messageQueue = [];
   }
 
   // ---- inbound message validation -----------------------------------------
@@ -253,7 +232,7 @@
     return () => {
       const w = iframeEl?.contentWindow;
       ready = false;
-      messageQueue = [];
+      messageQueue.clear();
       if (w) w.postMessage({ type: "destroy" }, FRAME_TARGET_ORIGIN);
       iframeEl = null;
     };
