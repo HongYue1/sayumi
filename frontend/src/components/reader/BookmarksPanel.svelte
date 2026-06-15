@@ -29,6 +29,20 @@
     onupdate(id, editLabel.trim(), editComment.trim());
     editingId = null;
   }
+
+  // Keep edit-mode keys local: Esc cancels (and is stopped from bubbling to the
+  // reader's own Esc handler), Enter in the single-line label field saves. The
+  // note textarea keeps Enter for newlines.
+  function onEditKey(e: KeyboardEvent, id: string): void {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      e.preventDefault();
+      editingId = null;
+    } else if (e.key === "Enter" && e.target instanceof HTMLInputElement) {
+      e.preventDefault();
+      saveEdit(id);
+    }
+  }
 </script>
 
 <div class="bookmarks">
@@ -46,8 +60,8 @@
           <li class="bm">
           {#if editingId === bm.id}
             <div class="edit">
-              <input class="field" bind:value={editLabel} placeholder="Label" aria-label="Bookmark label" {@attach (el) => (el as HTMLInputElement).focus()} />
-              <textarea class="field" bind:value={editComment} placeholder="Note…" rows="3" aria-label="Bookmark note"></textarea>
+              <input class="field" bind:value={editLabel} placeholder="Label" aria-label="Bookmark label" onkeydown={(e) => onEditKey(e, bm.id)} {@attach (el) => (el as HTMLInputElement).focus()} />
+              <textarea class="field" bind:value={editComment} placeholder="Note…" rows="3" aria-label="Bookmark note" onkeydown={(e) => onEditKey(e, bm.id)}></textarea>
               <div class="actions">
                 <button class="primary" onclick={() => saveEdit(bm.id)}>Save</button>
                 <button class="ghost-btn" onclick={() => (editingId = null)}>Cancel</button>
