@@ -38,6 +38,10 @@ import { createPagination } from "./pagination";
   const REVEAL_FALLBACK_SCROLL_MS = 400;
   const REVEAL_FALLBACK_PAGED_MS = 550;
 
+  function prefersReducedMotion(): boolean {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
   let activeSeq = -1;
   let activeChapterIndex = -1;
   let contentReady = false;
@@ -694,7 +698,9 @@ import { createPagination } from "./pagination";
       });
     }
 
-    el.scrollIntoView({ behavior: "smooth" });
+    el.scrollIntoView({
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
+    });
     boundary.reset();
   }
 
@@ -720,7 +726,9 @@ import { createPagination } from "./pagination";
       });
     }
 
-    el.scrollIntoView({ behavior: "smooth" });
+    el.scrollIntoView({
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
+    });
     boundary.reset();
   }
 
@@ -799,7 +807,8 @@ import { createPagination } from "./pagination";
       if (destroyed || isPagedMode) return;
       updateBoundaryState();
       throttledReportPosition();
-      if (!atTop && !atBottom && boundary.hasActiveDirection()) boundary.reset();
+      if (!atTop && !atBottom && boundary.hasActiveDirection())
+        boundary.reset();
     });
   }
 

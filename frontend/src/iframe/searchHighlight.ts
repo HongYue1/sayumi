@@ -34,6 +34,10 @@ export interface SearchHighlighter {
   clearSearchHighlights: () => void;
 }
 
+function prefersReducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 const TEXT_BOUNDARY_TAGS = new Set([
   "ADDRESS",
   "ARTICLE",
@@ -233,7 +237,10 @@ export function createSearchHighlight(
             if (deps.isPagedMode()) {
               deps.goToPageInternal(deps.getElementPageIndex(mark), true);
             } else {
-              mark.scrollIntoView({ behavior: "smooth", block: "center" });
+              mark.scrollIntoView({
+                behavior: prefersReducedMotion() ? "auto" : "smooth",
+                block: "center",
+              });
             }
           }
         } catch {
@@ -288,7 +295,10 @@ export function createSearchHighlight(
       if (deps.isPagedMode()) {
         deps.goToPageInternal(deps.getElementPageIndex(mark), true);
       } else {
-        mark.scrollIntoView({ behavior: "smooth", block: "center" });
+        mark.scrollIntoView({
+          behavior: prefersReducedMotion() ? "auto" : "smooth",
+          block: "center",
+        });
       }
     } catch {
       if (query) fallbackHighlight(query);
