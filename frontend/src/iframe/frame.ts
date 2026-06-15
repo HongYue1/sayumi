@@ -656,6 +656,10 @@ import { createPagination } from "./pagination";
         clip.style.marginTop = "";
       }
       if (content) content.style.height = "";
+      // Detach the paged resize observer/listener now that we're in scroll mode
+      // so it doesn't sit attached firing no-op relayouts. A later scroll→paged
+      // switch re-establishes it via pagination.relayout().
+      pagination.teardownResizeObserver();
     }
 
     if (!contentReady) {

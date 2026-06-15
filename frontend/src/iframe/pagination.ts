@@ -41,6 +41,8 @@ export type PaginationController = {
   setPageTurning: (turning: boolean) => void;
   isRTL: () => boolean;
   resetForLoad: (rtl: boolean) => void;
+  /** Detach the paged resize observer/listener without touching page-turn state (used when switching to scroll mode). */
+  teardownResizeObserver: () => void;
   dispose: () => void;
 };
 
@@ -335,6 +337,12 @@ export function createPagination(deps: PaginationDeps): PaginationController {
 
   function relayoutPagedContentPreservingPosition(): void {
     if (!deps.isPagedMode() || deps.isDestroyed()) return;
+    // A scroll→paged switch via apply-settings (no chapter reload) routes here
+    // instead of through revealPagedShell, so the paged resize observer may not
+    // be wired yet. Ensure it exists so later viewport/window resizes
+    // re-paginate instead of leaving currentPage/totalPages stale. Guarded on
+    // null so repeated relayouts don't churn the observer.
+    if (!pagedResizeObserver) setupPagedResizeObserver();
     setPagedHeights();
     // Record the viewport box this layout is computed against so the resize
     // handler can skip no-op relayouts (see handlePagedResize).
@@ -533,6 +541,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     setPageTurning,
     isRTL: () => isRTL,
     resetForLoad,
+    teardownResizeObserver: teardownPagedResizeObserver,
     dispose,
   };
 }
