@@ -28,6 +28,15 @@ function msg(e: unknown, fallback: string): string {
   return e instanceof ApiError ? e.message : fallback;
 }
 
+// Reused across every sort comparison. Calling String.prototype.localeCompare
+// with an options object can construct a fresh collator on each call, which
+// adds up when sorting large libraries; one shared Intl.Collator keeps the same
+// natural collation ("Book 2" < "Book 10") while doing the setup work once.
+const collator = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: "base",
+});
+
 class Library {
   books = $state<BookMeta[]>([]);
   loading = $state(false);
@@ -53,7 +62,10 @@ class Library {
    *  re-lowercasing every title on each such change; an entry is refreshed only
    *  when its title or author actually changes. (Plain Map, not reactive state:
    *  it's a memo cache read inside `visible`, never a render dependency.) */
-  private hayCache = new Map<string, { title: string; author: string; hay: string }>();
+  private hayCache = new Map<
+    string,
+    { title: string; author: string; hay: string }
+  >();
   private hayFor(b: BookMeta): string {
     const hit = this.hayCache.get(b.id);
     if (hit && hit.title === b.title && hit.author === b.author) return hit.hay;
@@ -71,12 +83,14 @@ class Library {
       : this.books.slice();
 
     if (filters.length > 0) {
-      list = list.filter((b) => b.flairId !== undefined && filters.includes(b.flairId));
+      list = list.filter(
+        (b) => b.flairId !== undefined && filters.includes(b.flairId),
+      );
     }
 
     const byTitle = (a: BookMeta, b: BookMeta) =>
       // numeric collation so "Book 2" sorts before "Book 10" (natural order).
-      a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: "base" });
+      collator.compare(a.title, b.title);
 
     switch (this.sort) {
       case "title":
@@ -84,19 +98,15 @@ class Library {
         break;
       case "author":
         list.sort(
-          (a, b) =>
-            a.author.localeCompare(b.author, undefined, {
-              numeric: true,
-              sensitivity: "base",
-            }) || byTitle(a, b),
+          (a, b) => collator.compare(a.author, b.author) || byTitle(a, b),
         );
         break;
       case "added":
         list.sort((a, b) => (b.addedAt ?? "").localeCompare(a.addedAt ?? ""));
         break;
       case "read":
-        list.sort(
-          (a, b) => (b.lastReadAt ?? "").localeCompare(a.lastReadAt ?? ""),
+        list.sort((a, b) =>
+          (b.lastReadAt ?? "").localeCompare(a.lastReadAt ?? ""),
         );
         break;
       case "progress":
@@ -174,7 +184,9 @@ class Library {
     // Optimistic: drop the flair, its filter, and any local assignment.
     this.customFlairs = this.customFlairs.filter((f) => f.id !== id);
     this.flairFilters = this.flairFilters.filter((f) => f !== id);
-    this.books = this.books.map((b) => (b.flairId === id ? { ...b, flairId: undefined } : b));
+    this.books = this.books.map((b) =>
+      b.flairId === id ? { ...b, flairId: undefined } : b,
+    );
     try {
       await deleteFlair(id);
     } catch (e) {
@@ -192,7 +204,9 @@ class Library {
   /** Uploads one or more .epub files (e.g. a drag-and-drop batch). */
   async uploadFiles(files: File[]): Promise<void> {
     const epubs = files.filter(
-      (f) => f.name.toLowerCase().endsWith(".epub") || f.type === "application/epub+zip",
+      (f) =>
+        f.name.toLowerCase().endsWith(".epub") ||
+        f.type === "application/epub+zip",
     );
     if (epubs.length === 0) {
       toast.show("Only .epub files can be added");
@@ -237,7 +251,10 @@ class Library {
       this.uploading = false;
     }
     if (ok > 0) toast.show(`Added ${ok} ${ok === 1 ? "book" : "books"}`);
-    if (failed > 0) toast.show(`${failed} ${failed === 1 ? "file" : "files"} failed to import`);
+    if (failed > 0)
+      toast.show(
+        `${failed} ${failed === 1 ? "file" : "files"} failed to import`,
+      );
   }
 
   async remove(id: string): Promise<void> {
