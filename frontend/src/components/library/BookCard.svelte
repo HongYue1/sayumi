@@ -134,21 +134,26 @@
       </span>
     {/if}
 
-    <button class="chip-btn remove" title="Remove" aria-label="Remove book" onclick={remove}>
-      <Icon icon={Trash2} size={15} />
-    </button>
-    <button
-      bind:this={flairBtn}
-      class="chip-btn flair-btn"
-      title="Set flair"
-      aria-label="Set flair"
-      aria-haspopup="menu"
-      aria-expanded={menuOpen}
-      onclick={toggleMenu}
-    >
-      <Icon icon={Tag} size={15} />
-    </button>
   </div>
+
+  <!-- Corner actions live at card level (NOT inside .cover): the cover's
+       hover-lift transform establishes a stacking context, which would trap
+       these buttons beneath the z-index:1 open-overlay and swallow their
+       clicks + :hover. At card level they stay above the overlay (z-index:3). -->
+  <button class="chip-btn remove" title="Remove" aria-label="Remove book" onclick={remove}>
+    <Icon icon={Trash2} size={15} />
+  </button>
+  <button
+    bind:this={flairBtn}
+    class="chip-btn flair-btn"
+    title="Set flair"
+    aria-label="Set flair"
+    aria-haspopup="menu"
+    aria-expanded={menuOpen}
+    onclick={toggleMenu}
+  >
+    <Icon icon={Tag} size={15} />
+  </button>
 
   <div class="meta">
     <div class="title" title={book.title}>{book.title}</div>
@@ -206,7 +211,7 @@
   }
 
   /* Transparent full-card hit target for "open". Sits above the cover art but
-     below the corner action buttons (z-index: 2) and the flair menu/scrim. */
+     below the corner action buttons (z-index: 3) and the flair menu/scrim. */
   .open-overlay {
     position: absolute;
     inset: 0;
@@ -298,7 +303,7 @@
   .chip-btn {
     position: absolute;
     top: var(--sp-1);
-    z-index: 2;
+    z-index: 3;
     display: grid;
     place-items: center;
     width: 1.6rem;
