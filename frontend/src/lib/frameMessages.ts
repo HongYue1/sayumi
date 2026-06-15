@@ -85,5 +85,4 @@ export type FrameToParentMessage =
   | { type: "link-clicked"; href: string }
   | FrameKeyMessage
   | { type: "click"; seq: number; region: "left" | "center" | "right" }
-  | { type: "load-error"; seq: number; error: string }
-  | { type: "page-changed"; seq: number; current: number; total: number };
+  | { type: "load-error"; seq: number; error: string };

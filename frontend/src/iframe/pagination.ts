@@ -2,7 +2,6 @@ import type { FrameToParentMessage } from "~/lib/frameMessages";
 
 const PAGE_TURN_BASE_MS = 240;
 const PAGE_TURN_PER_PAGE_MS = 70;
-const PAGE_TURN_MAX_MS = 420;
 // Minimum bottom inset for the paged column box so the last line never sits
 // under the fixed #page-indicator pill (bottom: 12px + pill height).
 const PAGE_INDICATOR_CLEARANCE = 32;
@@ -70,8 +69,6 @@ export function createPagination(deps: PaginationDeps): PaginationController {
   let pageTurnTarget = 0;
   let pageTurnSwapped = false;
   let _pageIndicator: HTMLElement | null = null;
-
-  void PAGE_TURN_MAX_MS;
 
   function ensurePageIndicator(): HTMLElement {
     if (!_pageIndicator) {
@@ -238,12 +235,6 @@ export function createPagination(deps: PaginationDeps): PaginationController {
   function goToPageInternal(page: number, animated: boolean): void {
     currentPage = Math.max(0, Math.min(totalPages - 1, page));
     applyPageScroll(currentPage, animated);
-    deps.sendMessage({
-      type: "page-changed",
-      seq: deps.getActiveSeq(),
-      current: currentPage + 1,
-      total: totalPages,
-    });
     reportPagePosition();
     updatePageIndicator();
   }
@@ -290,7 +281,10 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     };
     return {
       top: Math.max(0, parse("--paged-padding-top", 24)),
-      bottom: Math.max(parse("--paged-padding-bottom", 24), PAGE_INDICATOR_CLEARANCE),
+      bottom: Math.max(
+        parse("--paged-padding-bottom", 24),
+        PAGE_INDICATOR_CLEARANCE,
+      ),
     };
   }
 
@@ -355,12 +349,6 @@ export function createPagination(deps: PaginationDeps): PaginationController {
       Math.min(Math.round(ratio * (totalPages - 1)), totalPages - 1),
     );
     applyPageScroll(currentPage, false);
-    deps.sendMessage({
-      type: "page-changed",
-      seq: deps.getActiveSeq(),
-      current: currentPage + 1,
-      total: totalPages,
-    });
     reportPagePosition();
     updatePageIndicator();
   }
@@ -445,12 +433,6 @@ export function createPagination(deps: PaginationDeps): PaginationController {
           : 0;
 
     applyPageScroll(currentPage, false);
-    deps.sendMessage({
-      type: "page-changed",
-      seq: deps.getActiveSeq(),
-      current: currentPage + 1,
-      total: totalPages,
-    });
     reportPagePosition();
 
     requestAnimationFrame(() => revealPagedShell(seqAtStart));

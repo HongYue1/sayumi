@@ -22,7 +22,6 @@
     onkey?: (e: KeyEvent) => void;
     onclickregion?: (region: "left" | "center" | "right") => void;
     onframeerror?: (code: string, message: string) => void;
-    onpagechanged?: (current: number, total: number) => void;
   }
 
   let {
@@ -36,7 +35,6 @@
     onkey,
     onclickregion,
     onframeerror,
-    onpagechanged,
   }: Props = $props();
 
   // srcdoc iframes report a null origin, so "*" is the only valid postMessage
@@ -119,8 +117,6 @@
         return isNum(v.seq) && isRegion(v.region);
       case "load-error":
         return isNum(v.seq) && isStr(v.error);
-      case "page-changed":
-        return isNum(v.seq) && isNum(v.current) && isNum(v.total);
       default:
         return false;
     }
@@ -174,9 +170,6 @@
         // frame.ts reports chapter render failures as "load-error"; surface
         // them through the same callback so the reader can show its error UI.
         if (m.seq === seq) onframeerror?.("load-error", m.error);
-        break;
-      case "page-changed":
-        if (m.seq === seq) onpagechanged?.(m.current, m.total);
         break;
     }
   }
