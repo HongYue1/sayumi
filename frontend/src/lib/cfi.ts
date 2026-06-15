@@ -57,8 +57,13 @@ export function resolveCFI(cfi: string, doc: Document): Element | null {
   let current: Element = body;
 
   for (const part of parts) {
+    // Strict integer parse: a malformed/foreign segment (e.g. "3x", "", "1.5")
+    // must fail to null so callers fall back to percent, rather than parseInt
+    // leniently coercing it to a wrong-but-valid index. Matches the inlined
+    // resolveCFILocal in frame.ts.
+    if (!/^\d+$/.test(part)) return null;
     const index = parseInt(part, 10);
-    if (isNaN(index) || index < 1) return null;
+    if (index < 1) return null;
     const child = current.children[index - 1];
     if (!child) return null;
     current = child;
