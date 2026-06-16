@@ -124,9 +124,7 @@ func (s *Scanner) scan(ctx context.Context) ([]string, error) {
 	pathCh := make(chan string)
 
 	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for filePath := range pathCh {
 				id, imported, importErr := s.importFile(ctx, filePath, "", snap)
 				if importErr != nil {
@@ -139,7 +137,7 @@ func (s *Scanner) scan(ctx context.Context) ([]string, error) {
 					mu.Unlock()
 				}
 			}
-		}()
+		})
 	}
 
 	// This goroutine is the sole sender on pathCh, so it owns closing it. The

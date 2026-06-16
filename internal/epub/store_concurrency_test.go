@@ -69,9 +69,7 @@ func TestStoreConcurrentOpenDifferentBooks(t *testing.T) {
 	const itersPerBook = 16
 	for _, p := range paths {
 		for range itersPerBook {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				<-start
 				_, index, err := store.OpenIndexed(p)
 				if err != nil {
@@ -82,7 +80,7 @@ func TestStoreConcurrentOpenDifferentBooks(t *testing.T) {
 					t.Errorf("index missing ch.xhtml for %s", p)
 				}
 				store.Release(p)
-			}()
+			})
 		}
 	}
 	close(start)
