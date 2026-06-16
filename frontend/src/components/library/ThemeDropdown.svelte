@@ -7,6 +7,7 @@
 
   let open = $state(false);
   let trigger = $state<HTMLButtonElement | null>(null);
+  let menuEl = $state<HTMLElement | null>(null);
 
   const current = $derived(getTheme(settings.value.theme));
   const lightThemes = THEMES.filter((t) => t.group === "light");
@@ -23,6 +24,15 @@
     settings.update({ theme: id });
     applyTheme(id);
     close();
+  }
+  // Dismiss on outside pointerdown. A fixed scrim can't be used here: the sticky
+  // masthead's backdrop-filter establishes a containing block, which clips a
+  // position:fixed scrim to the masthead box (so clicks on the shelf below would
+  // never reach it). A window listener is container-proof, matching ProfileMenu.
+  function onOutside(e: PointerEvent): void {
+    const t = e.target as Node;
+    if (menuEl?.contains(t) || trigger?.contains(t)) return;
+    close(false);
   }
   function onKeydown(e: KeyboardEvent): void {
     if (e.key === "Escape") {
@@ -78,6 +88,8 @@
   }
 </script>
 
+<svelte:window onpointerdown={open ? onOutside : undefined} />
+
 <div class="theme-dd">
   <button
     bind:this={trigger}
@@ -101,12 +113,8 @@
   </button>
 
   {#if open}
-    <button
-      class="scrim"
-      aria-label="Close theme menu"
-      onclick={() => close(false)}
-    ></button>
     <div
+      bind:this={menuEl}
       class="menu"
       role="menu"
       tabindex="-1"
@@ -231,14 +239,6 @@
     border-radius: 50%;
   }
 
-  .scrim {
-    position: fixed;
-    inset: 0;
-    z-index: 20;
-    border: none;
-    background: transparent;
-    cursor: default;
-  }
   .menu {
     position: absolute;
     top: calc(100% + 0.4rem);
