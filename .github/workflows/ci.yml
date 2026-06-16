@@ -38,6 +38,13 @@ jobs:
         working-directory: frontend
         run: bun install --frozen-lockfile
 
+      # Build the SPA first: cmd/sayumi/main.go has `//go:embed dist`, so the Go
+      # gates inside check.sh (go vet, golangci-lint, go test) fail on a clean
+      # checkout unless cmd/sayumi/dist already exists.
+      - name: Build frontend (populate //go:embed dist dir)
+        working-directory: frontend
+        run: bun run build
+
       # Pinned tool versions so check.sh actually RUNS the format/lint/vuln gates.
       # check.sh skips any tool that is not on PATH, so without this the lint and
       # govulncheck gates would silently pass on a clean CI runner.
@@ -48,7 +55,5 @@ jobs:
           go install mvdan.cc/gofumpt@v0.10.0
           go install golang.org/x/tools/cmd/goimports@v0.46.0
 
-      # check.sh step 7 builds the frontend (populating the //go:embed dist dir)
-      # before `go build`, so a separate pre-build step here is redundant.
       - name: Run checks
         run: ./check.sh

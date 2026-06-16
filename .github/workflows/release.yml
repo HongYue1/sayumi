@@ -38,6 +38,12 @@ jobs:
         working-directory: frontend
         run: bun install --frozen-lockfile
 
+      # Build the SPA before check.sh: its Go gates rely on cmd/sayumi/dist
+      # (//go:embed dist) existing. release.sh rebuilds it for the real artifacts.
+      - name: Build frontend (populate //go:embed dist dir)
+        working-directory: frontend
+        run: bun run build
+
       - name: Install Go quality tools (pinned)
         run: |
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
