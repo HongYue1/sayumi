@@ -31,14 +31,26 @@ class FontRegistry {
    *  user fonts". A failed load leaves this false so the next attempt retries. */
   loaded = $state(false);
 
+  /** Shared in-flight load so concurrent boot callers don't double-fetch. */
+  private loadPromise: Promise<void> | null = null;
+
   async load(): Promise<void> {
     if (this.loaded) return;
-    try {
-      this.families = await getFonts();
-      this.loaded = true;
-    } catch {
-      // No user fonts is a normal, non-fatal state.
-    }
+    // Without this, two near-simultaneous boot callers would each fire
+    // GET /fonts because `loaded` only flips after the await. Share the first
+    // in-flight request; clear it on settle so a failed load still retries.
+    if (this.loadPromise) return this.loadPromise;
+    this.loadPromise = (async () => {
+      try {
+        this.families = await getFonts();
+        this.loaded = true;
+      } catch {
+        // No user fonts is a normal, non-fatal state.
+      } finally {
+        this.loadPromise = null;
+      }
+    })();
+    return this.loadPromise;
   }
 
   /** Returns true on success, false if the rescan failed (previous list kept). */
