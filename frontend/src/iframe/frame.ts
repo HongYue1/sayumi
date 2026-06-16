@@ -385,6 +385,8 @@ import { createPagination } from "./pagination";
       requestAnimationFrame(() => {
         if (destroyed) return;
         scrollToFragmentById(fragment);
+        if (reportPositionRafHandle !== null)
+          cancelAnimationFrame(reportPositionRafHandle);
         reportPositionRafHandle = requestAnimationFrame(reportPosition);
       });
       return;
@@ -1077,6 +1079,11 @@ import { createPagination } from "./pagination";
     lastVisibleBlock = null;
     lastReportedAnchor = null;
     lastReportedCfi = null;
+
+    if (revealFallbackTimer !== null) {
+      clearTimeout(revealFallbackTimer);
+      revealFallbackTimer = null;
+    }
 
     beginChapterSwapOut();
 
