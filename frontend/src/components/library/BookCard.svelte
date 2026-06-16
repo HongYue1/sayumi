@@ -307,17 +307,26 @@
     border-radius: 3px;
     overflow: hidden;
     background: var(--surface);
-    /* Restrained, editorial elevation: a hairline border + one subtle, grounded
-       shadow (no heavy drop shadow). Hover lifts via transform only. */
+    /* Restrained, editorial elevation: a hairline border + a subtle, grounded
+       resting shadow. Hover lifts the cover and deepens the shadow so the book
+       reads as picked up off the shelf. */
     border: 1px solid var(--hairline);
     box-shadow: 0 1px 3px color-mix(in srgb, var(--fg) 12%, transparent);
-    /* Animate transform only (GPU-composited). The resting shadow stays static
-       so the hover lift never triggers per-frame paint. */
-    transition: transform var(--dur) var(--ease-out);
+    /* The lift is transform (GPU-composited); the shadow + border only change
+       on hover/focus. Hover repaints one card at a time and never runs at load,
+       so it stays clear of the Lighthouse budget. */
+    transition:
+      transform var(--dur) var(--ease-out),
+      box-shadow var(--dur) var(--ease-out),
+      border-color var(--dur) var(--ease-out);
   }
   .card:hover .cover,
   .card:has(.open-overlay:focus-visible) .cover {
-    transform: translateY(-3px);
+    transform: translateY(-6px);
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--hairline));
+    box-shadow:
+      0 12px 28px color-mix(in srgb, var(--fg) 22%, transparent),
+      0 3px 8px color-mix(in srgb, var(--fg) 14%, transparent);
   }
   /* Cover-targeted focus ring hugs the artwork instead of the whole column.
      Driven off the overlay button via :has, since the card itself is no longer
@@ -335,6 +344,13 @@
     height: 100%;
     object-fit: cover;
     display: block;
+    /* Slow editorial zoom on hover. Transform-only, clipped by the cover's
+       overflow:hidden, so it composites without repainting the image. */
+    transition: transform var(--dur-slow) var(--ease-out);
+  }
+  .card:hover .cover img,
+  .card:has(.open-overlay:focus-visible) .cover img {
+    transform: scale(1.04);
   }
 
   .placeholder {
@@ -509,6 +525,11 @@
     -webkit-line-clamp: 2;
     line-clamp: 2;
     -webkit-box-orient: vertical;
+    transition: color var(--dur) var(--ease-out);
+  }
+  .card:hover .title,
+  .card:has(.open-overlay:focus-visible) .title {
+    color: var(--accent);
   }
   .author {
     font-size: var(--text-xs);
