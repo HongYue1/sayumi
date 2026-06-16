@@ -25,10 +25,15 @@
   // profile is PIN-protected (decides if the PIN field is required at all).
   let confirmName = $state("");
   let pin = $state("");
-  let hasPin = $state<boolean | null>(mode === "clone" ? false : null);
+  let hasPin = $state<boolean | null>(null);
 
   onMount(() => {
-    if (mode !== "delete") return;
+    // Clone never needs the PIN gate; resolve it immediately so deleteReady
+    // (unused in clone mode) isn't left pending on null.
+    if (mode !== "delete") {
+      hasPin = false;
+      return;
+    }
     session
       .currentHasPin()
       .then((v) => (hasPin = v))
@@ -41,7 +46,9 @@
   // Require an exact name match, plus a PIN when the profile has one. While
   // hasPin is still loading (null) the delete stays disabled.
   const deleteReady = $derived(
-    hasPin !== null && confirmName === profileName && (!hasPin || pin.length > 0),
+    hasPin !== null &&
+      confirmName === profileName &&
+      (!hasPin || pin.length > 0),
   );
   const canSubmit = $derived(
     !busy && (mode === "clone" ? cloneReady : deleteReady),
@@ -59,10 +66,14 @@
         toast.show(`Created a copy: “${name}”`);
         onclose();
       } else {
+        // Snapshot the name first: profileName is the reactive `session.profile`
+        // prop, and deleteCurrent() nulls it — reading it after the await would
+        // interpolate "null" into the toast.
+        const name = profileName;
         await session.deleteCurrent(pin);
         // session.profile is now null — App swaps to the login screen, which
         // unmounts the library (and this dialog) on its own.
-        toast.show(`Deleted profile “${profileName}”`);
+        toast.show(`Deleted profile “${name}”`);
       }
     } catch (err) {
       error = err instanceof ApiError ? err.message : "Something went wrong.";
@@ -95,7 +106,12 @@
   >
     <header>
       <h2>{mode === "clone" ? "Clone profile" : "Delete profile"}</h2>
-      <button class="close" aria-label="Close" onclick={onclose} disabled={busy}>
+      <button
+        class="close"
+        aria-label="Close"
+        onclick={onclose}
+        disabled={busy}
+      >
         <Icon icon={X} size={18} />
       </button>
     </header>
