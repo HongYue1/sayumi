@@ -49,7 +49,7 @@ export function resolveHref(
 }
 
 /**
- * Precomputes, for each spine chapter index, the TOC href that should be
+ * Precomputes, for each spine chapter index, the TOC entry that should be
  * highlighted while that chapter is open. Runs in O(toc + spine): it builds
  * exact + basename lookups from the spine once, resolves each TOC entry through
  * them (every pass-1 suffix match in resolveHref also shares a basename, so the
@@ -59,10 +59,10 @@ export function resolveHref(
  * this once per book and index it by chapter instead of calling resolveHref for
  * every TOC entry on every open.
  */
-export function buildTocChapterHrefs(
+export function buildTocChapterEntries(
   toc: TocEntry[],
   spine: SpineEntry[],
-): Array<string | null> {
+): Array<TocEntry | null> {
   const byBase = new Map<string, number>();
   const byBasename = new Map<string, number>();
   for (let i = 0; i < spine.length; i++) {
@@ -72,13 +72,13 @@ export function buildTocChapterHrefs(
     if (!byBasename.has(bn)) byBasename.set(bn, i);
   }
 
-  const result: Array<string | null> = new Array(spine.length).fill(null);
+  const result: Array<TocEntry | null> = new Array(spine.length).fill(null);
   const walk = (entries: TocEntry[]): void => {
     for (const entry of entries) {
       const hrefBase = entry.href.split("#")[0];
       const idx =
         byBase.get(hrefBase) ?? byBasename.get(pathBasename(hrefBase));
-      if (idx !== undefined && result[idx] == null) result[idx] = entry.href;
+      if (idx !== undefined && result[idx] == null) result[idx] = entry;
       if (entry.children?.length) walk(entry.children);
     }
   };

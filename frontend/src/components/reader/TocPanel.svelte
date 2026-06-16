@@ -3,20 +3,35 @@
 
   interface Props {
     toc: TocEntry[];
-    activeHref: string | null;
+    activeEntry: TocEntry | null;
     onnavigate: (href: string) => void;
   }
 
-  let { toc, activeHref, onnavigate }: Props = $props();
+  let { toc, activeEntry, onnavigate }: Props = $props();
 
   let navEl: HTMLElement | null = $state(null);
+  let hasFocusedCurrent = false;
   // When the panel opens (or the highlighted entry changes), scroll the current
   // chapter into view so a reader deep in a long book doesn't open the TOC at
   // chapter 1. Instant scroll (no behavior:"smooth") keeps it reduced-motion
   // friendly.
   $effect(() => {
-    void activeHref;
+    void activeEntry;
     navEl?.querySelector(".entry.current")?.scrollIntoView({ block: "center" });
+  });
+  // On open, move focus to the current chapter instead of letting the focus
+  // trap fall back to the first entry (the book title) — focusing that top
+  // entry pulled both the focus ring and the scroll back to the top of the
+  // list. preventScroll keeps the centered scroll above intact. Guarded so we
+  // only seize focus once, never stealing it back if the reader tabs away.
+  $effect(() => {
+    void activeEntry;
+    if (hasFocusedCurrent || !navEl) return;
+    const current = navEl.querySelector<HTMLElement>(".entry.current");
+    if (current) {
+      current.focus({ preventScroll: true });
+      hasFocusedCurrent = true;
+    }
   });
 </script>
 
@@ -24,8 +39,8 @@
   <li>
     <button
       class="entry"
-      class:current={entry.href === activeHref}
-      aria-current={entry.href === activeHref ? "location" : undefined}
+      class:current={entry === activeEntry}
+      aria-current={entry === activeEntry ? "location" : undefined}
       style:padding-left={`${entry.depth * 0.75 + 0.75}rem`}
       onclick={() => onnavigate(entry.href)}
     >

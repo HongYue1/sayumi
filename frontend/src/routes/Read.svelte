@@ -23,7 +23,7 @@
   import { buildAllFontFaces } from "~/lib/readerFontFaces";
   import { router } from "~/lib/router.svelte";
   import { ui } from "~/lib/ui.svelte";
-  import { resolveHref, findTocLabel, buildTocChapterHrefs } from "~/lib/href";
+  import { resolveHref, findTocLabel, buildTocChapterEntries } from "~/lib/href";
   import { getErrorMessage } from "~/lib/errors";
   import { applyTheme } from "~/lib/theme";
   import ChapterFrame from "~/components/reader/ChapterFrame.svelte";
@@ -80,6 +80,13 @@
   let activePanel = $state<Panel>("none");
   let bookmarks = $state<Bookmark[]>([]);
   let chromeVisible = $state(true);
+  // Cache the resolved TocPanel component so reopening renders synchronously,
+  // instead of an {#await} that flashes one empty frame while the
+  // module-cached dynamic import settles on a microtask. Prewarmed on idle in
+  // onMount so the very first open is instant too.
+  let TocPanelComp = $state<
+    Awaited<ReturnType<typeof tocPanel>>["default"] | null
+  >(null);
 
   const isPaged = $derived(settings.value.displayMode !== "scroll");
   const isRTL = $derived(chapterDirection === "rtl");
@@ -99,22 +106,26 @@
   const currentBookmarkId = $derived(
     bookmarks.find((b) => isBookmarkAtPosition(b, currentChapter, chapterPercent))?.id ?? null,
   );
-  // TOC entry to highlight per chapter. Built once per book (O(toc + spine))
-  // rather than re-resolving every TOC entry each time the panel opens — that
-  // per-open walk made the TOC slow to open in books with many chapters.
-  const tocChapterHrefs = $derived.by(() =>
-    book ? buildTocChapterHrefs(book.toc, book.spine) : null,
+  // Active TOC entry to highlight per chapter. Built once per book
+  // (O(toc + spine)) rather than re-resolving every TOC entry each time the
+  // panel opens — that per-open walk made the TOC slow to open in books with
+  // many chapters. We track the entry object itself (not its href) so exactly
+  // one node is highlighted even when two entries share an href (e.g. a
+  // top-level "book title" entry pointing at the same file as a chapter).
+  const tocChapterEntries = $derived.by(() =>
+    book ? buildTocChapterEntries(book.toc, book.spine) : null,
   );
   // O(1) lookup of the active entry for the current chapter. A chapter with no
   // TOC line of its own inherits the nearest preceding heading (filled forward
-  // in buildTocChapterHrefs).
-  const activeTocHref = $derived(
-    tocChapterHrefs ? (tocChapterHrefs[currentChapter] ?? null) : null,
+  // in buildTocChapterEntries).
+  const activeTocEntry = $derived(
+    tocChapterEntries ? (tocChapterEntries[currentChapter] ?? null) : null,
   );
 
   // Non-reactive instance state.
   let api: ChapterFrameAPI | null = null;
   let frameReady = false;
+  let panelPrewarm: { cancel: () => void } | null = null;
   let bookLoaded = false;
   let initialLoadDone = false;
   let saveData: ProgressData = { chapter: 0, percent: 0 };
@@ -251,15 +262,35 @@
     applyTheme(settings.value.theme);
   });
 
+  function preloadTocPanel(): void {
+    if (TocPanelComp) return;
+    void tocPanel().then((m) => (TocPanelComp = m.default));
+  }
+  // Defer non-critical prewarming to idle time, with a setTimeout fallback for
+  // browsers without requestIdleCallback. Returns a canceller for cleanup.
+  function schedulePrewarm(fn: () => void): { cancel: () => void } {
+    if (typeof window.requestIdleCallback === "function") {
+      const handle = window.requestIdleCallback(fn);
+      return { cancel: () => window.cancelIdleCallback(handle) };
+    }
+    const handle = window.setTimeout(fn, 200);
+    return { cancel: () => window.clearTimeout(handle) };
+  }
+
   onMount(() => {
     void boot();
     resetChromeTimer();
+    // Warm the most-used side panel's chunk on idle so its first open renders
+    // synchronously instead of flashing a blank frame while the dynamic import
+    // resolves.
+    panelPrewarm = schedulePrewarm(preloadTocPanel);
     return () => {
       cancelProgressSave();
       fetchAbort?.abort();
       if (highlightTimer) clearTimeout(highlightTimer);
       if (chromeHideTimer) clearTimeout(chromeHideTimer);
       if (applyRaf !== null) cancelAnimationFrame(applyRaf);
+      panelPrewarm?.cancel();
     };
   });
 
@@ -798,9 +829,13 @@
 
     {#if activePanel === "toc" && book}
       <div class="panel left" role="dialog" aria-modal="true" aria-label="Table of contents" {@attach focusTrap}>
-        {#await tocPanel() then { default: TocPanel }}
-          <TocPanel toc={book.toc} activeHref={activeTocHref} onnavigate={handleTocNavigate} />
-        {/await}
+        {#if TocPanelComp}
+          <TocPanelComp toc={book.toc} activeEntry={activeTocEntry} onnavigate={handleTocNavigate} />
+        {:else}
+          {#await tocPanel() then { default: TocPanel }}
+            <TocPanel toc={book.toc} activeEntry={activeTocEntry} onnavigate={handleTocNavigate} />
+          {/await}
+        {/if}
       </div>
       <button class="scrim" aria-label="Close" onclick={closePanel}></button>
     {/if}
