@@ -23,7 +23,7 @@
   import { buildAllFontFaces } from "~/lib/readerFontFaces";
   import { router } from "~/lib/router.svelte";
   import { ui } from "~/lib/ui.svelte";
-  import { resolveHref, findTocLabel } from "~/lib/href";
+  import { resolveHref, findTocLabel, buildTocChapterHrefs } from "~/lib/href";
   import { getErrorMessage } from "~/lib/errors";
   import { applyTheme } from "~/lib/theme";
   import ChapterFrame from "~/components/reader/ChapterFrame.svelte";
@@ -99,30 +99,18 @@
   const currentBookmarkId = $derived(
     bookmarks.find((b) => isBookmarkAtPosition(b, currentChapter, chapterPercent))?.id ?? null,
   );
-  // The TOC entry that represents the chapter being read, so TocPanel can
-  // highlight it. A TOC href maps to a spine chapter via resolveHref; pick the
-  // entry with the greatest chapterIndex at or before the current chapter, so a
-  // chapter with no TOC line of its own inherits the nearest preceding
-  // heading's highlight. Ties (several entries in the same chapter) keep the
-  // first in document order — the chapter-level heading.
-  const activeTocHref = $derived.by(() => {
-    const b = book;
-    if (!b) return null;
-    let bestHref: string | null = null;
-    let bestIdx = -1;
-    const walk = (entries: typeof b.toc): void => {
-      for (const e of entries) {
-        const resolved = resolveHref(e.href, b.spine);
-        if (resolved && resolved.chapterIndex <= currentChapter && resolved.chapterIndex > bestIdx) {
-          bestIdx = resolved.chapterIndex;
-          bestHref = e.href;
-        }
-        if (e.children?.length) walk(e.children);
-      }
-    };
-    walk(b.toc);
-    return bestHref;
-  });
+  // TOC entry to highlight per chapter. Built once per book (O(toc + spine))
+  // rather than re-resolving every TOC entry each time the panel opens — that
+  // per-open walk made the TOC slow to open in books with many chapters.
+  const tocChapterHrefs = $derived.by(() =>
+    book ? buildTocChapterHrefs(book.toc, book.spine) : null,
+  );
+  // O(1) lookup of the active entry for the current chapter. A chapter with no
+  // TOC line of its own inherits the nearest preceding heading (filled forward
+  // in buildTocChapterHrefs).
+  const activeTocHref = $derived(
+    tocChapterHrefs ? (tocChapterHrefs[currentChapter] ?? null) : null,
+  );
 
   // Non-reactive instance state.
   let api: ChapterFrameAPI | null = null;

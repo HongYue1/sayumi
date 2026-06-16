@@ -8,6 +8,16 @@
   }
 
   let { toc, activeHref, onnavigate }: Props = $props();
+
+  let navEl: HTMLElement | null = $state(null);
+  // When the panel opens (or the highlighted entry changes), scroll the current
+  // chapter into view so a reader deep in a long book doesn't open the TOC at
+  // chapter 1. Instant scroll (no behavior:"smooth") keeps it reduced-motion
+  // friendly.
+  $effect(() => {
+    void activeHref;
+    navEl?.querySelector(".entry.current")?.scrollIntoView({ block: "center" });
+  });
 </script>
 
 {#snippet node(entry: TocEntry)}
@@ -31,7 +41,7 @@
   </li>
 {/snippet}
 
-<nav class="toc" aria-label="Table of contents">
+<nav class="toc" aria-label="Table of contents" bind:this={navEl}>
   <h2 class="eyebrow">Contents</h2>
   {#if toc.length === 0}
     <p class="empty">No table of contents.</p>
