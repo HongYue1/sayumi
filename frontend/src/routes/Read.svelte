@@ -100,6 +100,15 @@
   let TocPanelComp = $state<
     Awaited<ReturnType<typeof tocPanel>>["default"] | null
   >(null);
+  let SettingsPanelComp = $state<
+    Awaited<ReturnType<typeof settingsPanel>>["default"] | null
+  >(null);
+  let SearchPanelComp = $state<
+    Awaited<ReturnType<typeof searchPanel>>["default"] | null
+  >(null);
+  let BookmarksPanelComp = $state<
+    Awaited<ReturnType<typeof bookmarksPanel>>["default"] | null
+  >(null);
 
   const isPaged = $derived(settings.value.displayMode !== "scroll");
   const isRTL = $derived(chapterDirection === "rtl");
@@ -291,7 +300,27 @@
 
   function preloadTocPanel(): void {
     if (TocPanelComp) return;
-    void tocPanel().then((m) => (TocPanelComp = m.default));
+    void tocPanel()
+      .then((m) => (TocPanelComp = m.default))
+      .catch(() => {});
+  }
+  function preloadSettingsPanel(): void {
+    if (SettingsPanelComp) return;
+    void settingsPanel()
+      .then((m) => (SettingsPanelComp = m.default))
+      .catch(() => {});
+  }
+  function preloadSearchPanel(): void {
+    if (SearchPanelComp) return;
+    void searchPanel()
+      .then((m) => (SearchPanelComp = m.default))
+      .catch(() => {});
+  }
+  function preloadBookmarksPanel(): void {
+    if (BookmarksPanelComp) return;
+    void bookmarksPanel()
+      .then((m) => (BookmarksPanelComp = m.default))
+      .catch(() => {});
   }
   // Defer non-critical prewarming to idle time, with a setTimeout fallback for
   // browsers without requestIdleCallback. Returns a canceller for cleanup.
@@ -307,10 +336,15 @@
   onMount(() => {
     void boot();
     resetChromeTimer();
-    // Warm the most-used side panel's chunk on idle so its first open renders
+    // Warm the side-panel chunks on idle so their first open renders
     // synchronously instead of flashing a blank frame while the dynamic import
     // resolves.
-    panelPrewarm = schedulePrewarm(preloadTocPanel);
+    panelPrewarm = schedulePrewarm(() => {
+      preloadTocPanel();
+      preloadSettingsPanel();
+      preloadSearchPanel();
+      preloadBookmarksPanel();
+    });
     return () => {
       cancelProgressSave();
       fetchAbort?.abort();
@@ -951,6 +985,11 @@
               activeEntry={activeTocEntry}
               onnavigate={handleTocNavigate}
             />
+          {:catch}
+            <div class="error" role="alert">
+              <p>Couldn't load this panel.</p>
+              <button onclick={preloadTocPanel}>Retry</button>
+            </div>
           {/await}
         {/if}
       </div>
@@ -965,8 +1004,8 @@
         aria-label="Bookmarks"
         {@attach focusTrap}
       >
-        {#await bookmarksPanel() then { default: BookmarksPanel }}
-          <BookmarksPanel
+        {#if BookmarksPanelComp}
+          <BookmarksPanelComp
             {bookmarks}
             onnavigate={navigateBookmark}
             ondelete={(id) => void removeBookmark(id)}
@@ -974,7 +1013,23 @@
               void editBookmark(id, label, comment)}
             onclose={closePanel}
           />
-        {/await}
+        {:else}
+          {#await bookmarksPanel() then { default: BookmarksPanel }}
+            <BookmarksPanel
+              {bookmarks}
+              onnavigate={navigateBookmark}
+              ondelete={(id) => void removeBookmark(id)}
+              onupdate={(id, label, comment) =>
+                void editBookmark(id, label, comment)}
+              onclose={closePanel}
+            />
+          {:catch}
+            <div class="error" role="alert">
+              <p>Couldn't load this panel.</p>
+              <button onclick={preloadBookmarksPanel}>Retry</button>
+            </div>
+          {/await}
+        {/if}
       </div>
       <button class="scrim" aria-label="Close" onclick={closePanel}></button>
     {/if}
@@ -987,13 +1042,26 @@
         aria-label="Search in book"
         {@attach focusTrap}
       >
-        {#await searchPanel() then { default: SearchPanel }}
-          <SearchPanel
+        {#if SearchPanelComp}
+          <SearchPanelComp
             {bookId}
             onresultclick={navigateToResult}
             onclose={closePanel}
           />
-        {/await}
+        {:else}
+          {#await searchPanel() then { default: SearchPanel }}
+            <SearchPanel
+              {bookId}
+              onresultclick={navigateToResult}
+              onclose={closePanel}
+            />
+          {:catch}
+            <div class="error" role="alert">
+              <p>Couldn't load this panel.</p>
+              <button onclick={preloadSearchPanel}>Retry</button>
+            </div>
+          {/await}
+        {/if}
       </div>
       <button class="scrim" aria-label="Close" onclick={closePanel}></button>
     {/if}
@@ -1006,9 +1074,18 @@
         aria-label="Settings"
         {@attach focusTrap}
       >
-        {#await settingsPanel() then { default: SettingsPanel }}
-          <SettingsPanel onclose={closePanel} />
-        {/await}
+        {#if SettingsPanelComp}
+          <SettingsPanelComp onclose={closePanel} />
+        {:else}
+          {#await settingsPanel() then { default: SettingsPanel }}
+            <SettingsPanel onclose={closePanel} />
+          {:catch}
+            <div class="error" role="alert">
+              <p>Couldn't load this panel.</p>
+              <button onclick={preloadSettingsPanel}>Retry</button>
+            </div>
+          {/await}
+        {/if}
       </div>
       <button class="scrim" aria-label="Close" onclick={closePanel}></button>
     {/if}
