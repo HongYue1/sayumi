@@ -9,82 +9,166 @@
 
   let { toc, activeEntry, onnavigate }: Props = $props();
 
-  let navEl: HTMLElement | null = $state(null);
-  let hasFocusedCurrent = false;
-  // When the panel opens (or the highlighted entry changes), scroll the current
-  // chapter into view so a reader deep in a long book doesn't open the TOC at
-  // chapter 1. Instant scroll (no behavior:"smooth") keeps it reduced-motion
-  // friendly.
-  $effect(() => {
-    void activeEntry;
-    navEl?.querySelector(".entry.current")?.scrollIntoView({ block: "center" });
+  // Fixed-height virtual list. Only the rows in (or near) the viewport are ever
+  // in the DOM, so a 6000-chapter TOC opens instantly instead of laying out and
+  // painting thousands of buttons. ROW_H must match the rendered row height; we
+  // pin .entry to var(--toc-row-h) (set from ROW_H below) so the two can't drift
+  // and the scroll math stays exact.
+  const ROW_H = 34; // px
+  const OVERSCAN = 8; // rows kept above/below the viewport to avoid blank edges
+
+  // The TOC is always fully expanded, so flatten the tree to a linear list in
+  // display order once per book; each row remembers its depth for indentation.
+  type Row = { entry: TocEntry; depth: number };
+  const rows = $derived.by(() => {
+    const out: Row[] = [];
+    const walk = (entries: TocEntry[], depth: number): void => {
+      for (const entry of entries) {
+        out.push({ entry, depth });
+        if (entry.children?.length) walk(entry.children, depth + 1);
+      }
+    };
+    walk(toc, 0);
+    return out;
   });
-  // On open, move focus to the current chapter instead of letting the focus
-  // trap fall back to the first entry (the book title) — focusing that top
-  // entry pulled both the focus ring and the scroll back to the top of the
-  // list. preventScroll keeps the centered scroll above intact. Guarded so we
-  // only seize focus once, never stealing it back if the reader tabs away.
+  // Match on reference identity (not href) so exactly one row is current even
+  // when two entries point at the same file.
+  const activeIndex = $derived(
+    activeEntry ? rows.findIndex((r) => r.entry === activeEntry) : -1,
+  );
+
+  let scrollEl: HTMLElement | null = $state(null);
+  let scrollTop = $state(0);
+  let viewportH = $state(0);
+  let initialised = false;
+  let needsFocus = false;
+
+  const startIndex = $derived(
+    Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN),
+  );
+  const endIndex = $derived(
+    Math.min(
+      rows.length,
+      startIndex + Math.ceil(viewportH / ROW_H) + OVERSCAN * 2,
+    ),
+  );
+  const windowRows = $derived(rows.slice(startIndex, endIndex));
+  const totalHeight = $derived(rows.length * ROW_H);
+  const offsetY = $derived(startIndex * ROW_H);
+
+  function onScroll(): void {
+    if (scrollEl) scrollTop = scrollEl.scrollTop;
+  }
+
+  // Track the viewport height (the panel resizes with the window).
   $effect(() => {
-    void activeEntry;
-    if (hasFocusedCurrent || !navEl) return;
-    const current = navEl.querySelector<HTMLElement>(".entry.current");
+    if (!scrollEl) return;
+    const ro = new ResizeObserver(() => {
+      if (scrollEl) viewportH = scrollEl.clientHeight;
+    });
+    ro.observe(scrollEl);
+    return () => ro.disconnect();
+  });
+
+  // On open, jump straight to the current chapter (centered) instead of opening
+  // at the top of a long book. Runs once.
+  $effect(() => {
+    if (initialised || !scrollEl) return;
+    viewportH = scrollEl.clientHeight;
+    if (activeIndex >= 0) {
+      const target = activeIndex * ROW_H - (viewportH - ROW_H) / 2;
+      scrollEl.scrollTop = Math.max(0, target);
+      needsFocus = true;
+    }
+    scrollTop = scrollEl.scrollTop;
+    initialised = true;
+  });
+
+  // Once the current row is rendered in the window, move focus to it (once) so
+  // the focus trap defers to us instead of grabbing the first row (the book
+  // title) and yanking the scroll back to the top. preventScroll keeps the
+  // centered position. Re-runs as the window fills, so it still lands even if
+  // the row wasn't mounted on the first pass.
+  $effect(() => {
+    void windowRows;
+    if (!needsFocus || !scrollEl) return;
+    const current = scrollEl.querySelector<HTMLElement>(".entry.current");
     if (current) {
       current.focus({ preventScroll: true });
-      hasFocusedCurrent = true;
+      needsFocus = false;
     }
   });
 </script>
 
-{#snippet node(entry: TocEntry)}
-  <li>
-    <button
-      class="entry"
-      class:current={entry === activeEntry}
-      aria-current={entry === activeEntry ? "location" : undefined}
-      style:padding-left={`${entry.depth * 0.75 + 0.75}rem`}
-      onclick={() => onnavigate(entry.href)}
-    >
-      {entry.title}
-    </button>
-    {#if entry.children?.length}
-      <ul>
-        {#each entry.children as child, i (child.href + child.title + "@" + i)}
-          {@render node(child)}
-        {/each}
-      </ul>
-    {/if}
-  </li>
-{/snippet}
-
-<nav class="toc" aria-label="Table of contents" bind:this={navEl}>
+<div class="toc">
   <h2 class="eyebrow">Contents</h2>
-  {#if toc.length === 0}
+  {#if rows.length === 0}
     <p class="empty">No table of contents.</p>
   {:else}
-    <ul class="root">
-      {#each toc as entry, i (entry.href + entry.title + "@" + i)}
-        {@render node(entry)}
-      {/each}
-    </ul>
+    <nav
+      class="scroll"
+      aria-label="Table of contents"
+      bind:this={scrollEl}
+      onscroll={onScroll}
+      style="--toc-row-h: {ROW_H}px"
+    >
+      <div class="sizer" style:height={`${totalHeight}px`}>
+        <ul class="window" style:transform={`translateY(${offsetY}px)`}>
+          {#each windowRows as row, i (row.entry.href + row.entry.title + "@" + (startIndex + i))}
+            <li aria-level={row.depth + 1}>
+              <button
+                class="entry"
+                class:current={row.entry === activeEntry}
+                aria-current={row.entry === activeEntry ? "location" : undefined}
+                style:padding-left={`${row.depth * 0.75 + 0.75}rem`}
+                onclick={() => onnavigate(row.entry.href)}
+              >
+                {row.entry.title}
+              </button>
+            </li>
+          {/each}
+        </ul>
+      </div>
+    </nav>
   {/if}
-</nav>
+</div>
 
 <style>
   .toc {
+    display: flex;
+    flex-direction: column;
     height: 100%;
-    overflow-y: auto;
-    padding: var(--sp-4) var(--sp-2) var(--sp-8);
   }
   h2 {
     margin: 0 0 var(--sp-3) var(--sp-3);
+    padding-top: var(--sp-4);
+  }
+  .scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 var(--sp-2) var(--sp-8);
+  }
+  .sizer {
+    position: relative;
+    width: 100%;
   }
   ul {
     list-style: none;
     margin: 0;
     padding: 0;
   }
+  .window {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    will-change: transform;
+  }
   .entry {
     display: block;
+    height: var(--toc-row-h);
+    line-height: var(--toc-row-h);
     width: 100%;
     text-align: left;
     border: none;
@@ -92,10 +176,12 @@
     color: var(--fg);
     font: inherit;
     font-size: var(--text-sm);
-    line-height: var(--lh-snug);
-    padding: 0.4rem 0.5rem;
+    padding: 0 0.5rem;
     border-radius: var(--radius);
     cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     transition:
       background var(--dur-fast) var(--ease-out),
       transform var(--dur-fast) var(--ease-out);
