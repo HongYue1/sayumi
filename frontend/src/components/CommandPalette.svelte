@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { ui } from "~/lib/ui.svelte";
   import { library } from "~/lib/library.svelte";
   import { settings } from "~/lib/settings.svelte";
@@ -100,7 +101,11 @@
     if (ui.palette) {
       query = "";
       active = 0;
-      if (library.books.length === 0) void library.load();
+      // Trigger the lazy book load without tracking books.length, or this
+      // effect would re-run when books arrive and wipe the user's query.
+      untrack(() => {
+        if (library.books.length === 0) void library.load();
+      });
       queueMicrotask(() => input?.focus());
     }
   });
