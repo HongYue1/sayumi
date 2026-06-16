@@ -28,10 +28,30 @@
   const commands = $derived.by<Command[]>(() => {
     if (!ui.palette) return [];
     const list: Omit<Command, "haystack">[] = [
-      { id: "nav-library", label: "Go to Library", hint: "Navigate", run: () => router.navigate("/") },
-      { id: "act-rescan", label: "Rescan library folder", hint: "Action", run: () => void library.rescan() },
-      { id: "act-shortcuts", label: "Keyboard shortcuts", hint: "Help", run: () => ui.openShortcuts() },
-      { id: "act-signout", label: "Sign out", hint: "Account", run: () => void session.logout() },
+      {
+        id: "nav-library",
+        label: "Go to Library",
+        hint: "Navigate",
+        run: () => router.navigate("/"),
+      },
+      {
+        id: "act-rescan",
+        label: "Rescan library folder",
+        hint: "Action",
+        run: () => void library.rescan(),
+      },
+      {
+        id: "act-shortcuts",
+        label: "Keyboard shortcuts",
+        hint: "Help",
+        run: () => ui.openShortcuts(),
+      },
+      {
+        id: "act-signout",
+        label: "Sign out",
+        hint: "Account",
+        run: () => void session.logout(),
+      },
     ];
     for (const b of library.books) {
       list.push({
@@ -70,7 +90,9 @@
 
   // Clamp the raw selection into range as the filtered set shrinks (computed,
   // not stored, so no effect is needed to keep it valid).
-  const sel = $derived(filtered.length ? Math.min(active, filtered.length - 1) : 0);
+  const sel = $derived(
+    filtered.length ? Math.min(active, filtered.length - 1) : 0,
+  );
 
   // Reset transient state whenever the palette opens; focus the input. Ensure
   // books are loaded so quick-open works even when deep-linked into the reader.
@@ -118,7 +140,9 @@
         break;
       case "ArrowUp":
         e.preventDefault();
-        active = filtered.length ? (sel - 1 + filtered.length) % filtered.length : 0;
+        active = filtered.length
+          ? (sel - 1 + filtered.length) % filtered.length
+          : 0;
         scrollActiveIntoView(active);
         break;
       case "Enter":

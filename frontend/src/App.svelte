@@ -43,17 +43,17 @@
 <OfflineBanner />
 
 <main>
-{#if !session.ready}
-  <div class="boot"></div>
-{:else if !session.authenticated}
-  <Login />
-{:else if router.route.path === "/read/:id"}
-  {#key router.route.params.id}
-    <Read bookId={router.route.params.id} />
-  {/key}
-{:else}
-  <Library />
-{/if}
+  {#if !session.ready}
+    <div class="boot"></div>
+  {:else if !session.authenticated}
+    <Login />
+  {:else if router.route.path === "/read/:id"}
+    {#key router.route.params.id}
+      <Read bookId={router.route.params.id} />
+    {/key}
+  {:else}
+    <Library />
+  {/if}
 </main>
 
 <CommandPalette />

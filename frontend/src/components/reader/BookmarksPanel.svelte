@@ -17,7 +17,9 @@
   let editComment = $state("");
 
   const sorted = $derived(
-    [...bookmarks].sort((a, b) => a.chapter - b.chapter || a.percent - b.percent),
+    [...bookmarks].sort(
+      (a, b) => a.chapter - b.chapter || a.percent - b.percent,
+    ),
   );
 
   function startEdit(bm: Bookmark): void {
@@ -48,36 +50,73 @@
 <div class="bookmarks">
   <header>
     <h2>Bookmarks</h2>
-    <button class="close" onclick={onclose} aria-label="Close bookmarks"><Icon icon={X} size={18} /></button>
+    <button class="close" onclick={onclose} aria-label="Close bookmarks"
+      ><Icon icon={X} size={18} /></button
+    >
   </header>
 
   <div class="list">
     {#if sorted.length === 0}
-      <p class="empty">No bookmarks yet. Press <kbd>B</kbd> while reading to add one.</p>
+      <p class="empty">
+        No bookmarks yet. Press <kbd>B</kbd> while reading to add one.
+      </p>
     {:else}
       <ul class="bm-list">
         {#each sorted as bm (bm.id)}
           <li class="bm">
-          {#if editingId === bm.id}
-            <div class="edit">
-              <input class="field" bind:value={editLabel} placeholder="Label" aria-label="Bookmark label" onkeydown={(e) => onEditKey(e, bm.id)} {@attach (el) => (el as HTMLInputElement).focus()} />
-              <textarea class="field" bind:value={editComment} placeholder="Note…" rows="3" aria-label="Bookmark note" onkeydown={(e) => onEditKey(e, bm.id)}></textarea>
-              <div class="actions">
-                <button class="primary" onclick={() => saveEdit(bm.id)}>Save</button>
-                <button class="ghost-btn" onclick={() => (editingId = null)}>Cancel</button>
+            {#if editingId === bm.id}
+              <div class="edit">
+                <input
+                  class="field"
+                  bind:value={editLabel}
+                  placeholder="Label"
+                  aria-label="Bookmark label"
+                  onkeydown={(e) => onEditKey(e, bm.id)}
+                  {@attach (el) => (el as HTMLInputElement).focus()}
+                />
+                <textarea
+                  class="field"
+                  bind:value={editComment}
+                  placeholder="Note…"
+                  rows="3"
+                  aria-label="Bookmark note"
+                  onkeydown={(e) => onEditKey(e, bm.id)}
+                ></textarea>
+                <div class="actions">
+                  <button class="primary" onclick={() => saveEdit(bm.id)}
+                    >Save</button
+                  >
+                  <button class="ghost-btn" onclick={() => (editingId = null)}
+                    >Cancel</button
+                  >
+                </div>
               </div>
-            </div>
-          {:else}
-            <button class="open" onclick={() => onnavigate(bm)}>
-              <span class="bm-label">{bm.label || `Chapter ${bm.chapter + 1}`}</span>
-              <span class="bm-meta tnum">Ch {bm.chapter + 1} · {Math.round(bm.percent * 100)}%</span>
-              {#if bm.comment}<span class="bm-comment">{bm.comment}</span>{/if}
-            </button>
-            <div class="actions">
-              <button class="icon-btn" onclick={() => startEdit(bm)} aria-label="Edit bookmark"><Icon icon={Pencil} size={15} /></button>
-              <button class="icon-btn danger" onclick={() => ondelete(bm.id)} aria-label="Delete bookmark"><Icon icon={Trash2} size={15} /></button>
-            </div>
-          {/if}
+            {:else}
+              <button class="open" onclick={() => onnavigate(bm)}>
+                <span class="bm-label"
+                  >{bm.label || `Chapter ${bm.chapter + 1}`}</span
+                >
+                <span class="bm-meta tnum"
+                  >Ch {bm.chapter + 1} · {Math.round(bm.percent * 100)}%</span
+                >
+                {#if bm.comment}<span class="bm-comment">{bm.comment}</span
+                  >{/if}
+              </button>
+              <div class="actions">
+                <button
+                  class="icon-btn"
+                  onclick={() => startEdit(bm)}
+                  aria-label="Edit bookmark"
+                  ><Icon icon={Pencil} size={15} /></button
+                >
+                <button
+                  class="icon-btn danger"
+                  onclick={() => ondelete(bm.id)}
+                  aria-label="Delete bookmark"
+                  ><Icon icon={Trash2} size={15} /></button
+                >
+              </div>
+            {/if}
           </li>
         {/each}
       </ul>

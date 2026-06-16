@@ -4,27 +4,28 @@
   import { X } from "@lucide/svelte";
   import { focusTrap } from "~/lib/focusTrap";
 
-  const groups: { title: string; items: { keys: string[]; desc: string }[] }[] = [
-    {
-      title: "Global",
-      items: [
-        { keys: ["Ctrl", "K"], desc: "Open command palette" },
-        { keys: ["?"], desc: "Show this help" },
-        { keys: ["Esc"], desc: "Close overlay / panel" },
-      ],
-    },
-    {
-      title: "Reader",
-      items: [
-        { keys: ["←"], desc: "Previous page / chapter" },
-        { keys: ["→"], desc: "Next page / chapter" },
-        { keys: ["T"], desc: "Table of contents" },
-        { keys: ["S"], desc: "Settings" },
-        { keys: ["F"], desc: "Search in book" },
-        { keys: ["B"], desc: "Toggle bookmark" },
-      ],
-    },
-  ];
+  const groups: { title: string; items: { keys: string[]; desc: string }[] }[] =
+    [
+      {
+        title: "Global",
+        items: [
+          { keys: ["Ctrl", "K"], desc: "Open command palette" },
+          { keys: ["?"], desc: "Show this help" },
+          { keys: ["Esc"], desc: "Close overlay / panel" },
+        ],
+      },
+      {
+        title: "Reader",
+        items: [
+          { keys: ["←"], desc: "Previous page / chapter" },
+          { keys: ["→"], desc: "Next page / chapter" },
+          { keys: ["T"], desc: "Table of contents" },
+          { keys: ["S"], desc: "Settings" },
+          { keys: ["F"], desc: "Search in book" },
+          { keys: ["B"], desc: "Toggle bookmark" },
+        ],
+      },
+    ];
 
   function close(): void {
     ui.shortcuts = false;
@@ -61,7 +62,8 @@
           aria-label="Close"
           onclick={close}
           {@attach (el) => (el as HTMLButtonElement).focus()}
-        ><Icon icon={X} size={18} /></button>
+          ><Icon icon={X} size={18} /></button
+        >
       </header>
       <div class="groups">
         {#each groups as g (g.title)}

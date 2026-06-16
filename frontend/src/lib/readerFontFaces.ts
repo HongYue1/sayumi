@@ -2,7 +2,11 @@
 // @font-face CSS is built at runtime with absolute URLs so the srcdoc iframe
 // can load them across the null origin boundary.
 
-import { userFontUrl, type FontRoleMap, type UserFontFamily } from "~/api/client";
+import {
+  userFontUrl,
+  type FontRoleMap,
+  type UserFontFamily,
+} from "~/api/client";
 import { userFamilyDir } from "~/lib/fontRegistry.svelte";
 
 // Only the two embedded reading fonts. The rest of the catalogue ships as
@@ -78,7 +82,8 @@ function buildUserFontFaces(
     const italic = map.italic ?? fam.detected.italic;
     const bold = map.bold ?? fam.detected.bold;
 
-    if (regular) out.push(face(dir, userFontUrl(dir, regular), "400", "normal"));
+    if (regular)
+      out.push(face(dir, userFontUrl(dir, regular), "400", "normal"));
     if (bold) out.push(face(dir, userFontUrl(dir, bold), "700", "normal"));
     if (italic) out.push(face(dir, userFontUrl(dir, italic), "400", "italic"));
   }
@@ -104,5 +109,7 @@ export function buildAllFontFaces(
   roles: Record<string, FontRoleMap> | undefined,
 ): string {
   const userFaces = buildUserFontFaces(userFamilies, roles);
-  return userFaces ? `${buildReaderFontFaces()}\n${userFaces}` : buildReaderFontFaces();
+  return userFaces
+    ? `${buildReaderFontFaces()}\n${userFaces}`
+    : buildReaderFontFaces();
 }

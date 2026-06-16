@@ -13,7 +13,14 @@
     onsetflair: (bookId: string, flairId: string | null) => void;
   }
 
-  let { book, flairs, index = 0, onopen, onremove, onsetflair }: Props = $props();
+  let {
+    book,
+    flairs,
+    index = 0,
+    onopen,
+    onremove,
+    onsetflair,
+  }: Props = $props();
   // One-shot entrance stagger: index is read once on mount by design (cards are
   // keyed by book.id, so each instance keeps its original position), and the
   // delay only drives the mount animation. Capped so large libraries don't
@@ -24,7 +31,9 @@
   let coverFailed = $state(false);
   let menuOpen = $state(false);
   const showCover = $derived(book.hasCover && !coverFailed);
-  const pct = $derived(Math.round(Math.max(0, Math.min(1, book.progress)) * 100));
+  const pct = $derived(
+    Math.round(Math.max(0, Math.min(1, book.progress)) * 100),
+  );
   const flair = $derived(findFlair(book.flairId, flairs));
   // Whether the book's current flair is one of the selectable options, so the
   // menu can open with focus on the checked item (menuitemradio model, matching
@@ -125,7 +134,8 @@
         next = cur < 0 ? 0 : (cur + 1) % items.length;
         break;
       default:
-        next = cur < 0 ? items.length - 1 : (cur - 1 + items.length) % items.length;
+        next =
+          cur < 0 ? items.length - 1 : (cur - 1 + items.length) % items.length;
     }
     items[next].focus();
   }
@@ -162,18 +172,26 @@
     {/if}
 
     {#if flair}
-      <span class="flair-badge" style:background={flair.color} style:color={flairTextColor()}>
+      <span
+        class="flair-badge"
+        style:background={flair.color}
+        style:color={flairTextColor()}
+      >
         {flair.label}
       </span>
     {/if}
-
   </div>
 
   <!-- Corner actions live at card level (NOT inside .cover): the cover's
        hover-lift transform establishes a stacking context, which would trap
        these buttons beneath the z-index:1 open-overlay and swallow their
        clicks + :hover. At card level they stay above the overlay (z-index:3). -->
-  <button class="chip-btn remove" title="Remove" aria-label="Remove book" onclick={remove}>
+  <button
+    class="chip-btn remove"
+    title="Remove"
+    aria-label="Remove book"
+    onclick={remove}
+  >
     <Icon icon={Trash2} size={15} />
   </button>
   <button
@@ -190,11 +208,20 @@
 
   <div class="meta">
     <div class="title" title={book.title}>{book.title}</div>
-    {#if book.author}<div class="author" title={book.author}>{book.author}</div>{/if}
+    {#if book.author}<div class="author" title={book.author}>
+        {book.author}
+      </div>{/if}
   </div>
 
   {#if menuOpen}
-    <div bind:this={menuEl} class="flair-menu" role="menu" tabindex="-1" aria-label="Set flair" onkeydown={onMenuKeydown}>
+    <div
+      bind:this={menuEl}
+      class="flair-menu"
+      role="menu"
+      tabindex="-1"
+      aria-label="Set flair"
+      onkeydown={onMenuKeydown}
+    >
       <p class="menu-heading eyebrow" aria-hidden="true">Set flair</p>
       {#each flairs as f, i (f.id)}
         {@const isActive = book.flairId === f.id}
@@ -212,9 +239,12 @@
           }}
           onclick={(e) => pick(e, f.id)}
         >
-          <span class="dot" style:background={f.color} aria-hidden="true"></span>
+          <span class="dot" style:background={f.color} aria-hidden="true"
+          ></span>
           <span class="menu-label">{f.label}</span>
-          {#if isActive}<span class="check" aria-hidden="true"><Icon icon={Check} size={15} /></span>{/if}
+          {#if isActive}<span class="check" aria-hidden="true"
+              ><Icon icon={Check} size={15} /></span
+            >{/if}
         </button>
       {/each}
     </div>

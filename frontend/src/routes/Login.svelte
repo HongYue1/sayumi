@@ -90,7 +90,9 @@
       await session.login(name, newPin, remember);
     } catch (e2) {
       error =
-        e2 instanceof ApiError ? e2.message : "Profile created, but sign-in failed";
+        e2 instanceof ApiError
+          ? e2.message
+          : "Profile created, but sign-in failed";
       busy = false;
     }
   }
@@ -122,7 +124,9 @@
         {#each profiles as p (p.name)}
           <li>
             <button class="profile" onclick={() => pick(p)} disabled={busy}>
-              <span class="avatar" aria-hidden="true">{p.name.slice(0, 1).toUpperCase()}</span>
+              <span class="avatar" aria-hidden="true"
+                >{p.name.slice(0, 1).toUpperCase()}</span
+              >
               <span class="name">{p.name}</span>
               {#if p.hasPin}
                 <span class="lock">
@@ -133,7 +137,13 @@
           </li>
         {/each}
       </ul>
-      <button class="link" onclick={() => { mode = "create"; error = ""; }}>
+      <button
+        class="link"
+        onclick={() => {
+          mode = "create";
+          error = "";
+        }}
+      >
         <Icon icon={Plus} size={16} />
         New profile
       </button>
@@ -192,14 +202,21 @@
           placeholder="PIN (optional)"
           disabled={busy}
         />
-        <button class="primary" type="submit" disabled={busy || newName.trim() === ""}>
+        <button
+          class="primary"
+          type="submit"
+          disabled={busy || newName.trim() === ""}
+        >
           {busy ? "Creating…" : "Create & sign in"}
         </button>
         {#if profiles.length > 0}
           <button
             class="link"
             type="button"
-            onclick={() => { mode = "pick"; error = ""; }}
+            onclick={() => {
+              mode = "pick";
+              error = "";
+            }}
             disabled={busy}
           >
             <Icon icon={ArrowLeft} size={16} />

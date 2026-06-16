@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
     <!-- Inline SVG favicon (data URI) — no network request, so no /favicon.ico 404. -->
     <link
       rel="icon"
@@ -33,7 +36,9 @@
     <script>
       (function () {
         try {
-          var v = JSON.parse(localStorage.getItem("sayumi:theme-vars") || "null");
+          var v = JSON.parse(
+            localStorage.getItem("sayumi:theme-vars") || "null",
+          );
           if (!v) return;
           var s = document.documentElement.style;
           s.setProperty("--bg", v.bg);

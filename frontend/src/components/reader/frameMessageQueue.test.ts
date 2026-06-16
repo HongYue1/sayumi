@@ -9,7 +9,10 @@ const load = (seq: number) =>
 const applySettings = () =>
   ({ type: "apply-settings" }) as unknown as ParentToFrameMessage;
 const setFontFaces = (css: string) =>
-  ({ type: "set-font-faces", fontFaces: css }) as unknown as ParentToFrameMessage;
+  ({
+    type: "set-font-faces",
+    fontFaces: css,
+  }) as unknown as ParentToFrameMessage;
 const scrollTo = (percent: number) =>
   ({ type: "scroll-to", percent }) as unknown as ParentToFrameMessage;
 
@@ -37,7 +40,9 @@ describe("createFrameMessageQueue", () => {
     q.enqueue(scrollTo(0.1));
     q.enqueue(scrollTo(0.2));
     expect(q.size).toBe(2);
-    expect(q.drain().map((m) => (m as { percent: number }).percent)).toEqual([0.1, 0.2]);
+    expect(q.drain().map((m) => (m as { percent: number }).percent)).toEqual([
+      0.1, 0.2,
+    ]);
   });
 
   it("caps the queue, dropping the oldest message past the limit", () => {
@@ -47,7 +52,9 @@ describe("createFrameMessageQueue", () => {
     q.enqueue(scrollTo(2));
     q.enqueue(scrollTo(3)); // length 4 > 3 -> shift oldest (0)
     expect(q.size).toBe(3);
-    expect(q.drain().map((m) => (m as { percent: number }).percent)).toEqual([1, 2, 3]);
+    expect(q.drain().map((m) => (m as { percent: number }).percent)).toEqual([
+      1, 2, 3,
+    ]);
   });
 
   it("defaults the cap to 64", () => {

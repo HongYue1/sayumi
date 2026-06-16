@@ -1,510 +1,509 @@
 *,
 *::before,
 *::after {
-    box-sizing: border-box;
+  box-sizing: border-box;
 }
 
 html {
-    -webkit-text-size-adjust: 100%;
-    text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 html,
 html.theme-light {
-    --bg-primary: #ffffff;
-    --bg-secondary: #f5f5f4;
-    --text-primary: #1c1917;
-    --text-secondary: #57534e;
-    --text-muted: #a8a29e;
-    --accent: #2563eb;
-    --border: #e7e5e4;
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f4;
+  --text-primary: #1c1917;
+  --text-secondary: #57534e;
+  --text-muted: #a8a29e;
+  --accent: #2563eb;
+  --border: #e7e5e4;
 }
 
 html.theme-dark {
-    --bg-primary: #1c1917;
-    --bg-secondary: #292524;
-    --text-primary: #fafaf9;
-    --text-secondary: #a8a29e;
-    --text-muted: #78716c;
-    --accent: #60a5fa;
-    --border: #292524;
+  --bg-primary: #1c1917;
+  --bg-secondary: #292524;
+  --text-primary: #fafaf9;
+  --text-secondary: #a8a29e;
+  --text-muted: #78716c;
+  --accent: #60a5fa;
+  --border: #292524;
 }
 
 html.theme-sepia {
-    --bg-primary: #faf6ef;
-    --bg-secondary: #ede8df;
-    --text-primary: #3d2e1e;
-    --text-secondary: #6b5744;
-    --text-muted: #9c8b76;
-    --accent: #8b6914;
-    --border: #ddd5c8;
+  --bg-primary: #faf6ef;
+  --bg-secondary: #ede8df;
+  --text-primary: #3d2e1e;
+  --text-secondary: #6b5744;
+  --text-muted: #9c8b76;
+  --accent: #8b6914;
+  --border: #ddd5c8;
 }
 
 html.theme-rose-pine {
-    --bg-primary: #1f1d2e;
-    --bg-secondary: #26233a;
-    --text-primary: #e0def4;
-    --text-secondary: #908caa;
-    --text-muted: #6e6a86;
-    --accent: #c4a7e7;
-    --border: #26233a;
+  --bg-primary: #1f1d2e;
+  --bg-secondary: #26233a;
+  --text-primary: #e0def4;
+  --text-secondary: #908caa;
+  --text-muted: #6e6a86;
+  --accent: #c4a7e7;
+  --border: #26233a;
 }
 
 html.theme-rose-pine-dawn {
-    --bg-primary: #fffaf3;
-    --bg-secondary: #f2e9e1;
-    --text-primary: #575279;
-    --text-secondary: #797593;
-    --text-muted: #9893a5;
-    --accent: #907aa9;
-    --border: #dfdad9;
+  --bg-primary: #fffaf3;
+  --bg-secondary: #f2e9e1;
+  --text-primary: #575279;
+  --text-secondary: #797593;
+  --text-muted: #9893a5;
+  --accent: #907aa9;
+  --border: #dfdad9;
 }
 
 html.theme-nord {
-    --bg-primary: #3b4252;
-    --bg-secondary: #434c5e;
-    --text-primary: #eceff4;
-    --text-secondary: #d8dee9;
-    --text-muted: #7b88a1;
-    --accent: #88c0d0;
-    --border: #434c5e;
+  --bg-primary: #3b4252;
+  --bg-secondary: #434c5e;
+  --text-primary: #eceff4;
+  --text-secondary: #d8dee9;
+  --text-muted: #7b88a1;
+  --accent: #88c0d0;
+  --border: #434c5e;
 }
 
 html.theme-dracula {
-    --bg-primary: #21222c;
-    --bg-secondary: #44475a;
-    --text-primary: #f8f8f2;
-    --text-secondary: #ccc8dc;
-    --text-muted: #6272a4;
-    --accent: #bd93f9;
-    --border: #343746;
+  --bg-primary: #21222c;
+  --bg-secondary: #44475a;
+  --text-primary: #f8f8f2;
+  --text-secondary: #ccc8dc;
+  --text-muted: #6272a4;
+  --accent: #bd93f9;
+  --border: #343746;
 }
 
 html.theme-catppuccin {
-    --bg-primary: #181825;
-    --bg-secondary: #313244;
-    --text-primary: #cdd6f4;
-    --text-secondary: #bac2de;
-    --text-muted: #6c7086;
-    --accent: #cba6f7;
-    --border: #313244;
+  --bg-primary: #181825;
+  --bg-secondary: #313244;
+  --text-primary: #cdd6f4;
+  --text-secondary: #bac2de;
+  --text-muted: #6c7086;
+  --accent: #cba6f7;
+  --border: #313244;
 }
 
 html.theme-catppuccin-latte {
-    --bg-primary: #eff1f5;
-    --bg-secondary: #e6e9ef;
-    --text-primary: #4c4f69;
-    --text-secondary: #5c5f77;
-    --text-muted: #8c8fa1;
-    --accent: #8839ef;
-    --border: #dce0e8;
+  --bg-primary: #eff1f5;
+  --bg-secondary: #e6e9ef;
+  --text-primary: #4c4f69;
+  --text-secondary: #5c5f77;
+  --text-muted: #8c8fa1;
+  --accent: #8839ef;
+  --border: #dce0e8;
 }
 
 html.theme-gruvbox {
-    --bg-primary: #32302f;
-    --bg-secondary: #3c3836;
-    --text-primary: #ebdbb2;
-    --text-secondary: #d5c4a1;
-    --text-muted: #928374;
-    --accent: #fabd2f;
-    --border: #3c3836;
+  --bg-primary: #32302f;
+  --bg-secondary: #3c3836;
+  --text-primary: #ebdbb2;
+  --text-secondary: #d5c4a1;
+  --text-muted: #928374;
+  --accent: #fabd2f;
+  --border: #3c3836;
 }
 
 html.theme-gruvbox-light {
-    --bg-primary: #fbf1c7;
-    --bg-secondary: #f2e5bc;
-    --text-primary: #3c3836;
-    --text-secondary: #504945;
-    --text-muted: #928374;
-    --accent: #b57614;
-    --border: #d5c4a1;
+  --bg-primary: #fbf1c7;
+  --bg-secondary: #f2e5bc;
+  --text-primary: #3c3836;
+  --text-secondary: #504945;
+  --text-muted: #928374;
+  --accent: #b57614;
+  --border: #d5c4a1;
 }
 
 html.theme-ayu-dark {
-    --bg-primary: #0d1017;
-    --bg-secondary: #131721;
-    --text-primary: #bfbdb6;
-    --text-secondary: #9b9689;
-    --text-muted: #565b66;
-    --accent: #e6b450;
-    --border: #131721;
+  --bg-primary: #0d1017;
+  --bg-secondary: #131721;
+  --text-primary: #bfbdb6;
+  --text-secondary: #9b9689;
+  --text-muted: #565b66;
+  --accent: #e6b450;
+  --border: #131721;
 }
 
 html.theme-ayu-light {
-    --bg-primary: #ffffff;
-    --bg-secondary: #f3f4f5;
-    --text-primary: #5c6166;
-    --text-secondary: #787b80;
-    --text-muted: #acb0b5;
-    --accent: #ff9940;
-    --border: #e8e9eb;
+  --bg-primary: #ffffff;
+  --bg-secondary: #f3f4f5;
+  --text-primary: #5c6166;
+  --text-secondary: #787b80;
+  --text-muted: #acb0b5;
+  --accent: #ff9940;
+  --border: #e8e9eb;
 }
 
 html.theme-solarized-dark {
-    --bg-primary: #073642;
-    --bg-secondary: #586e75;
-    --text-primary: #93a1a1;
-    --text-secondary: #839496;
-    --text-muted: #657b83;
-    --accent: #268bd2;
-    --border: #073642;
+  --bg-primary: #073642;
+  --bg-secondary: #586e75;
+  --text-primary: #93a1a1;
+  --text-secondary: #839496;
+  --text-muted: #657b83;
+  --accent: #268bd2;
+  --border: #073642;
 }
 
 html.theme-solarized-light {
-    --bg-primary: #fdf6e3;
-    --bg-secondary: #eee8d5;
-    --text-primary: #657b83;
-    --text-secondary: #586e75;
-    --text-muted: #93a1a1;
-    --accent: #268bd2;
-    --border: #ddd7c5;
+  --bg-primary: #fdf6e3;
+  --bg-secondary: #eee8d5;
+  --text-primary: #657b83;
+  --text-secondary: #586e75;
+  --text-muted: #93a1a1;
+  --accent: #268bd2;
+  --border: #ddd7c5;
 }
 
 html.theme-tokyo-night {
-    --bg-primary: #16161e;
-    --bg-secondary: #292e42;
-    --text-primary: #c0caf5;
-    --text-secondary: #a9b1d6;
-    --text-muted: #565f89;
-    --accent: #7aa2f7;
-    --border: #292e42;
+  --bg-primary: #16161e;
+  --bg-secondary: #292e42;
+  --text-primary: #c0caf5;
+  --text-secondary: #a9b1d6;
+  --text-muted: #565f89;
+  --accent: #7aa2f7;
+  --border: #292e42;
 }
 
 html.theme-tokyo-storm {
-    --bg-primary: #1f2335;
-    --bg-secondary: #292e42;
-    --text-primary: #c0caf5;
-    --text-secondary: #a9b1d6;
-    --text-muted: #565f89;
-    --accent: #7aa2f7;
-    --border: #292e42;
+  --bg-primary: #1f2335;
+  --bg-secondary: #292e42;
+  --text-primary: #c0caf5;
+  --text-secondary: #a9b1d6;
+  --text-muted: #565f89;
+  --accent: #7aa2f7;
+  --border: #292e42;
 }
 
 html.theme-everforest-dark {
-    --bg-primary: #343f44;
-    --bg-secondary: #3d484d;
-    --text-primary: #d3c6aa;
-    --text-secondary: #9da9a0;
-    --text-muted: #859289;
-    --accent: #a7c080;
-    --border: #3d484d;
+  --bg-primary: #343f44;
+  --bg-secondary: #3d484d;
+  --text-primary: #d3c6aa;
+  --text-secondary: #9da9a0;
+  --text-muted: #859289;
+  --accent: #a7c080;
+  --border: #3d484d;
 }
 
 html.theme-everforest-light {
-    --bg-primary: #f4f0d9;
-    --bg-secondary: #edeada;
-    --text-primary: #5c6a72;
-    --text-secondary: #829181;
-    --text-muted: #a6b0a0;
-    --accent: #8da101;
-    --border: #e4e1cd;
+  --bg-primary: #f4f0d9;
+  --bg-secondary: #edeada;
+  --text-primary: #5c6a72;
+  --text-secondary: #829181;
+  --text-muted: #a6b0a0;
+  --accent: #8da101;
+  --border: #e4e1cd;
 }
 
 html.theme-one-dark {
-    --bg-primary: #21252b;
-    --bg-secondary: #2c313a;
-    --text-primary: #abb2bf;
-    --text-secondary: #9da5b4;
-    --text-muted: #5c6370;
-    --accent: #61afef;
-    --border: #2c313a;
+  --bg-primary: #21252b;
+  --bg-secondary: #2c313a;
+  --text-primary: #abb2bf;
+  --text-secondary: #9da5b4;
+  --text-muted: #5c6370;
+  --accent: #61afef;
+  --border: #2c313a;
 }
 
 html.theme-kanagawa {
-    --bg-primary: #16161d;
-    --bg-secondary: #2a2a37;
-    --text-primary: #dcd7ba;
-    --text-secondary: #c8c093;
-    --text-muted: #727169;
-    --accent: #7e9cd8;
-    --border: #2a2a37;
+  --bg-primary: #16161d;
+  --bg-secondary: #2a2a37;
+  --text-primary: #dcd7ba;
+  --text-secondary: #c8c093;
+  --text-muted: #727169;
+  --accent: #7e9cd8;
+  --border: #2a2a37;
 }
 
 html.theme-flexoki-dark {
-    --bg-primary: #1c1b1a;
-    --bg-secondary: #282726;
-    --text-primary: #cecdc3;
-    --text-secondary: #b7b5ac;
-    --text-muted: #878580;
-    --accent: #4385be;
-    --border: #282726;
+  --bg-primary: #1c1b1a;
+  --bg-secondary: #282726;
+  --text-primary: #cecdc3;
+  --text-secondary: #b7b5ac;
+  --text-muted: #878580;
+  --accent: #4385be;
+  --border: #282726;
 }
 
 html.theme-flexoki-light {
-    --bg-primary: #fffcf0;
-    --bg-secondary: #e6e4d9;
-    --text-primary: #100f0f;
-    --text-secondary: #343331;
-    --text-muted: #878580;
-    --accent: #205ea6;
-    --border: #dad8ce;
+  --bg-primary: #fffcf0;
+  --bg-secondary: #e6e4d9;
+  --text-primary: #100f0f;
+  --text-secondary: #343331;
+  --text-muted: #878580;
+  --accent: #205ea6;
+  --border: #dad8ce;
 }
 
 html {
-    background: var(--bg-primary);
+  background: var(--bg-primary);
 }
 
 body {
-    opacity: 0;
-    margin: 0;
-    padding: 24px max(24px, 5vw);
-    font-family: "Literata", Georgia, "Times New Roman", serif;
-    font-size: 18px;
-    line-height: 1.6;
-    color: var(--text-primary);
-    background: var(--bg-primary);
-    -webkit-font-smoothing: auto;
-    -moz-osx-font-smoothing: auto;
-    overflow-wrap: break-word;
-    transition: opacity 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  opacity: 0;
+  margin: 0;
+  padding: 24px max(24px, 5vw);
+  font-family: "Literata", Georgia, "Times New Roman", serif;
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+  overflow-wrap: break-word;
+  transition: opacity 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 #content {
-    margin: 0 auto;
+  margin: 0 auto;
 }
 
 h1,
 h2,
 h3 {
-    line-height: 1.3;
-    font-weight: 700;
-    letter-spacing: -0.01em;
+  line-height: 1.3;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 h1 {
-    font-size: 2em;
-    margin: 0.67em 0;
+  font-size: 2em;
+  margin: 0.67em 0;
 }
 
 h2 {
-    font-size: 1.5em;
-    margin: 0.83em 0;
+  font-size: 1.5em;
+  margin: 0.83em 0;
 }
 
 h3 {
-    font-size: 1.2em;
-    margin: 1em 0;
+  font-size: 1.2em;
+  margin: 1em 0;
 }
 
 h4 {
-    font-weight: 700;
-    margin: 1.33em 0;
+  font-weight: 700;
+  margin: 1.33em 0;
 }
 
 h5 {
-    font-size: 0.83em;
-    font-weight: 700;
-    margin: 1.67em 0;
+  font-size: 0.83em;
+  font-weight: 700;
+  margin: 1.67em 0;
 }
 
 h6 {
-    font-size: 0.67em;
-    font-weight: 700;
-    margin: 2.33em 0;
+  font-size: 0.67em;
+  font-weight: 700;
+  margin: 2.33em 0;
 }
 
 p {
-    margin: 0 0 0.5em;
+  margin: 0 0 0.5em;
 }
 
 p:last-child {
-    margin-bottom: 0;
+  margin-bottom: 0;
 }
 
 blockquote {
-    margin: 1em 2em;
-    padding-left: 1em;
-    border-left: 3px solid var(--border);
-    color: var(--text-secondary);
-    font-style: italic;
+  margin: 1em 2em;
+  padding-left: 1em;
+  border-left: 3px solid var(--border);
+  color: var(--text-secondary);
+  font-style: italic;
 }
 
 pre {
-    overflow-x: auto;
-    padding: 1em;
-    background: var(--bg-secondary);
-    border-radius: 4px;
-    font-size: 0.85em;
-    line-height: 1.5;
+  overflow-x: auto;
+  padding: 1em;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  font-size: 0.85em;
+  line-height: 1.5;
 }
 
 code {
-    font-size: 0.85em;
-    background: var(--bg-secondary);
-    padding: 0.1em 0.3em;
-    border-radius: 3px;
+  font-size: 0.85em;
+  background: var(--bg-secondary);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
 }
 
 pre code {
-    background: none;
-    padding: 0;
+  background: none;
+  padding: 0;
 }
 
 hr {
-    border: none;
-    border-top: 1px solid var(--border);
-    margin: 2em 0;
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2em 0;
 }
 
 ul,
 ol {
-    padding-left: 2em;
-    margin: 0.5em 0;
+  padding-left: 2em;
+  margin: 0.5em 0;
 }
 
 li {
-    margin: 0.25em 0;
+  margin: 0.25em 0;
 }
 
 a {
-    color: var(--accent);
-    text-decoration: underline;
-    text-underline-offset: 2px;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 a:hover {
-    opacity: 0.8;
+  opacity: 0.8;
 }
 
 img,
 svg {
-    max-width: 100%;
-    height: auto;
-    display: block;
-    margin: 0 auto;
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto;
 }
 
 figure {
-    margin: 1em 0;
-    text-align: center;
+  margin: 1em 0;
+  text-align: center;
 }
 
 figcaption {
-    font-size: 0.85em;
-    color: var(--text-muted);
-    margin-top: 0.5em;
-    font-style: italic;
+  font-size: 0.85em;
+  color: var(--text-muted);
+  margin-top: 0.5em;
+  font-style: italic;
 }
 
 table {
-    border-collapse: collapse;
-    width: 100%;
-    margin: 1em 0;
-    font-size: 0.9em;
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+  font-size: 0.9em;
 }
 
 th,
 td {
-    padding: 0.5em 0.75em;
-    border: 1px solid var(--border);
-    text-align: left;
+  padding: 0.5em 0.75em;
+  border: 1px solid var(--border);
+  text-align: left;
 }
 
 th {
-    background: var(--bg-secondary);
-    font-weight: 700;
+  background: var(--bg-secondary);
+  font-weight: 700;
 }
 
 mark.search-highlight {
-    background: var(--accent);
-    color: var(--bg-primary);
-    border-radius: 2px;
-    padding: 0 1px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-radius: 2px;
+  padding: 0 1px;
 }
 
 mark.search-highlight-active {
-    background: var(--accent);
-    color: var(--bg-primary);
-    outline: 2px solid
-        color-mix(in srgb, var(--accent) 60%, var(--text-primary));
-    outline-offset: 1px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, var(--text-primary));
+  outline-offset: 1px;
 }
 
 .boundary-indicator {
-    position: fixed;
-    left: 0;
-    right: 0;
-    height: 48px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    pointer-events: none;
-    opacity: 0;
-    z-index: 100;
-    transition: none;
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 100;
+  transition: none;
 }
 
 .boundary-top {
-    top: 0;
+  top: 0;
 }
 
 .boundary-bottom {
-    bottom: 0;
+  bottom: 0;
 }
 
 .boundary-label {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--accent);
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    padding: 4px 12px;
-    border-radius: 999px;
-    white-space: nowrap;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  padding: 4px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
 .boundary-indicator.edge .boundary-label {
-    color: var(--text-muted);
-    border-color: var(--border);
+  color: var(--text-muted);
+  border-color: var(--border);
 }
 
 #page-indicator {
-    position: fixed;
-    bottom: 12px;
-    right: 16px;
-    /* Only meaningful in paged modes; hidden in scroll (toggled via the
+  position: fixed;
+  bottom: 12px;
+  right: 16px;
+  /* Only meaningful in paged modes; hidden in scroll (toggled via the
        html.paged / html.paged-two root classes set by applyRootClasses). */
-    display: none;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    background: var(--bg-secondary);
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-variant-numeric: tabular-nums;
-    pointer-events: none;
-    z-index: 10;
+  display: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  z-index: 10;
 }
 
 html.paged #page-indicator,
 html.paged-two #page-indicator {
-    display: block;
+  display: block;
 }
 
 /* ── Single-column paged ──────────────────────────────────────────── */
 
 html.paged body {
-    padding: 0;
-    overflow: hidden;
-    height: 100vh;
-    height: 100dvh;
+  padding: 0;
+  overflow: hidden;
+  height: 100vh;
+  height: 100dvh;
 }
 
 html.paged #paged-clip {
-    overflow: hidden;
-    position: relative;
-    width: 100%;
-    height: 100%;
-    opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
-    filter: blur(0);
-    transition:
-        opacity 0.22s cubic-bezier(0.22, 1, 0.36, 1),
-        transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
-        filter 0.22s cubic-bezier(0.22, 1, 0.36, 1);
-    backface-visibility: hidden;
-    transform-origin: center center;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  opacity: 1;
+  transform: translate3d(0, 0, 0) scale(1);
+  filter: blur(0);
+  transition:
+    opacity 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  backface-visibility: hidden;
+  transform-origin: center center;
 }
 
 /*
@@ -513,55 +512,55 @@ html.paged #paged-clip {
  * you see adjacent content bleed into the viewport.
  */
 html.paged #content {
-    column-width: 100vw;
-    column-gap: 0;
-    column-fill: auto;
-    height: 100%;
-    overflow-x: scroll;
-    overflow-y: hidden;
-    scroll-snap-type: x mandatory;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    padding: 0;
-    min-width: 100vw;
-    overscroll-behavior-x: contain;
-    overscroll-behavior-y: none;
-    contain: paint;
-    transform: translateZ(0);
+  column-width: 100vw;
+  column-gap: 0;
+  column-fill: auto;
+  height: 100%;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding: 0;
+  min-width: 100vw;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: none;
+  contain: paint;
+  transform: translateZ(0);
 }
 
 html.paged #content::-webkit-scrollbar {
-    display: none;
+  display: none;
 }
 
 html.paged #content-inner {
-    padding: var(--paged-padding-top, 24px) var(--paged-padding-side, 40px)
-        var(--paged-padding-bottom, 24px);
+  padding: var(--paged-padding-top, 24px) var(--paged-padding-side, 40px)
+    var(--paged-padding-bottom, 24px);
 }
 
 /* ── Two-column book spread ───────────────────────────────────────── */
 
 html.paged-two body {
-    padding: 0;
-    overflow: hidden;
-    height: 100vh;
-    height: 100dvh;
+  padding: 0;
+  overflow: hidden;
+  height: 100vh;
+  height: 100dvh;
 }
 
 html.paged-two #paged-clip {
-    overflow: hidden;
-    position: relative;
-    width: 100%;
-    height: 100%;
-    opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
-    filter: blur(0);
-    transition:
-        opacity 0.22s cubic-bezier(0.22, 1, 0.36, 1),
-        transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
-        filter 0.22s cubic-bezier(0.22, 1, 0.36, 1);
-    backface-visibility: hidden;
-    transform-origin: center center;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  opacity: 1;
+  transform: translate3d(0, 0, 0) scale(1);
+  filter: blur(0);
+  transition:
+    opacity 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  backface-visibility: hidden;
+  transform-origin: center center;
 }
 
 /*
@@ -569,44 +568,44 @@ html.paged-two #paged-clip {
  * One "page turn" = one full viewport width = one spread.
  */
 html.paged-two #content {
-    column-count: 2;
-    column-gap: 1px;
-    column-rule: 1px solid var(--border);
-    column-fill: auto;
-    height: 100%;
-    overflow-x: scroll;
-    overflow-y: hidden;
-    scroll-snap-type: x mandatory;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    padding: 0;
-    min-width: 100vw;
-    overscroll-behavior-x: contain;
-    overscroll-behavior-y: none;
-    contain: paint;
-    transform: translateZ(0);
+  column-count: 2;
+  column-gap: 1px;
+  column-rule: 1px solid var(--border);
+  column-fill: auto;
+  height: 100%;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding: 0;
+  min-width: 100vw;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: none;
+  contain: paint;
+  transform: translateZ(0);
 }
 
 html.paged-two #content::-webkit-scrollbar {
-    display: none;
+  display: none;
 }
 
 html.paged-two #content-inner {
-    padding: var(--paged-padding-top, 24px) var(--paged-padding-side, 48px)
-        var(--paged-padding-bottom, 24px);
+  padding: var(--paged-padding-top, 24px) var(--paged-padding-side, 48px)
+    var(--paged-padding-bottom, 24px);
 }
 
 html.paged-two img,
 html.paged-two figure,
 html.paged-two table {
-    break-inside: avoid;
+  break-inside: avoid;
 }
 
 html.chapter-hidden.paged #paged-clip,
 html.chapter-hidden.paged-two #paged-clip {
-    opacity: 0;
-    transform: translate3d(0, 10px, 0) scale(0.997);
-    filter: blur(1px);
+  opacity: 0;
+  transform: translate3d(0, 10px, 0) scale(0.997);
+  filter: blur(1px);
 }
 
 /* Promote the swap layer ONLY while a chapter transition is in flight. A
@@ -615,48 +614,48 @@ html.chapter-hidden.paged-two #paged-clip {
    layer alive and a blur buffer allocated even at rest). */
 html.chapter-anim.paged #paged-clip,
 html.chapter-anim.paged-two #paged-clip {
-    will-change: opacity, transform, filter;
+  will-change: opacity, transform, filter;
 }
 
 html.page-turning.paged #content,
 html.page-turning.paged-two #content {
-    scroll-snap-type: none !important;
-    /* The cross-fade animates opacity from JS; hint a layer for the turn. */
-    will-change: opacity;
+  scroll-snap-type: none !important;
+  /* The cross-fade animates opacity from JS; hint a layer for the turn. */
+  will-change: opacity;
 }
 
 * {
-    scrollbar-width: thin;
-    scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
 
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-    background: transparent;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: 3px;
+  background: var(--border);
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: var(--text-muted);
+  background: var(--text-muted);
 }
 
 @media (prefers-reduced-motion: reduce) {
-    body {
-        transition: none;
-    }
+  body {
+    transition: none;
+  }
 
-    html.paged #paged-clip,
-    html.paged-two #paged-clip {
-        transition: none;
-        transform: none !important;
-        filter: none !important;
-    }
+  html.paged #paged-clip,
+  html.paged-two #paged-clip {
+    transition: none;
+    transform: none !important;
+    filter: none !important;
+  }
 }

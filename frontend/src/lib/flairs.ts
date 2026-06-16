@@ -27,9 +27,14 @@ export function getNextPaletteColor(count: number): string {
   return CUSTOM_PALETTE[count % CUSTOM_PALETTE.length];
 }
 
-export function findFlair(id: string | undefined, customs: FlairDef[]): FlairDef | undefined {
+export function findFlair(
+  id: string | undefined,
+  customs: FlairDef[],
+): FlairDef | undefined {
   if (!id) return undefined;
-  return DEFAULT_FLAIRS.find((f) => f.id === id) ?? customs.find((f) => f.id === id);
+  return (
+    DEFAULT_FLAIRS.find((f) => f.id === id) ?? customs.find((f) => f.id === id)
+  );
 }
 
 /** Readable text color for a flair badge. Palette hues read best with dark text. */

@@ -1,6 +1,10 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { isProgressDuplicate, chooseBootProgress, isBookmarkAtPosition } from "~/lib/progress";
+  import {
+    isProgressDuplicate,
+    chooseBootProgress,
+    isBookmarkAtPosition,
+  } from "~/lib/progress";
   import {
     getBook,
     getProgress,
@@ -23,19 +27,28 @@
   import { buildAllFontFaces } from "~/lib/readerFontFaces";
   import { router } from "~/lib/router.svelte";
   import { ui } from "~/lib/ui.svelte";
-  import { resolveHref, findTocLabel, buildTocChapterEntries } from "~/lib/href";
+  import {
+    resolveHref,
+    findTocLabel,
+    buildTocChapterEntries,
+  } from "~/lib/href";
   import { getErrorMessage } from "~/lib/errors";
   import { applyTheme } from "~/lib/theme";
   import ChapterFrame from "~/components/reader/ChapterFrame.svelte";
-  import type { ChapterFrameAPI, KeyEvent } from "~/components/reader/frame-types";
+  import type {
+    ChapterFrameAPI,
+    KeyEvent,
+  } from "~/components/reader/frame-types";
 
   // Reader side-panels load on first open so they don't inflate the reader
   // route's initial JS bundle. import() results are module-cached, so reopening
   // a panel is instant.
   const tocPanel = () => import("~/components/reader/TocPanel.svelte");
-  const settingsPanel = () => import("~/components/reader/SettingsPanel.svelte");
+  const settingsPanel = () =>
+    import("~/components/reader/SettingsPanel.svelte");
   const searchPanel = () => import("~/components/reader/SearchPanel.svelte");
-  const bookmarksPanel = () => import("~/components/reader/BookmarksPanel.svelte");
+  const bookmarksPanel = () =>
+    import("~/components/reader/BookmarksPanel.svelte");
   import Icon from "~/lib/Icon.svelte";
   import { focusTrap } from "~/lib/focusTrap";
   import {
@@ -104,7 +117,9 @@
   );
   // A bookmark at (or very near) the current reading position, if any.
   const currentBookmarkId = $derived(
-    bookmarks.find((b) => isBookmarkAtPosition(b, currentChapter, chapterPercent))?.id ?? null,
+    bookmarks.find((b) =>
+      isBookmarkAtPosition(b, currentChapter, chapterPercent),
+    )?.id ?? null,
   );
   // Active TOC entry to highlight per chapter. Built once per book
   // (O(toc + spine)) rather than re-resolving every TOC entry each time the
@@ -131,8 +146,17 @@
   let saveData: ProgressData = { chapter: 0, percent: 0 };
   const chapterCache = new Map<number, ChapterData>();
   let chapterLoadInProgress = false;
-  let pendingNav: { index: number; scrollTo: "top" | "end"; fragment?: string; restore?: { percent: number; cfi?: string } } | null = null;
-  let pendingHighlight: { charOffset: number; matchLen: number; query: string } | null = null;
+  let pendingNav: {
+    index: number;
+    scrollTo: "top" | "end";
+    fragment?: string;
+    restore?: { percent: number; cfi?: string };
+  } | null = null;
+  let pendingHighlight: {
+    charOffset: number;
+    matchLen: number;
+    query: string;
+  } | null = null;
   let highlightTimer: ReturnType<typeof setTimeout> | undefined;
   let chromeHideTimer: ReturnType<typeof setTimeout> | undefined;
   let fetchAbort: AbortController | null = null;
@@ -175,7 +199,10 @@
     }
     // Never auto-hide while a panel is open.
     if (activePanel === "none") {
-      chromeHideTimer = setTimeout(() => (chromeVisible = false), CHROME_AUTO_HIDE_MS);
+      chromeHideTimer = setTimeout(
+        () => (chromeVisible = false),
+        CHROME_AUTO_HIDE_MS,
+      );
     }
   }
   function showChrome(arm = true): void {
@@ -330,7 +357,10 @@
       const data = await getBook(bookId);
       book = data;
       bookLoaded = true;
-      const chapter = Math.max(0, Math.min(saved.chapter, data.chapterCount - 1));
+      const chapter = Math.max(
+        0,
+        Math.min(saved.chapter, data.chapterCount - 1),
+      );
       currentChapter = chapter;
       saveData = { chapter, percent: saved.percent, cfi: saved.cfi };
       tryInitialLoad();
@@ -352,18 +382,27 @@
     // Restore when we have either a meaningful percent OR a stored CFI. A saved
     // CFI at the very start of a chapter (percent ≈ 0) is still a real position
     // worth honoring, so don't gate restoration on percent alone.
-    if (percent > 0.001 || cfi) void loadChapter(chapter, "top", undefined, { percent, cfi });
+    if (percent > 0.001 || cfi)
+      void loadChapter(chapter, "top", undefined, { percent, cfi });
     else void loadChapter(chapter, "top");
   }
 
-  async function fetchChapterWithRetry(index: number, signal?: AbortSignal): Promise<ChapterData> {
+  async function fetchChapterWithRetry(
+    index: number,
+    signal?: AbortSignal,
+  ): Promise<ChapterData> {
     const cached = chapterCache.get(index);
     if (cached) {
       chapterCache.delete(index);
       chapterCache.set(index, cached); // refresh LRU position
       return cached;
     }
-    const data = await fetchChapter(bookId, index, CHAPTER_LOAD_RETRY_ATTEMPTS, signal);
+    const data = await fetchChapter(
+      bookId,
+      index,
+      CHAPTER_LOAD_RETRY_ATTEMPTS,
+      signal,
+    );
     if (chapterCache.size >= MAX_CHAPTER_CACHE) {
       const lru = chapterCache.keys().next().value;
       if (lru !== undefined) chapterCache.delete(lru);
@@ -406,9 +445,29 @@
       // Ensure the iframe has the current font faces before it applies settings.
       pushFontFaces();
       if (restore) {
-        api.loadChapter(data, settings.iframe, "top", undefined, hasPrev, hasNext, restore.percent, restore.cfi, b.language);
+        api.loadChapter(
+          data,
+          settings.iframe,
+          "top",
+          undefined,
+          hasPrev,
+          hasNext,
+          restore.percent,
+          restore.cfi,
+          b.language,
+        );
       } else {
-        api.loadChapter(data, settings.iframe, scrollTo, fragment, hasPrev, hasNext, undefined, undefined, b.language);
+        api.loadChapter(
+          data,
+          settings.iframe,
+          scrollTo,
+          fragment,
+          hasPrev,
+          hasNext,
+          undefined,
+          undefined,
+          b.language,
+        );
       }
 
       currentChapter = index;
@@ -438,7 +497,8 @@
   function flushProgress(force = false): Promise<void> {
     if (!bookLoaded) return Promise.resolve();
     const now = Date.now();
-    if (!force && now - lastFlushTime < PROGRESS_FLUSH_THROTTLE_MS) return Promise.resolve();
+    if (!force && now - lastFlushTime < PROGRESS_FLUSH_THROTTLE_MS)
+      return Promise.resolve();
 
     const { chapter, percent } = saveData;
     if (
@@ -522,22 +582,30 @@
       api?.highlightSearch(h.charOffset, h.matchLen, h.query, seq);
     }, 120);
   }
-  function handlePosition(chapterIndex: number, percent: number, cfi?: string): void {
+  function handlePosition(
+    chapterIndex: number,
+    percent: number,
+    cfi?: string,
+  ): void {
     chapterPercent = percent;
     // A position report can omit the CFI (e.g. no first visible block was
     // resolvable). Don't let that wipe a good CFI we already hold for the same
     // chapter — only overwrite when the report actually carries one.
-    const keptCfi = cfi ?? (chapterIndex === saveData.chapter ? saveData.cfi : undefined);
+    const keptCfi =
+      cfi ?? (chapterIndex === saveData.chapter ? saveData.cfi : undefined);
     saveData = { chapter: chapterIndex, percent, cfi: keptCfi };
   }
   function handleBoundary(boundary: "start" | "end"): void {
     const now = Date.now();
-    if (now - lastBoundaryTime < BOUNDARY_COOLDOWN_MS || chapterLoadInProgress) return;
+    if (now - lastBoundaryTime < BOUNDARY_COOLDOWN_MS || chapterLoadInProgress)
+      return;
     lastBoundaryTime = now;
     const b = book;
     if (!b) return;
-    if (boundary === "end" && currentChapter + 1 < b.chapterCount) void loadChapter(currentChapter + 1, "top");
-    else if (boundary === "start" && currentChapter > 0) void loadChapter(currentChapter - 1, "end");
+    if (boundary === "end" && currentChapter + 1 < b.chapterCount)
+      void loadChapter(currentChapter + 1, "top");
+    else if (boundary === "start" && currentChapter > 0)
+      void loadChapter(currentChapter - 1, "end");
   }
   function handleFrameError(_code: string, message: string): void {
     // An in-iframe render failure: stop the spinner and show the error UI with
@@ -555,7 +623,11 @@
     if (resolved.chapterIndex === currentChapter) {
       if (resolved.fragment) api?.scrollToFragment(resolved.fragment);
     } else {
-      void loadChapter(resolved.chapterIndex, "top", resolved.fragment || undefined);
+      void loadChapter(
+        resolved.chapterIndex,
+        "top",
+        resolved.fragment || undefined,
+      );
     }
   }
   function handleTocNavigate(href: string): void {
@@ -568,18 +640,24 @@
       if (resolved.fragment) api?.scrollToFragment(resolved.fragment);
       else api?.scrollTo(0);
     } else {
-      void loadChapter(resolved.chapterIndex, "top", resolved.fragment || undefined);
+      void loadChapter(
+        resolved.chapterIndex,
+        "top",
+        resolved.fragment || undefined,
+      );
     }
   }
 
   // ---- navigation + keyboard ----------------------------------------------
   function goPrev(): void {
     if (isPaged) api?.prevPage();
-    else if (book && currentChapter > 0) void loadChapter(currentChapter - 1, "top");
+    else if (book && currentChapter > 0)
+      void loadChapter(currentChapter - 1, "top");
   }
   function goNext(): void {
     if (isPaged) api?.nextPage();
-    else if (book && currentChapter + 1 < book.chapterCount) void loadChapter(currentChapter + 1, "top");
+    else if (book && currentChapter + 1 < book.chapterCount)
+      void loadChapter(currentChapter + 1, "top");
   }
   function handleBack(): void {
     void flushProgress(true);
@@ -592,7 +670,11 @@
     if (result.chapterIndex === currentChapter) {
       api?.highlightSearch(result.charOffset, result.matchLen, query);
     } else {
-      pendingHighlight = { charOffset: result.charOffset, matchLen: result.matchLen, query };
+      pendingHighlight = {
+        charOffset: result.charOffset,
+        matchLen: result.matchLen,
+        query,
+      };
       void loadChapter(result.chapterIndex, "top");
     }
   }
@@ -631,7 +713,10 @@
       if (bm.cfi) api?.scrollToCfi(bm.cfi);
       else api?.scrollTo(bm.percent);
     } else {
-      void loadChapter(bm.chapter, "top", undefined, { percent: bm.percent, cfi: bm.cfi });
+      void loadChapter(bm.chapter, "top", undefined, {
+        percent: bm.percent,
+        cfi: bm.cfi,
+      });
     }
   }
 
@@ -646,9 +731,15 @@
     }
   }
 
-  async function editBookmark(id: string, label: string, comment: string): Promise<void> {
+  async function editBookmark(
+    id: string,
+    label: string,
+    comment: string,
+  ): Promise<void> {
     const prev = bookmarks;
-    bookmarks = bookmarks.map((b) => (b.id === id ? { ...b, label, comment } : b));
+    bookmarks = bookmarks.map((b) =>
+      b.id === id ? { ...b, label, comment } : b,
+    );
     try {
       const updated = await updateBookmark(bookId, id, { label, comment });
       bookmarks = bookmarks.map((b) => (b.id === id ? updated : b));
@@ -660,7 +751,11 @@
 
   // Returns true when the key was acted on, so the caller can cancel its
   // default (keeps a letter shortcut from also being typed into a panel input).
-  function handleKeyAction(e: { key: string; ctrlKey?: boolean; metaKey?: boolean }): boolean {
+  function handleKeyAction(e: {
+    key: string;
+    ctrlKey?: boolean;
+    metaKey?: boolean;
+  }): boolean {
     if (e.ctrlKey || e.metaKey) return false;
     // A global overlay (command palette / shortcuts help) owns the keyboard
     // while open, so reader shortcuts (Esc → back, arrows, etc.) must stand
@@ -744,17 +839,23 @@
   }
 </script>
 
-<svelte:window onkeydown={handleWindowKey} onpointermove={handlePointerActivity} />
+<svelte:window
+  onkeydown={handleWindowKey}
+  onpointermove={handlePointerActivity}
+/>
 <svelte:document onvisibilitychange={handleVisibility} />
 
 <div class="reader" class:chrome-hidden={!chromeVisible}>
   <header class="bar" class:hidden={!chromeVisible} inert={panelOpen}>
-    <button class="icon" onclick={handleBack} aria-label="Back to library"><Icon icon={ArrowLeft} /></button>
+    <button class="icon" onclick={handleBack} aria-label="Back to library"
+      ><Icon icon={ArrowLeft} /></button
+    >
     <div class="title">
       <span class="book">{book?.title ?? "…"}</span>
       {#if book}
         <span class="chapter">
-          {chapterLabel || `Chapter ${currentChapter + 1}`} · <span class="tnum">{currentChapter + 1}/{book.chapterCount}</span>
+          {chapterLabel || `Chapter ${currentChapter + 1}`} ·
+          <span class="tnum">{currentChapter + 1}/{book.chapterCount}</span>
         </span>
       {/if}
     </div>
@@ -764,36 +865,38 @@
       onclick={() => void toggleBookmark()}
       aria-label={currentBookmarkId ? "Remove bookmark" : "Add bookmark"}
       aria-pressed={currentBookmarkId !== null}
-    ><Icon icon={currentBookmarkId ? BookmarkCheck : BookmarkIcon} /></button>
+      ><Icon icon={currentBookmarkId ? BookmarkCheck : BookmarkIcon} /></button
+    >
     <button
       class="icon"
       onclick={() => togglePanel("bookmarks")}
       aria-label="Bookmarks"
       aria-pressed={activePanel === "bookmarks"}
-    ><Icon icon={BookMarked} /></button>
+      ><Icon icon={BookMarked} /></button
+    >
     <button
       class="icon"
       onclick={() => togglePanel("search")}
       aria-label="Search in book"
-      aria-pressed={activePanel === "search"}
-    ><Icon icon={Search} /></button>
+      aria-pressed={activePanel === "search"}><Icon icon={Search} /></button
+    >
     <button
       class="icon"
       onclick={() => togglePanel("settings")}
       aria-label="Settings"
-      aria-pressed={activePanel === "settings"}
-    ><Icon icon={Settings} /></button>
+      aria-pressed={activePanel === "settings"}><Icon icon={Settings} /></button
+    >
     <button
       class="icon"
       onclick={() => togglePanel("toc")}
       aria-label="Table of contents"
-      aria-pressed={activePanel === "toc"}
-    ><Icon icon={List} /></button>
+      aria-pressed={activePanel === "toc"}><Icon icon={List} /></button
+    >
     <button
       class="icon"
       onclick={() => ui.openShortcuts()}
-      aria-label="Keyboard shortcuts"
-    ><Icon icon={CircleHelp} /></button>
+      aria-label="Keyboard shortcuts"><Icon icon={CircleHelp} /></button
+    >
   </header>
 
   <div class="stage">
@@ -828,12 +931,26 @@
     </div>
 
     {#if activePanel === "toc" && book}
-      <div class="panel left" role="dialog" aria-modal="true" aria-label="Table of contents" {@attach focusTrap}>
+      <div
+        class="panel left"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Table of contents"
+        {@attach focusTrap}
+      >
         {#if TocPanelComp}
-          <TocPanelComp toc={book.toc} activeEntry={activeTocEntry} onnavigate={handleTocNavigate} />
+          <TocPanelComp
+            toc={book.toc}
+            activeEntry={activeTocEntry}
+            onnavigate={handleTocNavigate}
+          />
         {:else}
           {#await tocPanel() then { default: TocPanel }}
-            <TocPanel toc={book.toc} activeEntry={activeTocEntry} onnavigate={handleTocNavigate} />
+            <TocPanel
+              toc={book.toc}
+              activeEntry={activeTocEntry}
+              onnavigate={handleTocNavigate}
+            />
           {/await}
         {/if}
       </div>
@@ -841,13 +958,20 @@
     {/if}
 
     {#if activePanel === "bookmarks"}
-      <div class="panel left" role="dialog" aria-modal="true" aria-label="Bookmarks" {@attach focusTrap}>
+      <div
+        class="panel left"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Bookmarks"
+        {@attach focusTrap}
+      >
         {#await bookmarksPanel() then { default: BookmarksPanel }}
           <BookmarksPanel
             {bookmarks}
             onnavigate={navigateBookmark}
             ondelete={(id) => void removeBookmark(id)}
-            onupdate={(id, label, comment) => void editBookmark(id, label, comment)}
+            onupdate={(id, label, comment) =>
+              void editBookmark(id, label, comment)}
             onclose={closePanel}
           />
         {/await}
@@ -856,7 +980,13 @@
     {/if}
 
     {#if activePanel === "search"}
-      <div class="panel right" role="dialog" aria-modal="true" aria-label="Search in book" {@attach focusTrap}>
+      <div
+        class="panel right"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Search in book"
+        {@attach focusTrap}
+      >
         {#await searchPanel() then { default: SearchPanel }}
           <SearchPanel
             {bookId}
@@ -869,18 +999,26 @@
     {/if}
 
     {#if activePanel === "settings"}
-      <div class="panel right" role="dialog" aria-modal="true" aria-label="Settings" {@attach focusTrap}>
+      <div
+        class="panel right"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Settings"
+        {@attach focusTrap}
+      >
         {#await settingsPanel() then { default: SettingsPanel }}
           <SettingsPanel onclose={closePanel} />
         {/await}
       </div>
       <button class="scrim" aria-label="Close" onclick={closePanel}></button>
     {/if}
-
   </div>
 
   <div class="progress" class:hidden={!chromeVisible} aria-hidden="true">
-    <div class="fill" style:width={`${Math.round(chapterPercent * 100)}%`}></div>
+    <div
+      class="fill"
+      style:width={`${Math.round(chapterPercent * 100)}%`}
+    ></div>
   </div>
 </div>
 
@@ -905,13 +1043,17 @@
     background: color-mix(in srgb, var(--bg) 92%, transparent);
     backdrop-filter: blur(8px);
     border-bottom: 1px solid color-mix(in srgb, var(--fg) 10%, transparent);
-    transition: transform var(--dur) var(--ease-out), opacity var(--dur) var(--ease-out);
+    transition:
+      transform var(--dur) var(--ease-out),
+      opacity var(--dur) var(--ease-out);
   }
   .bar.hidden {
     transform: translateY(-100%);
     opacity: 0;
     pointer-events: none;
-    transition: transform var(--dur) var(--ease-in), opacity var(--dur) var(--ease-in);
+    transition:
+      transform var(--dur) var(--ease-in),
+      opacity var(--dur) var(--ease-in);
   }
   .chrome-hidden {
     cursor: none;
@@ -931,7 +1073,8 @@
     min-height: 2.75rem;
     border-radius: 0.4rem;
     cursor: pointer;
-    transition: background var(--dur-fast) var(--ease-out),
+    transition:
+      background var(--dur-fast) var(--ease-out),
       color var(--dur-fast) var(--ease-out),
       transform var(--dur-fast) var(--ease-out);
   }

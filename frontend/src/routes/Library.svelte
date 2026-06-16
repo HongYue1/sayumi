@@ -8,7 +8,14 @@
   import BookCard from "~/components/library/BookCard.svelte";
   import ThemeDropdown from "~/components/library/ThemeDropdown.svelte";
   import Icon from "~/lib/Icon.svelte";
-  import { Plus, RefreshCw, ArrowUpDown, Check, X, LogOut } from "@lucide/svelte";
+  import {
+    Plus,
+    RefreshCw,
+    ArrowUpDown,
+    Check,
+    X,
+    LogOut,
+  } from "@lucide/svelte";
 
   import { DEFAULT_FLAIRS } from "~/lib/flairs";
 
@@ -121,7 +128,11 @@
         disabled={library.rescanning}
         title="Scan the Library folder for new files"
       >
-        <Icon icon={RefreshCw} size={16} class={library.rescanning ? "spin" : ""} />
+        <Icon
+          icon={RefreshCw}
+          size={16}
+          class={library.rescanning ? "spin" : ""}
+        />
         {library.rescanning ? "Scanning…" : "Rescan"}
       </button>
 
@@ -155,9 +166,17 @@
         {#each library.allFlairs as f (f.id)}
           {@const active = library.flairFilters.includes(f.id)}
           <span class="chip" class:active style:--chip={f.color}>
-            <button class="chip-toggle" aria-pressed={active} onclick={() => library.toggleFlairFilter(f.id)}>
+            <button
+              class="chip-toggle"
+              aria-pressed={active}
+              onclick={() => library.toggleFlairFilter(f.id)}
+            >
               {#if active}
-                <span class="chip-check" style:color={f.color} aria-hidden="true"><Icon icon={Check} size={14} /></span>
+                <span
+                  class="chip-check"
+                  style:color={f.color}
+                  aria-hidden="true"><Icon icon={Check} size={14} /></span
+                >
               {:else}
                 <span class="dot" style:background={f.color}></span>
               {/if}
@@ -169,7 +188,8 @@
                 title="Delete flair"
                 aria-label={`Delete flair ${f.label}`}
                 onclick={() => library.removeCustomFlair(f.id)}
-              ><Icon icon={X} size={13} /></button>
+                ><Icon icon={X} size={13} /></button
+              >
             {/if}
           </span>
         {/each}
@@ -187,7 +207,10 @@
         </span>
 
         {#if library.flairFilters.length > 0}
-          <button class="clear-filters" onclick={() => library.clearFlairFilters()}>Clear</button>
+          <button
+            class="clear-filters"
+            onclick={() => library.clearFlairFilters()}>Clear</button
+          >
         {/if}
       </div>
     </div>
@@ -202,11 +225,17 @@
   {:else if library.books.length === 0}
     <div class="empty">
       <p>Your library is empty.</p>
-      <button class="upload" onclick={() => fileInput?.click()} disabled={library.uploading}>
+      <button
+        class="upload"
+        onclick={() => fileInput?.click()}
+        disabled={library.uploading}
+      >
         <Icon icon={Plus} size={16} />
         {library.uploading ? "Uploading…" : "Add your first book"}
       </button>
-      <p class="hint">…or drop .epub files into your <code>Library</code> folder.</p>
+      <p class="hint">
+        …or drop .epub files into your <code>Library</code> folder.
+      </p>
     </div>
   {:else if library.visible.length === 0}
     <p class="state">No books match “{library.query}”.</p>

@@ -35,7 +35,9 @@ class ToastStore {
 
     const enter = setTimeout(() => {
       this.#enterTimers.delete(id);
-      this.items = this.items.map((t) => (t.id === id ? { ...t, exiting: true } : t));
+      this.items = this.items.map((t) =>
+        t.id === id ? { ...t, exiting: true } : t,
+      );
       const exit = setTimeout(() => {
         this.#exitTimers.delete(id);
         this.items = this.items.filter((t) => t.id !== id);

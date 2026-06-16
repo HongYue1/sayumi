@@ -30,7 +30,12 @@ describe("requestWithRetry", () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ error: "boom" }, 500))
       .mockResolvedValueOnce(jsonResponse({ ok: true }, 200));
-    const p = requestWithRetry<{ ok: boolean }>("GET", "/x", undefined, noTimeout(3));
+    const p = requestWithRetry<{ ok: boolean }>(
+      "GET",
+      "/x",
+      undefined,
+      noTimeout(3),
+    );
     await vi.runAllTimersAsync();
     await expect(p).resolves.toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -40,7 +45,12 @@ describe("requestWithRetry", () => {
     fetchMock
       .mockRejectedValueOnce(new TypeError("Failed to fetch"))
       .mockResolvedValueOnce(jsonResponse({ ok: true }, 200));
-    const p = requestWithRetry<{ ok: boolean }>("PUT", "/x", { a: 1 }, noTimeout(3));
+    const p = requestWithRetry<{ ok: boolean }>(
+      "PUT",
+      "/x",
+      { a: 1 },
+      noTimeout(3),
+    );
     await vi.runAllTimersAsync();
     await expect(p).resolves.toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -48,7 +58,12 @@ describe("requestWithRetry", () => {
 
   it("does NOT retry a POST on a 500 (non-idempotent write)", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ error: "boom" }, 500));
-    const err = await requestWithRetry("POST", "/x", { a: 1 }, noTimeout(3)).catch((e) => e);
+    const err = await requestWithRetry(
+      "POST",
+      "/x",
+      { a: 1 },
+      noTimeout(3),
+    ).catch((e) => e);
     await vi.runAllTimersAsync();
     expect(err).toBeInstanceOf(ApiError);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -56,7 +71,12 @@ describe("requestWithRetry", () => {
 
   it("does NOT retry a PATCH on a 500 (non-idempotent write)", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ error: "boom" }, 500));
-    const err = await requestWithRetry("PATCH", "/x", { a: 1 }, noTimeout(3)).catch((e) => e);
+    const err = await requestWithRetry(
+      "PATCH",
+      "/x",
+      { a: 1 },
+      noTimeout(3),
+    ).catch((e) => e);
     await vi.runAllTimersAsync();
     expect(err).toBeInstanceOf(ApiError);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -64,7 +84,12 @@ describe("requestWithRetry", () => {
 
   it("does NOT retry a 4xx even for an idempotent GET", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ error: "nope" }, 404));
-    const err = await requestWithRetry("GET", "/x", undefined, noTimeout(3)).catch((e) => e);
+    const err = await requestWithRetry(
+      "GET",
+      "/x",
+      undefined,
+      noTimeout(3),
+    ).catch((e) => e);
     await vi.runAllTimersAsync();
     expect(err).toBeInstanceOf(ApiError);
     expect(err).toMatchObject({ status: 404 });
@@ -73,7 +98,12 @@ describe("requestWithRetry", () => {
 
   it("gives up after the configured attempts on a persistent 500", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ error: "down" }, 500));
-    const settled = requestWithRetry("GET", "/x", undefined, noTimeout(2)).catch((e) => e);
+    const settled = requestWithRetry(
+      "GET",
+      "/x",
+      undefined,
+      noTimeout(2),
+    ).catch((e) => e);
     await vi.runAllTimersAsync();
     const err = await settled;
     expect(err).toBeInstanceOf(ApiError);
@@ -82,7 +112,12 @@ describe("requestWithRetry", () => {
 
   it("rethrows an AbortError without retrying", async () => {
     fetchMock.mockRejectedValue(new DOMException("aborted", "AbortError"));
-    const err = await requestWithRetry("GET", "/x", undefined, noTimeout(3)).catch((e) => e);
+    const err = await requestWithRetry(
+      "GET",
+      "/x",
+      undefined,
+      noTimeout(3),
+    ).catch((e) => e);
     await vi.runAllTimersAsync();
     expect(err).toBeInstanceOf(DOMException);
     expect(err).toMatchObject({ name: "AbortError" });

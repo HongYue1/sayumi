@@ -59,7 +59,8 @@
         next = cur < 0 ? 0 : (cur + 1) % items.length;
         break;
       default:
-        next = cur < 0 ? items.length - 1 : (cur - 1 + items.length) % items.length;
+        next =
+          cur < 0 ? items.length - 1 : (cur - 1 + items.length) % items.length;
     }
     items[next].focus();
   }
@@ -75,7 +76,12 @@
     aria-label={`Change theme (current: ${current.label})`}
     onclick={toggle}
   >
-    <span class="swatch" style:background={current.bg} style:color={current.fg} aria-hidden="true">
+    <span
+      class="swatch"
+      style:background={current.bg}
+      style:color={current.fg}
+      aria-hidden="true"
+    >
       <span class="aa">Aa</span>
       <span class="dot" style:background={current.accent}></span>
     </span>
@@ -83,8 +89,18 @@
   </button>
 
   {#if open}
-    <button class="scrim" aria-label="Close theme menu" onclick={() => close(false)}></button>
-    <div class="menu" role="menu" tabindex="-1" aria-label="Theme" onkeydown={onKeydown}>
+    <button
+      class="scrim"
+      aria-label="Close theme menu"
+      onclick={() => close(false)}
+    ></button>
+    <div
+      class="menu"
+      role="menu"
+      tabindex="-1"
+      aria-label="Theme"
+      onkeydown={onKeydown}
+    >
       <p class="group eyebrow" id="theme-grp-light">Light</p>
       <div class="swatches" role="group" aria-labelledby="theme-grp-light">
         {#each lightThemes as t (t.id)}
@@ -107,7 +123,9 @@
               <span class="aa">Aa</span>
               <span class="dot" style:background={t.accent}></span>
               {#if active}
-                <span class="check" aria-hidden="true"><Icon icon={Check} size={11} /></span>
+                <span class="check" aria-hidden="true"
+                  ><Icon icon={Check} size={11} /></span
+                >
               {/if}
             </span>
             <span class="name">{t.label}</span>
@@ -135,7 +153,9 @@
               <span class="aa">Aa</span>
               <span class="dot" style:background={t.accent}></span>
               {#if active}
-                <span class="check" aria-hidden="true"><Icon icon={Check} size={11} /></span>
+                <span class="check" aria-hidden="true"
+                  ><Icon icon={Check} size={11} /></span
+                >
               {/if}
             </span>
             <span class="name">{t.label}</span>

@@ -37,7 +37,14 @@ describe("generateCFI / resolveCFI", () => {
   // Strict integer parse: a malformed/foreign segment must fail to null so
   // callers fall back to percent, rather than parseInt coercing it to a
   // wrong-but-valid index. Mirrors the (now deleted) inlined resolveCFILocal.
-  for (const bad of ["cfi:3x", "cfi:1/1.5", "cfi:", "cfi:abc", "cfi:0", "cfi:1/0"]) {
+  for (const bad of [
+    "cfi:3x",
+    "cfi:1/1.5",
+    "cfi:",
+    "cfi:abc",
+    "cfi:0",
+    "cfi:1/0",
+  ]) {
     it(`rejects the malformed CFI "${bad}"`, () => {
       setBody(`<div><p><span>x</span></p></div>`);
       expect(resolveCFI(bad, document)).toBeNull();

@@ -19,7 +19,9 @@ export function isProgressDuplicate(
   last: ProgressPosition,
   eps: number = PROGRESS_EPSILON,
 ): boolean {
-  return next.chapter === last.chapter && Math.abs(next.percent - last.percent) < eps;
+  return (
+    next.chapter === last.chapter && Math.abs(next.percent - last.percent) < eps
+  );
 }
 
 /** Boot-time merge of the server progress and a (possibly newer) local cache
@@ -46,5 +48,7 @@ export function isBookmarkAtPosition(
   percent: number,
   eps: number = BOOKMARK_EPSILON,
 ): boolean {
-  return bookmark.chapter === chapter && Math.abs(bookmark.percent - percent) < eps;
+  return (
+    bookmark.chapter === chapter && Math.abs(bookmark.percent - percent) < eps
+  );
 }

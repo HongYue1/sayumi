@@ -64,7 +64,9 @@
   <div class="banner" role="alert">
     <Icon icon={WifiOff} size={15} />
     Server unreachable
-    <button type="button" class="retry" onclick={() => void check()}>Retry</button>
+    <button type="button" class="retry" onclick={() => void check()}
+      >Retry</button
+    >
   </div>
 {/if}
 

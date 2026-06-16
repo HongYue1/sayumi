@@ -50,7 +50,14 @@ export function applyTheme(id: string): void {
     localStorage.setItem("sayumi:theme", t.id);
     localStorage.setItem(
       "sayumi:theme-vars",
-      JSON.stringify({ id: t.id, bg: t.bg, fg: t.fg, accent: t.accent, accentFg, scheme }),
+      JSON.stringify({
+        id: t.id,
+        bg: t.bg,
+        fg: t.fg,
+        accent: t.accent,
+        accentFg,
+        scheme,
+      }),
     );
   } catch {
     // Private-mode / disabled storage: the theme still applies, just no cache.

@@ -136,7 +136,10 @@
     switch (m.type) {
       case "ready":
         ready = true;
-        sendToFrame({ type: "set-font-faces", fontFaces: buildReaderFontFaces() });
+        sendToFrame({
+          type: "set-font-faces",
+          fontFaces: buildReaderFontFaces(),
+        });
         flushQueue();
         onready?.();
         break;
@@ -144,7 +147,8 @@
         if (m.seq === seq) onloaded?.(m.seq);
         break;
       case "position":
-        if (m.seq === seq) onposition?.(m.chapterIndex, m.percent, m.cfi ?? undefined);
+        if (m.seq === seq)
+          onposition?.(m.chapterIndex, m.percent, m.cfi ?? undefined);
         break;
       case "at-boundary":
         if (m.seq === seq) onboundary?.(m.boundary);
@@ -175,7 +179,17 @@
   }
 
   const api: ChapterFrameAPI = {
-    loadChapter(data, settings, scrollTo, fragment, hasPrev, hasNext, restorePercent, restoreCfi, language) {
+    loadChapter(
+      data,
+      settings,
+      scrollTo,
+      fragment,
+      hasPrev,
+      hasNext,
+      restorePercent,
+      restoreCfi,
+      language,
+    ) {
       const nextSeq = ++seq;
       sendToFrame({
         type: "load",
@@ -198,7 +212,8 @@
       });
       sendToFrame({ type: "apply-settings", settings });
     },
-    applySettings: (settings) => sendToFrame({ type: "apply-settings", settings }),
+    applySettings: (settings) =>
+      sendToFrame({ type: "apply-settings", settings }),
     scrollTo: (percent) => sendToFrame({ type: "scroll-to", percent }),
     scrollToEnd: () => sendToFrame({ type: "scroll-to-end" }),
     scrollToFragment: (id) => sendToFrame({ type: "scroll-to-fragment", id }),
@@ -209,9 +224,16 @@
     goToPage: (page) => sendToFrame({ type: "go-to-page", page }),
     goToLastPage: () => sendToFrame({ type: "go-to-last-page" }),
     highlightSearch: (charOffset, matchLen, query, forSeq) =>
-      sendToFrame({ type: "highlight-search", seq: forSeq ?? seq, charOffset, matchLen, query }),
+      sendToFrame({
+        type: "highlight-search",
+        seq: forSeq ?? seq,
+        charOffset,
+        matchLen,
+        query,
+      }),
     clearHighlights: () => sendToFrame({ type: "clear-highlights" }),
-    setFontFaces: (css) => sendToFrame({ type: "set-font-faces", fontFaces: css }),
+    setFontFaces: (css) =>
+      sendToFrame({ type: "set-font-faces", fontFaces: css }),
   };
 
   onMount(() => onapi?.(api));

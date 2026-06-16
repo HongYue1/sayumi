@@ -120,7 +120,9 @@
                 class="entry"
                 class:current={row.entry === activeEntry}
                 class:top={row.depth === 0}
-                aria-current={row.entry === activeEntry ? "location" : undefined}
+                aria-current={row.entry === activeEntry
+                  ? "location"
+                  : undefined}
                 style:padding-left={`${row.depth * 0.75 + 0.75}rem`}
                 title={row.entry.title}
                 onclick={() => onnavigate(row.entry.href)}

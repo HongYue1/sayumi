@@ -31,7 +31,10 @@ describe("library.visible (filter + sort)", () => {
   beforeEach(reset);
 
   it("sorts by title in natural numeric order", () => {
-    library.books = [book({ id: "b", title: "Book 10" }), book({ id: "a", title: "Book 2" })];
+    library.books = [
+      book({ id: "b", title: "Book 10" }),
+      book({ id: "a", title: "Book 2" }),
+    ];
     expect(library.visible.map((b) => b.title)).toEqual(["Book 2", "Book 10"]);
   });
 
@@ -45,7 +48,10 @@ describe("library.visible (filter + sort)", () => {
   });
 
   it("ignores the instant query — only the debounced mirror filters", () => {
-    library.books = [book({ id: "1", title: "Dune" }), book({ id: "2", title: "Hyperion" })];
+    library.books = [
+      book({ id: "1", title: "Dune" }),
+      book({ id: "2", title: "Hyperion" }),
+    ];
     library.query = "dune"; // not yet debounced
     expect(library.visible).toHaveLength(2);
   });

@@ -42,7 +42,10 @@
       if (last && last.chapterIndex === r.chapterIndex) {
         last.items.push({ result: r, globalIdx });
       } else {
-        out.push({ chapterIndex: r.chapterIndex, items: [{ result: r, globalIdx }] });
+        out.push({
+          chapterIndex: r.chapterIndex,
+          items: [{ result: r, globalIdx }],
+        });
       }
     });
     return out;
@@ -199,25 +202,42 @@
       aria-controls="search-results"
       aria-expanded={results.length > 0}
       aria-autocomplete="list"
-      aria-activedescendant={results.length > 0 ? `sr-${currentIdx}` : undefined}
+      aria-activedescendant={results.length > 0
+        ? `sr-${currentIdx}`
+        : undefined}
     />
-    {#if countText}<span class="count tnum" aria-live="polite">{countText}</span>{/if}
-    <button class="close" onclick={onclose} aria-label="Close search"><Icon icon={X} size={18} /></button>
+    {#if countText}<span class="count tnum" aria-live="polite">{countText}</span
+      >{/if}
+    <button class="close" onclick={onclose} aria-label="Close search"
+      ><Icon icon={X} size={18} /></button
+    >
   </header>
 
-  <div class="list" bind:this={listEl} id="search-results" role="listbox" aria-label="Search results">
+  <div
+    class="list"
+    bind:this={listEl}
+    id="search-results"
+    role="listbox"
+    aria-label="Search results"
+  >
     {#if status === "loading"}
       <p class="state" role="status">Searching…</p>
     {:else if status === "error"}
       <div class="state" role="alert">
         <p>{errorMsg}</p>
-        <button class="ghost-btn" onclick={() => run(lastQuery)}>Try again</button>
+        <button class="ghost-btn" onclick={() => run(lastQuery)}
+          >Try again</button
+        >
       </div>
     {:else if status === "done" && results.length === 0}
       <p class="state" role="status">No results for “{query}”.</p>
     {:else if status === "done"}
       {#each groups as group (group.chapterIndex + "-" + group.items[0].globalIdx)}
-        <div class="group" role="group" aria-label={`Chapter ${group.chapterIndex + 1}`}>
+        <div
+          class="group"
+          role="group"
+          aria-label={`Chapter ${group.chapterIndex + 1}`}
+        >
           <div class="group-head">
             Chapter {group.chapterIndex + 1}
             <span class="group-count tnum">{group.items.length}</span>
@@ -233,14 +253,18 @@
               onclick={() => pick(it.result, it.globalIdx)}
             >
               <span class="snippet">
-                {#if it.result.snippetStart > 0}…{/if}{p.before}<mark>{p.match}</mark>{p.after}{#if it.result.snippetStart + it.result.snippetLen < it.result.snippet.length}…{/if}
+                {#if it.result.snippetStart > 0}…{/if}{p.before}<mark
+                  >{p.match}</mark
+                >{p.after}{#if it.result.snippetStart + it.result.snippetLen < it.result.snippet.length}…{/if}
               </span>
             </button>
           {/each}
         </div>
       {/each}
       {#if hasMore && !loadingMore}
-        <button class="more ghost-btn" onclick={loadMore}>Load more results</button>
+        <button class="more ghost-btn" onclick={loadMore}
+          >Load more results</button
+        >
       {/if}
       {#if loadingMore}<p class="state">Loading…</p>{/if}
     {/if}

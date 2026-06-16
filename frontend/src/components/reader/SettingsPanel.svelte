@@ -25,7 +25,10 @@
   ];
 
   // null = inherit the book's own heading alignment.
-  const TITLE_ALIGNS: { id: UserSettings["chapterTitleAlign"]; label: string }[] = [
+  const TITLE_ALIGNS: {
+    id: UserSettings["chapterTitleAlign"];
+    label: string;
+  }[] = [
     { id: null, label: "Auto" },
     { id: "left", label: "Left" },
     { id: "center", label: "Center" },
@@ -69,7 +72,10 @@
   function setRole(role: "regular" | "italic" | "bold", file: string): void {
     const fam = selectedUserFamily;
     if (!fam) return;
-    const next: Record<string, { regular?: string; italic?: string; bold?: string }> = {
+    const next: Record<
+      string,
+      { regular?: string; italic?: string; bold?: string }
+    > = {
       ...(s.fontRoles ?? {}),
     };
     const entry = { ...(next[fam.id] ?? {}) };
@@ -93,7 +99,10 @@
     }
   }
 
-  function set<K extends keyof UserSettings>(key: K, value: UserSettings[K]): void {
+  function set<K extends keyof UserSettings>(
+    key: K,
+    value: UserSettings[K],
+  ): void {
     settings.update({ [key]: value } as Partial<UserSettings>);
   }
 
@@ -142,7 +151,11 @@
 )}
   <div class="row" class:row-disabled={!!disabledReason}>
     <div class="row-head">
-      <span class="label">{label}{#if value !== null && headNote}<span class="head-note"> · {headNote?.(value)}</span>{/if}</span>
+      <span class="label"
+        >{label}{#if value !== null && headNote}<span class="head-note">
+            · {headNote?.(value)}</span
+          >{/if}</span
+      >
       {#if disabledReason}
         <span class="hint">{disabledReason}</span>
       {:else}
@@ -167,7 +180,13 @@
         aria-label={label}
         oninput={(e) => apply(+e.currentTarget.value)}
       />
-      <span class="val">{disabledReason ? "\u2014" : value === null ? "Auto" : `${value}${unit}`}</span>
+      <span class="val"
+        >{disabledReason
+          ? "\u2014"
+          : value === null
+            ? "Auto"
+            : `${value}${unit}`}</span
+      >
     </div>
   </div>
 {/snippet}
@@ -175,7 +194,9 @@
 <div class="settings">
   <header>
     <h2>Settings</h2>
-    <button class="close" onclick={onclose} aria-label="Close settings"><Icon icon={X} size={18} /></button>
+    <button class="close" onclick={onclose} aria-label="Close settings"
+      ><Icon icon={X} size={18} /></button
+    >
   </header>
 
   <div class="body">
@@ -295,7 +316,11 @@
         </div>
       {/if}
 
-      <button class="rescan" onclick={rescan} disabled={rescanning || s.preserveFonts}>
+      <button
+        class="rescan"
+        onclick={rescan}
+        disabled={rescanning || s.preserveFonts}
+      >
         {rescanning ? "Scanning…" : "Rescan ./Fonts"}
       </button>
     </section>
@@ -318,28 +343,95 @@
         </div>
       </div>
 
-      {@render autoRow("Line height", s.lineHeight, 1.2, 2.4, 0.05, 1.6, "", (v) => set("lineHeight", v))}
-      {@render autoRow("Paragraph spacing", s.paragraphSpacing, 0, 2, 0.1, 0.8, "em", (v) => set("paragraphSpacing", v))}
-      {@render autoRow("Paragraph indent", s.textIndent, 0, 4, 0.1, 1.2, "em", (v) => set("textIndent", v))}
-      {@render autoRow("Font weight", s.textWeight, 100, 900, 100, 400, "", (v) => set("textWeight", v), null, weightName)}
+      {@render autoRow(
+        "Line height",
+        s.lineHeight,
+        1.2,
+        2.4,
+        0.05,
+        1.6,
+        "",
+        (v) => set("lineHeight", v),
+      )}
+      {@render autoRow(
+        "Paragraph spacing",
+        s.paragraphSpacing,
+        0,
+        2,
+        0.1,
+        0.8,
+        "em",
+        (v) => set("paragraphSpacing", v),
+      )}
+      {@render autoRow(
+        "Paragraph indent",
+        s.textIndent,
+        0,
+        4,
+        0.1,
+        1.2,
+        "em",
+        (v) => set("textIndent", v),
+      )}
+      {@render autoRow(
+        "Font weight",
+        s.textWeight,
+        100,
+        900,
+        100,
+        400,
+        "",
+        (v) => set("textWeight", v),
+        null,
+        weightName,
+      )}
 
       <label class="toggle">
-        <input type="checkbox" checked={s.justify} onchange={(e) => set("justify", e.currentTarget.checked)} />
+        <input
+          type="checkbox"
+          checked={s.justify}
+          onchange={(e) => set("justify", e.currentTarget.checked)}
+        />
         Justify text
       </label>
       <label class="toggle">
-        <input type="checkbox" checked={s.hyphenation} onchange={(e) => set("hyphenation", e.currentTarget.checked)} />
+        <input
+          type="checkbox"
+          checked={s.hyphenation}
+          onchange={(e) => set("hyphenation", e.currentTarget.checked)}
+        />
         Hyphenation
       </label>
     </section>
 
     <section>
       <h3>Layout</h3>
-      {@render autoRow("Side margin", s.marginSide, 0, 160, 4, 48, "px", (v) => set("marginSide", v))}
-      {@render autoRow("Vertical margin", s.marginTop, 0, 160, 4, 48, "px", (v) => {
-        settings.update({ marginTop: v, marginBottom: v });
-      })}
-      {@render autoRow("Content width", s.contentWidth, 40, 100, 5, 70, "%", (v) => set("contentWidth", v), s.displayMode === "scroll" ? null : "Scroll mode only")}
+      {@render autoRow("Side margin", s.marginSide, 0, 160, 4, 48, "px", (v) =>
+        set("marginSide", v),
+      )}
+      {@render autoRow(
+        "Vertical margin",
+        s.marginTop,
+        0,
+        160,
+        4,
+        48,
+        "px",
+        (v) => {
+          settings.update({ marginTop: v, marginBottom: v });
+        },
+      )}
+      {@render autoRow(
+        "Content width",
+        s.contentWidth,
+        40,
+        100,
+        5,
+        70,
+        "%",
+        (v) => set("contentWidth", v),
+        s.displayMode === "scroll" ? null : "Scroll mode only",
+      )}
     </section>
 
     <section>
@@ -359,7 +451,17 @@
         </div>
       </div>
 
-      {@render autoRow("Title size", s.chapterTitleSize, 16, 64, 1, 32, "px", (v) => set("chapterTitleSize", v), s.headerSizesEnabled ? "Per-heading sizes on" : null)}
+      {@render autoRow(
+        "Title size",
+        s.chapterTitleSize,
+        16,
+        64,
+        1,
+        32,
+        "px",
+        (v) => set("chapterTitleSize", v),
+        s.headerSizesEnabled ? "Per-heading sizes on" : null,
+      )}
 
       <details class="per-header">
         <summary>Size each heading (H1–H6)</summary>
@@ -372,12 +474,42 @@
           Override each heading size
         </label>
         {#each HEADERS as h (h.key)}
-          {@render autoRow(h.label, s[h.key], 10, 100, 1, 32, "px", (v) => set(h.key, v), s.headerSizesEnabled ? null : "Turn on above to edit")}
+          {@render autoRow(
+            h.label,
+            s[h.key],
+            10,
+            100,
+            1,
+            32,
+            "px",
+            (v) => set(h.key, v),
+            s.headerSizesEnabled ? null : "Turn on above to edit",
+          )}
         {/each}
       </details>
 
-      {@render autoRow("Title weight", s.headerWeight, 100, 900, 100, 700, "", (v) => set("headerWeight", v), null, weightName)}
-      {@render autoRow("Title spacing", s.chapterTitleSpacing, 0, 4, 0.1, 1, "em", (v) => set("chapterTitleSpacing", v))}
+      {@render autoRow(
+        "Title weight",
+        s.headerWeight,
+        100,
+        900,
+        100,
+        700,
+        "",
+        (v) => set("headerWeight", v),
+        null,
+        weightName,
+      )}
+      {@render autoRow(
+        "Title spacing",
+        s.chapterTitleSpacing,
+        0,
+        4,
+        0.1,
+        1,
+        "em",
+        (v) => set("chapterTitleSpacing", v),
+      )}
     </section>
 
     <section>
