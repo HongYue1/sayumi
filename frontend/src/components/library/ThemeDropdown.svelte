@@ -35,7 +35,8 @@
       e.key !== "ArrowDown" &&
       e.key !== "ArrowUp" &&
       e.key !== "Home" &&
-      e.key !== "End"
+      e.key !== "End" &&
+      e.key !== "Tab"
     ) {
       return;
     }
@@ -54,6 +55,17 @@
         break;
       case "End":
         next = items.length - 1;
+        break;
+      case "Tab":
+        // Contain focus: Tab wraps forward, Shift+Tab backward, so keyboard
+        // focus can't escape into the page behind the open popover.
+        next = e.shiftKey
+          ? cur < 0
+            ? items.length - 1
+            : (cur - 1 + items.length) % items.length
+          : cur < 0
+            ? 0
+            : (cur + 1) % items.length;
         break;
       case "ArrowDown":
         next = cur < 0 ? 0 : (cur + 1) % items.length;

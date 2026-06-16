@@ -180,6 +180,7 @@ class Library {
 
   async removeCustomFlair(id: string): Promise<void> {
     const prevFlairs = this.customFlairs;
+    const prevFilters = this.flairFilters;
     const prevBooks = this.books;
     // Optimistic: drop the flair, its filter, and any local assignment.
     this.customFlairs = this.customFlairs.filter((f) => f.id !== id);
@@ -191,6 +192,7 @@ class Library {
       await deleteFlair(id);
     } catch (e) {
       this.customFlairs = prevFlairs;
+      this.flairFilters = prevFilters;
       this.books = prevBooks;
       toast.show(msg(e, "Could not delete flair"));
     }
@@ -261,6 +263,7 @@ class Library {
     try {
       await deleteBook(id);
       this.books = this.books.filter((b) => b.id !== id);
+      this.hayCache.delete(id);
     } catch (e) {
       toast.show(msg(e, "Could not remove book"));
     }
