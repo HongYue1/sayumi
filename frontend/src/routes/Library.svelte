@@ -10,13 +10,7 @@
   import ProfileMenu from "~/components/library/ProfileMenu.svelte";
   import ProfileDialog from "~/components/library/ProfileDialog.svelte";
   import Icon from "~/lib/Icon.svelte";
-  import {
-    Plus,
-    RefreshCw,
-    ArrowUpDown,
-    Check,
-    X,
-  } from "@lucide/svelte";
+  import { Plus, RefreshCw, ArrowUpDown, Check, X } from "@lucide/svelte";
 
   import { DEFAULT_FLAIRS } from "~/lib/flairs";
 
