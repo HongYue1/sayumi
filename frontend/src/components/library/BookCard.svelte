@@ -285,7 +285,7 @@
     z-index: 1;
     padding: 0;
     border: none;
-    border-radius: 3px;
+    border-radius: 6px;
     background: transparent;
     cursor: pointer;
   }
@@ -304,14 +304,16 @@
   .cover {
     position: relative;
     aspect-ratio: 2 / 3;
-    border-radius: 3px;
+    border-radius: 6px;
     overflow: hidden;
     background: var(--surface);
-    /* Restrained, editorial elevation: a hairline border + a subtle, grounded
-       resting shadow. Hover lifts the cover and deepens the shadow so the book
-       reads as picked up off the shelf. */
+    /* Glossier shelf: a hairline border + a resting two-layer elevation so each
+       card sits slightly proud even at rest. Hover lifts it further and deepens
+       the shadow so the book reads as picked up off the shelf. */
     border: 1px solid var(--hairline);
-    box-shadow: 0 1px 3px color-mix(in srgb, var(--fg) 12%, transparent);
+    box-shadow:
+      0 2px 6px color-mix(in srgb, var(--fg) 14%, transparent),
+      0 1px 2px color-mix(in srgb, var(--fg) 10%, transparent);
     /* The lift is transform (GPU-composited); the shadow + border only change
        on hover/focus. Hover repaints one card at a time and never runs at load,
        so it stays clear of the Lighthouse budget. */

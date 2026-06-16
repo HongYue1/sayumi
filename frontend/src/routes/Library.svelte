@@ -315,10 +315,22 @@
   }
 
   /* ---- masthead ---- */
+  /* Sticky so search/sort/flairs stay reachable while scrolling a long shelf.
+     The translucent fill + backdrop blur only reads once content scrolls
+     underneath; the hairline doubles as the divider when pinned. backdrop-filter
+     is a hover/scroll-time effect (not a load-time cost), so the Lighthouse
+     budget is untouched. */
   .masthead {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    padding-top: var(--sp-4);
     padding-bottom: var(--sp-4);
-    border-bottom: 1px solid var(--hairline);
     margin-bottom: var(--sp-6);
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--hairline);
   }
   .brand-row {
     display: flex;
@@ -624,7 +636,7 @@
   /* ---- grid ---- */
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
     gap: var(--sp-8) var(--sp-4);
   }
   @media (max-width: 768px) {
