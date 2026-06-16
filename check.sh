@@ -26,8 +26,25 @@ have() { command -v "$1" &>/dev/null; }
 
 if have bun; then JS=bun; else JS=npm; fi
 
-# ── 0. modules tidy (read-only) ───────────────────────────────────────────────
-step "0. go.mod / go.sum tidy"
+# ── 1. frontend build (required before the Go gates) ─────────────────────────
+# cmd/sayumi/main.go embeds the built SPA via //go:embed dist, so go vet, the
+# linters, go test and go build all fail on a clean checkout unless
+# cmd/sayumi/dist is populated first. Build it up front so `make check` is
+# robust on any fresh clone. An existing build is reused (keeping --fast fast
+# and not duplicating CI's prebuild); the authoritative clean build still runs
+# in step 10 for full checks.
+step "1. Frontend build (//go:embed dist)"
+frontend_built=0
+if [[ -e cmd/sayumi/dist/index.html ]]; then
+  skip "frontend build (reusing existing cmd/sayumi/dist)"
+elif ( cd frontend && "$JS" run build >/dev/null 2>&1 ); then
+  ok "frontend build"; frontend_built=1
+else
+  fail "frontend build failed (cd frontend && $JS run build)"
+fi
+
+# ── 2. modules tidy (read-only) ──────────────────────────────────────────────
+step "2. go.mod / go.sum tidy"
 tmp="$(mktemp -d)"
 cp go.mod go.sum "$tmp"/
 if go mod tidy >/dev/null 2>&1 && diff -q go.mod "$tmp/go.mod" >/dev/null && diff -q go.sum "$tmp/go.sum" >/dev/null; then
@@ -38,8 +55,8 @@ fi
 cp "$tmp"/go.mod "$tmp"/go.sum . 2>/dev/null || true   # restore originals
 rm -rf "$tmp"
 
-# ── 1. formatting (read-only) ─────────────────────────────────────────────────
-step "1. Formatting"
+# ── 3. formatting (read-only) ────────────────────────────────────────────────
+step "3. Go formatting"
 fmt_tool="gofmt"; have gofumpt && fmt_tool="gofumpt"
 unformatted="$($fmt_tool -l cmd internal 2>/dev/null)"
 [[ -z "$unformatted" ]] && ok "$fmt_tool: all files formatted" || fail "$fmt_tool: needs formatting:
@@ -52,14 +69,18 @@ else
   skip "goimports (go install golang.org/x/tools/cmd/goimports@latest)"
 fi
 
-# ── 2. go vet ─────────────────────────────────────────────────────────────────
-step "2. go vet"
+# ── 4. frontend formatting (read-only) ───────────────────────────────────────
+step "4. Frontend formatting"
+( cd frontend && "$JS" run format:check >/dev/null 2>&1 ) && ok "prettier: all files formatted" || fail "prettier failed (run: cd frontend && $JS run format)"
+
+# ── 5. go vet ────────────────────────────────────────────────────────────────
+step "5. go vet"
 vet_out="$(go vet ./... 2>&1)"
 [[ -z "$vet_out" ]] && ok "no issues" || fail "issues:
 $(echo "$vet_out" | sed 's/^/       /')"
 
-# ── 3. golangci-lint (read-only) ──────────────────────────────────────────────
-step "3. golangci-lint"
+# ── 6. golangci-lint (read-only) ─────────────────────────────────────────────
+step "6. golangci-lint"
 if have golangci-lint; then
   lint_out="$(golangci-lint run ./... --timeout=5m 2>&1)"; [[ $? -eq 0 ]] \
     && ok "no issues" || fail "issues:
@@ -68,8 +89,8 @@ else
   skip "golangci-lint (https://golangci-lint.run/usage/install)"
 fi
 
-# ── 4. govulncheck ────────────────────────────────────────────────────────────
-step "4. govulncheck"
+# ── 7. govulncheck ───────────────────────────────────────────────────────────
+step "7. govulncheck"
 if have govulncheck; then
   vuln_out="$(govulncheck ./... 2>&1)"
   echo "$vuln_out" | grep -q "No vulnerabilities found" \
@@ -79,8 +100,8 @@ else
   skip "govulncheck (go install golang.org/x/vuln/cmd/govulncheck@latest)"
 fi
 
-# ── 5. go test ────────────────────────────────────────────────────────────────
-step "5. go test"
+# ── 8. go test ───────────────────────────────────────────────────────────────
+step "8. go test"
 # The race detector requires cgo (CGO_ENABLED=1 + a C compiler). Sayumi
 # otherwise builds CGO-free (modernc sqlite), so fall back to a plain run when
 # cgo is unavailable rather than failing on a CGO-disabled CI/fresh machine.
@@ -94,14 +115,21 @@ test_out="$(go test $race_flag ./... 2>&1)"; test_exit=$?
 echo "$test_out" | sed 's/^/   /'
 [[ $test_exit -eq 0 ]] && ok "tests passed" || fail "tests failed"
 
-# ── 6. frontend ───────────────────────────────────────────────────────────────
-step "6. svelte-check"
-( cd frontend && "$JS" run check >/dev/null 2>&1 ) && ok "no type/a11y issues" || fail "svelte-check failed (run: cd frontend && $JS run check)"
+# ── 9. frontend tests ────────────────────────────────────────────────────────
+step "9. frontend tests"
+( cd frontend && "$JS" run check >/dev/null 2>&1 ) && ok "svelte-check: no type/a11y issues" || fail "svelte-check failed (run: cd frontend && $JS run check)"
+( cd frontend && "$JS" run test >/dev/null 2>&1 ) && ok "vitest: tests passed" || fail "vitest failed (run: cd frontend && $JS run test)"
 
-# ── 7. builds ─────────────────────────────────────────────────────────────────
+# ── 10. builds ───────────────────────────────────────────────────────────────
 if [[ "$FAST" -eq 0 ]]; then
-  step "7. Builds"
-  ( cd frontend && "$JS" run build >/dev/null 2>&1 ) && ok "frontend build" || fail "frontend build failed"
+  step "10. Builds"
+  if [[ "$frontend_built" -eq 1 ]]; then
+    ok "frontend build (already built in step 1)"
+  elif ( cd frontend && "$JS" run build >/dev/null 2>&1 ); then
+    ok "frontend build"
+  else
+    fail "frontend build failed"
+  fi
   CGO_ENABLED=0 go build -o /dev/null ./cmd/sayumi 2>/dev/null && ok "go build" || fail "go build failed"
 fi
 

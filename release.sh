@@ -5,6 +5,11 @@
 # Unlike build.sh (which tunes for THIS machine with GOAMD64=v3), release builds
 # use the baseline instruction set so they run on any CPU of that arch.
 #
+# Builds are reproducible: for a given commit the binaries, archives and
+# SHA256SUMS are bit-for-bit identical regardless of when or where they are
+# built. The single timestamp baked into everything is SOURCE_DATE_EPOCH
+# (defaults to the commit time); export it to pin a specific instant.
+#
 #   ./release.sh                 # build every target into ./dist-release/
 #   ./release.sh linux/amd64     # build only the given target(s)
 #
@@ -13,7 +18,16 @@ cd "$(dirname "$0")"
 
 OUT="dist-release"
 VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
-DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# Reproducible builds: derive one stable timestamp from the source (the tagged
+# commit) unless the caller pins SOURCE_DATE_EPOCH. Everything downstream — the
+# buildDate stamped into the binary and the mtimes inside the archives — uses
+# this single epoch so output is deterministic.
+: "${SOURCE_DATE_EPOCH:=$(git log -1 --pretty=%ct 2>/dev/null || date -u +%s)}"
+export SOURCE_DATE_EPOCH
+DATE="$(date -u -d "@${SOURCE_DATE_EPOCH}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+        || date -u -r "${SOURCE_DATE_EPOCH}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+        || date -u +%Y-%m-%dT%H:%M:%SZ)"
 LDFLAGS="-s -w -X main.version=${VERSION} -X main.buildDate=${DATE}"
 
 if command -v bun >/dev/null 2>&1; then JS=bun; else JS=npm; fi
@@ -50,7 +64,7 @@ rm -rf "$OUT"/sayumi-* "$OUT"/_stage 2>/dev/null || true
 # executable as ./Fonts/, ready to use. fonts-bundle/ is the repo source.
 FONTS_SRC="fonts-bundle"
 
-echo "▸ version $VERSION"
+echo "▸ version $VERSION (SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH -> $DATE)"
 for tgt in "${TARGETS[@]}"; do
   os="${tgt%/*}"; arch="${tgt#*/}"
   ext=""; [[ "$os" == "windows" ]] && ext=".exe"
@@ -80,19 +94,29 @@ Fonts:
   "Rescan" in the reader's font settings.
 EOF
 
+  # Normalize mtimes so the zip (which stores filesystem timestamps) is
+  # reproducible; the tar below pins mtime via --mtime regardless.
+  TZ=UTC find "$stage" -print0 | xargs -0 touch -d "@${SOURCE_DATE_EPOCH}" 2>/dev/null \
+    || TZ=UTC find "$stage" -exec touch -t "$(date -u -d "@${SOURCE_DATE_EPOCH}" +%Y%m%d%H%M.%S 2>/dev/null)" {} + 2>/dev/null || true
+
   # Package from the staging dir so the archive unpacks to a single folder.
+  # Deterministic: stable entry order, fixed mtimes, zeroed owner/group, and a
+  # timestamp-free gzip stream (gzip -n).
   ( cd "$OUT/_stage"
     if [[ "$os" == "windows" ]]; then
-      zip -qr "../sayumi-${os}-${arch}.zip" "sayumi-${os}-${arch}"
+      find "sayumi-${os}-${arch}" -print | LC_ALL=C sort | \
+        TZ=UTC zip -X -q "../sayumi-${os}-${arch}.zip" -@
     else
-      tar -czf "../sayumi-${os}-${arch}.tar.gz" "sayumi-${os}-${arch}"
+      tar --sort=name --mtime="@${SOURCE_DATE_EPOCH}" \
+          --owner=0 --group=0 --numeric-owner \
+          -cf - "sayumi-${os}-${arch}" | gzip -n -9 > "../sayumi-${os}-${arch}.tar.gz"
     fi
   )
 done
 rm -rf "$OUT/_stage"
 
 echo "▸ checksums"
-( cd "$OUT" && sha256sum sayumi-* > SHA256SUMS )
+( cd "$OUT" && LC_ALL=C sha256sum sayumi-* > SHA256SUMS )
 
 echo "✓ release artifacts in ./$OUT/"
 ls -1 "$OUT"

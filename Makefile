@@ -41,5 +41,6 @@ version:
 clean:
 	rm -f sayumi sayumi.exe
 	rm -rf dist-release
-	rm -rf cmd/sayumi/dist/*
+	rm -rf cmd/sayumi/dist
+	mkdir -p cmd/sayumi/dist
 	touch cmd/sayumi/dist/.gitkeep

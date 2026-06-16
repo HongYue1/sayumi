@@ -47,7 +47,23 @@ linters:
     - intrange # `for i := range n` instead of C-style counting loops
     - fatcontext # no context re-derivation inside loops
 
+    # --- supply-chain: enforce the no-new-dependencies rule ---
+    - depguard # only stdlib + this module + approved external import roots
+
   settings:
+    depguard:
+      # Enforce the "no new dependencies" rule at import time. A new third-party
+      # import fails lint until it is explicitly added here as a reviewed choice.
+      rules:
+        main:
+          list-mode: strict
+          allow:
+            - $gostd
+            - sayumi
+            - golang.org/x/crypto
+            - golang.org/x/image
+            - golang.org/x/net
+            - modernc.org/sqlite
     misspell:
       locale: US
     sloglint:
@@ -77,6 +93,4 @@ linters:
 #                  # background contexts (e.g. context.WithoutCancel for warm-up)
 #                  # -- annotate those with //nolint:contextcheck.
 #   - unparam      # unused function parameters.
-#   - depguard     # enforce your "no new dependencies" rule with an allow-list,
-#                  # e.g. only stdlib + golang.org/x/* + modernc.org/sqlite.
 # ---------------------------------------------------------------------------
