@@ -1,0 +1,15 @@
+# Build output (vite emits to ../cmd/sayumi/dist, but ignore any local dist too)
+dist/
+
+# Dependencies
+node_modules/
+
+# Lockfiles
+bun.lock
+bun.lockb
+package-lock.json
+
+# Generated / vendored assets
+*.min.js
+*.min.css
+public/fonts/
