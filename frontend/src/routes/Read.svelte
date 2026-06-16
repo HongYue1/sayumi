@@ -99,6 +99,30 @@
   const currentBookmarkId = $derived(
     bookmarks.find((b) => isBookmarkAtPosition(b, currentChapter, chapterPercent))?.id ?? null,
   );
+  // The TOC entry that represents the chapter being read, so TocPanel can
+  // highlight it. A TOC href maps to a spine chapter via resolveHref; pick the
+  // entry with the greatest chapterIndex at or before the current chapter, so a
+  // chapter with no TOC line of its own inherits the nearest preceding
+  // heading's highlight. Ties (several entries in the same chapter) keep the
+  // first in document order — the chapter-level heading.
+  const activeTocHref = $derived.by(() => {
+    const b = book;
+    if (!b) return null;
+    let bestHref: string | null = null;
+    let bestIdx = -1;
+    const walk = (entries: typeof b.toc): void => {
+      for (const e of entries) {
+        const resolved = resolveHref(e.href, b.spine);
+        if (resolved && resolved.chapterIndex <= currentChapter && resolved.chapterIndex > bestIdx) {
+          bestIdx = resolved.chapterIndex;
+          bestHref = e.href;
+        }
+        if (e.children?.length) walk(e.children);
+      }
+    };
+    walk(b.toc);
+    return bestHref;
+  });
 
   // Non-reactive instance state.
   let api: ChapterFrameAPI | null = null;
@@ -787,7 +811,7 @@
     {#if activePanel === "toc" && book}
       <div class="panel left" role="dialog" aria-modal="true" aria-label="Table of contents" {@attach focusTrap}>
         {#await tocPanel() then { default: TocPanel }}
-          <TocPanel toc={book.toc} onnavigate={handleTocNavigate} />
+          <TocPanel toc={book.toc} activeHref={activeTocHref} onnavigate={handleTocNavigate} />
         {/await}
       </div>
       <button class="scrim" aria-label="Close" onclick={closePanel}></button>

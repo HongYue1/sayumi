@@ -3,16 +3,19 @@
 
   interface Props {
     toc: TocEntry[];
+    activeHref: string | null;
     onnavigate: (href: string) => void;
   }
 
-  let { toc, onnavigate }: Props = $props();
+  let { toc, activeHref, onnavigate }: Props = $props();
 </script>
 
 {#snippet node(entry: TocEntry)}
   <li>
     <button
       class="entry"
+      class:current={entry.href === activeHref}
+      aria-current={entry.href === activeHref ? "location" : undefined}
       style:padding-left={`${entry.depth * 0.75 + 0.75}rem`}
       onclick={() => onnavigate(entry.href)}
     >
@@ -77,6 +80,11 @@
   }
   .entry:active {
     transform: scale(0.99);
+  }
+  .entry.current {
+    background: var(--surface-hover);
+    color: var(--accent);
+    font-weight: 600;
   }
   .empty {
     margin: 0 var(--sp-3);
