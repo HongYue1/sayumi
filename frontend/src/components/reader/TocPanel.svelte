@@ -119,8 +119,10 @@
               <button
                 class="entry"
                 class:current={row.entry === activeEntry}
+                class:top={row.depth === 0}
                 aria-current={row.entry === activeEntry ? "location" : undefined}
                 style:padding-left={`${row.depth * 0.75 + 0.75}rem`}
+                title={row.entry.title}
                 onclick={() => onnavigate(row.entry.href)}
               >
                 {row.entry.title}
@@ -186,16 +188,32 @@
       background var(--dur-fast) var(--ease-out),
       transform var(--dur-fast) var(--ease-out);
   }
+  /* Hierarchy: top-level entries read as headings (full ink, medium weight),
+     nested entries recede (muted) so a Part > Chapter TOC has visible depth. */
+  .entry {
+    position: relative;
+    color: var(--muted);
+    font-weight: 400;
+  }
+  .entry.top {
+    color: var(--fg);
+    font-weight: 500;
+  }
   .entry:hover {
     background: var(--surface-hover);
+    color: var(--fg);
   }
   .entry:active {
     transform: scale(0.99);
   }
-  .entry.current {
+  /* Current chapter: accent text + tinted row + a left accent bar (inset shadow
+     so it never changes the row height the virtual-scroll math depends on). */
+  .entry.current,
+  .entry.current.top {
     background: var(--surface-hover);
     color: var(--accent);
     font-weight: 600;
+    box-shadow: inset 2px 0 0 var(--accent);
   }
   .empty {
     margin: 0 var(--sp-3);
