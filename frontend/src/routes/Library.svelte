@@ -7,6 +7,8 @@
   import { router } from "~/lib/router.svelte";
   import BookCard from "~/components/library/BookCard.svelte";
   import ThemeDropdown from "~/components/library/ThemeDropdown.svelte";
+  import ProfileMenu from "~/components/library/ProfileMenu.svelte";
+  import ProfileDialog from "~/components/library/ProfileDialog.svelte";
   import Icon from "~/lib/Icon.svelte";
   import {
     Plus,
@@ -14,7 +16,6 @@
     ArrowUpDown,
     Check,
     X,
-    LogOut,
   } from "@lucide/svelte";
 
   import { DEFAULT_FLAIRS } from "~/lib/flairs";
@@ -25,6 +26,11 @@
   // child elements, since dragenter/dragleave fire per element.
   let dragDepth = $state(0);
   const dragging = $derived(dragDepth > 0);
+
+  // Which profile dialog (if any) is open. Rendered at .library level — never
+  // inside the masthead, whose backdrop-filter would clip a fixed overlay to
+  // the masthead box.
+  let profileDialog = $state<"clone" | "delete" | null>(null);
 
   onMount(() => {
     library.load();
@@ -95,11 +101,10 @@
       <div class="profile">
         <ThemeDropdown />
         <span class="profile-divider" aria-hidden="true"></span>
-        <span class="who" title={session.profile ?? ""}>{session.profile}</span>
-        <button class="signout" onclick={() => session.logout()}>
-          <Icon icon={LogOut} size={16} />
-          Sign out
-        </button>
+        <ProfileMenu
+          onclone={() => (profileDialog = "clone")}
+          ondelete={() => (profileDialog = "delete")}
+        />
       </div>
     </div>
 
@@ -252,6 +257,14 @@
         />
       {/each}
     </div>
+  {/if}
+
+  {#if profileDialog && session.profile}
+    <ProfileDialog
+      mode={profileDialog}
+      profileName={session.profile}
+      onclose={() => (profileDialog = null)}
+    />
   {/if}
 
   {#if dragging}
@@ -470,42 +483,6 @@
     height: 1.4rem;
     background: var(--hairline-strong);
   }
-  .who {
-    color: var(--fg);
-    font-size: var(--text-sm);
-    font-weight: 500;
-    max-width: 12rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .signout {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--sp-1);
-    padding: 0.35rem 0.7rem;
-    border: 1px solid transparent;
-    border-radius: var(--radius);
-    background: transparent;
-    color: var(--muted);
-    font: inherit;
-    font-size: var(--text-sm);
-    cursor: pointer;
-    transition:
-      background var(--dur) var(--ease-out),
-      color var(--dur) var(--ease-out),
-      border-color var(--dur) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
-  }
-  .signout:hover {
-    color: var(--fg);
-    background: var(--surface-hover);
-    border-color: var(--hairline-strong);
-  }
-  .signout:active {
-    transform: scale(0.97);
-  }
-
   /* ---- browse bar (label + flairs) ---- */
   .browsebar {
     margin-bottom: var(--sp-6);
