@@ -84,7 +84,13 @@
   }
 
   function pick(action: () => void): void {
-    close(false);
+    // Restore focus to the trigger BEFORE running the action. Clone/Delete open
+    // a focusTrap'd dialog that snapshots document.activeElement on mount and
+    // restores it on close; if we closed with restoreFocus=false the menu item
+    // would be removed, activeElement would fall to <body>, and the dialog would
+    // hand focus back to <body> instead of this trigger. Focusing the trigger
+    // here makes it the snapshot, so focus round-trips correctly.
+    close(true);
     action();
   }
 </script>
