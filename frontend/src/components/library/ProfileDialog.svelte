@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { session } from "~/lib/session.svelte";
-  import { ApiError } from "~/api/client";
+  import { ApiError, listProfiles } from "~/api/client";
   import { toast } from "~/lib/toast.svelte";
   import { focusTrap } from "~/lib/focusTrap";
   import Icon from "~/lib/Icon.svelte";
@@ -26,12 +26,19 @@
   let confirmName = $state("");
   let pin = $state("");
   let hasPin = $state<boolean | null>(null);
+  // Existing profile names, lowercased (clone mode only), for a case-insensitive
+  // duplicate check; null while still loading.
+  let takenNames = $state<string[] | null>(null);
 
   onMount(() => {
     // Clone never needs the PIN gate; resolve it immediately so deleteReady
-    // (unused in clone mode) isn't left pending on null.
+    // (unused in clone mode) isn't left pending on null. Also load the existing
+    // names so a duplicate is blocked client-side before the server 400s.
     if (mode !== "delete") {
       hasPin = false;
+      listProfiles()
+        .then((ps) => (takenNames = ps.map((p) => p.name.toLowerCase())))
+        .catch(() => (takenNames = []));
       return;
     }
     session
@@ -40,8 +47,16 @@
       .catch(() => (hasPin = false));
   });
 
+  const trimmedNewName = $derived(newName.trim());
+  // Case-insensitive: profiles are stored as on-disk dirs, and two profiles
+  // differing only by case is a footgun regardless. profileName is itself in
+  // takenNames once loaded, so this also covers the current name; the explicit
+  // !== profileName below gives instant feedback before the list arrives.
+  const nameTaken = $derived(
+    takenNames !== null && takenNames.includes(trimmedNewName.toLowerCase()),
+  );
   const cloneReady = $derived(
-    newName.trim().length > 0 && newName.trim() !== profileName,
+    trimmedNewName.length > 0 && trimmedNewName !== profileName && !nameTaken,
   );
   // Require an exact name match, plus a PIN when the profile has one. While
   // hasPin is still loading (null) the delete stays disabled.
@@ -131,14 +146,19 @@
             maxlength="32"
             autocomplete="off"
             placeholder={`${profileName} (copy)`}
+            {@attach (el) => (el as HTMLInputElement).focus()}
           />
         </label>
+        {#if nameTaken}
+          <p class="note" role="alert">That name is already taken.</p>
+        {/if}
         <label class="field">
           <span>PIN for the copy <em>(optional)</em></span>
           <input
             type="password"
             bind:value={newPin}
             inputmode="numeric"
+            maxlength="12"
             autocomplete="new-password"
             placeholder="4–12 digits"
           />
@@ -159,6 +179,7 @@
             autocomplete="off"
             autocapitalize="off"
             spellcheck="false"
+            {@attach (el) => (el as HTMLInputElement).focus()}
           />
         </label>
         {#if hasPin}
@@ -168,6 +189,7 @@
               type="password"
               bind:value={pin}
               inputmode="numeric"
+              maxlength="12"
               autocomplete="current-password"
             />
           </label>
@@ -346,6 +368,14 @@
     margin: 0;
     color: var(--danger);
     font-size: var(--text-sm);
+  }
+  /* Pulled up tight under the name field (the form's flex gap would otherwise
+     float it); flags a duplicate name as the user types. */
+  .note {
+    margin: 0;
+    margin-top: calc(var(--sp-3) * -1);
+    color: var(--danger);
+    font-size: var(--text-xs);
   }
   .actions {
     display: flex;
