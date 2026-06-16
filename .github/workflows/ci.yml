@@ -9,10 +9,11 @@ on:
 permissions:
   contents: read
 
-# Cancel superseded runs on the same ref instead of paying for stale CI.
+# Supersede stale PR/branch runs, but never cancel a run on the default branch
+# so every commit that lands on main/master gets a complete CI pass.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
 
 jobs:
   check:
