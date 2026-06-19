@@ -33,3 +33,4 @@
 /.claude/
 /.agents/
 /skills-lock.json
+*.test.exe
