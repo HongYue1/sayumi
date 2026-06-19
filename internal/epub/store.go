@@ -279,6 +279,13 @@ func (s *EPUBStore) acquire(filePath string) (*zipEntry, error) {
 	}
 	e.reader = rc
 	e.index = buildIndex(&rc.Reader)
+	// If a concurrent open evicted this placeholder during the unlocked
+	// zip.OpenReader window, our ref kept it alive but marked it evicted and
+	// dropped it from the LRU order. Resurrect it so the first Release doesn't
+	// close the just-opened reader after a single use: clear the flag and
+	// re-touch before counting it against the cap.
+	e.evicted = false
+	s.lru.touch(filePath, e)
 	// Reader attached and protected by our ref; safe to count against the cap.
 	s.evictExcess()
 	s.mu.Unlock()

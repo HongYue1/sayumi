@@ -467,7 +467,20 @@ func rewriteNodeURLsDepth(n *html.Node, chapterDir, resourceBase, resourceToken 
 				}
 			}
 
-			if !shouldRewrite || !isRewritableResourceReference(attr.Val) {
+			if !shouldRewrite {
+				continue
+			}
+
+			// Neutralize remote refs so a crafted book can't beacon reading
+			// activity (which book, when, which page) via an automatic
+			// subresource load. Mirrors the CSS url()/@import path; about:invalid
+			// is the CSS-defined URL guaranteed never to load. In-EPUB refs fall
+			// through to resolution below.
+			if isExternalResourceReference(attr.Val) {
+				n.Attr[i].Val = "about:invalid"
+				continue
+			}
+			if !isRewritableResourceReference(attr.Val) {
 				continue
 			}
 
@@ -491,29 +504,117 @@ func rewriteStyleElementText(n *html.Node, chapterDir, resourceBase, resourceTok
 	}
 }
 
+type srcsetCandidate struct {
+	url        string
+	descriptor string
+}
+
+// rewriteSrcsetValue rewrites each candidate URL in a srcset attribute,
+// neutralizing remote refs to about:invalid and resolving in-EPUB refs. It
+// tokenizes per the WHATWG srcset algorithm (URL = run of non-whitespace,
+// optional descriptor up to the next comma) rather than splitting on commas,
+// so a data: URL that contains a comma is not split mid-URL.
 func rewriteSrcsetValue(srcset, chapterDir, resourceBase, resourceToken string) string {
-	parts := strings.Split(srcset, ",")
-	rewrittenAny := false
-
-	for i, part := range parts {
-		fields := strings.Fields(strings.TrimSpace(part))
-		if len(fields) == 0 {
-			parts[i] = strings.TrimSpace(part)
-			continue
-		}
-
-		rewrittenURL, ok := buildResourceURL(chapterDir, resourceBase, fields[0], resourceToken)
-		if ok {
-			fields[0] = rewrittenURL
-			rewrittenAny = true
-		}
-		parts[i] = strings.Join(fields, " ")
-	}
-
-	if !rewrittenAny {
+	candidates := splitSrcsetCandidates(srcset)
+	if len(candidates) == 0 {
 		return srcset
 	}
-	return strings.Join(parts, ", ")
+
+	changed := false
+	for i := range candidates {
+		raw := candidates[i].url
+		var newURL string
+		switch {
+		case isExternalResourceReference(raw):
+			newURL = "about:invalid"
+		default:
+			rewritten, ok := buildResourceURL(chapterDir, resourceBase, raw, resourceToken)
+			if !ok {
+				continue
+			}
+			newURL = rewritten
+		}
+		if newURL == raw {
+			continue
+		}
+		candidates[i].url = newURL
+		changed = true
+	}
+
+	if !changed {
+		return srcset
+	}
+
+	var b strings.Builder
+	for i, cand := range candidates {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(cand.url)
+		if cand.descriptor != "" {
+			b.WriteByte(' ')
+			b.WriteString(cand.descriptor)
+		}
+	}
+	return b.String()
+}
+
+// splitSrcsetCandidates tokenizes a srcset attribute into (url, descriptor)
+// candidates following the WHATWG parsing algorithm. A URL is a run of
+// non-whitespace characters (so an embedded comma in a data: URL stays with
+// the URL); a trailing comma on that run marks a candidate with no descriptor,
+// otherwise the descriptor runs up to the next comma separator. Empty
+// candidates are skipped.
+func splitSrcsetCandidates(srcset string) []srcsetCandidate {
+	var candidates []srcsetCandidate
+	i, n := 0, len(srcset)
+	for i < n {
+		for i < n && (isASCIIWhitespace(srcset[i]) || srcset[i] == ',') {
+			i++
+		}
+		if i >= n {
+			break
+		}
+
+		start := i
+		for i < n && !isASCIIWhitespace(srcset[i]) {
+			i++
+		}
+		token := srcset[start:i]
+
+		var url, descriptor string
+		if strings.HasSuffix(token, ",") {
+			url = strings.TrimRight(token, ",")
+		} else {
+			url = token
+			for i < n && isASCIIWhitespace(srcset[i]) {
+				i++
+			}
+			dStart := i
+			for i < n && srcset[i] != ',' {
+				i++
+			}
+			descriptor = strings.TrimSpace(srcset[dStart:i])
+			if i < n && srcset[i] == ',' {
+				i++
+			}
+		}
+
+		if url == "" {
+			continue
+		}
+		candidates = append(candidates, srcsetCandidate{url: url, descriptor: descriptor})
+	}
+	return candidates
+}
+
+func isASCIIWhitespace(b byte) bool {
+	switch b {
+	case ' ', '\t', '\n', '\r', '\f':
+		return true
+	default:
+		return false
+	}
 }
 
 func buildResourceURL(baseDir, resourceBase, rawRef, resourceToken string) (string, bool) {
