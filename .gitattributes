@@ -1,0 +1,47 @@
+# Enforce LF line endings in the repo AND working tree on every OS (incl.
+# Windows / Git-Bash). gofmt, gofumpt, goimports, prettier, and the bash
+# scripts all require LF; a CRLF checkout makes every Go/TS file fail
+# formatting and can break ./*.sh under Git Bash. eol=lf overrides
+# core.autocrlf, so contributors need no special local git config.
+* text=auto eol=lf
+
+# --- explicit text types (belt and suspenders) ---
+*.go       text eol=lf
+*.mod      text eol=lf
+*.sum      text eol=lf
+*.sh       text eol=lf
+*.ts       text eol=lf
+*.tsx      text eol=lf
+*.js       text eol=lf
+*.mjs      text eol=lf
+*.cjs      text eol=lf
+*.svelte   text eol=lf
+*.json     text eol=lf
+*.css      text eol=lf
+*.html     text eol=lf
+*.md       text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.toml     text eol=lf
+*.lock     text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# --- binary assets: never normalize line endings ---
+*.syso  binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.eot   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.avif  binary
+*.gz    binary
+*.zip   binary
+*.pdf   binary
+*.epub  binary
