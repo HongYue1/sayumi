@@ -30,7 +30,21 @@ func getProgressHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		prog, err := pd.DB.GetProgressContext(r.Context(), bookID, getUserID(r))
+		userID := getUserID(r)
+
+		// Read-through: a just-staged position may not be flushed to the DB yet,
+		// so prefer the coalescer's pending value to avoid returning a stale
+		// position right after the client scrolled.
+		if rec, ok := pd.Progress.get(bookID, userID); ok {
+			resp := progressBody{Chapter: rec.Chapter, Percent: rec.Percent}
+			if rec.CFI.Valid {
+				resp.CFI = rec.CFI.String
+			}
+			writeJSON(w, http.StatusOK, resp)
+			return
+		}
+
+		prog, err := pd.DB.GetProgressContext(r.Context(), bookID, userID)
 		if err != nil {
 			if errors.Is(err, storage.ErrNotFound) {
 				writeJSON(w, http.StatusOK, progressBody{Chapter: 0, Percent: 0})
@@ -99,11 +113,10 @@ func putProgressHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		if err := pd.DB.SaveProgressContext(r.Context(), toProgressRecord(bookID, getUserID(r), body)); err != nil {
-			slog.Error("save progress failed", "book", bookID, "err", err)
-			writeError(w, http.StatusInternalServerError, "db_error", "failed to save progress")
-			return
-		}
+		// Stage into the per-profile coalescer instead of writing synchronously.
+		// The write is flushed on a short timer, collapsing the frequent scroll
+		// updates for one book into a single WAL commit.
+		pd.Progress.stage(toProgressRecord(bookID, getUserID(r), body))
 
 		writeJSON(w, http.StatusOK, body)
 	}
@@ -134,9 +147,7 @@ func beaconProgressHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		if err := pd.DB.SaveProgressContext(r.Context(), toProgressRecord(bookID, getUserID(r), body)); err != nil {
-			slog.Error("beacon progress save failed", "book", bookID, "err", err)
-		}
+		pd.Progress.stage(toProgressRecord(bookID, getUserID(r), body))
 
 		w.WriteHeader(http.StatusNoContent)
 	}

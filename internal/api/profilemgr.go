@@ -27,6 +27,12 @@ type profileDeps struct {
 	Scanner *library.Scanner
 	LibPath string
 
+	// Progress coalesces frequent reading-position writes per (book, user) and
+	// flushes them on a timer, so the WAL-fsync hot path is not hit on every
+	// scroll event. Owned by this profile; drained in closeProfile before
+	// DB.Close.
+	Progress *progressCoalescer
+
 	// coverRoot is a long-lived os.Root anchored at LibPath, opened once when the
 	// profile opens and reused by every cover request. It replaces a per-request
 	// os.OpenRoot (a directory open + fd) on the cover-serving path while keeping
@@ -61,6 +67,7 @@ func newProfileDeps(
 		LibPath: libPath,
 	}
 	pd.lifetimeCond = sync.NewCond(&pd.lifetimeMu)
+	pd.Progress = newProgressCoalescer(db, progressFlushInterval, progressMaxPending)
 	return pd
 }
 
@@ -136,6 +143,9 @@ func (pm *ProfileManager) closeProfile(profileName string, pd *profileDeps) {
 	}
 
 	pd.markClosingAndWait()
+	// Refs have drained to zero, so no handler can be mid-stage; flush any
+	// buffered progress writes before the DB is closed underneath them.
+	pd.Progress.stop()
 	pd.Store.Close()
 	if pd.coverRoot != nil {
 		if err := pd.coverRoot.Close(); err != nil {
