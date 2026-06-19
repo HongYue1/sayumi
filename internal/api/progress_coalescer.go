@@ -166,3 +166,19 @@ func (c *progressCoalescer) restage(key progressKey, rec storage.ProgressRecord)
 	}
 	c.mu.Unlock()
 }
+
+// dropBook discards any pending (not-yet-flushed) progress for a book across all
+// users. Call it when a book is deleted: the book's progress row is
+// CASCADE-removed with the book, so a position staged within the last flush
+// interval would otherwise fail SaveProgressContext on the progress.book_id
+// foreign key and restage itself forever (a recurring failed WAL write every
+// flush interval until the profile closes).
+func (c *progressCoalescer) dropBook(bookID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key := range c.pending {
+		if key.bookID == bookID {
+			delete(c.pending, key)
+		}
+	}
+}

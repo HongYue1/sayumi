@@ -243,6 +243,10 @@ func deleteBookHandler(_ *Dependencies) http.HandlerFunc {
 		}
 
 		pd.Books.Remove(id)
+		// Drop any pending coalesced progress for this book; its progress row is
+		// CASCADE-deleted above, so a staged position would otherwise retry
+		// forever against a missing book_id FK.
+		pd.Progress.dropBook(id)
 		pd.Store.CloseBook(book.FilePath)
 		pd.Store.EvictBook(book.FilePath)
 		removeManagedLibraryFile(pd.LibPath, book.FilePath, "book")

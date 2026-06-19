@@ -157,20 +157,14 @@ func setBookFlairHandler(_ *Dependencies) http.HandlerFunc {
 		}
 
 		userID := getUserID(r)
-		if _, builtin := builtinFlairIDs[flairID]; flairID != "" && !builtin {
-			exists, err := pd.DB.FlairExistsContext(r.Context(), flairID, userID)
-			if err != nil {
-				slog.Error("check flair failed", "flair", flairID, "err", err)
-				writeError(w, http.StatusInternalServerError, "db_error", "failed to set flair")
-				return
-			}
-			if !exists {
+		// Validate + assign atomically in storage so a concurrent flair delete
+		// can't slip between the existence check and the write (TOCTOU). Built-in
+		// flair ids are accepted without a DB lookup.
+		if err := pd.DB.SetBookFlairCheckedContext(r.Context(), bookID, userID, flairID, builtinFlairIDs); err != nil {
+			if errors.Is(err, storage.ErrNotFound) {
 				writeError(w, http.StatusNotFound, "not_found", "flair not found")
 				return
 			}
-		}
-
-		if err := pd.DB.SetBookFlairContext(r.Context(), bookID, userID, flairID); err != nil {
 			slog.Error("set book flair failed", "book", bookID, "err", err)
 			writeError(w, http.StatusInternalServerError, "db_error", "failed to set flair")
 			return

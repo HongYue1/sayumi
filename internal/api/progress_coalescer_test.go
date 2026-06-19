@@ -117,6 +117,39 @@ func TestProgressCoalescerSizeCapTriggersFlush(t *testing.T) {
 	waitFor(t, func() bool { return fake.count() == 3 })
 }
 
+// dropBook discards pending positions for a deleted book (across users) so a
+// later flush never retries a write for a CASCADE-removed book_id, while
+// leaving other books' pending positions intact.
+func TestProgressCoalescerDropBook(t *testing.T) {
+	fake := &fakeProgressSaver{}
+	c := newProgressCoalescer(fake, time.Hour, 1000)
+	t.Cleanup(c.stop)
+
+	c.stage(storage.ProgressRecord{BookID: "b1", UserID: "default", Chapter: 1})
+	c.stage(storage.ProgressRecord{BookID: "b1", UserID: "other", Chapter: 2})
+	c.stage(storage.ProgressRecord{BookID: "b2", UserID: "default", Chapter: 3})
+
+	c.dropBook("b1")
+
+	if _, ok := c.get("b1", "default"); ok {
+		t.Fatal("expected b1/default to be dropped")
+	}
+	if _, ok := c.get("b1", "other"); ok {
+		t.Fatal("expected b1/other to be dropped")
+	}
+	if rec, ok := c.get("b2", "default"); !ok || rec.Chapter != 3 {
+		t.Fatalf("expected b2/default to remain, got ok=%v rec=%+v", ok, rec)
+	}
+
+	c.flush()
+	if got := fake.count(); got != 1 {
+		t.Fatalf("expected only the surviving book to flush, got %d saves", got)
+	}
+	if last, _ := fake.last(); last.BookID != "b2" {
+		t.Fatalf("expected surviving save for b2, got %q", last.BookID)
+	}
+}
+
 // A failed write is re-buffered and retried on the next flush rather than lost.
 func TestProgressCoalescerRetriesFailedWrite(t *testing.T) {
 	fake := &fakeProgressSaver{err: errors.New("boom")}

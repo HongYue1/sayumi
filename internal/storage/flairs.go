@@ -178,3 +178,50 @@ func (db *DB) SetBookFlairContext(ctx context.Context, bookID, userID, flairID s
 	}
 	return nil
 }
+
+// SetBookFlairCheckedContext validates the target flair and assigns it to a book
+// atomically under the write lock. Holding writeMu across the existence check
+// and the write closes the TOCTOU window against DeleteFlairContext (which also
+// takes writeMu): a concurrent flair delete can no longer slip between the
+// check and the assignment and leave book_flairs pointing at a deleted flair
+// (there is no FK from book_flairs.flair_id to enforce it). An empty flairID
+// clears the assignment. Flair ids present in allowedBuiltins are accepted
+// without a DB lookup (built-in flairs live on the client, not in the flairs
+// table); any other id must exist for the user or ErrNotFound is returned.
+func (db *DB) SetBookFlairCheckedContext(ctx context.Context, bookID, userID, flairID string, allowedBuiltins map[string]struct{}) error {
+	db.writeMu.Lock()
+	defer db.writeMu.Unlock()
+
+	if flairID == "" {
+		_, err := db.ExecContext(ctx, "DELETE FROM book_flairs WHERE book_id = ? AND user_id = ?", bookID, userID)
+		if err != nil {
+			return fmt.Errorf("clear book flair: %w", err)
+		}
+		return nil
+	}
+
+	if _, builtin := allowedBuiltins[flairID]; !builtin {
+		var exists bool
+		if err := db.QueryRowContext(ctx, `
+			SELECT EXISTS(SELECT 1 FROM flairs WHERE id = ? AND user_id = ?)
+		`, flairID, userID).Scan(&exists); err != nil {
+			return fmt.Errorf("flair exists: %w", err)
+		}
+		if !exists {
+			return ErrNotFound
+		}
+	}
+
+	now := time.Now().UTC().Format(time.DateTime)
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO book_flairs (book_id, user_id, flair_id, updated_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(book_id, user_id) DO UPDATE SET
+			flair_id = excluded.flair_id,
+			updated_at = excluded.updated_at
+	`, bookID, userID, flairID, now)
+	if err != nil {
+		return fmt.Errorf("set book flair: %w", err)
+	}
+	return nil
+}
