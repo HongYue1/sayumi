@@ -14,6 +14,13 @@ import (
 type DB struct {
 	*sql.DB
 	writeMu sync.Mutex
+
+	// saveProgressStmt is a long-lived prepared statement for the hottest write
+	// path: progress saves fire on roughly every page turn. database/sql lazily
+	// (re)prepares it on each pooled connection and caches it there, so the
+	// modernc SQL parser runs about once per connection instead of on every
+	// save. Prepared in Open after migrate; released in Close.
+	saveProgressStmt *sql.Stmt
 }
 
 func Open(libraryPath string) (*DB, error) {
@@ -60,6 +67,16 @@ func Open(libraryPath string) (*DB, error) {
 		return nil, fmt.Errorf("migrate database: %w", err)
 	}
 
+	// Prepare the hot-path progress upsert once. The modernc profile of
+	// BenchmarkSaveProgress shows ~29% of the save path is SQL parse/compile;
+	// a long-lived statement amortizes that to about once per pooled connection.
+	saveProgressStmt, err := db.PrepareContext(context.Background(), saveProgressUpsert)
+	if err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("prepare save-progress statement: %w", err)
+	}
+	db.saveProgressStmt = saveProgressStmt
+
 	// Pre-warm the read pool. Each pooled connection runs the full _pragma DSN
 	// (WAL, 256 MB mmap, 32 MB cache) on first use; left lazy, that one-time
 	// per-connection setup lands as latency on whichever interactive request
@@ -71,6 +88,23 @@ func Open(libraryPath string) (*DB, error) {
 	db.warmPool(maxReadPoolConns)
 
 	return db, nil
+}
+
+// Close releases the long-lived prepared statements before closing the
+// underlying connection pool. It shadows the *sql.DB.Close promoted through
+// embedding so saveProgressStmt is torn down together with the pool.
+func (db *DB) Close() error {
+	var stmtErr error
+	if db.saveProgressStmt != nil {
+		stmtErr = db.saveProgressStmt.Close()
+	}
+	if err := db.DB.Close(); err != nil {
+		return fmt.Errorf("close database: %w", err)
+	}
+	if stmtErr != nil {
+		return fmt.Errorf("close save-progress statement: %w", stmtErr)
+	}
+	return nil
 }
 
 // warmPool eagerly establishes up to n pooled connections so each connection's

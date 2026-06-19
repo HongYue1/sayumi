@@ -64,18 +64,23 @@ func (db *DB) GetAllProgressContext(ctx context.Context, userID string) (result 
 	return result, nil
 }
 
+// saveProgressUpsert is the hot-path progress write. It is prepared once at
+// Open (DB.saveProgressStmt) instead of re-issued as a literal on every call,
+// so the modernc parser does not recompile it on each save. Kept as a package
+// const so the prepared statement has a single source of truth.
+const saveProgressUpsert = `
+	INSERT INTO progress (book_id, user_id, chapter, percent, cfi, updated_at)
+	VALUES (?, ?, ?, ?, ?, ?)
+	ON CONFLICT(book_id, user_id)
+	DO UPDATE SET chapter = excluded.chapter, percent = excluded.percent,
+	             cfi = excluded.cfi, updated_at = excluded.updated_at`
+
 func (db *DB) SaveProgressContext(ctx context.Context, progress ProgressRecord) error {
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
 
 	now := time.Now().UTC().Format(time.DateTime)
-	_, err := db.ExecContext(ctx, `
-		INSERT INTO progress (book_id, user_id, chapter, percent, cfi, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(book_id, user_id)
-		DO UPDATE SET chapter = excluded.chapter, percent = excluded.percent,
-		             cfi = excluded.cfi, updated_at = excluded.updated_at
-	`, progress.BookID, progress.UserID, progress.Chapter, progress.Percent, progress.CFI, now)
+	_, err := db.saveProgressStmt.ExecContext(ctx, progress.BookID, progress.UserID, progress.Chapter, progress.Percent, progress.CFI, now)
 	if err != nil {
 		return fmt.Errorf("save progress: %w", err)
 	}
