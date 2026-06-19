@@ -606,14 +606,19 @@ func instrumentMiddleware(next http.Handler) http.Handler {
 				}
 			}
 
-			slog.Log(
-				r.Context(), slog.LevelDebug, "request",
-				"method", r.Method,
-				"path", r.URL.Path,
-				"status", writer.status,
-				"size", humanizeBytes(writer.bytes),
-				"duration", time.Since(start),
-			)
+			// The access log is Debug-only (never emitted without --debug). Guard the
+			// whole call so a normal run doesn't pay humanizeBytes' Sprintf allocation
+			// plus the variadic any-boxing on every request just to discard the line.
+			if slog.Default().Enabled(r.Context(), slog.LevelDebug) {
+				slog.Log(
+					r.Context(), slog.LevelDebug, "request",
+					"method", r.Method,
+					"path", r.URL.Path,
+					"status", writer.status,
+					"size", humanizeBytes(writer.bytes),
+					"duration", time.Since(start),
+				)
+			}
 		}()
 
 		next.ServeHTTP(writer, r)
