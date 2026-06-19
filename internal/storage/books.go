@@ -223,8 +223,9 @@ func (db *DB) InsertBookContext(ctx context.Context, book BookRecord) (canonical
 		return book.ID, nil
 	}
 
-	// Another goroutine inserted a row with the same file_hash first (OR IGNORE
-	// suppressed our insert). Resolve the canonical ID with a plain indexed read;
+	// Another goroutine inserted a row with the same file_hash first (the targeted
+	// ON CONFLICT(file_hash) upsert suppressed our insert). Resolve the canonical ID
+	// with a plain indexed read;
 	// only the id is needed, so skip the heavy spine_json / toc_json columns. The
 	// write lock was released by insertBookOrIgnore, so this lookup does not
 	// extend the writer critical section.
@@ -238,22 +239,25 @@ func (db *DB) InsertBookContext(ctx context.Context, book BookRecord) (canonical
 	return existingID, nil
 }
 
-// insertBookOrIgnore runs the INSERT OR IGNORE under the write lock and reports
-// whether a row was actually inserted. inserted is false when a row with the
-// same file_hash already existed (OR IGNORE suppressed the insert). The lock is
-// held only for the write itself, never across the caller's follow-up hash
-// lookup.
+// insertBookOrIgnore runs the INSERT under the write lock and reports whether a
+// row was actually inserted. inserted is false when a row with the same
+// file_hash already existed: the targeted ON CONFLICT(file_hash) DO NOTHING
+// upsert suppresses only the duplicate-content case, so a colliding id or
+// file_path still raises a real constraint error instead of being silently
+// dropped (a blanket INSERT OR IGNORE would mask those). The lock is held only
+// for the write itself, never across the caller's follow-up hash lookup.
 func (db *DB) insertBookOrIgnore(ctx context.Context, book BookRecord, now string) (inserted bool, err error) {
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
 
 	res, err := db.ExecContext(
 		ctx, `
-		INSERT OR IGNORE INTO books (id, title, author, language, publisher, description, pub_date, isbn,
+		INSERT INTO books (id, title, author, language, publisher, description, pub_date, isbn,
 		                   file_path, file_hash, file_size, cover_path, has_cover,
 		                   spine_json, toc_json, direction, chapter_count,
 		                   created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(file_hash) WHERE file_hash != '' DO NOTHING
 	`,
 		book.ID, book.Title, book.Author, book.Language, book.Publisher,
 		book.Description, book.PubDate, book.ISBN, book.FilePath, book.FileHash,
