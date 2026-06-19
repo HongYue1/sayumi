@@ -128,7 +128,12 @@ func (s *Scanner) scan(ctx context.Context) ([]string, error) {
 			for filePath := range pathCh {
 				id, imported, importErr := s.importFile(ctx, filePath, "", snap)
 				if importErr != nil {
-					slog.Warn("scan import failed", "path", filePath, "err", importErr)
+					// When the scan's ctx is canceled, in-flight imports fail with
+					// context errors as expected teardown — not per-file failures —
+					// so suppress the warning in that case.
+					if ctx.Err() == nil {
+						slog.Warn("scan import failed", "path", filePath, "err", importErr)
+					}
 					continue
 				}
 				if imported {
@@ -368,8 +373,14 @@ func (s *Scanner) importFile(ctx context.Context, filePath string, knownHash str
 	if err != nil {
 		return "", false, fmt.Errorf("insert book: %w", err)
 	}
-	// Use the canonical ID: if a concurrent import of the same content won the
-	// race, InsertBookContext returns that row's ID instead of our proposed one.
+	// If a concurrent import of identical content won the race, InsertBookContext
+	// returns that row's ID instead of our proposed one (generateID is
+	// path-dependent, so the winner's ID never matches ours). That import owns the
+	// row and its cover, so don't re-report it as newly imported or redo the cover
+	// decode.
+	if canonicalID != id {
+		return canonicalID, false, nil
+	}
 	id = canonicalID
 
 	if meta.CoverPath != "" {
