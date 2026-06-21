@@ -147,6 +147,12 @@ import { createPagination } from "./pagination";
   const CHAPTER_ANIM_SETTLE_MS = 360;
   let loadTransitionToken = 0;
   let pendingSettingsMessage: IframeSettings | null = null;
+  let pendingSearchHighlight: {
+    charOffset: number;
+    matchLen: number;
+    query: string;
+    seq?: number;
+  } | null = null;
 
   let loadRestorePercent: number | null = null;
   let loadRestoreCfi: string | null = null;
@@ -417,6 +423,17 @@ import { createPagination } from "./pagination";
     });
   }
 
+  function drainPendingSearchHighlight(): void {
+    const h = pendingSearchHighlight;
+    if (!h || !contentReady) return;
+    if (typeof h.seq === "number" && h.seq !== activeSeq) {
+      pendingSearchHighlight = null;
+      return;
+    }
+    pendingSearchHighlight = null;
+    searchHl.highlightSearchMatch(h.charOffset, h.matchLen, h.query);
+  }
+
   function revealAfterFonts(
     onReveal: () => void,
     timeoutMs = REVEAL_FALLBACK_SCROLL_MS,
@@ -464,6 +481,7 @@ import { createPagination } from "./pagination";
               pagedRestore,
               pagedRestoreElement,
             );
+            requestAnimationFrame(drainPendingSearchHighlight);
           }, REVEAL_FALLBACK_PAGED_MS);
         });
       });
@@ -475,6 +493,7 @@ import { createPagination } from "./pagination";
         revealAfterFonts(() => {
           if (destroyed || activeSeq !== seqAtStart) return;
           restoreScrollPosition();
+          drainPendingSearchHighlight();
         }),
       ),
     );
@@ -1080,6 +1099,7 @@ import { createPagination } from "./pagination";
     prepareChapterCSS();
 
     contentReady = false;
+    pendingSearchHighlight = null;
     isPagedMode = false;
     pagination.resetForLoad(msg.direction === "rtl");
 
@@ -1168,6 +1188,7 @@ import { createPagination } from "./pagination";
       chapterAnimTimer = null;
     }
     pendingSettingsMessage = null;
+    pendingSearchHighlight = null;
     if (reportPositionRafHandle !== null) {
       cancelAnimationFrame(reportPositionRafHandle);
       reportPositionRafHandle = null;
@@ -1331,6 +1352,15 @@ import { createPagination } from "./pagination";
         // mark the wrong text. Messages without a seq still apply (same-chapter
         // highlights, where the live seq is authoritative).
         if (typeof msg.seq === "number" && msg.seq !== activeSeq) break;
+        if (!contentReady) {
+          pendingSearchHighlight = {
+            charOffset: msg.charOffset,
+            matchLen: msg.matchLen,
+            query: String(msg.query || ""),
+            seq: typeof msg.seq === "number" ? msg.seq : undefined,
+          };
+          break;
+        }
         searchHl.highlightSearchMatch(
           msg.charOffset,
           msg.matchLen,
