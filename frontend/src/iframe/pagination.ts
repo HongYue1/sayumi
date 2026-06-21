@@ -406,6 +406,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     if (content) content.scrollLeft = 0;
 
     setPageTurning(false);
+    if (!pagedResizeObserver) setupPagedResizeObserver();
     setPagedHeights();
     lastLayoutW = window.innerWidth;
     lastLayoutH = window.innerHeight;
@@ -441,20 +442,23 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     requestAnimationFrame(() => revealPagedShell(seqAtStart));
   }
 
-  function handlePagedResize(): void {
-    if (!deps.isPagedMode() || !deps.isContentReady()) return;
+  function queuePagedRelayout(checkViewport: boolean): void {
     if (pagedResizeDebounce) clearTimeout(pagedResizeDebounce);
 
     pagedResizeDebounce = setTimeout(() => {
-      if (deps.isDestroyed()) return;
       pagedResizeDebounce = null;
+      if (deps.isDestroyed() || !deps.isPagedMode() || !deps.isContentReady())
+        return;
       // ResizeObserver(documentElement) and the window resize listener both feed
       // this path and can fire for churn that doesn't change the viewport box
       // (scrollbar toggling, sub-pixel rounding, visual-viewport-only changes).
-      // A relayout forces a full reflow + scroll reset, so skip when neither
-      // dimension changed since the last pagination. innerWidth/innerHeight
-      // reads don't force layout, unlike the clientWidth reads inside relayout.
+      // A relayout forces a full reflow + scroll reset, so skip viewport-driven
+      // events when neither dimension changed since the last pagination.
+      // innerWidth/innerHeight reads don't force layout, unlike the clientWidth
+      // reads inside relayout. Content-load relayouts bypass this guard because
+      // a late image can change scrollWidth/page count with the same viewport.
       if (
+        checkViewport &&
         window.innerWidth === lastLayoutW &&
         window.innerHeight === lastLayoutH
       ) {
@@ -464,11 +468,27 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     }, 120);
   }
 
+  function handlePagedResize(): void {
+    if (!deps.isPagedMode() || !deps.isContentReady()) return;
+    queuePagedRelayout(true);
+  }
+
+  function handlePagedContentLoad(event: Event): void {
+    if (!deps.isPagedMode() || !deps.isContentReady()) return;
+    const target = event.target;
+    if (target instanceof HTMLImageElement || target instanceof HTMLVideoElement)
+      queuePagedRelayout(false);
+  }
+
   function setupPagedResizeObserver(): void {
     teardownPagedResizeObserver();
     pagedResizeObserver = new ResizeObserver(handlePagedResize);
     pagedResizeObserver.observe(document.documentElement);
     window.addEventListener("resize", handlePagedResize);
+    // Late-loading images/videos can change multicol scrollWidth without a
+    // viewport resize. Capture-phase `load` catches non-bubbling media loads and
+    // forces one debounced page-count refresh for the final intrinsic size.
+    document.addEventListener("load", handlePagedContentLoad, true);
   }
 
   function teardownPagedResizeObserver(): void {
@@ -477,6 +497,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
       pagedResizeObserver = null;
     }
     window.removeEventListener("resize", handlePagedResize);
+    document.removeEventListener("load", handlePagedContentLoad, true);
     if (pagedResizeDebounce) {
       clearTimeout(pagedResizeDebounce);
       pagedResizeDebounce = null;
