@@ -485,8 +485,12 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     totalPages = 0;
     lastLayoutW = -1;
     lastLayoutH = -1;
+    pageTurnTarget = 0;
+    pageTurnSwapped = false;
     isRTL = rtl;
     teardownPagedResizeObserver();
+    const content = deps.getContentEl();
+    if (content) content.style.opacity = "";
     if (pageScrollRafHandle !== null) {
       cancelAnimationFrame(pageScrollRafHandle);
       pageScrollRafHandle = null;
