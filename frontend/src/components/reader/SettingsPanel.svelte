@@ -202,7 +202,7 @@
   <div class="body">
     <section>
       <h3>Reading mode</h3>
-      <div class="segmented">
+      <div class="segmented" role="group" aria-label="Reading mode">
         {#each MODES as m (m.id)}
           <button
             class:active={s.displayMode === m.id}
@@ -218,7 +218,7 @@
     <section>
       <h3>Theme</h3>
       <p class="group-label">Light</p>
-      <div class="swatches">
+      <div class="swatches" role="group" aria-label="Light themes">
         {#each lightThemes as t (t.id)}
           <button
             class="swatch"
@@ -236,7 +236,7 @@
         {/each}
       </div>
       <p class="group-label">Dark</p>
-      <div class="swatches">
+      <div class="swatches" role="group" aria-label="Dark themes">
         {#each darkThemes as t (t.id)}
           <button
             class="swatch"
@@ -438,7 +438,7 @@
       <h3>Chapter titles</h3>
       <div class="row">
         <div class="row-head"><span class="label">Alignment</span></div>
-        <div class="segmented small">
+        <div class="segmented small" role="group" aria-label="Chapter title alignment">
           {#each TITLE_ALIGNS as a (a.id ?? "auto")}
             <button
               class:active={s.chapterTitleAlign === a.id}
