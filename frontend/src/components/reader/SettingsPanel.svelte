@@ -163,6 +163,7 @@
           <input
             type="checkbox"
             checked={value === null}
+            aria-label={`Auto ${label}`}
             onchange={(e) => apply(e.currentTarget.checked ? null : fallback)}
           />
           Auto
