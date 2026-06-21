@@ -259,6 +259,13 @@ CREATE TABLE IF NOT EXISTS books (
 
 CREATE INDEX IF NOT EXISTS idx_books_file_hash ON books(file_hash);
 
+-- Cover backfill runs after every completed scan and steady state should find no
+-- rows. A partial covering index keeps that query proportional to unresolved
+-- covers instead of scanning the whole library. Resolved rows (cover_checked = 1)
+-- are excluded, so the common case does not pay ongoing index bloat.
+CREATE INDEX IF NOT EXISTS idx_books_cover_unchecked ON books(id, file_path)
+  WHERE cover_checked = 0;
+
 -- Partial unique index prevents concurrent imports from inserting duplicate
 -- rows for the same content. The WHERE clause excludes the empty-string default
 -- so that books inserted before hashing completes don't conflict with each other.
