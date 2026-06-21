@@ -45,15 +45,30 @@ describe("createFrameMessageQueue", () => {
     ]);
   });
 
-  it("caps the queue, dropping the oldest message past the limit", () => {
+  it("caps the queue, dropping the oldest non-coalesced message past the limit", () => {
     const q = createFrameMessageQueue(3);
     q.enqueue(scrollTo(0));
     q.enqueue(scrollTo(1));
     q.enqueue(scrollTo(2));
-    q.enqueue(scrollTo(3)); // length 4 > 3 -> shift oldest (0)
+    q.enqueue(scrollTo(3)); // length 4 > 3 -> drop oldest non-coalesced (0)
     expect(q.size).toBe(3);
     expect(q.drain().map((m) => (m as { percent: number }).percent)).toEqual([
       1, 2, 3,
+    ]);
+  });
+
+  it("preserves coalesced startup state when capping stray interactions", () => {
+    const q = createFrameMessageQueue(3);
+    q.enqueue(load(1));
+    q.enqueue(applySettings());
+    q.enqueue(scrollTo(0.1));
+    q.enqueue(scrollTo(0.2)); // drop scrollTo(0.1), not load/apply-settings
+
+    expect(q.size).toBe(3);
+    expect(q.drain().map((m) => m.type)).toEqual([
+      "load",
+      "apply-settings",
+      "scroll-to",
     ]);
   });
 

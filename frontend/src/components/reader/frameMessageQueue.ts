@@ -31,9 +31,15 @@ export function createFrameMessageQueue(
         queue = queue.filter((m) => m.type !== message.type);
       }
       queue.push(message);
-      // Only reachable when the frame never readied; the coalesced types can't
-      // grow unbounded, so this just caps stray non-coalesced messages.
-      if (queue.length > maxQueued) queue.shift();
+      // Only reachable when the frame never readied. Preserve the bounded
+      // latest-wins state (load/settings/font faces) and evict the oldest stray
+      // non-coalesced interaction first; otherwise a burst of scroll/page input
+      // before ready could drop the only queued chapter load.
+      if (queue.length > maxQueued) {
+        const dropIndex = queue.findIndex((m) => !COALESCE_TYPES.has(m.type));
+        if (dropIndex >= 0) queue.splice(dropIndex, 1);
+        else queue.shift();
+      }
     },
     drain(): ParentToFrameMessage[] {
       const out = queue;
