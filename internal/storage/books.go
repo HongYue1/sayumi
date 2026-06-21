@@ -298,13 +298,60 @@ func (db *DB) UpdateBookCoverContext(ctx context.Context, id, coverPath string) 
 	defer db.writeMu.Unlock()
 
 	_, err := db.ExecContext(ctx, `
-		UPDATE books SET cover_path = ?, has_cover = 1, updated_at = datetime('now')
+		UPDATE books SET cover_path = ?, has_cover = 1, cover_checked = 1, updated_at = datetime('now')
 		WHERE id = ?
 	`, coverPath, id)
 	if err != nil {
 		return fmt.Errorf("update cover for %s: %w", id, err)
 	}
 	return nil
+}
+
+// MarkCoverCheckedContext records that the scanner has resolved a book's cover
+// state (extracted one, or determined none is available/renderable) without
+// setting a cover_path. The post-walk cover backfill skips rows where
+// cover_checked = 1, so this stops a cover-less, oversized, or unparseable book
+// from being re-parsed on every scan. It deliberately does not touch updated_at:
+// this is scanner bookkeeping, not a user-visible change, and bumping updated_at
+// would needlessly invalidate the book-list cache.
+func (db *DB) MarkCoverCheckedContext(ctx context.Context, id string) error {
+	db.writeMu.Lock()
+	defer db.writeMu.Unlock()
+
+	if _, err := db.ExecContext(ctx, "UPDATE books SET cover_checked = 1 WHERE id = ?", id); err != nil {
+		return fmt.Errorf("mark cover checked for %s: %w", id, err)
+	}
+	return nil
+}
+
+// ListBooksMissingCoversContext returns the id and file_path of every book whose
+// cover has not yet been resolved (cover_checked = 0). It backs the library
+// scan's post-walk cover backfill, which retries covers that failed transiently
+// (e.g. a scan canceled mid-decode) without the per-file DB reads a naive
+// "missing cover" probe would cost. Reads only the two columns the backfill
+// needs, mirroring ListBookPathsContext.
+func (db *DB) ListBooksMissingCoversContext(ctx context.Context) (out []BookPath, err error) {
+	rows, err := db.QueryContext(ctx, "SELECT id, file_path FROM books WHERE cover_checked = 0")
+	if err != nil {
+		return nil, fmt.Errorf("list books missing covers: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close rows: %w", cerr)
+		}
+	}()
+
+	for rows.Next() {
+		var bp BookPath
+		if scanErr := rows.Scan(&bp.ID, &bp.FilePath); scanErr != nil {
+			return nil, fmt.Errorf("scan book path: %w", scanErr)
+		}
+		out = append(out, bp)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate books missing covers: %w", err)
+	}
+	return out, nil
 }
 
 func (db *DB) DeleteBookContext(ctx context.Context, id string) error {

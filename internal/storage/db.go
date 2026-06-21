@@ -169,6 +169,14 @@ func (db *DB) migrate() error {
 			return fmt.Errorf("migrate %s.%s: %w", mig.table, mig.column, err)
 		}
 	}
+	// Books that already have a cover are by definition cover-resolved. Mark them
+	// so the first scan after cover_checked is added does not re-parse the entire
+	// library just to rediscover covers it already has. Idempotent: once converged
+	// this matches no rows.
+	if _, err := db.ExecContext(context.Background(),
+		"UPDATE books SET cover_checked = 1 WHERE has_cover = 1 AND cover_checked = 0"); err != nil {
+		return fmt.Errorf("reconcile cover_checked: %w", err)
+	}
 	return nil
 }
 
@@ -189,6 +197,11 @@ var columnMigrations = []columnMigration{
 	{table: "settings", column: "h6_size", definition: "INTEGER"},
 	{table: "settings", column: "header_weight", definition: "INTEGER"},
 	{table: "settings", column: "text_weight", definition: "INTEGER"},
+	// cover_checked records whether the library scanner has already resolved this
+	// book's cover (extracted one, or determined none is available). The post-walk
+	// cover backfill only revisits rows where it is 0, so a cover-less or skipped
+	// book is parsed at most once rather than re-parsed on every scan.
+	{table: "books", column: "cover_checked", definition: "INTEGER NOT NULL DEFAULT 0"},
 }
 
 // addColumnIfMissing runs ALTER TABLE ... ADD COLUMN only when the column is
@@ -235,6 +248,7 @@ CREATE TABLE IF NOT EXISTS books (
 	file_size     INTEGER NOT NULL DEFAULT 0,
 	cover_path    TEXT NOT NULL DEFAULT '',
 	has_cover     INTEGER NOT NULL DEFAULT 0,
+	cover_checked INTEGER NOT NULL DEFAULT 0,
 	spine_json    TEXT NOT NULL DEFAULT '[]',
 	toc_json      TEXT NOT NULL DEFAULT '[]',
 	direction     TEXT NOT NULL DEFAULT 'ltr',

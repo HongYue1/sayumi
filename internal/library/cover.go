@@ -107,10 +107,9 @@ func extractCover(ctx context.Context, libraryPath, bookID string, zr *zip.Reade
 
 	img, err := decodeAndResizeCover(ctx, bookID, zr, coverPathInZip)
 	if err != nil {
-		if errors.Is(err, errCoverSkipped) {
-			// Cover was valid but intentionally not rendered; not a failure.
-			return nil
-		}
+		// Propagate every error -- including errCoverSkipped -- so the caller can
+		// tell "no cover file was written" apart from a successful extract and avoid
+		// recording a cover_path for a .jpg that was never created.
 		return err
 	}
 

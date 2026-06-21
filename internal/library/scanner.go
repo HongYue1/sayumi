@@ -171,6 +171,13 @@ func (s *Scanner) scan(ctx context.Context) ([]string, error) {
 		return importedIDs, err
 	}
 
+	// Retry covers that were never resolved -- e.g. a previous scan was canceled
+	// mid-decode, or a book predates cover extraction. This runs only after a
+	// fully-completed walk (cancellation returned above), so it never competes with
+	// the import pass for the cover-decode semaphore; steady state its driving
+	// query returns nothing and it is a no-op.
+	s.backfillMissingCovers(ctx, workers)
+
 	slog.Info("scan complete", "imported", len(importedIDs))
 	return importedIDs, nil
 }
@@ -383,19 +390,135 @@ func (s *Scanner) importFile(ctx context.Context, filePath string, knownHash str
 	}
 	id = canonicalID
 
-	if meta.CoverPath != "" {
-		if coverErr := extractCover(ctx, s.libraryPath, id, &zr.Reader, meta.CoverPath); coverErr != nil {
-			slog.Warn("cover extraction failed", "title", meta.Title, "err", coverErr)
-		} else {
-			coverRelPath := filepath.Join(".sayumi", "covers", id+".jpg")
-			if updateErr := s.db.UpdateBookCoverContext(ctx, id, coverRelPath); updateErr != nil {
-				slog.Warn("update cover path failed", "book", id, "err", updateErr)
-			}
-		}
-	}
+	// Resolve the cover from the EPUB we already have open. resolveBookCover
+	// records the outcome (cover stored, or marked cover-checked when there is no
+	// renderable cover) so a skipped cover is never recorded as a real one, and a
+	// transient failure is left for a later scan's backfill to retry.
+	s.resolveBookCover(ctx, id, meta.Title, meta.CoverPath, &zr.Reader)
 
 	slog.Info("imported book", "title", meta.Title, "author", meta.Author, "chapters", len(meta.Spine))
 	return id, true, nil
+}
+
+// resolveBookCover extracts a book's cover from its already-open zip and records
+// the outcome. On success it stores the cover path (which also marks the book
+// cover-checked). On a definitive non-result -- the EPUB declares no cover, the
+// cover is intentionally skipped (oversized/too many pixels), or it is otherwise
+// undecodable -- it marks the book cover-checked so the backfill won't revisit
+// it. A transient failure (ctx cancellation) is left unchecked so a later scan
+// retries, mirroring the import loop's cancellation handling.
+func (s *Scanner) resolveBookCover(ctx context.Context, id, title, coverPathInZip string, zr *zip.Reader) {
+	if coverPathInZip == "" {
+		// EPUB declares no cover image; there is nothing to extract now or later.
+		s.markCoverChecked(ctx, id)
+		return
+	}
+	switch coverErr := extractCover(ctx, s.libraryPath, id, zr, coverPathInZip); {
+	case coverErr == nil:
+		coverRelPath := filepath.Join(".sayumi", "covers", id+".jpg")
+		if updateErr := s.db.UpdateBookCoverContext(ctx, id, coverRelPath); updateErr != nil {
+			slog.Warn("update cover path failed", "book", id, "err", updateErr)
+		}
+	case errors.Is(coverErr, errCoverSkipped):
+		// Valid cover, but deliberately not rendered (oversized/too many pixels).
+		// Record it as resolved so we don't re-decode it on every scan.
+		s.markCoverChecked(ctx, id)
+	case ctx.Err() != nil:
+		// Scan is being torn down; the cover was not really evaluated. Leave it
+		// unchecked (and quiet, like the import loop) so a later scan retries.
+	default:
+		// Genuine extraction failure (missing entry, corrupt image). Retrying will
+		// not change the result, so record it as resolved.
+		slog.Warn("cover extraction failed", "title", title, "err", coverErr)
+		s.markCoverChecked(ctx, id)
+	}
+}
+
+// markCoverChecked flags a book as cover-resolved so the backfill skips it. It
+// stays quiet on cancellation, where the write is expected to fail as the scan
+// unwinds.
+func (s *Scanner) markCoverChecked(ctx context.Context, id string) {
+	if err := s.db.MarkCoverCheckedContext(ctx, id); err != nil && ctx.Err() == nil {
+		slog.Warn("mark cover checked failed", "book", id, "err", err)
+	}
+}
+
+// backfillMissingCovers re-attempts cover extraction for books that were never
+// cover-resolved -- covers that failed transiently on a previous (canceled)
+// scan, or books imported before cover extraction existed. It reuses the import
+// pass's bounded fan-out and the shared cover-decode semaphore. Each book is
+// revisited only until resolved once (resolveBookCover marks it), so steady
+// state this drains immediately. Runs only after a completed walk, so it never
+// competes with the import pass.
+func (s *Scanner) backfillMissingCovers(ctx context.Context, workers int) {
+	pending, err := s.db.ListBooksMissingCoversContext(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			slog.Warn("load books missing covers failed", "err", err)
+		}
+		return
+	}
+	if len(pending) == 0 {
+		return
+	}
+	slog.Info("backfilling covers", "count", len(pending))
+
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > len(pending) {
+		workers = len(pending)
+	}
+
+	var wg sync.WaitGroup
+	bookCh := make(chan storage.BookPath)
+	for range workers {
+		wg.Go(func() {
+			for bp := range bookCh {
+				s.backfillCover(ctx, bp)
+			}
+		})
+	}
+	for _, bp := range pending {
+		select {
+		case bookCh <- bp:
+		case <-ctx.Done():
+		}
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	close(bookCh)
+	wg.Wait()
+}
+
+// backfillCover resolves one book's cover by reopening its EPUB. A book whose
+// file cannot be opened or parsed is treated as unparseable and marked resolved
+// (an unreadable file will not fix itself, and leaving it unchecked would reopen
+// it on every scan); transient cancellation is left unchecked to retry later.
+func (s *Scanner) backfillCover(ctx context.Context, bp storage.BookPath) {
+	if ctx.Err() != nil {
+		return
+	}
+	zr, err := zip.OpenReader(bp.FilePath)
+	if err != nil {
+		if ctx.Err() == nil {
+			slog.Warn("backfill cover: open epub failed", "book", bp.ID, "path", bp.FilePath, "err", err)
+			s.markCoverChecked(ctx, bp.ID)
+		}
+		return
+	}
+	defer func() { _ = zr.Close() }()
+
+	meta, err := epub.Parse(&zr.Reader)
+	if err != nil {
+		if ctx.Err() == nil {
+			slog.Warn("backfill cover: parse epub failed", "book", bp.ID, "err", err)
+			s.markCoverChecked(ctx, bp.ID)
+		}
+		return
+	}
+	s.resolveBookCover(ctx, bp.ID, meta.Title, meta.CoverPath, &zr.Reader)
 }
 
 // CheckDuplicate reports whether filePath is already in the library by content hash.
