@@ -248,6 +248,7 @@
               class="result"
               id={`sr-${it.globalIdx}`}
               role="option"
+              tabindex="-1"
               aria-selected={it.globalIdx === currentIdx}
               class:active={it.globalIdx === currentIdx}
               onclick={() => pick(it.result, it.globalIdx)}
