@@ -128,6 +128,10 @@ export function createBoundary(deps: BoundaryDeps): BoundaryController {
       clearTimeout(boundaryResetTimer);
       boundaryResetTimer = null;
     }
+    if (boundaryFireTimer) {
+      clearTimeout(boundaryFireTimer);
+      boundaryFireTimer = null;
+    }
     updateBoundaryIndicator(null, 0);
   }
 
