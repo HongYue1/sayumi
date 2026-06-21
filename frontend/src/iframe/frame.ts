@@ -977,6 +977,10 @@ import { createPagination } from "./pagination";
   function handleKeyDown(e: KeyboardEvent): void {
     if (destroyed) return;
 
+    const isPaletteShortcut =
+      (e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K");
+    if (isPaletteShortcut) e.preventDefault();
+
     if (!contentReady) {
       sendMessage({
         type: "key",

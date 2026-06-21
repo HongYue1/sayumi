@@ -808,6 +808,10 @@
     ctrlKey?: boolean;
     metaKey?: boolean;
   }): boolean {
+    if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
+      ui.togglePalette();
+      return true;
+    }
     if (e.ctrlKey || e.metaKey) return false;
     // A global overlay (command palette / shortcuts help) owns the keyboard
     // while open, so reader shortcuts (Esc → back, arrows, etc.) must stand
