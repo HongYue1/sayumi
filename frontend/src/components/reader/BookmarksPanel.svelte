@@ -22,6 +22,10 @@
     ),
   );
 
+  function bookmarkName(bm: Bookmark): string {
+    return bm.label || `Chapter ${bm.chapter + 1}`;
+  }
+
   function startEdit(bm: Bookmark): void {
     editingId = bm.id;
     editLabel = bm.label;
@@ -92,10 +96,12 @@
                 </div>
               </div>
             {:else}
-              <button class="open" onclick={() => onnavigate(bm)}>
-                <span class="bm-label"
-                  >{bm.label || `Chapter ${bm.chapter + 1}`}</span
-                >
+              <button
+                class="open"
+                onclick={() => onnavigate(bm)}
+                aria-label={`Go to bookmark: ${bookmarkName(bm)}, chapter ${bm.chapter + 1}, ${Math.round(bm.percent * 100)}%`}
+              >
+                <span class="bm-label">{bookmarkName(bm)}</span>
                 <span class="bm-meta tnum"
                   >Ch {bm.chapter + 1} · {Math.round(bm.percent * 100)}%</span
                 >
@@ -106,13 +112,13 @@
                 <button
                   class="icon-btn"
                   onclick={() => startEdit(bm)}
-                  aria-label="Edit bookmark"
+                  aria-label={`Edit bookmark: ${bookmarkName(bm)}`}
                   ><Icon icon={Pencil} size={15} /></button
                 >
                 <button
                   class="icon-btn danger"
                   onclick={() => ondelete(bm.id)}
-                  aria-label="Delete bookmark"
+                  aria-label={`Delete bookmark: ${bookmarkName(bm)}`}
                   ><Icon icon={Trash2} size={15} /></button
                 >
               </div>
