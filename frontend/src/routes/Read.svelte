@@ -177,12 +177,23 @@
 
   const CHROME_AUTO_HIDE_MS = 4000;
 
+  function cancelPendingHighlight(): void {
+    pendingHighlight = null;
+    if (highlightTimer) {
+      clearTimeout(highlightTimer);
+      highlightTimer = undefined;
+    }
+  }
+
   // Single choke point for panel changes. Leaving the search panel drops its
   // in-book highlight as an explicit side effect of the transition, instead of
   // a reactive $effect that watches activePanel on every change.
   function setPanel(p: Panel): void {
     if (p === activePanel) return;
-    if (activePanel === "search" && p !== "search") api?.clearHighlights();
+    if (activePanel === "search" && p !== "search") {
+      cancelPendingHighlight();
+      api?.clearHighlights();
+    }
     activePanel = p;
   }
   function togglePanel(p: Panel): void {
@@ -706,6 +717,7 @@
 
   // ---- search -------------------------------------------------------------
   function navigateToResult(result: SearchResult, query: string): void {
+    cancelPendingHighlight();
     api?.clearHighlights();
     if (result.chapterIndex === currentChapter) {
       api?.highlightSearch(result.charOffset, result.matchLen, query);
