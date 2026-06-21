@@ -217,10 +217,10 @@ func (pm *ProfileManager) openProfile(ctx context.Context, profileName string) (
 	return pd, nil
 }
 
-func (pm *ProfileManager) lockProfiles(ctx context.Context, profileNames ...string) func() {
+func (pm *ProfileManager) lockProfiles(ctx context.Context, profileNames ...string) (func(), bool) {
 	names := normalizeProfileNames(profileNames)
 	if len(names) == 0 {
-		return func() {}
+		return func() {}, true
 	}
 
 	toClose := make(map[string]*profileDeps, len(names))
@@ -239,7 +239,7 @@ func (pm *ProfileManager) lockProfiles(ctx context.Context, profileNames ...stri
 		for pm.blocked[name] || pm.opening[name] {
 			if ctx.Err() != nil {
 				pm.mu.Unlock()
-				return func() {}
+				return func() {}, false
 			}
 			pm.cond.Wait()
 		}
@@ -265,7 +265,7 @@ func (pm *ProfileManager) lockProfiles(ctx context.Context, profileNames ...stri
 		}
 		pm.cond.Broadcast()
 		pm.mu.Unlock()
-	}
+	}, true
 }
 
 // Get opens a profile (or returns the already-open one), incrementing its
@@ -344,7 +344,7 @@ func (pm *ProfileManager) Get(ctx context.Context, profileName string) (*profile
 }
 
 func (pm *ProfileManager) Evict(profileName string) {
-	unlockProfiles := pm.lockProfiles(context.Background(), profileName)
+	unlockProfiles, _ := pm.lockProfiles(context.Background(), profileName)
 	unlockProfiles()
 }
 
@@ -384,7 +384,10 @@ func (pm *ProfileManager) CloseAll() {
 // It uses an os.Root for all source reads so symlinks that point outside the
 // source directory are rejected by the OS rather than silently followed.
 func (pm *ProfileManager) CloneProfile(ctx context.Context, srcProfile, dstProfile string) (err error) {
-	unlockProfiles := pm.lockProfiles(ctx, srcProfile, dstProfile)
+	unlockProfiles, locked := pm.lockProfiles(ctx, srcProfile, dstProfile)
+	if !locked {
+		return ctx.Err()
+	}
 	defer unlockProfiles()
 
 	srcDir := pm.profileDir(srcProfile)

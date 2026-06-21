@@ -553,16 +553,20 @@ func createProfileHandler(deps *Dependencies) http.HandlerFunc {
 		// can investigate rather than inheriting stray files.
 		if err := os.Mkdir(deps.ProfileMgr.profileDir(body.Name), 0o755); err != nil {
 			if errors.Is(err, os.ErrExist) {
-				if rollbackErr := deps.ProfilesDB.DeleteProfileContext(r.Context(), body.Name); rollbackErr != nil {
+				rollbackCtx, cancelRollback := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
+				if rollbackErr := deps.ProfilesDB.DeleteProfileContext(rollbackCtx, body.Name); rollbackErr != nil {
 					slog.Error("rollback profile after dir conflict", "profile", body.Name, "err", rollbackErr)
 				}
+				cancelRollback()
 				writeError(w, http.StatusConflict, "dir_exists",
 					"a profile directory with that name already exists on disk")
 				return
 			}
-			if rollbackErr := deps.ProfilesDB.DeleteProfileContext(r.Context(), body.Name); rollbackErr != nil {
+			rollbackCtx, cancelRollback := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
+			if rollbackErr := deps.ProfilesDB.DeleteProfileContext(rollbackCtx, body.Name); rollbackErr != nil {
 				slog.Error("rollback profile after dir failure", "profile", body.Name, "err", rollbackErr)
 			}
+			cancelRollback()
 			slog.Error("create profile dir failed", "profile", body.Name, "err", err)
 			writeError(w, http.StatusInternalServerError, "server_error", "failed to create profile")
 			return
@@ -626,9 +630,11 @@ func cloneProfileHandler(deps *Dependencies) http.HandlerFunc {
 		}
 
 		if err := deps.ProfileMgr.CloneProfile(r.Context(), sess.profile, body.NewName); err != nil {
-			if rollbackErr := deps.ProfilesDB.DeleteProfileContext(r.Context(), body.NewName); rollbackErr != nil {
+			rollbackCtx, cancelRollback := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
+			if rollbackErr := deps.ProfilesDB.DeleteProfileContext(rollbackCtx, body.NewName); rollbackErr != nil {
 				slog.Error("rollback cloned profile record", "profile", body.NewName, "err", rollbackErr)
 			}
+			cancelRollback()
 			if removeErr := os.RemoveAll(deps.ProfileMgr.profileDir(body.NewName)); removeErr != nil {
 				slog.Error("remove cloned profile dir", "profile", body.NewName, "err", removeErr)
 			}
@@ -684,10 +690,19 @@ func deleteProfileHandler(deps *Dependencies) http.HandlerFunc {
 		}
 
 		deps.sessions.deleteAllForProfile(sess.profile)
-		unlockProfile := deps.ProfileMgr.lockProfiles(r.Context(), sess.profile)
+
+		deleteCtx, cancelDelete := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Second)
+		defer cancelDelete()
+
+		unlockProfile, locked := deps.ProfileMgr.lockProfiles(deleteCtx, sess.profile)
+		if !locked {
+			slog.Error("lock profile for deletion failed", "profile", sess.profile, "err", deleteCtx.Err())
+			writeError(w, http.StatusInternalServerError, "server_error", "failed to delete profile")
+			return
+		}
 		defer unlockProfile()
 
-		if err := deps.ProfilesDB.DeleteProfileContext(r.Context(), sess.profile); err != nil {
+		if err := deps.ProfilesDB.DeleteProfileContext(deleteCtx, sess.profile); err != nil {
 			slog.Error("delete profile record failed", "profile", sess.profile, "err", err)
 			writeError(w, http.StatusInternalServerError, "db_error", "failed to delete profile record")
 			return
