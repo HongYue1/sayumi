@@ -898,7 +898,12 @@
 <svelte:document onvisibilitychange={handleVisibility} />
 
 <div class="reader" class:chrome-hidden={!chromeVisible}>
-  <header class="bar" class:hidden={!chromeVisible} inert={panelOpen}>
+  <header
+    class="bar"
+    class:hidden={!chromeVisible}
+    inert={panelOpen || !chromeVisible}
+    aria-hidden={!chromeVisible}
+  >
     <button class="icon" onclick={handleBack} aria-label="Back to library"
       ><Icon icon={ArrowLeft} /></button
     >
