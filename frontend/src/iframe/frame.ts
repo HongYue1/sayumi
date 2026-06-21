@@ -138,6 +138,7 @@ import { createPagination } from "./pagination";
   let isPagedMode = false;
   let reportPositionRafHandle: number | null = null;
   let scrollRafHandle: number | null = null;
+  let pagedRelayoutRafHandle: number | null = null;
   let revealFallbackTimer: ReturnType<typeof setTimeout> | null = null;
   let loadCommitTimer: ReturnType<typeof setTimeout> | null = null;
   let chapterAnimTimer: ReturnType<typeof setTimeout> | null = null;
@@ -479,6 +480,23 @@ import { createPagination } from "./pagination";
     );
   }
 
+  function schedulePagedRelayout(): void {
+    if (pagedRelayoutRafHandle !== null) return;
+    pagedRelayoutRafHandle = requestAnimationFrame(() => {
+      pagedRelayoutRafHandle = requestAnimationFrame(() => {
+        pagedRelayoutRafHandle = null;
+        if (destroyed || !isPagedMode || !contentReady) return;
+        pagination.relayout();
+      });
+    });
+  }
+
+  function cancelScheduledPagedRelayout(): void {
+    if (pagedRelayoutRafHandle === null) return;
+    cancelAnimationFrame(pagedRelayoutRafHandle);
+    pagedRelayoutRafHandle = null;
+  }
+
   function applySettings(settings: IframeSettings): void {
     let fontFaceContent: string;
     if (settings.preserveBookFonts && preparedFontFaceCSS) {
@@ -704,6 +722,7 @@ import { createPagination } from "./pagination";
       // Detach the paged resize observer/listener now that we're in scroll mode
       // so it doesn't sit attached firing no-op relayouts. A later scroll→paged
       // switch re-establishes it via pagination.relayout().
+      cancelScheduledPagedRelayout();
       pagination.teardownResizeObserver();
     }
 
@@ -711,12 +730,7 @@ import { createPagination } from "./pagination";
       contentReady = true;
       runInitialLayoutRestore();
     } else if (isPagedMode) {
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
-          if (destroyed) return;
-          pagination.relayout();
-        }),
-      );
+      schedulePagedRelayout();
     }
   }
 
@@ -1162,6 +1176,7 @@ import { createPagination } from "./pagination";
       cancelAnimationFrame(scrollRafHandle);
       scrollRafHandle = null;
     }
+    cancelScheduledPagedRelayout();
 
     window.removeEventListener("message", handleMessage);
     document.removeEventListener("click", handleClick);
