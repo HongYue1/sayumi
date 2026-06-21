@@ -995,6 +995,7 @@
             toc={book.toc}
             activeEntry={activeTocEntry}
             onnavigate={handleTocNavigate}
+            onclose={closePanel}
           />
         {:else}
           {#await tocPanel() then { default: TocPanel }}
@@ -1002,6 +1003,7 @@
               toc={book.toc}
               activeEntry={activeTocEntry}
               onnavigate={handleTocNavigate}
+              onclose={closePanel}
             />
           {:catch}
             <div class="error" role="alert">

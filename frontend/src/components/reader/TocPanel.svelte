@@ -1,13 +1,16 @@
 <script lang="ts">
   import type { TocEntry } from "~/api/client";
+  import Icon from "~/lib/Icon.svelte";
+  import { X } from "@lucide/svelte";
 
   interface Props {
     toc: TocEntry[];
     activeEntry: TocEntry | null;
     onnavigate: (href: string) => void;
+    onclose: () => void;
   }
 
-  let { toc, activeEntry, onnavigate }: Props = $props();
+  let { toc, activeEntry, onnavigate, onclose }: Props = $props();
 
   // Fixed-height virtual list. Only the rows in (or near) the viewport are ever
   // in the DOM, so a 6000-chapter TOC opens instantly instead of laying out and
@@ -101,7 +104,12 @@
 </script>
 
 <div class="toc">
-  <h2 class="eyebrow">Contents</h2>
+  <header>
+    <h2 class="eyebrow">Contents</h2>
+    <button class="close" onclick={onclose} aria-label="Close table of contents"
+      ><Icon icon={X} size={18} /></button
+    >
+  </header>
   {#if rows.length === 0}
     <p class="empty">No table of contents.</p>
   {:else}
@@ -143,9 +151,38 @@
     flex-direction: column;
     height: 100%;
   }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sp-3) var(--sp-4);
+    border-bottom: 1px solid var(--hairline);
+    flex: 0 0 auto;
+  }
   h2 {
-    margin: 0 0 var(--sp-3) var(--sp-3);
-    padding-top: var(--sp-4);
+    margin: 0;
+  }
+  .close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    padding: 0.3rem;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition:
+      background var(--dur) var(--ease-out),
+      color var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
+  }
+  .close:hover {
+    background: var(--surface-hover);
+    color: var(--fg);
+  }
+  .close:active {
+    transform: scale(0.94);
   }
   .scroll {
     flex: 1;
