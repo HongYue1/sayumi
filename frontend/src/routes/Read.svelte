@@ -1018,7 +1018,12 @@
           {/await}
         {/if}
       </div>
-      <button class="scrim" aria-label="Close" onclick={closePanel}></button>
+      <button
+        class="scrim"
+        aria-label="Close panel backdrop"
+        tabindex="-1"
+        onclick={closePanel}
+      ></button>
     {/if}
 
     {#if activePanel === "bookmarks"}
@@ -1056,7 +1061,12 @@
           {/await}
         {/if}
       </div>
-      <button class="scrim" aria-label="Close" onclick={closePanel}></button>
+      <button
+        class="scrim"
+        aria-label="Close panel backdrop"
+        tabindex="-1"
+        onclick={closePanel}
+      ></button>
     {/if}
 
     {#if activePanel === "search"}
@@ -1088,7 +1098,12 @@
           {/await}
         {/if}
       </div>
-      <button class="scrim" aria-label="Close" onclick={closePanel}></button>
+      <button
+        class="scrim"
+        aria-label="Close panel backdrop"
+        tabindex="-1"
+        onclick={closePanel}
+      ></button>
     {/if}
 
     {#if activePanel === "settings"}
@@ -1112,7 +1127,12 @@
           {/await}
         {/if}
       </div>
-      <button class="scrim" aria-label="Close" onclick={closePanel}></button>
+      <button
+        class="scrim"
+        aria-label="Close panel backdrop"
+        tabindex="-1"
+        onclick={closePanel}
+      ></button>
     {/if}
   </div>
 
