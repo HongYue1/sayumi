@@ -35,6 +35,7 @@ export type PaginationController = {
   restorePagedPosition: (
     scrollTarget: "top" | "end",
     restorePercent: number | null,
+    restoreElement: Element | null,
   ) => void;
   reportPagePosition: () => void;
   setPageTurning: (turning: boolean) => void;
@@ -398,6 +399,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
   function restorePagedPosition(
     scrollTarget: "top" | "end",
     restorePercent: number | null,
+    restoreElement: Element | null,
   ): void {
     const seqAtStart = deps.getActiveSeq();
     const content = deps.getContentEl();
@@ -419,8 +421,9 @@ export function createPagination(deps: PaginationDeps): PaginationController {
       return;
     }
 
-    currentPage =
-      restorePercent !== null && totalPages > 1
+    currentPage = restoreElement
+      ? getElementPageIndex(restoreElement)
+      : restorePercent !== null && totalPages > 1
         ? Math.max(
             0,
             Math.min(

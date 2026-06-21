@@ -452,10 +452,17 @@ import { createPagination } from "./pagination";
             if (destroyed || activeSeq !== seqAtStart) return;
             const target = loadScrollTarget || "top";
             const pagedRestore = loadRestorePercent;
+            const pagedRestoreElement = loadRestoreCfi
+              ? resolveCFI(loadRestoreCfi, document)
+              : null;
             loadScrollTarget = null;
             loadRestorePercent = null;
             loadRestoreCfi = null;
-            pagination.restorePagedPosition(target, pagedRestore);
+            pagination.restorePagedPosition(
+              target,
+              pagedRestore,
+              pagedRestoreElement,
+            );
           }, REVEAL_FALLBACK_PAGED_MS);
         });
       });
