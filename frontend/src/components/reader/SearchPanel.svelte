@@ -31,21 +31,43 @@
   let lastQuery = "";
 
   // Results grouped by chapter, with a global index per result for nav.
+  interface SearchResultItem {
+    result: SearchResult;
+    globalIdx: number;
+    before: string;
+    match: string;
+    after: string;
+    clippedStart: boolean;
+    clippedEnd: boolean;
+  }
+
   interface Group {
     chapterIndex: number;
-    items: { result: SearchResult; globalIdx: number }[];
+    items: SearchResultItem[];
   }
+
+  function toItem(r: SearchResult, globalIdx: number): SearchResultItem {
+    const matchEnd = r.snippetStart + r.snippetLen;
+    return {
+      result: r,
+      globalIdx,
+      before: r.snippet.slice(0, r.snippetStart).trimStart(),
+      match: r.snippet.slice(r.snippetStart, matchEnd),
+      after: r.snippet.slice(matchEnd).trimEnd(),
+      clippedStart: r.snippetStart > 0,
+      clippedEnd: matchEnd < r.snippet.length,
+    };
+  }
+
   const groups = $derived.by<Group[]>(() => {
     const out: Group[] = [];
     results.forEach((r, globalIdx) => {
+      const item = toItem(r, globalIdx);
       const last = out[out.length - 1];
       if (last && last.chapterIndex === r.chapterIndex) {
-        last.items.push({ result: r, globalIdx });
+        last.items.push(item);
       } else {
-        out.push({
-          chapterIndex: r.chapterIndex,
-          items: [{ result: r, globalIdx }],
-        });
+        out.push({ chapterIndex: r.chapterIndex, items: [item] });
       }
     });
     return out;
@@ -175,14 +197,6 @@
         break;
     }
   }
-
-  function parts(r: SearchResult) {
-    return {
-      before: r.snippet.slice(0, r.snippetStart).trimStart(),
-      match: r.snippet.slice(r.snippetStart, r.snippetStart + r.snippetLen),
-      after: r.snippet.slice(r.snippetStart + r.snippetLen).trimEnd(),
-    };
-  }
 </script>
 
 <div class="search">
@@ -243,7 +257,6 @@
             <span class="group-count tnum">{group.items.length}</span>
           </div>
           {#each group.items as it (it.globalIdx)}
-            {@const p = parts(it.result)}
             <button
               class="result"
               id={`sr-${it.globalIdx}`}
@@ -254,9 +267,7 @@
               onclick={() => pick(it.result, it.globalIdx)}
             >
               <span class="snippet">
-                {#if it.result.snippetStart > 0}…{/if}{p.before}<mark
-                  >{p.match}</mark
-                >{p.after}{#if it.result.snippetStart + it.result.snippetLen < it.result.snippet.length}…{/if}
+                {#if it.clippedStart}…{/if}{it.before}<mark>{it.match}</mark>{it.after}{#if it.clippedEnd}…{/if}
               </span>
             </button>
           {/each}
