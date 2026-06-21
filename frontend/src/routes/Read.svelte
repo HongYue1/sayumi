@@ -456,6 +456,12 @@
 
     if (chapterLoadInProgress) {
       pendingNav = { index, scrollTo, fragment, restore };
+      // Latest navigation should win immediately. If the current load is still
+      // fetching a stale chapter, abort it so the finally block can drain the
+      // pending navigation instead of waiting on and then rendering the stale
+      // response first. Adjacent prefetches are intentionally separate and stay
+      // best-effort/non-aborted.
+      fetchAbort?.abort();
       return;
     }
 
