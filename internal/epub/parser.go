@@ -326,6 +326,14 @@ func parseNavHTML(data []byte, navPath string) []TocEntry {
 }
 
 func findNavTOC(node *html.Node) *html.Node {
+	return findNavTOCDepth(node, 0)
+}
+
+func findNavTOCDepth(node *html.Node, depth int) *html.Node {
+	if node == nil || depth > maxSanitizeDepth {
+		return nil
+	}
+
 	if node.Type == html.ElementNode && node.DataAtom == atom.Nav {
 		for _, attr := range node.Attr {
 			switch {
@@ -340,7 +348,7 @@ func findNavTOC(node *html.Node) *html.Node {
 	}
 
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		if found := findNavTOC(child); found != nil {
+		if found := findNavTOCDepth(child, depth+1); found != nil {
 			return found
 		}
 	}
@@ -368,8 +376,11 @@ func parseOLNode(ol *html.Node, basePath string, depth int) []TocEntry {
 		// block elements (e.g. <div>, <p>), and some generators nest the
 		// sub-<ol> inside a wrapper element as well. A shallow scan silently
 		// drops those entries.
-		var scanLi func(*html.Node)
-		scanLi = func(n *html.Node) {
+		var scanLi func(*html.Node, int)
+		scanLi = func(n *html.Node, wrapperDepth int) {
+			if wrapperDepth > maxSanitizeDepth {
+				return
+			}
 			for gc := n.FirstChild; gc != nil; gc = gc.NextSibling {
 				if gc.Type != html.ElementNode {
 					continue
@@ -397,12 +408,14 @@ func parseOLNode(ol *html.Node, basePath string, depth int) []TocEntry {
 					}
 				default:
 					// Recurse into any other element (div, p, section, etc.)
-					// that might wrap the anchor or title text.
-					scanLi(gc)
+					// that might wrap the anchor or title text. Bound wrapper
+					// recursion separately from logical TOC depth so a malformed
+					// nav cannot overflow the stack before maxTOCDepth applies.
+					scanLi(gc, wrapperDepth+1)
 				}
 			}
 		}
-		scanLi(child)
+		scanLi(child, 0)
 
 		if title == "" {
 			continue
@@ -426,18 +439,32 @@ func parseOLNode(ol *html.Node, basePath string, depth int) []TocEntry {
 
 func nodeText(node *html.Node) string {
 	var builder strings.Builder
+	if node == nil {
+		return ""
+	}
 
-	var walk func(*html.Node)
-	walk = func(current *html.Node) {
-		if current.Type == html.TextNode {
-			builder.WriteString(current.Data)
+	type frame struct {
+		node  *html.Node
+		depth int
+	}
+	stack := make([]frame, 0, 16)
+	stack = append(stack, frame{node: node})
+	for len(stack) > 0 {
+		last := len(stack) - 1
+		current := stack[last]
+		stack = stack[:last]
+
+		if current.node.Type == html.TextNode {
+			builder.WriteString(current.node.Data)
 		}
-		for child := current.FirstChild; child != nil; child = child.NextSibling {
-			walk(child)
+		if current.depth >= maxSanitizeDepth {
+			continue
+		}
+		for child := current.node.LastChild; child != nil; child = child.PrevSibling {
+			stack = append(stack, frame{node: child, depth: current.depth + 1})
 		}
 	}
 
-	walk(node)
 	return builder.String()
 }
 

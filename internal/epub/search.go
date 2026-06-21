@@ -236,7 +236,11 @@ func (e *plainTextExtractor) writeText(text string) {
 }
 
 func (e *plainTextExtractor) extract(node *html.Node) {
-	if node == nil {
+	e.extractDepth(node, 0)
+}
+
+func (e *plainTextExtractor) extractDepth(node *html.Node, depth int) {
+	if node == nil || depth > maxSanitizeDepth {
 		return
 	}
 
@@ -254,7 +258,7 @@ func (e *plainTextExtractor) extract(node *html.Node) {
 			e.writeBoundary()
 		}
 		for child := node.FirstChild; child != nil; child = child.NextSibling {
-			e.extract(child)
+			e.extractDepth(child, depth+1)
 		}
 		if boundary {
 			e.writeBoundary()
@@ -268,7 +272,7 @@ func (e *plainTextExtractor) extract(node *html.Node) {
 	}
 
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		e.extract(child)
+		e.extractDepth(child, depth+1)
 	}
 }
 
