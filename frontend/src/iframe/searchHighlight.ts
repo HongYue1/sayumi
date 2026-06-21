@@ -212,7 +212,7 @@ export function createSearchHighlight(
   function clearSearchHighlights(): void {
     for (const mark of document.querySelectorAll("mark.search-highlight")) {
       const parent = mark.parentNode;
-      mark.replaceWith(document.createTextNode(mark.textContent ?? ""));
+      mark.replaceWith(...Array.from(mark.childNodes));
       parent?.normalize();
     }
   }
