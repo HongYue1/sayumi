@@ -1369,6 +1369,7 @@ import { createPagination } from "./pagination";
         break;
 
       case "clear-highlights":
+        pendingSearchHighlight = null;
         searchHl.clearSearchHighlights();
         break;
 
