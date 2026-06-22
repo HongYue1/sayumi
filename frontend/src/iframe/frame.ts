@@ -146,9 +146,9 @@ import { createPagination } from "./pagination";
   let revealFallbackTimer: ReturnType<typeof setTimeout> | null = null;
   let loadCommitTimer: ReturnType<typeof setTimeout> | null = null;
   let chapterAnimTimer: ReturnType<typeof setTimeout> | null = null;
-  // Slightly longer than the longest #paged-clip transition (transform 0.3s) so
+  // Slightly longer than the longest #paged-clip transition (fade-in 0.18s) so
   // the compositor hint stays for the whole swap, then is removed.
-  const CHAPTER_ANIM_SETTLE_MS = 360;
+  const CHAPTER_ANIM_SETTLE_MS = 240;
   let loadTransitionToken = 0;
   let pendingSettingsMessage: IframeSettings | null = null;
   let pendingSearchHighlight: {
@@ -311,10 +311,10 @@ import { createPagination } from "./pagination";
   function setChapterHidden(hidden: boolean): void {
     const root = document.documentElement;
     // Promote the swap layer for the duration of the transition, then demote it.
-    // Leaving will-change on permanently (in CSS) wastes a compositor layer and
-    // a blur buffer; toggling a transient class around the swap is the
-    // recommended will-change pattern. Covers both swap-out (hidden=true) and
-    // reveal (hidden=false) since both route through here.
+    // Leaving will-change on permanently (in CSS) wastes a compositor layer;
+    // toggling a transient class around the swap is the recommended
+    // will-change pattern. Covers both swap-out (hidden=true) and reveal
+    // (hidden=false) since both route through here.
     root.classList.add("chapter-anim");
     if (chapterAnimTimer !== null) clearTimeout(chapterAnimTimer);
     chapterAnimTimer = setTimeout(() => {

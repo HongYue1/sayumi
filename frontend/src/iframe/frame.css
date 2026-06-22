@@ -497,11 +497,9 @@ html.paged #paged-clip {
   height: 100%;
   opacity: 1;
   transform: translate3d(0, 0, 0) scale(1);
-  filter: blur(0);
   transition:
-    opacity 0.22s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
-    filter 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+    opacity 0.18s cubic-bezier(0.2, 0.7, 0.2, 1),
+    transform 0.18s cubic-bezier(0.2, 0.7, 0.2, 1);
   backface-visibility: hidden;
   transform-origin: center center;
 }
@@ -554,11 +552,9 @@ html.paged-two #paged-clip {
   height: 100%;
   opacity: 1;
   transform: translate3d(0, 0, 0) scale(1);
-  filter: blur(0);
   transition:
-    opacity 0.22s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
-    filter 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+    opacity 0.18s cubic-bezier(0.2, 0.7, 0.2, 1),
+    transform 0.18s cubic-bezier(0.2, 0.7, 0.2, 1);
   backface-visibility: hidden;
   transform-origin: center center;
 }
@@ -605,16 +601,17 @@ html.chapter-hidden.paged #paged-clip,
 html.chapter-hidden.paged-two #paged-clip {
   opacity: 0;
   transform: translate3d(0, 10px, 0) scale(0.997);
-  filter: blur(1px);
+  transition-duration: 0.11s;
+  transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
 }
 
 /* Promote the swap layer ONLY while a chapter transition is in flight. A
    transient .chapter-anim class is toggled from JS around each swap so the
    compositor hint is never left on permanently (persistent will-change keeps a
-   layer alive and a blur buffer allocated even at rest). */
+   layer alive even at rest). */
 html.chapter-anim.paged #paged-clip,
 html.chapter-anim.paged-two #paged-clip {
-  will-change: opacity, transform, filter;
+  will-change: opacity, transform;
 }
 
 html.page-turning.paged #content,
@@ -667,6 +664,5 @@ html.page-turn-in.paged-two #content {
   html.paged-two #paged-clip {
     transition: none;
     transform: none !important;
-    filter: none !important;
   }
 }
