@@ -162,11 +162,21 @@
       status = "idle";
       resultItems = [];
       groups = [];
+      hasMore = false;
+      nextCursor = "";
       loadMoreError = "";
       currentIdx = 0;
       activeOptionEl = null;
       return;
     }
+    status = "loading";
+    resultItems = [];
+    groups = [];
+    hasMore = false;
+    nextCursor = "";
+    loadMoreError = "";
+    currentIdx = 0;
+    activeOptionEl = null;
     debounce = setTimeout(() => run(trimmed), 300);
   }
 
