@@ -308,7 +308,7 @@
     width: min(36rem, 90%);
     padding: var(--sp-12) var(--sp-8);
     border: 2px dashed color-mix(in srgb, var(--accent) 60%, transparent);
-    border-radius: 1rem;
+    border-radius: var(--radius-lg);
     color: var(--fg);
     text-align: center;
   }
@@ -430,7 +430,7 @@
     transform: scale(0.97);
   }
   .upload {
-    padding: 0 1rem;
+    padding: 0 var(--sp-4);
     border: none;
     background: var(--accent);
     color: var(--accent-fg);
@@ -671,6 +671,6 @@
     font-family: ui-monospace, monospace;
     background: var(--surface);
     padding: 0.1rem 0.3rem;
-    border-radius: 0.25rem;
+    border-radius: var(--radius-sm);
   }
 </style>

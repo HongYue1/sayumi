@@ -291,7 +291,8 @@
     z-index: 1;
     padding: 0;
     border: none;
-    border-radius: 6px;
+    /* Tokenized to the card radius; this is an invisible full-card hit target. */
+    border-radius: var(--radius);
     background: transparent;
     cursor: pointer;
   }

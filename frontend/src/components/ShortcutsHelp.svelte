@@ -142,7 +142,7 @@
   .groups {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 1.25rem;
+    gap: var(--sp-5);
     padding: 1.1rem;
   }
   @media (max-width: 30rem) {
