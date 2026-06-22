@@ -223,7 +223,7 @@
     place-items: center;
     width: 1.9rem;
     height: 1.5rem;
-    border-radius: 0.3rem;
+    border-radius: var(--radius-sm);
   }
   .swatch .aa {
     font-family: var(--font-display);
@@ -252,7 +252,7 @@
     background: var(--bg);
     border: 1px solid var(--hairline-strong);
     border-radius: var(--radius);
-    box-shadow: 0 8px 22px color-mix(in srgb, var(--fg) 22%, transparent);
+    box-shadow: var(--shadow-pop);
     transform-origin: top right;
     animation: app-menu-pop-in var(--dur-fast) var(--ease-out) both;
   }
@@ -274,7 +274,7 @@
     gap: 0.3rem;
     padding: 0.35rem;
     border: 1px solid var(--hairline);
-    border-radius: 0.5rem;
+    border-radius: var(--radius);
     background: var(--bg);
     color: var(--fg);
     font: inherit;
@@ -300,7 +300,7 @@
     display: grid;
     place-items: center;
     height: 2.2rem;
-    border-radius: 0.4rem;
+    border-radius: var(--radius-sm);
     border: 1px solid color-mix(in srgb, var(--fg) 12%, transparent);
   }
   .preview .aa {

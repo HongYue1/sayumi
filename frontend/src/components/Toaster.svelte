@@ -29,7 +29,7 @@
     border-radius: var(--radius);
     font-size: var(--text-sm);
     text-align: center;
-    box-shadow: 0 2px 12px color-mix(in srgb, var(--fg) 25%, transparent);
+    box-shadow: var(--shadow-toast);
     pointer-events: auto;
     animation: toast-in var(--dur) var(--ease-out) forwards;
   }

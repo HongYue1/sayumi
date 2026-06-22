@@ -240,7 +240,7 @@
     width: min(26rem, 100%);
     background: var(--bg);
     border: 1px solid var(--hairline-strong);
-    border-radius: 0.75rem;
+    border-radius: var(--radius-lg);
     animation: app-sheet-in var(--dur) var(--ease-out);
   }
   header {

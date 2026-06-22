@@ -101,7 +101,7 @@
     width: min(34rem, 100%);
     background: var(--bg);
     border: 1px solid var(--hairline-strong);
-    border-radius: 0.75rem;
+    border-radius: var(--radius-lg);
     animation: app-sheet-in var(--dur) var(--ease-out);
   }
   header {
@@ -179,7 +179,7 @@
     padding: 0.1rem 0.4rem;
     border: 1px solid var(--hairline-strong);
     border-bottom-width: 2px;
-    border-radius: 0.3rem;
+    border-radius: var(--radius-sm);
     background: var(--surface);
     font-family: ui-monospace, monospace;
     font-size: 0.75rem;

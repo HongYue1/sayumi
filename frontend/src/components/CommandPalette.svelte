@@ -236,7 +236,7 @@
     flex-direction: column;
     background: var(--bg);
     border: 1px solid var(--hairline-strong);
-    border-radius: 0.75rem;
+    border-radius: var(--radius-lg);
     overflow: hidden;
     animation: app-sheet-in var(--dur) var(--ease-out);
   }

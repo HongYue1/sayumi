@@ -85,7 +85,24 @@
   --text-2xl: 2rem;
   --text-3xl: 2.6rem;
 
+  /* Radius scale: small controls/chips → default → large surfaces (dialogs). */
+  --radius-sm: 0.35rem;
   --radius: 0.5rem;
+  --radius-lg: 0.75rem;
+
+  /* Elevation scale — theme-aware (shadows mix toward --fg so they read on
+     every theme, never a fixed black). Consume these instead of one-off
+     box-shadows so the app's depth stays consistent and minimal:
+       rest = resting card lift   hover = card hover lift
+       pop  = menus/popovers      toast = transient toasts */
+  --shadow-rest:
+    0 2px 6px color-mix(in srgb, var(--fg) 14%, transparent),
+    0 1px 2px color-mix(in srgb, var(--fg) 10%, transparent);
+  --shadow-hover:
+    0 12px 28px color-mix(in srgb, var(--fg) 22%, transparent),
+    0 3px 8px color-mix(in srgb, var(--fg) 14%, transparent);
+  --shadow-pop: 0 8px 22px color-mix(in srgb, var(--fg) 22%, transparent);
+  --shadow-toast: 0 2px 12px color-mix(in srgb, var(--fg) 25%, transparent);
 
   /* Focus ring — one consistent keyboard ring across every control,
      applied via the global :focus-visible rule below. Uses theme tokens so
