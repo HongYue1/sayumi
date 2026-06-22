@@ -115,19 +115,20 @@
   function onInput(value: string): void {
     query = value;
     if (debounce) clearTimeout(debounce);
+    const trimmed = value.trim();
+    if (trimmed && trimmed === lastQuery && status !== "error") return;
     // Invalidate any in-flight search immediately, not after the debounce. This
     // keeps a slow previous query/load-more response from repainting stale
     // results while the user is already typing the next query.
     abort?.abort();
     token += 1;
-    if (!value.trim()) {
+    if (!trimmed) {
       status = "idle";
       results = [];
       currentIdx = 0;
       activeOptionEl = null;
       return;
     }
-    const trimmed = value.trim();
     debounce = setTimeout(() => run(trimmed), 300);
   }
 
