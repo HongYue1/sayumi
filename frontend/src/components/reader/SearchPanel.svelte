@@ -111,11 +111,12 @@
   function onInput(value: string): void {
     query = value;
     if (debounce) clearTimeout(debounce);
+    // Invalidate any in-flight search immediately, not after the debounce. This
+    // keeps a slow previous query/load-more response from repainting stale
+    // results while the user is already typing the next query.
+    abort?.abort();
+    token += 1;
     if (!value.trim()) {
-      // Cancel any in-flight request too: bumping the token alone discards a
-      // late response but leaves the fetch running; aborting frees it now.
-      abort?.abort();
-      token += 1;
       status = "idle";
       results = [];
       currentIdx = 0;
