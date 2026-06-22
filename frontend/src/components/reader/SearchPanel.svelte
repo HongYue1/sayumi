@@ -159,6 +159,7 @@
     abort = undefined;
     token += 1;
     loadingMore = false;
+    errorMsg = "";
     if (!trimmed) {
       status = "idle";
       resultItems = [];
@@ -191,6 +192,7 @@
     currentIdx = 0;
     activeOptionEl = null;
     loadingMore = false;
+    errorMsg = "";
     loadMoreError = "";
     try {
       const resp = await searchBook(
