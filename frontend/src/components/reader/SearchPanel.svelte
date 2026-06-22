@@ -74,15 +74,21 @@
   }
 
   function toItem(r: SearchResult, globalIdx: number): SearchResultItem {
-    const matchEnd = r.snippetStart + r.snippetLen;
+    const snippetStart = Number.isSafeInteger(r.snippetStart)
+      ? Math.min(Math.max(r.snippetStart, 0), r.snippet.length)
+      : 0;
+    const snippetLen = Number.isSafeInteger(r.snippetLen)
+      ? Math.max(r.snippetLen, 0)
+      : 0;
+    const matchEnd = Math.min(snippetStart + snippetLen, r.snippet.length);
     return {
       result: r,
       globalIdx,
       id: `sr-${globalIdx}`,
-      before: r.snippet.slice(0, r.snippetStart).trimStart(),
-      match: r.snippet.slice(r.snippetStart, matchEnd),
+      before: r.snippet.slice(0, snippetStart).trimStart(),
+      match: r.snippet.slice(snippetStart, matchEnd),
       after: r.snippet.slice(matchEnd).trimEnd(),
-      clippedStart: r.snippetStart > 0,
+      clippedStart: snippetStart > 0,
       clippedEnd: matchEnd < r.snippet.length,
     };
   }

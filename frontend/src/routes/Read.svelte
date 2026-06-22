@@ -717,6 +717,18 @@
 
   // ---- search -------------------------------------------------------------
   function navigateToResult(result: SearchResult, query: string): void {
+    const b = book;
+    if (
+      !b ||
+      !Number.isSafeInteger(result.chapterIndex) ||
+      result.chapterIndex < 0 ||
+      result.chapterIndex >= b.chapterCount
+    ) {
+      cancelPendingHighlight();
+      showToast("Search result is no longer available");
+      return;
+    }
+
     cancelPendingHighlight();
     api?.clearHighlights();
     if (result.chapterIndex === currentChapter) {
