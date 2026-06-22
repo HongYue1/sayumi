@@ -457,6 +457,9 @@
     gap: 0.5rem;
     align-items: flex-start;
   }
+  .inline-error {
+    color: var(--danger);
+  }
   .ghost-btn {
     border: 1px solid var(--hairline-strong);
     background: transparent;
