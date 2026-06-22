@@ -1178,10 +1178,7 @@
   </div>
 
   <div class="progress" class:hidden={!chromeVisible} aria-hidden="true">
-    <div
-      class="fill"
-      style:--progress-scale={chapterPercent}
-    ></div>
+    <div class="fill" style:--progress-scale={chapterPercent}></div>
   </div>
 </div>
 
