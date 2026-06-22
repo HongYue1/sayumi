@@ -270,7 +270,7 @@
     pick(item.result, idx);
   }
 
-  function onListPointerDown(e: PointerEvent): void {
+  function onListMouseDown(e: MouseEvent): void {
     const target = e.target as Element | null;
     if (target?.closest("button.result")) e.preventDefault();
   }
@@ -344,7 +344,7 @@
     role="listbox"
     aria-label="Search results"
     tabindex="-1"
-    onpointerdown={onListPointerDown}
+    onmousedown={onListMouseDown}
     onclick={onListClick}
   >
     {#if status === "loading"}
