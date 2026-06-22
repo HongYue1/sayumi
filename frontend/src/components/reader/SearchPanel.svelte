@@ -17,7 +17,6 @@
 
   let query = $state("");
   let status = $state<Status>("idle");
-  let results = $state<SearchResult[]>([]);
   let hasMore = $state(false);
   let nextCursor = $state("");
   let currentIdx = $state(0);
@@ -46,6 +45,8 @@
     items: SearchResultItem[];
   }
 
+  let resultItems = $state<SearchResultItem[]>([]);
+
   function toItem(r: SearchResult, globalIdx: number): SearchResultItem {
     const matchEnd = r.snippetStart + r.snippetLen;
     return {
@@ -61,23 +62,22 @@
 
   const groups = $derived.by<Group[]>(() => {
     const out: Group[] = [];
-    results.forEach((r, globalIdx) => {
-      const item = toItem(r, globalIdx);
+    resultItems.forEach((item) => {
       const last = out[out.length - 1];
-      if (last && last.chapterIndex === r.chapterIndex) {
+      if (last && last.chapterIndex === item.result.chapterIndex) {
         last.items.push(item);
       } else {
-        out.push({ chapterIndex: r.chapterIndex, items: [item] });
+        out.push({ chapterIndex: item.result.chapterIndex, items: [item] });
       }
     });
     return out;
   });
   const countText = $derived(
-    results.length === 0
+    resultItems.length === 0
       ? ""
       : hasMore
-        ? `${results.length}+ results`
-        : `${results.length} result${results.length === 1 ? "" : "s"}`,
+        ? `${resultItems.length}+ results`
+        : `${resultItems.length} result${resultItems.length === 1 ? "" : "s"}`,
   );
 
   let activeOptionEl: HTMLElement | null = null;
@@ -87,7 +87,9 @@
   // affected option nodes, not re-evaluate active classes/aria-selected for
   // every rendered result on each key repeat.
   function syncActiveOption(scroll = false): void {
-    const next = document.getElementById(`sr-${currentIdx}`) as HTMLElement | null;
+    const next = document.getElementById(
+      `sr-${currentIdx}`,
+    ) as HTMLElement | null;
     if (activeOptionEl && activeOptionEl !== next) {
       activeOptionEl.setAttribute("aria-selected", "false");
     }
@@ -123,7 +125,7 @@
     token += 1;
     if (!trimmed) {
       status = "idle";
-      results = [];
+      resultItems = [];
       currentIdx = 0;
       activeOptionEl = null;
       return;
@@ -149,7 +151,9 @@
         abort.signal,
       );
       if (my !== token) return;
-      results = resp.results ?? [];
+      resultItems = (resp.results ?? []).map((r, globalIdx) =>
+        toItem(r, globalIdx),
+      );
       hasMore = resp.hasMore;
       nextCursor = resp.nextCursor ?? "";
       status = "done";
@@ -181,7 +185,10 @@
       );
       if (my !== token) return;
       const more = resp.results ?? [];
-      if (more.length) results.push(...more);
+      if (more.length) {
+        const offset = resultItems.length;
+        resultItems.push(...more.map((r, i) => toItem(r, offset + i)));
+      }
       hasMore = resp.hasMore;
       nextCursor = resp.nextCursor ?? "";
     } catch (e) {
@@ -201,7 +208,7 @@
   }
 
   function onKey(e: KeyboardEvent): void {
-    const total = results.length;
+    const total = resultItems.length;
     switch (e.key) {
       case "Escape":
         e.preventDefault();
@@ -227,7 +234,7 @@
         if (total > 0 && e.target === input) {
           e.preventDefault();
           e.stopPropagation();
-          pick(results[currentIdx], currentIdx);
+          pick(resultItems[currentIdx].result, currentIdx);
         }
         break;
     }
@@ -249,9 +256,9 @@
       role="combobox"
       aria-label="Search book"
       aria-controls="search-results"
-      aria-expanded={results.length > 0}
+      aria-expanded={resultItems.length > 0}
       aria-autocomplete="list"
-      aria-activedescendant={results.length > 0
+      aria-activedescendant={resultItems.length > 0
         ? `sr-${currentIdx}`
         : undefined}
     />
@@ -277,7 +284,7 @@
           >Try again</button
         >
       </div>
-    {:else if status === "done" && results.length === 0}
+    {:else if status === "done" && resultItems.length === 0}
       <p class="state" role="status">No results for “{query}”.</p>
     {:else if status === "done"}
       {#each groups as group (group.chapterIndex + "-" + group.items[0].globalIdx)}
