@@ -213,7 +213,6 @@
     background: var(--bg);
     border: 1px solid var(--hairline-strong);
     border-radius: var(--radius);
-    box-shadow: var(--shadow-pop);
     transform-origin: top right;
     animation: app-menu-pop-in var(--dur-fast) var(--ease-out) both;
   }

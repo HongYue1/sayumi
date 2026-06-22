@@ -29,7 +29,6 @@
     border-radius: var(--radius);
     font-size: var(--text-sm);
     text-align: center;
-    box-shadow: var(--shadow-toast);
     pointer-events: auto;
     animation: toast-in var(--dur) var(--ease-out) forwards;
   }

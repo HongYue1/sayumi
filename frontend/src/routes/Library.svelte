@@ -237,7 +237,16 @@
       </p>
     </div>
   {:else if library.visible.length === 0}
-    <p class="state">No books match “{library.query}”.</p>
+    <div class="noresults">
+      <p class="state">No books match your search or filters.</p>
+      <button
+        class="clear-filters"
+        onclick={() => {
+          library.setQuery("");
+          library.clearFlairFilters();
+        }}>Clear search &amp; filters</button
+      >
+    </div>
   {:else}
     <div class="grid">
       {#each library.visible as book, i (book.id)}
@@ -599,7 +608,7 @@
   /* ---- grid ---- */
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
     gap: var(--sp-8) var(--sp-4);
   }
   @media (max-width: 768px) {
@@ -612,6 +621,29 @@
   .state,
   .hint {
     color: var(--muted);
+  }
+
+  .noresults {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-2);
+    margin-top: 12vh;
+    text-align: center;
+  }
+  .clear-filters {
+    padding: 0.45rem 0.9rem;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    cursor: pointer;
+    transition: border-color var(--dur) var(--ease-out);
+  }
+  .clear-filters:hover {
+    border-color: var(--accent);
+    color: var(--accent);
   }
 
   .error {

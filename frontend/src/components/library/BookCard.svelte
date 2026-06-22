@@ -307,24 +307,20 @@
     border-radius: 6px;
     overflow: hidden;
     background: var(--surface);
-    /* Glossier shelf: a hairline border + a resting two-layer elevation so each
-       card sits slightly proud even at rest. Hover lifts it further and deepens
-       the shadow so the book reads as picked up off the shelf. */
+    /* Shelf depth is the hairline border + the hover lift, not a drop shadow
+       (shadows read poorly across the themes). */
     border: 1px solid var(--hairline);
-    box-shadow: var(--shadow-rest);
-    /* The lift is transform (GPU-composited); the shadow + border only change
-       on hover/focus. Hover repaints one card at a time and never runs at load,
+    /* The lift is transform (GPU-composited); only border-color changes on
+       hover/focus. Hover repaints one card at a time and never runs at load,
        so it stays clear of the Lighthouse budget. */
     transition:
       transform var(--dur) var(--ease-out),
-      box-shadow var(--dur) var(--ease-out),
       border-color var(--dur) var(--ease-out);
   }
   .card:hover .cover,
   .card:has(.open-overlay:focus-visible) .cover {
     transform: translateY(-6px);
-    border-color: color-mix(in srgb, var(--accent) 35%, var(--hairline));
-    box-shadow: var(--shadow-hover);
+    border-color: var(--accent);
   }
   /* Cover-targeted focus ring hugs the artwork instead of the whole column.
      Driven off the overlay button via :has, since the card itself is no longer
@@ -411,7 +407,7 @@
     right: var(--sp-1);
   }
   .remove:hover {
-    background: #b3402f;
+    background: var(--danger-surface);
   }
   .flair-btn {
     left: var(--sp-1);
@@ -446,7 +442,6 @@
     background: var(--bg);
     border: 1px solid var(--hairline-strong);
     border-radius: var(--radius);
-    box-shadow: var(--shadow-pop);
     transform-origin: top left;
     --menu-pop-y: -2px;
     animation: app-menu-pop-in var(--dur-fast) var(--ease-out) both;
