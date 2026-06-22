@@ -88,13 +88,12 @@
   // every rendered result on each key repeat.
   async function syncActiveOption(scroll = false): Promise<void> {
     await tick();
-    const next = listEl?.querySelector<HTMLElement>(`#sr-${currentIdx}`) ?? null;
+    const next =
+      listEl?.querySelector<HTMLElement>(`#sr-${currentIdx}`) ?? null;
     if (activeOptionEl && activeOptionEl !== next) {
-      activeOptionEl.classList.remove("active");
       activeOptionEl.setAttribute("aria-selected", "false");
     }
     if (next) {
-      next.classList.add("active");
       next.setAttribute("aria-selected", "true");
       if (scroll) next.scrollIntoView({ block: "nearest" });
     }
@@ -187,25 +186,29 @@
     const total = results.length;
     switch (e.key) {
       case "Escape":
+        e.preventDefault();
         e.stopPropagation();
         if (query.trim()) onInput("");
         else onclose();
         break;
       case "ArrowDown":
-        if (total === 0) return;
         e.preventDefault();
+        e.stopPropagation();
+        if (total === 0) return;
         currentIdx = (currentIdx + 1) % total;
         void syncActiveOption(true);
         break;
       case "ArrowUp":
-        if (total === 0) return;
         e.preventDefault();
+        e.stopPropagation();
+        if (total === 0) return;
         currentIdx = (currentIdx - 1 + total) % total;
         void syncActiveOption(true);
         break;
       case "Enter":
-        if (total > 0) {
+        if (total > 0 && e.target === input) {
           e.preventDefault();
+          e.stopPropagation();
           pick(results[currentIdx], currentIdx);
         }
         break;
@@ -213,7 +216,8 @@
   }
 </script>
 
-<div class="search">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="search" onkeydown={onKey}>
   <header>
     <input
       bind:this={input}
@@ -222,7 +226,6 @@
       placeholder="Search book…"
       value={query}
       oninput={(e) => onInput(e.currentTarget.value)}
-      onkeydown={onKey}
       autocomplete="off"
       spellcheck="false"
       role="combobox"
@@ -280,7 +283,8 @@
               onclick={() => pick(it.result, it.globalIdx)}
             >
               <span class="snippet">
-                {#if it.clippedStart}…{/if}{it.before}<mark>{it.match}</mark>{it.after}{#if it.clippedEnd}…{/if}
+                {#if it.clippedStart}…{/if}{it.before}<mark>{it.match}</mark
+                >{it.after}{#if it.clippedEnd}…{/if}
               </span>
             </button>
           {/each}
@@ -412,7 +416,7 @@
   .result:hover {
     background: var(--surface-hover);
   }
-  .result.active {
+  .search :global(.result[aria-selected="true"]) {
     background: color-mix(in srgb, var(--accent) 18%, transparent);
   }
   .snippet {
