@@ -640,13 +640,24 @@
     percent: number,
     cfi?: string,
   ): void {
-    chapterPercent = percent;
+    const b = book;
+    if (
+      !b ||
+      !Number.isSafeInteger(chapterIndex) ||
+      chapterIndex < 0 ||
+      chapterIndex >= b.chapterCount
+    )
+      return;
+    const safePercent = Number.isFinite(percent)
+      ? Math.min(1, Math.max(0, percent))
+      : 0;
+    chapterPercent = safePercent;
     // A position report can omit the CFI (e.g. no first visible block was
     // resolvable). Don't let that wipe a good CFI we already hold for the same
     // chapter — only overwrite when the report actually carries one.
     const keptCfi =
       cfi ?? (chapterIndex === saveData.chapter ? saveData.cfi : undefined);
-    saveData = { chapter: chapterIndex, percent, cfi: keptCfi };
+    saveData = { chapter: chapterIndex, percent: safePercent, cfi: keptCfi };
   }
   function handleBoundary(boundary: "start" | "end"): void {
     const now = Date.now();

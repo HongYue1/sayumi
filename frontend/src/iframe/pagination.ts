@@ -97,13 +97,15 @@ export function createPagination(deps: PaginationDeps): PaginationController {
 
   function getPageStride(): number {
     const content = deps.getContentEl();
-    return Math.max(1, content?.clientWidth || window.innerWidth || 1);
+    const width = content?.clientWidth || window.innerWidth || 1;
+    return Number.isFinite(width) ? Math.max(1, width) : 1;
   }
 
   function getMaxPageScrollLeft(): number {
     const content = deps.getContentEl();
     if (!content) return 0;
-    return Math.max(0, content.scrollWidth - content.clientWidth);
+    const max = content.scrollWidth - content.clientWidth;
+    return Number.isFinite(max) ? Math.max(0, max) : 0;
   }
 
   function calculateTotalPages(): number {
@@ -122,11 +124,15 @@ export function createPagination(deps: PaginationDeps): PaginationController {
   }
 
   function reportPagePosition(): void {
+    const percent =
+      totalPages > 1 && Number.isFinite(currentPage)
+        ? currentPage / (totalPages - 1)
+        : 0;
     deps.sendMessage({
       type: "position",
       seq: deps.getActiveSeq(),
       chapterIndex: deps.getActiveChapterIndex(),
-      percent: totalPages > 1 ? currentPage / (totalPages - 1) : 0,
+      percent,
     });
   }
 
@@ -234,6 +240,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
   }
 
   function goToPageInternal(page: number, animated: boolean): void {
+    if (!Number.isFinite(page)) return;
     currentPage = Math.max(0, Math.min(totalPages - 1, page));
     applyPageScroll(currentPage, animated);
     reportPagePosition();
@@ -294,7 +301,10 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     // Shorten the column box by the vertical margins and offset it down by the
     // top margin, so every page gets a real top/bottom frame margin and the
     // indicator lives in the reserved bottom strip.
-    const height = Math.max(0, window.innerHeight - top - bottom);
+    const viewportHeight = Number.isFinite(window.innerHeight)
+      ? window.innerHeight
+      : 0;
+    const height = Math.max(0, viewportHeight - top - bottom);
     const clip = deps.getClipEl();
     const content = deps.getContentEl();
     if (clip) {
@@ -313,6 +323,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     const contentRect = content.getBoundingClientRect();
     const rect = el.getBoundingClientRect();
     const x = rect.left - contentRect.left + content.scrollLeft;
+    if (!Number.isFinite(x)) return 0;
     return Math.max(0, Math.min(totalPages - 1, Math.floor(x / stride)));
   }
 
@@ -343,7 +354,10 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     // handler can skip no-op relayouts (see handlePagedResize).
     lastLayoutW = window.innerWidth;
     lastLayoutH = window.innerHeight;
-    const ratio = totalPages > 1 ? currentPage / (totalPages - 1) : 0;
+    const ratio =
+      totalPages > 1 && Number.isFinite(currentPage)
+        ? currentPage / (totalPages - 1)
+        : 0;
     totalPages = calculateTotalPages();
     currentPage = Math.max(
       0,
@@ -424,7 +438,9 @@ export function createPagination(deps: PaginationDeps): PaginationController {
 
     currentPage = restoreElement
       ? getElementPageIndex(restoreElement)
-      : restorePercent !== null && totalPages > 1
+      : restorePercent !== null &&
+          Number.isFinite(restorePercent) &&
+          totalPages > 1
         ? Math.max(
             0,
             Math.min(
@@ -478,7 +494,9 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     const target = event.target;
     if (
       target instanceof HTMLImageElement ||
-      target instanceof HTMLVideoElement
+      target instanceof HTMLVideoElement ||
+      target instanceof HTMLAudioElement ||
+      target instanceof HTMLIFrameElement
     )
       queuePagedRelayout(false);
   }
@@ -488,7 +506,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     pagedResizeObserver = new ResizeObserver(handlePagedResize);
     pagedResizeObserver.observe(document.documentElement);
     window.addEventListener("resize", handlePagedResize);
-    // Late-loading images/videos can change multicol scrollWidth without a
+    // Late-loading replaced media can change multicol scrollWidth without a
     // viewport resize. Capture-phase `load` catches non-bubbling media loads and
     // forces one debounced page-count refresh for the final intrinsic size.
     document.addEventListener("load", handlePagedContentLoad, true);

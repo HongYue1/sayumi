@@ -186,7 +186,7 @@ import { createPagination } from "./pagination";
   function isUsableVisibleBlock(node: Element, content: HTMLElement): boolean {
     if (!content.contains(node) || !BLOCK_TAGS.has(node.tagName)) return false;
     const rect = node.getBoundingClientRect();
-    const vh = window.innerHeight;
+    const vh = Number.isFinite(window.innerHeight) ? window.innerHeight : 0;
     return rect.height < vh && rect.bottom > 0 && rect.top < vh;
   }
 
@@ -210,8 +210,10 @@ import { createPagination } from "./pagination";
       return lastVisibleBlock;
     }
 
-    const cx = window.innerWidth / 2;
-    const vh = window.innerHeight;
+    const vw = Number.isFinite(window.innerWidth) ? window.innerWidth : 0;
+    const vh = Number.isFinite(window.innerHeight) ? window.innerHeight : 0;
+    if (vw <= 0 || vh <= 0) return null;
+    const cx = vw / 2;
     const samples = [8, 40, Math.floor(vh * 0.18), Math.floor(vh * 0.33)];
 
     for (const y of samples) {
@@ -245,10 +247,14 @@ import { createPagination } from "./pagination";
     window.parent.postMessage(msg, parentOrigin || "*");
   }
 
+  function getScrollableMax(): number {
+    const max = document.documentElement.scrollHeight - window.innerHeight;
+    return Number.isFinite(max) ? Math.max(0, max) : 0;
+  }
+
   function updateBoundaryState(): void {
     const scrollTop = window.scrollY;
-    const scrollMax =
-      document.documentElement.scrollHeight - window.innerHeight;
+    const scrollMax = getScrollableMax();
     if (scrollMax <= 0) {
       atTop = true;
       atBottom = true;
@@ -369,9 +375,12 @@ import { createPagination } from "./pagination";
   }
 
   function restoreScrollPercent(percent: number): void {
-    const max = document.documentElement.scrollHeight - window.innerHeight;
+    const max = getScrollableMax();
+    const pct = Number.isFinite(percent)
+      ? Math.min(1, Math.max(0, percent))
+      : 0;
     window.scrollTo({
-      top: max * percent,
+      top: max * pct,
       behavior: "instant" as ScrollBehavior,
     });
   }
@@ -400,7 +409,7 @@ import { createPagination } from "./pagination";
     }
 
     window.scrollTo({
-      top: scrollTarget === "end" ? document.documentElement.scrollHeight : 0,
+      top: scrollTarget === "end" ? getScrollableMax() : 0,
       behavior: "instant" as ScrollBehavior,
     });
 
@@ -807,7 +816,7 @@ import { createPagination } from "./pagination";
   }
 
   function getScrollPercent(): number {
-    const max = document.documentElement.scrollHeight - window.innerHeight;
+    const max = getScrollableMax();
     if (max <= 0) return 0;
     return Math.min(1, Math.max(0, window.scrollY / max));
   }
@@ -1011,8 +1020,7 @@ import { createPagination } from "./pagination";
 
     updateBoundaryState();
     let handled = false;
-    const scrollMax =
-      document.documentElement.scrollHeight - window.innerHeight;
+    const scrollMax = getScrollableMax();
 
     if (atTop && (e.key === "ArrowUp" || e.key === "PageUp")) {
       if (hasPrevChapter) {
@@ -1054,10 +1062,14 @@ import { createPagination } from "./pagination";
   function handleClick(e: MouseEvent): void {
     if (destroyed) return;
 
-    const vw = window.innerWidth;
+    const vw = Number.isFinite(window.innerWidth) ? window.innerWidth : 0;
     const x = e.clientX;
     const region: "left" | "center" | "right" =
-      x < vw / 3 ? "left" : x > (vw * 2) / 3 ? "right" : "center";
+      vw > 0 && x < vw / 3
+        ? "left"
+        : vw > 0 && x > (vw * 2) / 3
+          ? "right"
+          : "center";
     const anchor = (e.target as HTMLElement).closest("a");
 
     if (!anchor) {
@@ -1114,8 +1126,9 @@ import { createPagination } from "./pagination";
     pendingFragment = msg.fragment || null;
     hasNextChapter = msg.hasNext !== false;
     hasPrevChapter = msg.hasPrev !== false;
-    loadRestorePercent =
-      typeof msg.restorePercent === "number" ? msg.restorePercent : null;
+    loadRestorePercent = Number.isFinite(msg.restorePercent)
+      ? Math.min(1, Math.max(0, msg.restorePercent as number))
+      : null;
     loadRestoreCfi =
       typeof msg.restoreCfi === "string" && msg.restoreCfi
         ? msg.restoreCfi
@@ -1288,8 +1301,7 @@ import { createPagination } from "./pagination";
 
       case "scroll-to":
         if (contentReady) {
-          const max =
-            document.documentElement.scrollHeight - window.innerHeight;
+          const max = getScrollableMax();
           const pct = Number.isFinite(msg.percent)
             ? Math.min(1, Math.max(0, msg.percent))
             : 0;
@@ -1304,8 +1316,9 @@ import { createPagination } from "./pagination";
 
       case "scroll-to-end":
         if (contentReady) {
+          const max = getScrollableMax();
           window.scrollTo({
-            top: document.documentElement.scrollHeight,
+            top: max,
             behavior: "instant" as ScrollBehavior,
           });
           boundary.reset();
