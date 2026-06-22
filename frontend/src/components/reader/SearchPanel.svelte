@@ -87,8 +87,7 @@
   // Arrowing through 200+ results should update the combobox input plus the two
   // affected option nodes, not re-evaluate active classes/aria-selected for
   // every rendered result on each key repeat.
-  async function syncActiveOption(scroll = false): Promise<void> {
-    await tick();
+  function syncActiveOption(scroll = false): void {
     const next = document.getElementById(`sr-${currentIdx}`) as HTMLElement | null;
     if (activeOptionEl && activeOptionEl !== next) {
       activeOptionEl.setAttribute("aria-selected", "false");
@@ -98,6 +97,11 @@
       if (scroll) next.scrollIntoView({ block: "nearest" });
     }
     activeOptionEl = next;
+  }
+
+  async function syncActiveOptionAfterRender(): Promise<void> {
+    await tick();
+    syncActiveOption();
   }
 
   onMount(() => {
@@ -149,7 +153,7 @@
       hasMore = resp.hasMore;
       nextCursor = resp.nextCursor ?? "";
       status = "done";
-      void syncActiveOption();
+      void syncActiveOptionAfterRender();
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return;
       if (my !== token) return;
@@ -192,7 +196,7 @@
 
   function pick(r: SearchResult, idx: number): void {
     currentIdx = idx;
-    void syncActiveOption();
+    syncActiveOption();
     onresultclick(r, query.trim());
   }
 
@@ -210,14 +214,14 @@
         e.stopPropagation();
         if (total === 0) return;
         currentIdx = (currentIdx + 1) % total;
-        void syncActiveOption(true);
+        syncActiveOption(true);
         break;
       case "ArrowUp":
         e.preventDefault();
         e.stopPropagation();
         if (total === 0) return;
         currentIdx = (currentIdx - 1 + total) % total;
-        void syncActiveOption(true);
+        syncActiveOption(true);
         break;
       case "Enter":
         if (total > 0 && e.target === input) {
