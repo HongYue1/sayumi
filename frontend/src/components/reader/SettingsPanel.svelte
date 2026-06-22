@@ -543,7 +543,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.75rem 1rem;
+    padding: var(--sp-3) var(--sp-4);
     border-bottom: 1px solid var(--hairline);
     flex: 0 0 auto;
   }
@@ -595,7 +595,7 @@
   h3 {
     margin: 0 0 var(--sp-3);
     font-family: var(--font-display);
-    font-size: 1rem;
+    font-size: var(--text-base);
     font-weight: 500;
     color: var(--fg);
   }
@@ -632,12 +632,14 @@
   }
   .segmented.small button {
     padding: 0.3rem 0.2rem;
-    font-size: 0.78rem;
+    font-size: var(--text-xs);
   }
 
   .group-label {
     margin: 0.4rem 0 0.3rem;
-    font-size: 0.72rem;
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
     color: var(--muted);
   }
   .swatches {
@@ -683,7 +685,7 @@
 
   .font-select {
     width: 100%;
-    padding: 0.5rem;
+    padding: var(--sp-2);
     border: 1px solid var(--hairline-strong);
     border-radius: var(--radius);
     background: var(--bg);
@@ -702,7 +704,7 @@
   .per-header > summary {
     cursor: pointer;
     padding: 0.25rem 0;
-    font-size: 0.82rem;
+    font-size: var(--text-sm);
     color: var(--muted);
     user-select: none;
   }
@@ -722,7 +724,7 @@
   }
   .roles-hint {
     margin: 0 0 0.5rem;
-    font-size: 0.72rem;
+    font-size: var(--text-xs);
     color: var(--muted);
   }
   .role-row {
@@ -736,7 +738,7 @@
   }
   .role-label {
     flex: 0 0 4.5rem;
-    font-size: 0.8rem;
+    font-size: var(--text-xs);
   }
   .role-select {
     flex: 1;
@@ -747,7 +749,7 @@
     background: var(--bg);
     color: var(--fg);
     font: inherit;
-    font-size: 0.78rem;
+    font-size: var(--text-xs);
   }
   .rescan {
     width: 100%;
@@ -758,7 +760,7 @@
     background: transparent;
     color: var(--fg);
     font: inherit;
-    font-size: 0.78rem;
+    font-size: var(--text-xs);
     cursor: pointer;
   }
   .rescan:hover:not(:disabled) {
@@ -778,13 +780,13 @@
     justify-content: space-between;
   }
   .label {
-    font-size: 0.88rem;
+    font-size: var(--text-sm);
   }
   .auto {
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
-    font-size: 0.78rem;
+    font-size: var(--text-xs);
     color: var(--muted);
   }
   .slider {
@@ -800,7 +802,7 @@
   .val {
     min-width: 3rem;
     text-align: right;
-    font-size: 0.78rem;
+    font-size: var(--text-xs);
     color: var(--muted);
     font-variant-numeric: tabular-nums;
   }
@@ -809,7 +811,7 @@
     font-weight: 400;
   }
   .hint {
-    font-size: 0.78rem;
+    font-size: var(--text-xs);
     color: var(--muted);
     font-style: italic;
   }
@@ -821,8 +823,8 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    margin: 0.5rem 0;
-    font-size: 0.88rem;
+    margin: var(--sp-2) 0;
+    font-size: var(--text-sm);
     cursor: pointer;
   }
   .toggle input {
