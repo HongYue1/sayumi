@@ -268,10 +268,16 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: var(--sp-2);
     cursor: pointer;
-    border: none;
-    background: none;
+    /* One unified card: a full-bleed cover on top + a faint --surface panel
+       behind the meta below, wrapped by a hairline border + --radius. A tight
+       --radius (not --radius-lg) reads more refined, closer to the original.
+       The cover keeps its natural width (no inset/mat); the tile shows only
+       behind the title/author so the two read as a single card. No
+       overflow:hidden here — the flair-menu popover must escape the card box. */
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    background: var(--surface);
     text-align: left;
     animation: card-in var(--dur-slow) var(--ease-out) both;
     animation-delay: var(--enter-delay, 0ms);
@@ -304,33 +310,27 @@
   .cover {
     position: relative;
     aspect-ratio: 2 / 3;
-    border-radius: 6px;
+    /* Full-bleed cover: rounds only its TOP corners to match the card's tighter
+       --radius; its bottom edge meets the meta panel flush so cover + tile read
+       as one card. No own border (the card's border frames everything) and no
+       hover lift (the card is one unit — hover outlines the whole card). */
+    border-radius: var(--radius) var(--radius) 0 0;
     overflow: hidden;
     background: var(--surface);
-    /* Shelf depth is the hairline border + the hover lift, not a drop shadow
-       (shadows read poorly across the themes). */
-    border: 1px solid var(--hairline);
-    /* The lift is transform (GPU-composited); only border-color changes on
-       hover/focus. Hover repaints one card at a time and never runs at load,
-       so it stays clear of the Lighthouse budget. */
-    transition:
-      transform var(--dur) var(--ease-out),
-      border-color var(--dur) var(--ease-out);
   }
-  .card:hover .cover,
-  .card:has(.open-overlay:focus-visible) .cover {
-    transform: translateY(-6px);
-    border-color: var(--accent);
+  .card:hover,
+  .card:has(.open-overlay:focus-visible) {
+    /* Hover/focus draws a 2px --accent outline around the WHOLE card (cover +
+       tile), following --radius-lg. An outline (not a border-width change or a
+       shadow) won't reflow and isn't clipped by the card's rounded corners. */
+    outline: 2px solid var(--accent);
+    outline-offset: 0;
   }
-  /* Cover-targeted focus ring hugs the artwork instead of the whole column.
-     Driven off the overlay button via :has, since the card itself is no longer
-     the focusable element. */
+  /* The real focus target is the overlay button; route its focus ring to the
+     whole-card outline above (keyboard focus == hover) and suppress the
+     default ring on the button itself. */
   .open-overlay:focus-visible {
     outline: none;
-  }
-  .card:has(.open-overlay:focus-visible) .cover {
-    border-color: var(--accent);
-    box-shadow: var(--focus);
   }
 
   .cover img {
@@ -379,6 +379,9 @@
   /* Shared style for the two corner actions (remove + flair). */
   .chip-btn {
     position: absolute;
+    /* Cover is full-bleed at the card's top edge, so corner buttons offset by
+       --sp-1 from the card edge to sit just inside the cover's corner (chips
+       are card-level, not inside .cover, per the stacking note in the markup). */
     top: var(--sp-1);
     z-index: 3;
     display: grid;
@@ -497,6 +500,10 @@
     display: flex;
     flex-direction: column;
     gap: 0.15rem;
+    /* The meta panel is the visible part of the tile; pad the text off the card
+       edges so the title/author sit comfortably on the --surface fill while the
+       cover above stays full-bleed (tile + cover share the full card width). */
+    padding: var(--sp-2) var(--sp-3) var(--sp-3);
   }
   .title {
     font-family: var(--font-display);
