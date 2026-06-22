@@ -195,6 +195,40 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Shared entrance primitives for transient overlays and popovers. Keep these
+   transform/opacity-only so individual components can reuse motion without
+   adding layout or paint-heavy animations. */
+@keyframes app-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes app-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes app-menu-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(var(--menu-pop-y, -3px));
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -215,17 +215,7 @@
     border-radius: var(--radius);
     box-shadow: 0 8px 22px color-mix(in srgb, var(--fg) 22%, transparent);
     transform-origin: top right;
-    animation: pm-in var(--dur-fast) var(--ease-out) both;
-  }
-  @keyframes pm-in {
-    from {
-      opacity: 0;
-      transform: scale(0.97) translateY(-3px);
-    }
-    to {
-      opacity: 1;
-      transform: scale(1) translateY(0);
-    }
+    animation: app-menu-pop-in var(--dur-fast) var(--ease-out) both;
   }
   .item {
     display: flex;

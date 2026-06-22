@@ -227,15 +227,7 @@
     align-items: flex-start;
     padding: 12vh 1rem 1rem;
     background: color-mix(in srgb, #000 38%, transparent);
-    animation: ov-in var(--dur-fast) var(--ease-out);
-  }
-  @keyframes ov-in {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
+    animation: app-overlay-in var(--dur-fast) var(--ease-out);
   }
   .palette {
     width: min(36rem, 100%);
@@ -246,17 +238,7 @@
     border: 1px solid var(--hairline-strong);
     border-radius: 0.75rem;
     overflow: hidden;
-    animation: pl-in var(--dur) var(--ease-out);
-  }
-  @keyframes pl-in {
-    from {
-      opacity: 0;
-      transform: translateY(-8px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+    animation: app-sheet-in var(--dur) var(--ease-out);
   }
   .cmd-search {
     display: flex;

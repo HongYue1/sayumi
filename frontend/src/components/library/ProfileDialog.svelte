@@ -234,32 +234,14 @@
     place-items: center;
     padding: 1.5rem;
     background: color-mix(in srgb, #000 38%, transparent);
-    animation: ov-in var(--dur-fast) var(--ease-out);
-  }
-  @keyframes ov-in {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
+    animation: app-overlay-in var(--dur-fast) var(--ease-out);
   }
   .sheet {
     width: min(26rem, 100%);
     background: var(--bg);
     border: 1px solid var(--hairline-strong);
     border-radius: 0.75rem;
-    animation: sh-in var(--dur) var(--ease-out);
-  }
-  @keyframes sh-in {
-    from {
-      opacity: 0;
-      transform: translateY(-8px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+    animation: app-sheet-in var(--dur) var(--ease-out);
   }
   header {
     display: flex;
