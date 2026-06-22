@@ -39,7 +39,9 @@ import { createPagination } from "./pagination";
   const REVEAL_FALLBACK_PAGED_MS = 550;
 
   function prefersReducedMotion(): boolean {
-    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (typeof window.matchMedia !== "function") return false;
+    reduceMotionQuery ??= window.matchMedia("(prefers-reduced-motion: reduce)");
+    return reduceMotionQuery.matches;
   }
 
   let activeSeq = -1;
@@ -69,6 +71,8 @@ import { createPagination } from "./pagination";
   // drags only touch #override-css (still rewritten unconditionally below).
   let _lastFontFaceContent: string | null = null;
   let _lastBookCSS: string | null = null;
+  let _lastOverrideCSS: string | null = null;
+  let reduceMotionQuery: MediaQueryList | null = null;
 
   let _contentEl: HTMLElement | null = null;
   let _clipEl: HTMLElement | null = null;
@@ -731,7 +735,11 @@ import { createPagination } from "./pagination";
       css.push(`h1, h2, h3, h4, h5, h6 { font-weight: revert !important; }`);
     }
 
-    getStyleEl("override-css").textContent = css.join("\n");
+    const overrideCSS = css.join("\n");
+    if (overrideCSS !== _lastOverrideCSS) {
+      getStyleEl("override-css").textContent = overrideCSS;
+      _lastOverrideCSS = overrideCSS;
+    }
 
     isPagedMode = settings.mode === "paged" || settings.mode === "paged-two";
     applyRootClasses(settings.theme, settings.mode);

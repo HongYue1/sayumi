@@ -63,13 +63,18 @@ export function createPagination(deps: PaginationDeps): PaginationController {
   // -1 = nothing laid out yet, so the next relayout always runs.
   let lastLayoutW = -1;
   let lastLayoutH = -1;
+  let pageStride = 1;
+  let maxPageScrollLeft = 0;
   let pageScrollRafHandle: number | null = null;
   let pageTurnFinishTimer: ReturnType<typeof setTimeout> | null = null;
   // Live target/phase for the cross-fade turn, so rapid presses can retarget
   // the running animation instead of restarting it.
   let pageTurnTarget = 0;
   let pageTurnSwapped = false;
+  let pageTurningActive = false;
   let _pageIndicator: HTMLElement | null = null;
+  let pageIndicatorText = "";
+  let reduceMotionQuery: MediaQueryList | null = null;
 
   function ensurePageIndicator(): HTMLElement {
     if (!_pageIndicator) {
@@ -82,17 +87,27 @@ export function createPagination(deps: PaginationDeps): PaginationController {
   }
 
   function updatePageIndicator(): void {
-    ensurePageIndicator().textContent =
-      totalPages > 0 ? `${currentPage + 1} / ${totalPages}` : "";
+    const text = totalPages > 0 ? `${currentPage + 1} / ${totalPages}` : "";
+    if (text === pageIndicatorText) return;
+    pageIndicatorText = text;
+    ensurePageIndicator().textContent = text;
   }
 
   function setPageTurning(turning: boolean): void {
     const enabled = turning && deps.isPagedMode();
+    if (enabled === pageTurningActive) return;
+    pageTurningActive = enabled;
     document.documentElement.classList.toggle("page-turning", enabled);
     if (!enabled && pageTurnFinishTimer !== null) {
       clearTimeout(pageTurnFinishTimer);
       pageTurnFinishTimer = null;
     }
+  }
+
+  function prefersReducedMotion(): boolean {
+    if (typeof window.matchMedia !== "function") return false;
+    reduceMotionQuery ??= window.matchMedia("(prefers-reduced-motion: reduce)");
+    return reduceMotionQuery.matches;
   }
 
   function getPageStride(): number {
@@ -108,19 +123,24 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     return Number.isFinite(max) ? Math.max(0, max) : 0;
   }
 
+  function refreshPageMetrics(): void {
+    pageStride = getPageStride();
+    maxPageScrollLeft = getMaxPageScrollLeft();
+  }
+
   function calculateTotalPages(): number {
     const content = deps.getContentEl();
     if (!content) return 1;
 
-    const stride = getPageStride();
-    if (stride <= 0) return 1;
+    refreshPageMetrics();
+    if (pageStride <= 0) return 1;
 
     // Pages are stride-aligned scroll positions, so the last page begins at
     // maxScrollLeft. Round (not ceil) so sub-pixel column rounding can't invent
     // a phantom trailing page; +1 converts the last page index to a count.
     // Reads two layout metrics instead of walking the DOM for the last
     // meaningful rect on every relayout.
-    return Math.max(1, Math.round(getMaxPageScrollLeft() / stride) + 1);
+    return Math.max(1, Math.round(maxPageScrollLeft / pageStride) + 1);
   }
 
   function reportPagePosition(): void {
@@ -140,21 +160,14 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     const content = deps.getContentEl();
     if (!content) return;
 
-    const target = Math.max(
-      0,
-      Math.min(page * getPageStride(), getMaxPageScrollLeft()),
-    );
+    const target = Math.max(0, Math.min(page * pageStride, maxPageScrollLeft));
 
     if (pageTurnFinishTimer !== null) {
       clearTimeout(pageTurnFinishTimer);
       pageTurnFinishTimer = null;
     }
 
-    const reduceMotion =
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    if (!animated || reduceMotion) {
+    if (!animated || prefersReducedMotion()) {
       if (pageScrollRafHandle !== null) {
         cancelAnimationFrame(pageScrollRafHandle);
         pageScrollRafHandle = null;
@@ -317,7 +330,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
   function getElementPageIndex(el: Element): number {
     const content = deps.getContentEl();
     if (!content) return 0;
-    const stride = getPageStride();
+    const stride = pageStride;
     if (stride <= 0) return 0;
 
     const contentRect = content.getBoundingClientRect();
@@ -502,7 +515,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
   }
 
   function setupPagedResizeObserver(): void {
-    teardownPagedResizeObserver();
+    if (pagedResizeObserver) return;
     pagedResizeObserver = new ResizeObserver(handlePagedResize);
     pagedResizeObserver.observe(document.documentElement);
     window.addEventListener("resize", handlePagedResize);
@@ -532,6 +545,10 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     lastLayoutH = -1;
     pageTurnTarget = 0;
     pageTurnSwapped = false;
+    pageTurningActive = false;
+    pageIndicatorText = "";
+    pageStride = 1;
+    maxPageScrollLeft = 0;
     isRTL = rtl;
     teardownPagedResizeObserver();
     const content = deps.getContentEl();
