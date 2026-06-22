@@ -33,6 +33,7 @@
   interface SearchResultItem {
     result: SearchResult;
     globalIdx: number;
+    id: string;
     before: string;
     match: string;
     after: string;
@@ -69,6 +70,7 @@
     return {
       result: r,
       globalIdx,
+      id: `sr-${globalIdx}`,
       before: r.snippet.slice(0, r.snippetStart).trimStart(),
       match: r.snippet.slice(r.snippetStart, matchEnd),
       after: r.snippet.slice(matchEnd).trimEnd(),
@@ -117,9 +119,10 @@
   // affected option nodes, not re-evaluate active classes/aria-selected for
   // every rendered result on each key repeat.
   function syncActiveOption(scroll = false): void {
-    const next = document.getElementById(
-      `sr-${currentIdx}`,
-    ) as HTMLElement | null;
+    const nextId = resultItems[currentIdx]?.id;
+    const next = nextId
+      ? (document.getElementById(nextId) as HTMLElement | null)
+      : null;
     if (activeOptionEl && activeOptionEl !== next) {
       activeOptionEl.setAttribute("aria-selected", "false");
     }
@@ -295,7 +298,7 @@
       aria-expanded={resultItems.length > 0}
       aria-autocomplete="list"
       aria-activedescendant={resultItems.length > 0
-        ? `sr-${currentIdx}`
+        ? resultItems[currentIdx]?.id
         : undefined}
     />
     {#if countText}<span class="count tnum" aria-live="polite">{countText}</span
@@ -335,7 +338,7 @@
           {#each group.items as it (it.globalIdx)}
             <button
               class="result"
-              id={`sr-${it.globalIdx}`}
+              id={it.id}
               role="option"
               tabindex="-1"
               data-idx={it.globalIdx}
