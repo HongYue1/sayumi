@@ -1180,7 +1180,7 @@
   <div class="progress" class:hidden={!chromeVisible} aria-hidden="true">
     <div
       class="fill"
-      style:width={`${Math.round(chapterPercent * 100)}%`}
+      style:--progress-scale={chapterPercent}
     ></div>
   </div>
 </div>
@@ -1395,8 +1395,11 @@
     opacity: 0;
   }
   .fill {
+    width: 100%;
     height: 100%;
     background: var(--accent);
-    transition: width var(--dur-fast) var(--ease-out);
+    transform: scaleX(var(--progress-scale, 0));
+    transform-origin: left center;
+    transition: transform var(--dur-fast) var(--ease-out);
   }
 </style>
