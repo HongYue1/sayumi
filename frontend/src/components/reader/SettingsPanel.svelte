@@ -550,7 +550,7 @@
   h2 {
     margin: 0;
     font-family: var(--font-display);
-    font-size: 1.4rem;
+    font-size: var(--text-xl);
     font-weight: 500;
     line-height: 1;
   }
