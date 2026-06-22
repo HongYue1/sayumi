@@ -47,6 +47,15 @@
 
   let resultItems = $state<SearchResultItem[]>([]);
 
+  function addItemToGroups(target: Group[], item: SearchResultItem): void {
+    const last = target[target.length - 1];
+    if (last && last.chapterIndex === item.result.chapterIndex) {
+      last.items.push(item);
+    } else {
+      target.push({ chapterIndex: item.result.chapterIndex, items: [item] });
+    }
+  }
+
   function toItem(r: SearchResult, globalIdx: number): SearchResultItem {
     const matchEnd = r.snippetStart + r.snippetLen;
     return {
@@ -62,35 +71,28 @@
 
   let groups = $state<Group[]>([]);
 
-  function groupItems(items: SearchResultItem[]): Group[] {
-    const out: Group[] = [];
-    items.forEach((item) => {
-      const last = out[out.length - 1];
-      if (last && last.chapterIndex === item.result.chapterIndex) {
-        last.items.push(item);
-      } else {
-        out.push({ chapterIndex: item.result.chapterIndex, items: [item] });
-      }
+  function setRawResults(raw: SearchResult[]): void {
+    const items: SearchResultItem[] = [];
+    const nextGroups: Group[] = [];
+    raw.forEach((r, globalIdx) => {
+      const item = toItem(r, globalIdx);
+      items.push(item);
+      addItemToGroups(nextGroups, item);
     });
-    return out;
-  }
-
-  function setResultItems(items: SearchResultItem[]): void {
     resultItems = items;
-    groups = groupItems(items);
+    groups = nextGroups;
   }
 
-  function appendResultItems(items: SearchResultItem[]): void {
-    if (items.length === 0) return;
-    resultItems.push(...items);
-    items.forEach((item) => {
-      const last = groups[groups.length - 1];
-      if (last && last.chapterIndex === item.result.chapterIndex) {
-        last.items.push(item);
-      } else {
-        groups.push({ chapterIndex: item.result.chapterIndex, items: [item] });
-      }
+  function appendRawResults(raw: SearchResult[]): void {
+    if (raw.length === 0) return;
+    const offset = resultItems.length;
+    const items: SearchResultItem[] = [];
+    raw.forEach((r, i) => {
+      const item = toItem(r, offset + i);
+      items.push(item);
+      addItemToGroups(groups, item);
     });
+    resultItems.push(...items);
   }
   const countText = $derived(
     resultItems.length === 0
@@ -172,9 +174,7 @@
         abort.signal,
       );
       if (my !== token) return;
-      setResultItems(
-        (resp.results ?? []).map((r, globalIdx) => toItem(r, globalIdx)),
-      );
+      setRawResults(resp.results ?? []);
       hasMore = resp.hasMore;
       nextCursor = resp.nextCursor ?? "";
       status = "done";
@@ -206,10 +206,7 @@
       );
       if (my !== token) return;
       const more = resp.results ?? [];
-      if (more.length) {
-        const offset = resultItems.length;
-        appendResultItems(more.map((r, i) => toItem(r, offset + i)));
-      }
+      appendRawResults(more);
       hasMore = resp.hasMore;
       nextCursor = resp.nextCursor ?? "";
     } catch (e) {
