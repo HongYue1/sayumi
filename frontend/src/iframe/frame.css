@@ -240,6 +240,26 @@ html.theme-flexoki-light {
   --border: #dad8ce;
 }
 
+html.theme-night-owl-light {
+  --bg-primary: #fbfbfb;
+  --bg-secondary: #f0f0f0;
+  --text-primary: #403f53;
+  --text-secondary: #5c6773;
+  --text-muted: #90a7b2;
+  --accent: #2aa298;
+  --border: #d9d9d9;
+}
+
+html.theme-night-owl {
+  --bg-primary: #011627;
+  --bg-secondary: #0e2a3f;
+  --text-primary: #d6deeb;
+  --text-secondary: #8badc1;
+  --text-muted: #5f7e97;
+  --accent: #82aaff;
+  --border: #1d3b53;
+}
+
 html {
   background: var(--bg-primary);
 }

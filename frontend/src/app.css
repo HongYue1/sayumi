@@ -41,7 +41,7 @@
   --bg: #faf9f7;
   --fg: #1c1b1a;
   /* Derived from the active theme (applyTheme only sets --bg/--fg/--accent),
-     so muted text keeps a consistent ~AA contrast across all 24 themes
+     so muted text keeps a consistent ~AA contrast across every theme
      instead of staying a fixed light-theme gray on dark backgrounds. */
   --muted: color-mix(in srgb, var(--fg) 70%, var(--bg));
   --accent: #7c6f64;
@@ -61,7 +61,7 @@
   --font-ui: "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, sans-serif;
 
   /* Derived surface tokens — computed from the active theme so every one
-     of the 24 themes (light + dark) gets a coherent set automatically. */
+     of the themes (light + dark) gets a coherent set automatically. */
   --hairline: color-mix(in srgb, var(--fg) 12%, transparent);
   --hairline-strong: color-mix(in srgb, var(--fg) 22%, transparent);
   --surface: color-mix(in srgb, var(--fg) 4%, transparent);
@@ -89,7 +89,7 @@
 
   /* Focus ring — one consistent keyboard ring across every control,
      applied via the global :focus-visible rule below. Uses theme tokens so
-     it adapts across all 24 themes. */
+     it adapts across every theme. */
   --focus: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
 
   /* Motion: durations + easing curves (chrome transitions, button feedback). */

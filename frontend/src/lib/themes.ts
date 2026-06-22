@@ -83,6 +83,14 @@ export const THEMES: ThemeDef[] = [
     fg: "#100f0f",
     accent: "#205ea6",
   },
+  {
+    id: "night-owl-light",
+    label: "Night Owl Light",
+    group: "light",
+    bg: "#fbfbfb",
+    fg: "#403f53",
+    accent: "#2aa298",
+  },
 
   // ── Dark ──
   {
@@ -196,6 +204,14 @@ export const THEMES: ThemeDef[] = [
     bg: "#1c1b1a",
     fg: "#cecdc3",
     accent: "#4385be",
+  },
+  {
+    id: "night-owl",
+    label: "Night Owl",
+    group: "dark",
+    bg: "#011627",
+    fg: "#d6deeb",
+    accent: "#82aaff",
   },
 ];
 
