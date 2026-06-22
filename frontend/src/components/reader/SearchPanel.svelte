@@ -432,6 +432,8 @@
   .group {
     margin-bottom: 0.6rem;
     contain: content;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 8rem;
   }
   .group-head {
     display: flex;
