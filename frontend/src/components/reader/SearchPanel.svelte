@@ -34,7 +34,43 @@
     hasMore: boolean;
     nextCursor?: string;
   }): boolean {
-    return resp.hasMore && Boolean(resp.nextCursor);
+    return (
+      resp.hasMore === true &&
+      typeof resp.nextCursor === "string" &&
+      resp.nextCursor.length > 0
+    );
+  }
+
+  function isSafeInteger(value: unknown): value is number {
+    return typeof value === "number" && Number.isSafeInteger(value);
+  }
+
+  function isSearchResult(value: unknown): value is SearchResult {
+    if (typeof value !== "object" || value === null) return false;
+    const r = value as Partial<SearchResult>;
+    const {
+      chapterIndex,
+      charOffset,
+      matchLen,
+      snippet,
+      snippetStart,
+      snippetLen,
+    } = r;
+    return (
+      isSafeInteger(chapterIndex) &&
+      chapterIndex >= 0 &&
+      isSafeInteger(charOffset) &&
+      charOffset >= 0 &&
+      isSafeInteger(matchLen) &&
+      matchLen > 0 &&
+      typeof snippet === "string" &&
+      isSafeInteger(snippetStart) &&
+      isSafeInteger(snippetLen)
+    );
+  }
+
+  function searchResults(value: unknown): SearchResult[] {
+    return Array.isArray(value) ? value.filter(isSearchResult) : [];
   }
 
   // Results grouped by chapter, with a global index per result for nav.
@@ -216,7 +252,7 @@
         abort.signal,
       );
       if (my !== token) return;
-      setRawResults(resp.results ?? []);
+      setRawResults(searchResults(resp.results));
       hasMore = hasNextPage(resp);
       nextCursor = resp.nextCursor ?? "";
       status = "done";
@@ -250,7 +286,7 @@
         abort.signal,
       );
       if (my !== token) return;
-      const more = resp.results ?? [];
+      const more = searchResults(resp.results);
       appendRawResults(more);
       hasMore = hasNextPage(resp);
       nextCursor = resp.nextCursor ?? "";
