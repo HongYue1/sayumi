@@ -1177,7 +1177,14 @@
     {/if}
   </div>
 
-  <div class="progress" class:hidden={!chromeVisible} aria-hidden="true">
+  <!-- Scroll mode has no page-indicator pill, so the progress bar is the only
+       positional cue: keep it visible even when the chrome auto-hides. Paged
+       mode shows the indicator pill, so the bar can hide with the chrome. -->
+  <div
+    class="progress"
+    class:hidden={!chromeVisible && isPaged}
+    aria-hidden="true"
+  >
     <div class="fill" style:--progress-scale={chapterPercent}></div>
   </div>
 </div>
