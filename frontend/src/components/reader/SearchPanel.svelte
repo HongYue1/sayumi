@@ -270,6 +270,11 @@
     pick(item.result, idx);
   }
 
+  function onListPointerDown(e: PointerEvent): void {
+    const target = e.target as Element | null;
+    if (target?.closest("button.result")) e.preventDefault();
+  }
+
   function onKey(e: KeyboardEvent): void {
     const total = resultItems.length;
     switch (e.key) {
@@ -339,6 +344,7 @@
     role="listbox"
     aria-label="Search results"
     tabindex="-1"
+    onpointerdown={onListPointerDown}
     onclick={onListClick}
   >
     {#if status === "loading"}
