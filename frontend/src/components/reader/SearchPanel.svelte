@@ -408,6 +408,7 @@
   }
   .group {
     margin-bottom: 0.6rem;
+    contain: content;
   }
   .group-head {
     display: flex;
