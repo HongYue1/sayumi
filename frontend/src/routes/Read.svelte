@@ -1336,11 +1336,13 @@
   .panel.left {
     left: 0;
     border-right: 1px solid var(--hairline-strong);
+    animation: panel-left-in var(--dur) var(--ease-out) backwards;
   }
   .panel.right {
     right: 0;
     width: min(22rem, 90vw);
     border-left: 1px solid var(--hairline-strong);
+    animation: panel-right-in var(--dur) var(--ease-out) backwards;
   }
   .scrim {
     position: absolute;
@@ -1349,6 +1351,35 @@
     background: color-mix(in srgb, #000 25%, transparent);
     cursor: pointer;
     z-index: 6;
+    animation: scrim-in var(--dur-fast) var(--ease-out) backwards;
+  }
+  @keyframes panel-left-in {
+    from {
+      opacity: 0;
+      transform: translateX(-0.75rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  @keyframes panel-right-in {
+    from {
+      opacity: 0;
+      transform: translateX(0.75rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  @keyframes scrim-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
   .progress {
     position: absolute;
