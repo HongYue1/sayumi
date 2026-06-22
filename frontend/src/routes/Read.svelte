@@ -955,44 +955,49 @@
         </span>
       {/if}
     </div>
-    <button
-      class="icon"
-      class:active={currentBookmarkId !== null}
-      onclick={() => void toggleBookmark()}
-      aria-label={currentBookmarkId ? "Remove bookmark" : "Add bookmark"}
-      aria-pressed={currentBookmarkId !== null}
-      ><Icon icon={currentBookmarkId ? BookmarkCheck : BookmarkIcon} /></button
-    >
-    <button
-      class="icon"
-      onclick={() => togglePanel("bookmarks")}
-      aria-label="Bookmarks"
-      aria-pressed={activePanel === "bookmarks"}
-      ><Icon icon={BookMarked} /></button
-    >
-    <button
-      class="icon"
-      onclick={() => togglePanel("search")}
-      aria-label="Search in book"
-      aria-pressed={activePanel === "search"}><Icon icon={Search} /></button
-    >
-    <button
-      class="icon"
-      onclick={() => togglePanel("settings")}
-      aria-label="Settings"
-      aria-pressed={activePanel === "settings"}><Icon icon={Settings} /></button
-    >
-    <button
-      class="icon"
-      onclick={() => togglePanel("toc")}
-      aria-label="Table of contents"
-      aria-pressed={activePanel === "toc"}><Icon icon={List} /></button
-    >
-    <button
-      class="icon"
-      onclick={() => ui.openShortcuts()}
-      aria-label="Keyboard shortcuts"><Icon icon={CircleHelp} /></button
-    >
+    <div class="tools">
+      <button
+        class="icon"
+        class:active={currentBookmarkId !== null}
+        onclick={() => void toggleBookmark()}
+        aria-label={currentBookmarkId ? "Remove bookmark" : "Add bookmark"}
+        aria-pressed={currentBookmarkId !== null}
+        ><Icon
+          icon={currentBookmarkId ? BookmarkCheck : BookmarkIcon}
+        /></button
+      >
+      <button
+        class="icon"
+        onclick={() => togglePanel("bookmarks")}
+        aria-label="Bookmarks"
+        aria-pressed={activePanel === "bookmarks"}
+        ><Icon icon={BookMarked} /></button
+      >
+      <button
+        class="icon"
+        onclick={() => togglePanel("search")}
+        aria-label="Search in book"
+        aria-pressed={activePanel === "search"}><Icon icon={Search} /></button
+      >
+      <button
+        class="icon"
+        onclick={() => togglePanel("settings")}
+        aria-label="Settings"
+        aria-pressed={activePanel === "settings"}
+        ><Icon icon={Settings} /></button
+      >
+      <button
+        class="icon"
+        onclick={() => togglePanel("toc")}
+        aria-label="Table of contents"
+        aria-pressed={activePanel === "toc"}><Icon icon={List} /></button
+      >
+      <button
+        class="icon"
+        onclick={() => ui.openShortcuts()}
+        aria-label="Keyboard shortcuts"><Icon icon={CircleHelp} /></button
+      >
+    </div>
   </header>
 
   <div class="stage">
@@ -1205,11 +1210,11 @@
     z-index: 5;
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: var(--sp-3);
     padding: 0.55rem 0.9rem;
     background: color-mix(in srgb, var(--bg) 92%, transparent);
     backdrop-filter: blur(8px);
-    border-bottom: 1px solid color-mix(in srgb, var(--fg) 10%, transparent);
+    border-bottom: 1px solid var(--hairline);
     transition:
       transform var(--dur) var(--ease-out),
       opacity var(--dur) var(--ease-out);
@@ -1224,6 +1229,11 @@
   }
   .chrome-hidden {
     cursor: none;
+  }
+  .tools {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
   }
   .icon {
     border: none;
@@ -1272,7 +1282,7 @@
     white-space: nowrap;
   }
   .chapter {
-    font-size: 0.72rem;
+    font-size: var(--text-xs);
     line-height: var(--lh-snug);
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -1315,13 +1325,13 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 0.75rem;
+    gap: var(--sp-3);
     background: var(--bg);
     text-align: center;
-    padding: 1rem;
+    padding: var(--sp-4);
   }
   .error button {
-    padding: 0.5rem 1rem;
+    padding: var(--sp-2) var(--sp-4);
     border: 1px solid var(--hairline);
     border-radius: var(--radius);
     background: transparent;
