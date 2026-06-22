@@ -269,10 +269,19 @@ export function createSearchHighlight(
   ): void {
     clearSearchHighlights();
     const content = deps.getContentEl();
-    if (!deps.isContentReady() || !content || matchLen <= 0 || charOffset < 0)
+    if (
+      !deps.isContentReady() ||
+      !content ||
+      !Number.isSafeInteger(charOffset) ||
+      !Number.isSafeInteger(matchLen) ||
+      matchLen <= 0 ||
+      charOffset < 0
+    ) {
       return;
+    }
 
     const matchEnd = charOffset + matchLen;
+    if (!Number.isSafeInteger(matchEnd)) return;
     const index = buildSearchTextIndex(content);
     if (matchEnd > index.length) {
       if (query) fallbackHighlight(query);

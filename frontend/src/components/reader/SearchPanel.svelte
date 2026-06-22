@@ -30,6 +30,13 @@
   let abort: AbortController | undefined;
   let lastQuery = "";
 
+  function hasNextPage(resp: {
+    hasMore: boolean;
+    nextCursor?: string;
+  }): boolean {
+    return resp.hasMore && Boolean(resp.nextCursor);
+  }
+
   // Results grouped by chapter, with a global index per result for nav.
   interface SearchResultItem {
     result: SearchResult;
@@ -204,7 +211,7 @@
       );
       if (my !== token) return;
       setRawResults(resp.results ?? []);
-      hasMore = resp.hasMore;
+      hasMore = hasNextPage(resp);
       nextCursor = resp.nextCursor ?? "";
       status = "done";
       void syncActiveOptionAfterRender();
@@ -219,7 +226,7 @@
   }
 
   async function loadMore(): Promise<void> {
-    if (!hasMore || loadingMore) return;
+    if (!hasMore || loadingMore || !nextCursor) return;
     const q = query.trim();
     if (!q) return;
     abort?.abort();
@@ -239,7 +246,7 @@
       if (my !== token) return;
       const more = resp.results ?? [];
       appendRawResults(more);
-      hasMore = resp.hasMore;
+      hasMore = hasNextPage(resp);
       nextCursor = resp.nextCursor ?? "";
     } catch (e) {
       if (my !== token) return;
