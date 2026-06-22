@@ -156,6 +156,7 @@
     // keeps a slow previous query/load-more response from repainting stale
     // results while the user is already typing the next query.
     abort?.abort();
+    abort = undefined;
     token += 1;
     loadingMore = false;
     if (!trimmed) {
