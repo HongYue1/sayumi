@@ -60,9 +60,11 @@
     };
   }
 
-  const groups = $derived.by<Group[]>(() => {
+  let groups = $state<Group[]>([]);
+
+  function groupItems(items: SearchResultItem[]): Group[] {
     const out: Group[] = [];
-    resultItems.forEach((item) => {
+    items.forEach((item) => {
       const last = out[out.length - 1];
       if (last && last.chapterIndex === item.result.chapterIndex) {
         last.items.push(item);
@@ -71,7 +73,25 @@
       }
     });
     return out;
-  });
+  }
+
+  function setResultItems(items: SearchResultItem[]): void {
+    resultItems = items;
+    groups = groupItems(items);
+  }
+
+  function appendResultItems(items: SearchResultItem[]): void {
+    if (items.length === 0) return;
+    resultItems.push(...items);
+    items.forEach((item) => {
+      const last = groups[groups.length - 1];
+      if (last && last.chapterIndex === item.result.chapterIndex) {
+        last.items.push(item);
+      } else {
+        groups.push({ chapterIndex: item.result.chapterIndex, items: [item] });
+      }
+    });
+  }
   const countText = $derived(
     resultItems.length === 0
       ? ""
@@ -126,6 +146,7 @@
     if (!trimmed) {
       status = "idle";
       resultItems = [];
+      groups = [];
       currentIdx = 0;
       activeOptionEl = null;
       return;
@@ -151,8 +172,8 @@
         abort.signal,
       );
       if (my !== token) return;
-      resultItems = (resp.results ?? []).map((r, globalIdx) =>
-        toItem(r, globalIdx),
+      setResultItems(
+        (resp.results ?? []).map((r, globalIdx) => toItem(r, globalIdx)),
       );
       hasMore = resp.hasMore;
       nextCursor = resp.nextCursor ?? "";
@@ -187,7 +208,7 @@
       const more = resp.results ?? [];
       if (more.length) {
         const offset = resultItems.length;
-        resultItems.push(...more.map((r, i) => toItem(r, offset + i)));
+        appendResultItems(more.map((r, i) => toItem(r, offset + i)));
       }
       hasMore = resp.hasMore;
       nextCursor = resp.nextCursor ?? "";
