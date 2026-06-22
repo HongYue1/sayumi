@@ -439,7 +439,11 @@
       <h3>Chapter titles</h3>
       <div class="row">
         <div class="row-head"><span class="label">Alignment</span></div>
-        <div class="segmented small" role="group" aria-label="Chapter title alignment">
+        <div
+          class="segmented small"
+          role="group"
+          aria-label="Chapter title alignment"
+        >
           {#each TITLE_ALIGNS as a (a.id ?? "auto")}
             <button
               class:active={s.chapterTitleAlign === a.id}

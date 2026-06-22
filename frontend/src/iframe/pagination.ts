@@ -476,7 +476,10 @@ export function createPagination(deps: PaginationDeps): PaginationController {
   function handlePagedContentLoad(event: Event): void {
     if (!deps.isPagedMode() || !deps.isContentReady()) return;
     const target = event.target;
-    if (target instanceof HTMLImageElement || target instanceof HTMLVideoElement)
+    if (
+      target instanceof HTMLImageElement ||
+      target instanceof HTMLVideoElement
+    )
       queuePagedRelayout(false);
   }
 
