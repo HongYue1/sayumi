@@ -25,7 +25,6 @@
   let errorMsg = $state("");
 
   let input = $state<HTMLInputElement | null>(null);
-  let listEl = $state<HTMLDivElement | null>(null);
   let debounce: ReturnType<typeof setTimeout> | undefined;
   let token = 0;
   let abort: AbortController | undefined;
@@ -265,7 +264,6 @@
 
   <div
     class="list"
-    bind:this={listEl}
     id="search-results"
     role="listbox"
     aria-label="Search results"
