@@ -93,7 +93,7 @@
     z-index: 60;
     display: grid;
     place-items: center;
-    padding: 1.5rem;
+    padding: var(--sp-6);
     background: color-mix(in srgb, #000 38%, transparent);
     animation: app-overlay-in var(--dur-fast) var(--ease-out);
   }
@@ -108,7 +108,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.9rem 1.1rem;
+    padding: var(--sp-3) var(--sp-4);
     border-bottom: 1px solid var(--hairline);
   }
   h2 {
@@ -116,6 +116,7 @@
     font-family: var(--font-display);
     font-size: var(--text-xl);
     font-weight: 500;
+    line-height: 1;
   }
   .close {
     display: inline-flex;
@@ -143,7 +144,7 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: var(--sp-5);
-    padding: 1.1rem;
+    padding: var(--sp-4);
   }
   @media (max-width: 30rem) {
     .groups {
@@ -151,7 +152,7 @@
     }
   }
   .eyebrow {
-    margin: 0 0 0.5rem;
+    margin: 0 0 var(--sp-2);
   }
   dl {
     margin: 0;
@@ -160,7 +161,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.75rem;
+    gap: var(--sp-3);
     padding: 0.28rem 0;
   }
   dt {
@@ -182,7 +183,7 @@
     border-radius: var(--radius-sm);
     background: var(--surface);
     font-family: ui-monospace, monospace;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     text-align: center;
   }
 </style>

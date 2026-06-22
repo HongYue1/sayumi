@@ -23,7 +23,7 @@
   }
   .toast {
     max-width: min(420px, calc(100vw - 32px));
-    padding: 0.5rem 1rem;
+    padding: var(--sp-2) var(--sp-4);
     background: color-mix(in srgb, var(--fg) 88%, var(--bg));
     color: var(--bg);
     border-radius: var(--radius);

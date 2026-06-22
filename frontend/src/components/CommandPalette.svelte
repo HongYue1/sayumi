@@ -225,7 +225,7 @@
     display: flex;
     justify-content: center;
     align-items: flex-start;
-    padding: 12vh 1rem 1rem;
+    padding: 12vh var(--sp-4) var(--sp-4);
     background: color-mix(in srgb, #000 38%, transparent);
     animation: app-overlay-in var(--dur-fast) var(--ease-out);
   }
@@ -244,7 +244,7 @@
     display: flex;
     align-items: center;
     gap: var(--sp-2);
-    padding: 0 1rem;
+    padding: 0 var(--sp-4);
     border-bottom: 1px solid var(--hairline);
   }
   .cmd-search :global(.cmd-search-icon) {
@@ -293,7 +293,7 @@
     transition: background var(--dur-fast) var(--ease-out);
   }
   .cmd.active {
-    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
   }
   .cmd-label {
     overflow: hidden;
@@ -303,7 +303,7 @@
   .cmd-hint {
     flex-shrink: 0;
     font-size: var(--text-xs);
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--muted);
   }
