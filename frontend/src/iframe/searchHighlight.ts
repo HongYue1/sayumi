@@ -221,8 +221,18 @@ export function createSearchHighlight(
     const content = deps.getContentEl();
     if (!content) return;
 
-    const lowerQuery = query.toLowerCase();
-    const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+    const lowerQuery = query.trim().toLowerCase();
+    if (!lowerQuery) return;
+
+    const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const parent = node.parentElement;
+        if (!parent || parent.closest("head,script,style")) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
     let node = walker.nextNode() as Text | null;
 
     while (node) {
