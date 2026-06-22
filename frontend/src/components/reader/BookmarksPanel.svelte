@@ -190,7 +190,7 @@
   }
   kbd {
     border: 1px solid var(--hairline-strong);
-    border-radius: 0.25rem;
+    border-radius: var(--radius-sm);
     padding: 0 0.3rem;
     font-size: 0.85em;
   }

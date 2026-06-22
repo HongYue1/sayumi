@@ -685,7 +685,7 @@
     width: 100%;
     padding: 0.5rem;
     border: 1px solid var(--hairline-strong);
-    border-radius: 0.45rem;
+    border-radius: var(--radius);
     background: var(--bg);
     color: var(--fg);
     font: inherit;
@@ -717,7 +717,7 @@
     margin: 0.2rem 0 0.6rem;
     padding: 0.5rem 0.6rem;
     border: 1px solid var(--hairline);
-    border-radius: 0.45rem;
+    border-radius: var(--radius);
     background: var(--bg);
   }
   .roles-hint {
@@ -743,7 +743,7 @@
     min-width: 0;
     padding: 0.35rem 0.4rem;
     border: 1px solid var(--hairline-strong);
-    border-radius: 0.35rem;
+    border-radius: var(--radius-sm);
     background: var(--bg);
     color: var(--fg);
     font: inherit;
@@ -754,7 +754,7 @@
     padding: 0.4rem;
     margin-bottom: 0.6rem;
     border: 1px solid var(--hairline-strong);
-    border-radius: 0.4rem;
+    border-radius: var(--radius);
     background: transparent;
     color: var(--fg);
     font: inherit;

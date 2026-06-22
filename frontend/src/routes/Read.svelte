@@ -1238,7 +1238,7 @@
        targets); the icon glyph stays centered via flex. */
     min-width: 2.75rem;
     min-height: 2.75rem;
-    border-radius: 0.4rem;
+    border-radius: var(--radius);
     cursor: pointer;
     transition:
       background var(--dur-fast) var(--ease-out),
@@ -1246,7 +1246,7 @@
       transform var(--dur-fast) var(--ease-out);
   }
   .icon:hover {
-    background: color-mix(in srgb, var(--fg) 8%, transparent);
+    background: var(--surface-hover);
   }
   .icon:active {
     transform: scale(0.94);
@@ -1276,7 +1276,7 @@
     line-height: var(--lh-snug);
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--muted, #6b6661);
+    color: var(--muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1322,8 +1322,8 @@
   }
   .error button {
     padding: 0.5rem 1rem;
-    border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
-    border-radius: 0.5rem;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
     background: transparent;
     color: var(--fg);
     font: inherit;
