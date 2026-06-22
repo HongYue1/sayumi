@@ -162,6 +162,7 @@
     restore?: { percent: number; cfi?: string };
   } | null = null;
   let pendingHighlight: {
+    chapterIndex: number;
     charOffset: number;
     matchLen: number;
     query: string;
@@ -624,6 +625,7 @@
     const h = pendingHighlight;
     pendingHighlight = null;
     if (highlightTimer) clearTimeout(highlightTimer);
+    if (h.chapterIndex !== currentChapter) return;
     // Tag the deferred highlight with the seq of the chapter it was computed
     // for. If a faster re-navigation supersedes this chapter before the timer
     // fires, the iframe drops the now-stale highlight instead of marking the
@@ -716,14 +718,21 @@
   }
 
   // ---- search -------------------------------------------------------------
+  function isValidSearchResult(result: SearchResult, b: BookDetail): boolean {
+    return (
+      Number.isSafeInteger(result.chapterIndex) &&
+      result.chapterIndex >= 0 &&
+      result.chapterIndex < b.chapterCount &&
+      Number.isSafeInteger(result.charOffset) &&
+      result.charOffset >= 0 &&
+      Number.isSafeInteger(result.matchLen) &&
+      result.matchLen > 0
+    );
+  }
+
   function navigateToResult(result: SearchResult, query: string): void {
     const b = book;
-    if (
-      !b ||
-      !Number.isSafeInteger(result.chapterIndex) ||
-      result.chapterIndex < 0 ||
-      result.chapterIndex >= b.chapterCount
-    ) {
+    if (!b || !isValidSearchResult(result, b)) {
       cancelPendingHighlight();
       showToast("Search result is no longer available");
       return;
@@ -735,6 +744,7 @@
       api?.highlightSearch(result.charOffset, result.matchLen, query);
     } else {
       pendingHighlight = {
+        chapterIndex: result.chapterIndex,
         charOffset: result.charOffset,
         matchLen: result.matchLen,
         query,
