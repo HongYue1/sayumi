@@ -22,6 +22,7 @@
   let currentIdx = $state(0);
   let loadingMore = $state(false);
   let errorMsg = $state("");
+  let loadMoreError = $state("");
 
   let input = $state<HTMLInputElement | null>(null);
   let debounce: ReturnType<typeof setTimeout> | undefined;
@@ -160,6 +161,7 @@
       status = "idle";
       resultItems = [];
       groups = [];
+      loadMoreError = "";
       currentIdx = 0;
       activeOptionEl = null;
       return;
@@ -176,6 +178,7 @@
     status = "loading";
     currentIdx = 0;
     activeOptionEl = null;
+    loadMoreError = "";
     try {
       const resp = await searchBook(
         bookId,
@@ -209,6 +212,7 @@
     token += 1;
     const my = token;
     loadingMore = true;
+    loadMoreError = "";
     try {
       const resp = await searchBook(
         bookId,
@@ -225,7 +229,7 @@
     } catch (e) {
       if (my !== token) return;
       if (!(e instanceof DOMException && e.name === "AbortError")) {
-        errorMsg = getErrorMessage(e, "Failed to load more.");
+        loadMoreError = getErrorMessage(e, "Failed to load more.");
       }
     } finally {
       if (my === token) abort = undefined;
@@ -359,6 +363,9 @@
         <button class="more ghost-btn" onclick={loadMore}
           >Load more results</button
         >
+      {/if}
+      {#if loadMoreError}
+        <p class="state inline-error" role="alert">{loadMoreError}</p>
       {/if}
       {#if loadingMore}<p class="state">Loading…</p>{/if}
     {/if}
