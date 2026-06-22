@@ -373,15 +373,17 @@
           {/each}
         </div>
       {/each}
-      {#if hasMore && !loadingMore}
-        <button class="more ghost-btn" onclick={loadMore}
-          >Load more results</button
+      {#if hasMore}
+        <button
+          class="more ghost-btn"
+          onclick={loadMore}
+          aria-disabled={loadingMore}
+          >{loadingMore ? "Loading…" : "Load more results"}</button
         >
       {/if}
       {#if loadMoreError}
         <p class="state inline-error" role="alert">{loadMoreError}</p>
       {/if}
-      {#if loadingMore}<p class="state">Loading…</p>{/if}
     {/if}
   </div>
 </div>
