@@ -201,6 +201,9 @@
     padding: var(--sp-2) 0;
     border-bottom: 1px solid var(--hairline);
   }
+  .bm:last-child {
+    border-bottom: none;
+  }
   .edit {
     flex: 1;
     display: flex;
@@ -235,7 +238,7 @@
   .bm-comment {
     font-size: var(--text-sm);
     color: var(--muted);
-    margin-top: 0.15rem;
+    margin-top: var(--sp-1);
   }
   .actions {
     display: flex;
