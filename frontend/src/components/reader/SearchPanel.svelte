@@ -308,6 +308,7 @@
     >
   </header>
 
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     class="list"
     id="search-results"
@@ -315,7 +316,6 @@
     aria-label="Search results"
     tabindex="-1"
     onclick={onListClick}
-    onkeydown={onKey}
   >
     {#if status === "loading"}
       <p class="state" role="status">Searching…</p>
