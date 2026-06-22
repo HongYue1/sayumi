@@ -223,7 +223,7 @@
     width: 100%;
     padding: 0.5rem 0.6rem;
     border: none;
-    border-radius: calc(var(--radius) - 0.15rem);
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--fg);
     font: inherit;

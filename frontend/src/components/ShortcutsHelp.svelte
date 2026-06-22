@@ -23,6 +23,7 @@
           { keys: ["S"], desc: "Settings" },
           { keys: ["F"], desc: "Search in book" },
           { keys: ["B"], desc: "Toggle bookmark" },
+          { keys: ["Shift", "B"], desc: "Bookmarks panel" },
         ],
       },
     ];

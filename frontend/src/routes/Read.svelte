@@ -888,8 +888,11 @@
         togglePanel("search");
         return true;
       case "b":
-      case "B":
         void toggleBookmark();
+        return true;
+      case "B":
+        // Shift+B opens the bookmarks panel (plain B toggles a bookmark).
+        togglePanel("bookmarks");
         return true;
     }
     return false;

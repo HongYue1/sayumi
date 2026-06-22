@@ -232,7 +232,7 @@
     z-index: 60;
     display: grid;
     place-items: center;
-    padding: 1.5rem;
+    padding: var(--sp-6);
     background: color-mix(in srgb, #000 38%, transparent);
     animation: app-overlay-in var(--dur-fast) var(--ease-out);
   }
@@ -247,7 +247,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.9rem 1.1rem;
+    padding: var(--sp-3) var(--sp-4);
     border-bottom: 1px solid var(--hairline);
   }
   h2 {
@@ -255,6 +255,7 @@
     font-family: var(--font-display);
     font-size: var(--text-xl);
     font-weight: 500;
+    line-height: 1;
   }
   .close {
     display: inline-flex;
@@ -268,7 +269,11 @@
     cursor: pointer;
     transition:
       background var(--dur) var(--ease-out),
-      color var(--dur) var(--ease-out);
+      color var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
+  }
+  .close:active:not(:disabled) {
+    transform: scale(0.94);
   }
   .close:hover:not(:disabled) {
     background: var(--surface-hover);
@@ -282,7 +287,7 @@
     display: flex;
     flex-direction: column;
     gap: var(--sp-4);
-    padding: 1.1rem;
+    padding: var(--sp-4);
   }
   .lede {
     margin: 0;
