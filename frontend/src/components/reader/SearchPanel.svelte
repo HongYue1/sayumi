@@ -225,6 +225,16 @@
     onresultclick(r, query.trim());
   }
 
+  function onListClick(e: MouseEvent): void {
+    const target = e.target as Element | null;
+    const button = target?.closest<HTMLButtonElement>("button.result");
+    if (!button) return;
+    const idx = Number(button.dataset.idx);
+    const item = resultItems[idx];
+    if (!item) return;
+    pick(item.result, idx);
+  }
+
   function onKey(e: KeyboardEvent): void {
     const total = resultItems.length;
     switch (e.key) {
@@ -292,6 +302,9 @@
     id="search-results"
     role="listbox"
     aria-label="Search results"
+    tabindex="-1"
+    onclick={onListClick}
+    onkeydown={onKey}
   >
     {#if status === "loading"}
       <p class="state" role="status">Searching…</p>
@@ -321,8 +334,8 @@
               id={`sr-${it.globalIdx}`}
               role="option"
               tabindex="-1"
+              data-idx={it.globalIdx}
               aria-selected="false"
-              onclick={() => pick(it.result, it.globalIdx)}
             >
               <span class="snippet">
                 {#if it.clippedStart}…{/if}{it.before}<mark>{it.match}</mark
