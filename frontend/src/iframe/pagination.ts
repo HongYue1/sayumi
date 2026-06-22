@@ -1,6 +1,7 @@
 import type { FrameToParentMessage } from "~/lib/frameMessages";
 
-const PAGE_TURN_FADE_MS = 120;
+const PAGE_TURN_BASE_MS = 240;
+const PAGE_TURN_PER_PAGE_MS = 70;
 // Minimum bottom inset for the paged column box so the last line never sits
 // under the fixed #page-indicator pill (bottom: 12px + pill height).
 const PAGE_INDICATOR_CLEARANCE = 32;
@@ -66,8 +67,6 @@ export function createPagination(deps: PaginationDeps): PaginationController {
   let maxPageScrollLeft = 0;
   let pageScrollRafHandle: number | null = null;
   let pageTurnFinishTimer: ReturnType<typeof setTimeout> | null = null;
-  let pageTurnTransitionTimer: ReturnType<typeof setTimeout> | null = null;
-  let pageTurnTransitionCleanup: (() => void) | null = null;
   // Live target/phase for the cross-fade turn, so rapid presses can retarget
   // the running animation instead of restarting it.
   let pageTurnTarget = 0;
@@ -99,95 +98,10 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     if (enabled === pageTurningActive) return;
     pageTurningActive = enabled;
     document.documentElement.classList.toggle("page-turning", enabled);
-    if (!enabled) {
-      document.documentElement.classList.remove("page-turn-out", "page-turn-in");
-    }
     if (!enabled && pageTurnFinishTimer !== null) {
       clearTimeout(pageTurnFinishTimer);
       pageTurnFinishTimer = null;
     }
-  }
-
-  function setPageTurnPhase(phase: "out" | "in"): void {
-    const root = document.documentElement;
-    root.classList.toggle("page-turn-out", phase === "out");
-    root.classList.toggle("page-turn-in", phase === "in");
-  }
-
-  function clearPageTurnTransition(): void {
-    if (pageTurnTransitionCleanup) {
-      pageTurnTransitionCleanup();
-      pageTurnTransitionCleanup = null;
-    }
-    if (pageTurnTransitionTimer !== null) {
-      clearTimeout(pageTurnTransitionTimer);
-      pageTurnTransitionTimer = null;
-    }
-  }
-
-  function cancelPageTurnAnimation(): void {
-    clearPageTurnTransition();
-    if (pageScrollRafHandle !== null) {
-      cancelAnimationFrame(pageScrollRafHandle);
-      pageScrollRafHandle = null;
-    }
-  }
-
-  function isPageTurnAnimating(): boolean {
-    return pageTurnTransitionCleanup !== null || pageScrollRafHandle !== null;
-  }
-
-  function onOpacitySettled(content: HTMLElement, done: () => void): void {
-    clearPageTurnTransition();
-    let settled = false;
-    const finish = (): void => {
-      if (settled) return;
-      settled = true;
-      clearPageTurnTransition();
-      done();
-    };
-    const onEnd = (event: TransitionEvent): void => {
-      if (event.target === content && event.propertyName === "opacity") finish();
-    };
-    content.addEventListener("transitionend", onEnd);
-    pageTurnTransitionCleanup = () => {
-      content.removeEventListener("transitionend", onEnd);
-    };
-    pageTurnTransitionTimer = setTimeout(finish, PAGE_TURN_FADE_MS + 80);
-  }
-
-  function startPageTurnIn(content: HTMLElement): void {
-    pageTurnSwapped = true;
-    setPageTurnPhase("in");
-    onOpacitySettled(content, () => {
-      content.scrollLeft = pageTurnTarget;
-      content.style.opacity = "";
-      pageTurnSwapped = false;
-      const timer = setTimeout(() => {
-        if (pageTurnFinishTimer === timer) pageTurnFinishTimer = null;
-        if (!deps.isDestroyed()) setPageTurning(false);
-      }, 34);
-      pageTurnFinishTimer = timer;
-    });
-    pageScrollRafHandle = requestAnimationFrame(() => {
-      pageScrollRafHandle = null;
-      content.style.opacity = "1";
-    });
-  }
-
-  function startPageTurnOut(content: HTMLElement): void {
-    cancelPageTurnAnimation();
-    setPageTurning(true);
-    pageTurnSwapped = false;
-    setPageTurnPhase("out");
-    onOpacitySettled(content, () => {
-      content.scrollLeft = pageTurnTarget;
-      startPageTurnIn(content);
-    });
-    pageScrollRafHandle = requestAnimationFrame(() => {
-      pageScrollRafHandle = null;
-      content.style.opacity = "0";
-    });
   }
 
   function prefersReducedMotion(): boolean {
@@ -254,11 +168,13 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     }
 
     if (!animated || prefersReducedMotion()) {
-      cancelPageTurnAnimation();
+      if (pageScrollRafHandle !== null) {
+        cancelAnimationFrame(pageScrollRafHandle);
+        pageScrollRafHandle = null;
+      }
       content.scrollLeft = target;
       content.style.opacity = "";
       pageTurnTarget = target;
-      pageTurnSwapped = false;
       setPageTurning(false);
       return;
     }
@@ -270,26 +186,70 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     // phase so the latest target gets shown. This coalesces rapid page presses
     // into one cross-fade to the final destination, instead of restarting the
     // fade (and visibly flickering the current page) on every keystroke.
-    if (isPageTurnAnimating()) {
-      if (pageTurnSwapped) startPageTurnOut(content);
+    if (pageScrollRafHandle !== null) {
+      if (pageTurnSwapped) pageTurnSwapped = false;
       return;
     }
 
     if (Math.abs(target - content.scrollLeft) < 1) {
       content.scrollLeft = target;
       content.style.opacity = "";
-      pageTurnSwapped = false;
       setPageTurning(false);
       return;
     }
 
-    // Cross-fade page turn: fade the current page out with a CSS transition,
-    // swap scrollLeft once while it is invisible (hiding the jump), then fade
-    // the new page in. Only composited opacity animates, and the single scroll
-    // write avoids the sub-pixel drift a per-frame scroll/transform tween
-    // produces. A literal two-page blend is not possible here: every page is a
-    // column in one multicol scroller, not its own layer.
-    startPageTurnOut(content);
+    setPageTurning(true);
+    pageTurnSwapped = false;
+
+    // Cross-fade page turn: fade the current page out, swap scrollLeft once
+    // while it is invisible (hiding the jump), then fade the new page in. Only
+    // composited opacity animates, and the single scroll write avoids the
+    // sub-pixel drift a per-frame scroll/transform tween produces. Opacity
+    // tracks a real elapsed delta so a retargeted turn resumes from the current
+    // opacity rather than snapping back to 1. A literal two-page blend is not
+    // possible here: every page is a column in one multicol scroller, not its
+    // own layer.
+    const FADE_MS = (PAGE_TURN_BASE_MS + PAGE_TURN_PER_PAGE_MS) / 2;
+    let lastTime = performance.now();
+
+    const animate = (now: number): void => {
+      if (deps.isDestroyed()) return;
+
+      const step = FADE_MS > 0 ? (now - lastTime) / FADE_MS : 1;
+      lastTime = now;
+
+      let opacity = parseFloat(content.style.opacity || "1");
+
+      if (!pageTurnSwapped) {
+        opacity -= step;
+        if (opacity <= 0) {
+          opacity = 0;
+          content.scrollLeft = pageTurnTarget;
+          pageTurnSwapped = true;
+        }
+      } else {
+        opacity += step;
+      }
+
+      if (pageTurnSwapped && opacity >= 1) {
+        content.scrollLeft = pageTurnTarget;
+        content.style.opacity = "";
+        pageScrollRafHandle = null;
+        const timer = setTimeout(() => {
+          if (pageTurnFinishTimer === timer) pageTurnFinishTimer = null;
+          if (!deps.isDestroyed()) setPageTurning(false);
+        }, 34);
+        pageTurnFinishTimer = timer;
+        return;
+      }
+
+      content.style.opacity = String(
+        opacity < 0 ? 0 : opacity > 1 ? 1 : opacity,
+      );
+      pageScrollRafHandle = requestAnimationFrame(animate);
+    };
+
+    pageScrollRafHandle = requestAnimationFrame(animate);
   }
 
   function goToPageInternal(page: number, animated: boolean): void {
@@ -593,16 +553,21 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     teardownPagedResizeObserver();
     const content = deps.getContentEl();
     if (content) content.style.opacity = "";
-    cancelPageTurnAnimation();
+    if (pageScrollRafHandle !== null) {
+      cancelAnimationFrame(pageScrollRafHandle);
+      pageScrollRafHandle = null;
+    }
     if (pageTurnFinishTimer !== null) {
       clearTimeout(pageTurnFinishTimer);
       pageTurnFinishTimer = null;
     }
-    document.documentElement.classList.remove("page-turn-out", "page-turn-in");
   }
 
   function dispose(): void {
-    cancelPageTurnAnimation();
+    if (pageScrollRafHandle !== null) {
+      cancelAnimationFrame(pageScrollRafHandle);
+      pageScrollRafHandle = null;
+    }
     if (pageTurnFinishTimer !== null) {
       clearTimeout(pageTurnFinishTimer);
       pageTurnFinishTimer = null;
