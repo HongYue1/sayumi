@@ -195,6 +195,8 @@
       if (my !== token) return;
       errorMsg = getErrorMessage(e, "Search failed. Please try again.");
       status = "error";
+    } finally {
+      if (my === token) abort = undefined;
     }
   }
 
@@ -226,6 +228,7 @@
         errorMsg = getErrorMessage(e, "Failed to load more.");
       }
     } finally {
+      if (my === token) abort = undefined;
       loadingMore = false;
     }
   }
