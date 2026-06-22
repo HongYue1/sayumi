@@ -267,7 +267,6 @@ export function createSearchHighlight(
     matchLen: number,
     query: string,
   ): void {
-    clearSearchHighlights();
     const content = deps.getContentEl();
     if (
       !deps.isContentReady() ||
@@ -282,6 +281,7 @@ export function createSearchHighlight(
 
     const matchEnd = charOffset + matchLen;
     if (!Number.isSafeInteger(matchEnd)) return;
+    clearSearchHighlights();
     const index = buildSearchTextIndex(content);
     if (matchEnd > index.length) {
       if (query) fallbackHighlight(query);
