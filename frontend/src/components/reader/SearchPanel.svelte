@@ -157,6 +157,7 @@
     // results while the user is already typing the next query.
     abort?.abort();
     token += 1;
+    loadingMore = false;
     if (!trimmed) {
       status = "idle";
       resultItems = [];
@@ -178,6 +179,7 @@
     status = "loading";
     currentIdx = 0;
     activeOptionEl = null;
+    loadingMore = false;
     loadMoreError = "";
     try {
       const resp = await searchBook(
@@ -232,8 +234,10 @@
         loadMoreError = getErrorMessage(e, "Failed to load more.");
       }
     } finally {
-      if (my === token) abort = undefined;
-      loadingMore = false;
+      if (my === token) {
+        abort = undefined;
+        loadingMore = false;
+      }
     }
   }
 
