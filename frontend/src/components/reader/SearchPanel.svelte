@@ -41,6 +41,16 @@
     return resp.hasMore === true && responseCursor(resp).length > 0;
   }
 
+  function hasAdvancedPage(
+    resp: { hasMore: unknown; nextCursor?: unknown },
+    previousCursor: string,
+  ): boolean {
+    const cursor = responseCursor(resp);
+    return (
+      resp.hasMore === true && cursor.length > 0 && cursor !== previousCursor
+    );
+  }
+
   function isSafeInteger(value: unknown): value is number {
     return typeof value === "number" && Number.isSafeInteger(value);
   }
@@ -271,6 +281,7 @@
     if (!hasMore || loadingMore || !nextCursor) return;
     const q = query.trim();
     if (!q) return;
+    const cursor = nextCursor;
     abort?.abort();
     abort = new AbortController();
     token += 1;
@@ -288,7 +299,7 @@
       if (my !== token) return;
       const more = searchResults(resp.results);
       appendRawResults(more);
-      hasMore = hasNextPage(resp);
+      hasMore = hasAdvancedPage(resp, cursor);
       nextCursor = responseCursor(resp);
     } catch (e) {
       if (my !== token) return;
