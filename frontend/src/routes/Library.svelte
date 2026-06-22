@@ -289,15 +289,7 @@
     padding: var(--sp-6);
     background: color-mix(in srgb, var(--bg) 78%, transparent);
     backdrop-filter: blur(2px);
-    animation: dz-in var(--dur-fast) var(--ease-out);
-  }
-  @keyframes dz-in {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
+    animation: app-overlay-in var(--dur-fast) var(--ease-out);
   }
   .dropzone-inner {
     display: flex;

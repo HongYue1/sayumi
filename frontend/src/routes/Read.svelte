@@ -1351,7 +1351,7 @@
     background: color-mix(in srgb, #000 25%, transparent);
     cursor: pointer;
     z-index: 6;
-    animation: scrim-in var(--dur-fast) var(--ease-out) backwards;
+    animation: app-overlay-in var(--dur-fast) var(--ease-out) backwards;
   }
   @keyframes panel-left-in {
     from {
@@ -1371,14 +1371,6 @@
     to {
       opacity: 1;
       transform: translateX(0);
-    }
-  }
-  @keyframes scrim-in {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
     }
   }
   .progress {
