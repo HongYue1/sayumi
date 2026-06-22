@@ -89,7 +89,7 @@
   // every rendered result on each key repeat.
   async function syncActiveOption(scroll = false): Promise<void> {
     await tick();
-    const next = listEl?.querySelector<HTMLElement>(`#sr-${currentIdx}`) ?? null;
+    const next = document.getElementById(`sr-${currentIdx}`) as HTMLElement | null;
     if (activeOptionEl && activeOptionEl !== next) {
       activeOptionEl.setAttribute("aria-selected", "false");
     }
