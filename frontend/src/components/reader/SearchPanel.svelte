@@ -262,9 +262,11 @@
         abort.signal,
       );
       if (my !== token) return;
-      setRawResults(searchResults(resp.results));
-      hasMore = hasNextPage(resp);
-      nextCursor = responseCursor(resp);
+      const rows = searchResults(resp.results);
+      const canPage = rows.length > 0 && hasNextPage(resp);
+      setRawResults(rows);
+      hasMore = canPage;
+      nextCursor = canPage ? responseCursor(resp) : "";
       status = "done";
       void syncActiveOptionAfterRender();
     } catch (e) {
@@ -298,9 +300,10 @@
       );
       if (my !== token) return;
       const more = searchResults(resp.results);
+      const canPage = more.length > 0 && hasAdvancedPage(resp, cursor);
       appendRawResults(more);
-      hasMore = hasAdvancedPage(resp, cursor);
-      nextCursor = responseCursor(resp);
+      hasMore = canPage;
+      nextCursor = canPage ? responseCursor(resp) : "";
     } catch (e) {
       if (my !== token) return;
       if (!(e instanceof DOMException && e.name === "AbortError")) {

@@ -1346,7 +1346,12 @@ import { createPagination } from "./pagination";
       case "highlight-search":
         if (
           typeof msg.charOffset !== "number" ||
-          typeof msg.matchLen !== "number"
+          typeof msg.matchLen !== "number" ||
+          !Number.isSafeInteger(msg.charOffset) ||
+          !Number.isSafeInteger(msg.matchLen) ||
+          msg.charOffset < 0 ||
+          msg.matchLen <= 0 ||
+          !Number.isSafeInteger(msg.charOffset + msg.matchLen)
         ) {
           break;
         }
