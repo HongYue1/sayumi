@@ -41,7 +41,9 @@
   }
 
   interface Group {
+    key: string;
     chapterIndex: number;
+    label: string;
     items: SearchResultItem[];
   }
 
@@ -52,7 +54,13 @@
     if (last && last.chapterIndex === item.result.chapterIndex) {
       last.items.push(item);
     } else {
-      target.push({ chapterIndex: item.result.chapterIndex, items: [item] });
+      const chapterNumber = item.result.chapterIndex + 1;
+      target.push({
+        key: `${item.result.chapterIndex}-${item.globalIdx}`,
+        chapterIndex: item.result.chapterIndex,
+        label: `Chapter ${chapterNumber}`,
+        items: [item],
+      });
     }
   }
 
@@ -318,14 +326,10 @@
     {:else if status === "done" && resultItems.length === 0}
       <p class="state" role="status">No results for “{query}”.</p>
     {:else if status === "done"}
-      {#each groups as group (group.chapterIndex + "-" + group.items[0].globalIdx)}
-        <div
-          class="group"
-          role="group"
-          aria-label={`Chapter ${group.chapterIndex + 1}`}
-        >
+      {#each groups as group (group.key)}
+        <div class="group" role="group" aria-label={group.label}>
           <div class="group-head">
-            Chapter {group.chapterIndex + 1}
+            {group.label}
             <span class="group-count tnum">{group.items.length}</span>
           </div>
           {#each group.items as it (it.globalIdx)}
