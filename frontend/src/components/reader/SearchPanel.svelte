@@ -30,15 +30,15 @@
   let abort: AbortController | undefined;
   let lastQuery = "";
 
+  function responseCursor(resp: { nextCursor?: unknown }): string {
+    return typeof resp.nextCursor === "string" ? resp.nextCursor : "";
+  }
+
   function hasNextPage(resp: {
-    hasMore: boolean;
-    nextCursor?: string;
+    hasMore: unknown;
+    nextCursor?: unknown;
   }): boolean {
-    return (
-      resp.hasMore === true &&
-      typeof resp.nextCursor === "string" &&
-      resp.nextCursor.length > 0
-    );
+    return resp.hasMore === true && responseCursor(resp).length > 0;
   }
 
   function isSafeInteger(value: unknown): value is number {
@@ -254,7 +254,7 @@
       if (my !== token) return;
       setRawResults(searchResults(resp.results));
       hasMore = hasNextPage(resp);
-      nextCursor = resp.nextCursor ?? "";
+      nextCursor = responseCursor(resp);
       status = "done";
       void syncActiveOptionAfterRender();
     } catch (e) {
@@ -289,7 +289,7 @@
       const more = searchResults(resp.results);
       appendRawResults(more);
       hasMore = hasNextPage(resp);
-      nextCursor = resp.nextCursor ?? "";
+      nextCursor = responseCursor(resp);
     } catch (e) {
       if (my !== token) return;
       if (!(e instanceof DOMException && e.name === "AbortError")) {
