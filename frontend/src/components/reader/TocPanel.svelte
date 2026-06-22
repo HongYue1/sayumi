@@ -105,7 +105,7 @@
 
 <div class="toc">
   <header>
-    <h2 class="eyebrow">Contents</h2>
+    <h2>Contents</h2>
     <button class="close" onclick={onclose} aria-label="Close table of contents"
       ><Icon icon={X} size={18} /></button
     >
@@ -161,6 +161,10 @@
   }
   h2 {
     margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--text-xl);
+    font-weight: 500;
+    line-height: 1;
   }
   .close {
     display: inline-flex;
@@ -217,7 +221,7 @@
     color: var(--fg);
     font: inherit;
     font-size: var(--text-sm);
-    padding: 0 0.5rem;
+    padding: 0 var(--sp-2);
     border-radius: var(--radius);
     cursor: pointer;
     white-space: nowrap;
@@ -255,7 +259,7 @@
     box-shadow: inset 2px 0 0 var(--accent);
   }
   .empty {
-    margin: 0 var(--sp-3);
+    padding: var(--sp-4);
     color: var(--muted);
   }
 </style>

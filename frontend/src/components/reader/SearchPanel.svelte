@@ -536,11 +536,11 @@
   }
   .list {
     overflow-y: auto;
-    padding: 0.4rem 0.5rem 2rem;
+    padding: var(--sp-2) var(--sp-2) var(--sp-8);
   }
   .state {
     color: var(--muted);
-    padding: 0.6rem 0.5rem;
+    padding: var(--sp-2);
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
@@ -578,7 +578,7 @@
     justify-content: space-between;
     font-size: var(--text-xs);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
     color: var(--muted);
     padding: 0.3rem 0.5rem;
   }
