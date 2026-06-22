@@ -13,6 +13,7 @@
   let { bookId, onresultclick, onclose }: Props = $props();
 
   type Status = "idle" | "loading" | "error" | "done";
+  const SEARCH_PAGE_SIZE = 100;
 
   let query = $state("");
   let status = $state<Status>("idle");
@@ -88,8 +89,7 @@
   // every rendered result on each key repeat.
   async function syncActiveOption(scroll = false): Promise<void> {
     await tick();
-    const next =
-      listEl?.querySelector<HTMLElement>(`#sr-${currentIdx}`) ?? null;
+    const next = listEl?.querySelector<HTMLElement>(`#sr-${currentIdx}`) ?? null;
     if (activeOptionEl && activeOptionEl !== next) {
       activeOptionEl.setAttribute("aria-selected", "false");
     }
@@ -136,7 +136,13 @@
     currentIdx = 0;
     activeOptionEl = null;
     try {
-      const resp = await searchBook(bookId, q, undefined, 200, abort.signal);
+      const resp = await searchBook(
+        bookId,
+        q,
+        undefined,
+        SEARCH_PAGE_SIZE,
+        abort.signal,
+      );
       if (my !== token) return;
       results = resp.results ?? [];
       hasMore = resp.hasMore;
@@ -161,7 +167,13 @@
     const my = token;
     loadingMore = true;
     try {
-      const resp = await searchBook(bookId, q, nextCursor, 200, abort.signal);
+      const resp = await searchBook(
+        bookId,
+        q,
+        nextCursor,
+        SEARCH_PAGE_SIZE,
+        abort.signal,
+      );
       if (my !== token) return;
       results = [...results, ...(resp.results ?? [])];
       hasMore = resp.hasMore;
