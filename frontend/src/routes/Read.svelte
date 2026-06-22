@@ -726,7 +726,8 @@
       Number.isSafeInteger(result.charOffset) &&
       result.charOffset >= 0 &&
       Number.isSafeInteger(result.matchLen) &&
-      result.matchLen > 0
+      result.matchLen > 0 &&
+      Number.isSafeInteger(result.charOffset + result.matchLen)
     );
   }
 
@@ -734,6 +735,7 @@
     const b = book;
     if (!b || !isValidSearchResult(result, b)) {
       cancelPendingHighlight();
+      api?.clearHighlights();
       showToast("Search result is no longer available");
       return;
     }
@@ -1106,6 +1108,7 @@
         {#if SearchPanelComp}
           <SearchPanelComp
             {bookId}
+            chapterCount={book?.chapterCount ?? 0}
             onresultclick={navigateToResult}
             onclose={closePanel}
           />
@@ -1113,6 +1116,7 @@
           {#await searchPanel() then { default: SearchPanel }}
             <SearchPanel
               {bookId}
+              chapterCount={book?.chapterCount ?? 0}
               onresultclick={navigateToResult}
               onclose={closePanel}
             />

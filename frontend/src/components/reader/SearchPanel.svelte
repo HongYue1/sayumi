@@ -7,10 +7,11 @@
 
   interface Props {
     bookId: string;
+    chapterCount: number;
     onresultclick: (result: SearchResult, query: string) => void;
     onclose: () => void;
   }
-  let { bookId, onresultclick, onclose }: Props = $props();
+  let { bookId, chapterCount, onresultclick, onclose }: Props = $props();
 
   type Status = "idle" | "loading" | "error" | "done";
   const SEARCH_PAGE_SIZE = 100;
@@ -31,7 +32,8 @@
   let lastQuery = "";
 
   function responseCursor(resp: { nextCursor?: unknown }): string {
-    return typeof resp.nextCursor === "string" ? resp.nextCursor : "";
+    const cursor = typeof resp.nextCursor === "string" ? resp.nextCursor : "";
+    return cursor.trim().length > 0 ? cursor : "";
   }
 
   function hasNextPage(resp: {
@@ -55,6 +57,12 @@
     return typeof value === "number" && Number.isSafeInteger(value);
   }
 
+  function isValidIndex(value: number): boolean {
+    return (
+      Number.isSafeInteger(value) && value >= 0 && value < resultItems.length
+    );
+  }
+
   function isSearchResult(value: unknown): value is SearchResult {
     if (typeof value !== "object" || value === null) return false;
     const r = value as Partial<SearchResult>;
@@ -69,13 +77,20 @@
     return (
       isSafeInteger(chapterIndex) &&
       chapterIndex >= 0 &&
+      chapterIndex < chapterCount &&
       isSafeInteger(charOffset) &&
       charOffset >= 0 &&
       isSafeInteger(matchLen) &&
       matchLen > 0 &&
+      Number.isSafeInteger(charOffset + matchLen) &&
       typeof snippet === "string" &&
+      snippet.length > 0 &&
       isSafeInteger(snippetStart) &&
-      isSafeInteger(snippetLen)
+      snippetStart >= 0 &&
+      snippetStart < snippet.length &&
+      isSafeInteger(snippetLen) &&
+      snippetLen > 0 &&
+      Number.isSafeInteger(snippetStart + snippetLen)
     );
   }
 
@@ -126,7 +141,8 @@
     const snippetLen = Number.isSafeInteger(r.snippetLen)
       ? Math.max(r.snippetLen, 0)
       : 0;
-    const matchEnd = Math.min(snippetStart + snippetLen, r.snippet.length);
+    const matchLen = Math.min(snippetLen, r.snippet.length - snippetStart);
+    const matchEnd = snippetStart + matchLen;
     return {
       result: r,
       globalIdx,
@@ -294,7 +310,7 @@
       const resp = await searchBook(
         bookId,
         q,
-        nextCursor,
+        cursor,
         SEARCH_PAGE_SIZE,
         abort.signal,
       );
@@ -318,6 +334,7 @@
   }
 
   function pick(r: SearchResult, idx: number): void {
+    if (!isValidIndex(idx)) return;
     currentIdx = idx;
     syncActiveOption();
     onresultclick(r, query.trim());
@@ -328,8 +345,8 @@
     const button = target?.closest<HTMLButtonElement>("button.result");
     if (!button) return;
     const idx = Number(button.dataset.idx);
+    if (!isValidIndex(idx)) return;
     const item = resultItems[idx];
-    if (!item) return;
     pick(item.result, idx);
   }
 
@@ -362,7 +379,7 @@
         syncActiveOption(true);
         break;
       case "Enter":
-        if (total > 0 && e.target === input) {
+        if (total > 0 && e.target === input && isValidIndex(currentIdx)) {
           e.preventDefault();
           e.stopPropagation();
           pick(resultItems[currentIdx].result, currentIdx);
