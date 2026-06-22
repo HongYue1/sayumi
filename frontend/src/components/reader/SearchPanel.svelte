@@ -175,7 +175,8 @@
         abort.signal,
       );
       if (my !== token) return;
-      results = [...results, ...(resp.results ?? [])];
+      const more = resp.results ?? [];
+      if (more.length) results.push(...more);
       hasMore = resp.hasMore;
       nextCursor = resp.nextCursor ?? "";
     } catch (e) {
