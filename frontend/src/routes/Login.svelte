@@ -102,7 +102,6 @@
   <div class="card">
     <header class="head">
       <h1 class="brand">Sayumi</h1>
-      <p class="tagline">“A quiet room for your books.”</p>
     </header>
 
     {#if loading}
@@ -246,10 +245,14 @@
 
   .card {
     width: 100%;
-    max-width: 22rem;
+    max-width: 24rem;
     display: flex;
     flex-direction: column;
-    gap: var(--sp-4);
+    gap: var(--sp-5);
+    padding: var(--sp-8);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
     animation: rise var(--dur-slow) var(--ease-out) both;
   }
   @keyframes rise {
@@ -263,11 +266,9 @@
     }
   }
 
-  /* Wordmark + tagline, separated from the list by a hairline rule. */
+  /* Wordmark hero. */
   .head {
     text-align: center;
-    padding-bottom: var(--sp-4);
-    border-bottom: 1px solid var(--hairline);
   }
   .brand {
     margin: 0;
@@ -276,15 +277,6 @@
     font-weight: 500;
     line-height: var(--lh-tight);
     letter-spacing: 0.01em;
-  }
-  .tagline {
-    margin: var(--sp-3) 0 0;
-    font-family: var(--font-display);
-    font-variant: small-caps;
-    letter-spacing: 0.08em;
-    font-size: var(--text-base);
-    line-height: var(--lh-snug);
-    color: var(--muted);
   }
 
   .muted {
