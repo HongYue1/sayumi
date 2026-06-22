@@ -80,15 +80,25 @@
         : `${results.length} result${results.length === 1 ? "" : "s"}`,
   );
 
-  // Keep the keyboard-selected result visible as the user arrows through it.
-  // Driven directly from the arrow-key handler rather than a $effect on
-  // currentIdx: scrolling is a discrete consequence of a keypress, not derived
-  // state, so an effect that re-subscribes on every index change is overkill.
-  async function scrollActiveIntoView(): Promise<void> {
+  let activeOptionEl: HTMLElement | null = null;
+
+  // Keep the active-descendant option state out of Svelte's per-row update path.
+  // Arrowing through 200+ results should update the combobox input plus the two
+  // affected option nodes, not re-evaluate active classes/aria-selected for
+  // every rendered result on each key repeat.
+  async function syncActiveOption(scroll = false): Promise<void> {
     await tick();
-    listEl
-      ?.querySelector<HTMLElement>(".result.active")
-      ?.scrollIntoView({ block: "nearest" });
+    const next = listEl?.querySelector<HTMLElement>(`#sr-${currentIdx}`) ?? null;
+    if (activeOptionEl && activeOptionEl !== next) {
+      activeOptionEl.classList.remove("active");
+      activeOptionEl.setAttribute("aria-selected", "false");
+    }
+    if (next) {
+      next.classList.add("active");
+      next.setAttribute("aria-selected", "true");
+      if (scroll) next.scrollIntoView({ block: "nearest" });
+    }
+    activeOptionEl = next;
   }
 
   onMount(() => {
@@ -110,6 +120,7 @@
       status = "idle";
       results = [];
       currentIdx = 0;
+      activeOptionEl = null;
       return;
     }
     const trimmed = value.trim();
@@ -124,6 +135,7 @@
     lastQuery = q;
     status = "loading";
     currentIdx = 0;
+    activeOptionEl = null;
     try {
       const resp = await searchBook(bookId, q, undefined, 200, abort.signal);
       if (my !== token) return;
@@ -131,6 +143,7 @@
       hasMore = resp.hasMore;
       nextCursor = resp.nextCursor ?? "";
       status = "done";
+      void syncActiveOption();
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return;
       if (my !== token) return;
@@ -166,6 +179,7 @@
 
   function pick(r: SearchResult, idx: number): void {
     currentIdx = idx;
+    void syncActiveOption();
     onresultclick(r, query.trim());
   }
 
@@ -181,13 +195,13 @@
         if (total === 0) return;
         e.preventDefault();
         currentIdx = (currentIdx + 1) % total;
-        void scrollActiveIntoView();
+        void syncActiveOption(true);
         break;
       case "ArrowUp":
         if (total === 0) return;
         e.preventDefault();
         currentIdx = (currentIdx - 1 + total) % total;
-        void scrollActiveIntoView();
+        void syncActiveOption(true);
         break;
       case "Enter":
         if (total > 0) {
@@ -262,8 +276,7 @@
               id={`sr-${it.globalIdx}`}
               role="option"
               tabindex="-1"
-              aria-selected={it.globalIdx === currentIdx}
-              class:active={it.globalIdx === currentIdx}
+              aria-selected="false"
               onclick={() => pick(it.result, it.globalIdx)}
             >
               <span class="snippet">
