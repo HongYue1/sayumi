@@ -151,7 +151,7 @@
     query = value;
     if (debounce) clearTimeout(debounce);
     const trimmed = value.trim();
-    if (trimmed && trimmed === lastQuery && status !== "error") return;
+    if (trimmed && trimmed === lastQuery && status === "done") return;
     // Invalidate any in-flight search immediately, not after the debounce. This
     // keeps a slow previous query/load-more response from repainting stale
     // results while the user is already typing the next query.
