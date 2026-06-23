@@ -1231,7 +1231,7 @@
 <style>
   .reader {
     position: relative;
-    height: 100vh;
+    height: calc(100vh - var(--offline-banner-h, 0px));
     overflow: hidden;
   }
   /* The chrome (bar + progress) overlays a full-bleed stage so toggling its

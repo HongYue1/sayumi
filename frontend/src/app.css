@@ -124,6 +124,16 @@
   box-sizing: border-box;
 }
 
+/* The offline banner is a fixed overlay; this variable reserves its height so
+   it never paints over page chrome (the reader header, the library top bar).
+   It stays 0 until <html> gets .offline-banner-open (toggled by OfflineBanner). */
+:root {
+  --offline-banner-h: 0px;
+}
+:root.offline-banner-open {
+  --offline-banner-h: 2.5rem;
+}
+
 html,
 body {
   margin: 0;

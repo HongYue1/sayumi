@@ -61,7 +61,12 @@
 <Toaster />
 
 <style>
+  /* Shift all routed content below the fixed offline banner when it's showing.
+     The variable is 0px otherwise, so this is a no-op while online. */
+  main {
+    padding-top: var(--offline-banner-h, 0px);
+  }
   .boot {
-    min-height: 100vh;
+    min-height: calc(100vh - var(--offline-banner-h, 0px));
   }
 </style>

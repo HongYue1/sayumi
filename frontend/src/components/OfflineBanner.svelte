@@ -19,6 +19,15 @@
   let checkInFlight = false;
   let mounted = true;
 
+  // The banner is a fixed overlay, so reserve its height on <html> while it's
+  // showing; the global --offline-banner-h variable lets main/.reader/.library
+  // shift down instead of being painted over (e.g. the reader's top chrome).
+  $effect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("offline-banner-open", offline);
+    return () => root.classList.remove("offline-banner-open");
+  });
+
   function isHidden(): boolean {
     return typeof document !== "undefined" && document.hidden;
   }
@@ -121,7 +130,8 @@
     align-items: center;
     justify-content: center;
     gap: var(--sp-2);
-    padding: 0.5rem 1rem;
+    height: 2.5rem;
+    padding: 0 1rem;
     background: var(--danger-surface);
     color: var(--danger-surface-fg);
     font-size: var(--text-sm);

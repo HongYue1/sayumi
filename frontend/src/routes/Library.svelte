@@ -283,7 +283,7 @@
 <style>
   .library {
     position: relative;
-    min-height: 100vh;
+    min-height: calc(100vh - var(--offline-banner-h, 0px));
     padding: var(--sp-8) var(--sp-8) var(--sp-12);
     max-width: 1440px;
     margin: 0 auto;
