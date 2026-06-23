@@ -23,7 +23,10 @@ import (
 //
 //	HH:MM:SS  INF  scanning library   profile=Raven books=4
 type prettyHandler struct {
-	mu    sync.Mutex
+	// mu is shared by pointer across every derived handler (WithAttrs/WithGroup)
+	// so all of them serialize writes to the same w, as the slog.Handler
+	// contract requires of a shared writer.
+	mu    *sync.Mutex
 	w     io.Writer
 	level slog.Level
 	// preAttrs holds attributes added via WithAttrs, each pre-keyed with the
@@ -50,7 +53,7 @@ var priorityKeySet = func() map[string]bool {
 }()
 
 func newPrettyHandler(w io.Writer, level slog.Level) slog.Handler {
-	return &prettyHandler{w: w, level: level, preAttrs: make(map[string]string)}
+	return &prettyHandler{mu: new(sync.Mutex), w: w, level: level, preAttrs: make(map[string]string)}
 }
 
 func (h *prettyHandler) Enabled(_ context.Context, l slog.Level) bool {
@@ -66,7 +69,7 @@ func (h *prettyHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	for _, a := range attrs {
 		merged[h.groupPrefix+a.Key] = a.Value.String()
 	}
-	return &prettyHandler{w: h.w, level: h.level, preAttrs: merged, groupPrefix: h.groupPrefix}
+	return &prettyHandler{mu: h.mu, w: h.w, level: h.level, preAttrs: merged, groupPrefix: h.groupPrefix}
 }
 
 // WithGroup returns a handler whose subsequent attribute keys are prefixed with
@@ -79,7 +82,7 @@ func (h *prettyHandler) WithGroup(name string) slog.Handler {
 	// Copy preAttrs — they were keyed at their own prefix and must not change.
 	copied := make(map[string]string, len(h.preAttrs))
 	maps.Copy(copied, h.preAttrs)
-	return &prettyHandler{w: h.w, level: h.level, preAttrs: copied, groupPrefix: prefix}
+	return &prettyHandler{mu: h.mu, w: h.w, level: h.level, preAttrs: copied, groupPrefix: prefix}
 }
 
 func (h *prettyHandler) Handle(_ context.Context, r slog.Record) error {
