@@ -63,6 +63,14 @@ func Sanitize(doc *html.Node) {
 
 func sanitizeNode(n *html.Node, depth int) {
 	if depth > maxSanitizeDepth {
+		// Fail closed: drop the over-depth subtree instead of leaving it in the
+		// tree unsanitized. Returning without pruning lets a <script>, on*
+		// handler, or javascript:/data: URI nested deeper than maxSanitizeDepth
+		// survive untouched, because the per-node element/attribute checks below
+		// only run on nodes the recursion actually reaches. The body URL-rewrite
+		// pass shares this depth budget, so an un-pruned subtree would also keep
+		// its remote subresources un-neutralized.
+		removeAllChildren(n)
 		return
 	}
 
@@ -130,6 +138,15 @@ func sanitizeNode(n *html.Node, depth int) {
 	}
 }
 
+// removeAllChildren detaches every child of n. The depth-limited sanitizer uses
+// it to fail closed: once the recursion budget is exhausted the whole
+// over-depth subtree is dropped rather than left in place unsanitized.
+func removeAllChildren(n *html.Node) {
+	for c := n.FirstChild; c != nil; c = n.FirstChild {
+		n.RemoveChild(c)
+	}
+}
+
 func sanitizeAttributes(n *html.Node) {
 	clean := n.Attr[:0]
 	for _, a := range n.Attr {
@@ -172,6 +189,10 @@ func normalizeURIForSafetyCheck(value string) string {
 
 func sanitizeSVG(n *html.Node, depth int) {
 	if depth > maxSanitizeDepth {
+		// Fail closed, same rationale as sanitizeNode: a <script> or
+		// <foreignObject> nested past the budget must not survive inside an
+		// over-deep SVG.
+		removeAllChildren(n)
 		return
 	}
 
