@@ -281,6 +281,13 @@ export async function requestWithRetry<T>(
   let lastError: unknown;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    // Snapshot reachability BEFORE the attempt. request() flips the shared
+    // signal to unreachable on a network failure, so reading isReachable()
+    // after the catch would always be false for the very network error we want
+    // to retry — which silently killed idempotent network-error retries. Taken
+    // beforehand, a server we already knew was down still short-circuits the
+    // retry storm on later requests.
+    const reachableBeforeAttempt = isReachable();
     try {
       return await request<T>(method, path, body, sig, timeoutMs);
     } catch (error) {
@@ -296,12 +303,14 @@ export async function requestWithRetry<T>(
         method === "PUT" ||
         method === "DELETE" ||
         method === "OPTIONS";
-      // Once we know the server is unreachable, stop the per-request retry
-      // storm (3 attempts x exponential backoff x 20s timeout on every
-      // navigation). The reachability poll drives recovery instead.
+      // Once we already knew the server was unreachable (before this attempt),
+      // stop the per-request retry storm (3 attempts x exponential backoff x
+      // 20s timeout on every navigation). The reachability poll drives recovery
+      // instead. A network error during THIS attempt still retries, because the
+      // snapshot predates request()'s reportUnreachable().
       const isRetryable =
         idempotent &&
-        isReachable() &&
+        reachableBeforeAttempt &&
         (!(error instanceof ApiError) ||
           error.status === undefined ||
           error.status >= 500);
