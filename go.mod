@@ -6,7 +6,7 @@ require (
 	golang.org/x/crypto v0.53.0
 	golang.org/x/image v0.43.0
 	golang.org/x/net v0.56.0
-	modernc.org/sqlite v1.52.0
+	modernc.org/sqlite v1.53.0
 )
 
 require (
