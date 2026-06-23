@@ -33,6 +33,7 @@
     buildTocChapterEntries,
   } from "~/lib/href";
   import { getErrorMessage } from "~/lib/errors";
+  import { isReachable } from "~/lib/reachability";
   import { applyTheme } from "~/lib/theme";
   import ChapterFrame from "~/components/reader/ChapterFrame.svelte";
   import type {
@@ -89,6 +90,10 @@
   let chapterDirection = $state("ltr");
   let chapterLoading = $state(false);
   let error = $state("");
+  // True when the book itself (not just a chapter) failed to load, so Retry
+  // re-fetches the book and the empty frame shows a book-level message.
+  let bookLoadFailed = $state(false);
+  let lastBootProgress: ProgressData = { chapter: 0, percent: 0 };
   type Panel = "none" | "toc" | "settings" | "search" | "bookmarks";
   let activePanel = $state<Panel>("none");
   let bookmarks = $state<Bookmark[]>([]);
@@ -399,6 +404,21 @@
       // ignore malformed cache
     }
 
+    lastBootProgress = saved;
+    await openBook(saved);
+
+    // Bookmarks are non-blocking for reader startup.
+    getBookmarks(bookId)
+      .then((bms) => (bookmarks = bms))
+      .catch(() => {});
+  }
+
+  // Fetches the book metadata and starts the initial chapter render. Split out
+  // of boot() so Retry can re-attempt just this step — the rest of boot
+  // (settings, progress, fonts) has already run by then.
+  async function openBook(saved: ProgressData): Promise<void> {
+    error = "";
+    bookLoadFailed = false;
     try {
       const data = await getBook(bookId);
       book = data;
@@ -412,13 +432,18 @@
       tryInitialLoad();
       scheduleProgressSave();
     } catch (err) {
-      error = getErrorMessage(err, "Failed to load book");
+      bookLoadFailed = true;
+      // Opening a book is the first request made after going offline from the
+      // library, so an unreachable server is the common failure here. Say so
+      // plainly instead of a generic "Failed to load book".
+      error = isReachable()
+        ? getErrorMessage(err, "Failed to load book")
+        : "Can't open this book while offline.";
     }
+  }
 
-    // Bookmarks are non-blocking for reader startup.
-    getBookmarks(bookId)
-      .then((bms) => (bookmarks = bms))
-      .catch(() => {});
+  function retryOpen(): void {
+    void openBook(lastBootProgress);
   }
 
   function tryInitialLoad(): void {
@@ -950,7 +975,9 @@
       ><Icon icon={ArrowLeft} /></button
     >
     <div class="title">
-      <span class="book">{book?.title ?? "…"}</span>
+      <span class="book"
+        >{book?.title ?? (bookLoadFailed ? "Unavailable" : "…")}</span
+      >
       {#if book}
         <span class="chapter">
           {chapterLabel || `Chapter ${currentChapter + 1}`} ·
@@ -1029,7 +1056,11 @@
       {#if error}
         <div class="error" role="alert">
           <p>{error}</p>
-          <button onclick={() => loadChapter(currentChapter)}>Retry</button>
+          <button
+            onclick={() =>
+              bookLoadFailed ? retryOpen() : loadChapter(currentChapter)}
+            >Retry</button
+          >
         </div>
       {/if}
     </div>
