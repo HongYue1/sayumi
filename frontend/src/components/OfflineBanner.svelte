@@ -1,30 +1,48 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { checkHealth } from "~/api/client";
+  import { subscribeReachability, isReachable } from "~/lib/reachability";
   import Icon from "~/lib/Icon.svelte";
   import { WifiOff } from "@lucide/svelte";
 
+  // While reachable we still poll periodically so a server quit *while the tab
+  // sits idle* (parked on a cached chapter, or an already-loaded library) is
+  // noticed within one interval instead of only when the next request happens
+  // to fail. While unreachable we poll a little slower, just to catch recovery.
+  // Polling pauses entirely while the tab is hidden.
+  const HEARTBEAT_MS = 10_000;
   const RECOVERY_POLL_MS = 15_000;
 
   let offline = $state(false);
 
-  let pollTimer: ReturnType<typeof setTimeout> | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   let checkInFlight = false;
   let mounted = true;
 
-  function clearPoll(): void {
-    if (pollTimer) {
-      clearTimeout(pollTimer);
-      pollTimer = undefined;
+  function isHidden(): boolean {
+    return typeof document !== "undefined" && document.hidden;
+  }
+
+  function clearTimer(): void {
+    if (timer) {
+      clearTimeout(timer);
+      timer = undefined;
     }
   }
 
-  function schedulePoll(): void {
-    if (pollTimer || !offline) return;
-    pollTimer = setTimeout(() => {
-      pollTimer = undefined;
-      if (offline) void check();
-    }, RECOVERY_POLL_MS);
+  function scheduleNext(): void {
+    clearTimer();
+    if (!mounted || isHidden()) return;
+    const delay = offline ? RECOVERY_POLL_MS : HEARTBEAT_MS;
+    timer = setTimeout(() => {
+      timer = undefined;
+      void check();
+    }, delay);
+  }
+
+  function setOffline(value: boolean): void {
+    offline = value;
+    scheduleNext();
   }
 
   async function check(): Promise<void> {
@@ -34,10 +52,11 @@
       const healthy = await checkHealth();
       if (!mounted) return;
       offline = !healthy;
-      if (healthy) clearPoll();
-      else schedulePoll();
     } finally {
       checkInFlight = false;
+      // Keep the heartbeat loop alive regardless of outcome, at the cadence
+      // that matches the current online/offline state.
+      scheduleNext();
     }
   }
 
@@ -45,20 +64,41 @@
     void check();
   }
   function handleOffline(): void {
-    offline = true;
-    schedulePoll();
+    // The OS reports the network interface is down — definitely offline.
+    setOffline(true);
+  }
+  function handleVisibility(): void {
+    // Don't burn requests on a backgrounded tab; check immediately on return so
+    // the banner is correct the moment the reader/library is looked at again.
+    if (isHidden()) clearTimer();
+    else void check();
   }
 
   onMount(() => {
+    // Drive the banner off real request reachability, not navigator.onLine
+    // (which stays true when the local server is quit). Any failed or
+    // successful API call flips this signal, and the heartbeat above catches a
+    // server that dies while the tab is idle.
+    setOffline(!isReachable());
+    const unsubscribe = subscribeReachability((reachable) => {
+      if (!mounted) return;
+      setOffline(!reachable);
+    });
     void check();
     return () => {
       mounted = false;
-      clearPoll();
+      clearTimer();
+      unsubscribe();
     };
   });
 </script>
 
-<svelte:window ononline={handleOnline} onoffline={handleOffline} />
+<svelte:window
+  onfocus={handleOnline}
+  ononline={handleOnline}
+  onoffline={handleOffline}
+/>
+<svelte:document onvisibilitychange={handleVisibility} />
 
 {#if offline}
   <div class="banner" role="alert">

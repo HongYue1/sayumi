@@ -249,11 +249,20 @@ func (sm *serverManager) stop() {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := sm.srv.Shutdown(ctx); err != nil {
-		slog.Error("shutdown error", "err", err)
+		// An open browser tab can hold a connection active past the grace
+		// window (a mid-flight request, or a large chapter/cover/font transfer
+		// still streaming). That's expected on quit, so force-close the
+		// stragglers and log it quietly instead of as an error.
+		if errors.Is(err, context.DeadlineExceeded) {
+			slog.Info("forced shutdown after grace period", "err", err)
+			_ = sm.srv.Close()
+		} else {
+			slog.Error("shutdown error", "err", err)
+		}
 	}
 	sm.srv = nil
 }

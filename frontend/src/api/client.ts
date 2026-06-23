@@ -1,3 +1,9 @@
+import {
+  reportReachable,
+  reportUnreachable,
+  isReachable,
+} from "~/lib/reachability";
+
 const BASE = "/api";
 
 type HttpMethod =
@@ -55,7 +61,7 @@ function networkErrorMessage(error: unknown): string {
   if (typeof navigator !== "undefined" && !navigator.onLine) {
     return "You appear to be offline";
   }
-  return "Network error";
+  return "Can't reach the server";
 }
 
 function pathSegment(value: string): string {
@@ -167,6 +173,11 @@ async function request<T>(
     if (error instanceof DOMException && error.name === "AbortError")
       throw error;
     if (signal?.aborted) throw abortError(signal);
+    // A rejected fetch to our own origin means the local server is unreachable
+    // (e.g. it was quit). Flip the shared reachability signal so the offline
+    // banner appears immediately, without waiting on navigator.onLine — which
+    // stays true for a downed localhost server.
+    reportUnreachable();
     throw new ApiError(
       networkErrorMessage(error),
       undefined,
@@ -174,6 +185,9 @@ async function request<T>(
       error,
     );
   }
+
+  // The server answered (even a 4xx/5xx proves it's reachable).
+  reportReachable();
 
   if (!res.ok) {
     const fallback =
@@ -271,8 +285,12 @@ export async function requestWithRetry<T>(
         method === "PUT" ||
         method === "DELETE" ||
         method === "OPTIONS";
+      // Once we know the server is unreachable, stop the per-request retry
+      // storm (3 attempts x exponential backoff x 20s timeout on every
+      // navigation). The reachability poll drives recovery instead.
       const isRetryable =
         idempotent &&
+        isReachable() &&
         (!(error instanceof ApiError) ||
           error.status === undefined ||
           error.status >= 500);
@@ -739,8 +757,11 @@ export async function checkHealth(): Promise<boolean> {
       credentials: "same-origin",
       signal: AbortSignal.timeout(5000),
     });
+    if (res.ok) reportReachable();
+    else reportUnreachable();
     return res.ok;
   } catch {
+    reportUnreachable();
     return false;
   }
 }
