@@ -13,6 +13,7 @@ import {
 } from "~/api/client";
 import { DEFAULT_FLAIRS, getNextPaletteColor } from "~/lib/flairs";
 import { toast } from "~/lib/toast.svelte";
+import { isReachable } from "~/lib/reachability";
 
 export type SortKey = "title" | "author" | "added" | "read" | "progress";
 
@@ -122,7 +123,10 @@ class Library {
     try {
       this.books = await getBooks();
     } catch (e) {
-      this.error = msg(e, "Failed to load library");
+      // When the server is unreachable the global offline banner already says
+      // so; don't stack a redundant red error above the empty list. Genuine
+      // errors (e.g. a 500) still surface inline.
+      this.error = isReachable() ? msg(e, "Failed to load library") : "";
     } finally {
       this.loading = false;
     }
