@@ -15,10 +15,10 @@ var stripEntirely = map[atom.Atom]bool{
 }
 
 // isNonStylesheetLink returns true for <link> elements that are not CSS
-// stylesheets. Stylesheet <link rel="stylesheet"> elements are extracted and
-// inlined by extractCSS in chapter.go before Sanitize runs, so any <link>
-// that survives to the sanitizer is either a non-stylesheet (prefetch, preload,
-// icon, etc.) or a malformed entry — both should be stripped to prevent
+// stylesheets. Sanitize runs before extractCSS, so real <link rel="stylesheet">
+// elements are still present here: they return false and are kept for extractCSS
+// to extract and inline afterward. Every other <link> — prefetch, preload, icon,
+// etc., or a malformed/rel-less entry — returns true and is stripped to prevent
 // unnecessary network fetches under the app origin.
 func isNonStylesheetLink(n *html.Node) bool {
 	if n.DataAtom != atom.Link {

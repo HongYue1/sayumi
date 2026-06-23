@@ -191,7 +191,7 @@ func processChapterHTML(
 		return ChapterResponse{}, err
 	}
 
-	bodyHTML, err := extractBodyHTML(bodyNode, doc)
+	bodyHTML, err := extractBodyHTML(bodyNode, doc, len(rawHTML))
 	if err != nil {
 		return ChapterResponse{}, fmt.Errorf("render chapter %d body: %w", chapterIndex, err)
 	}
@@ -756,8 +756,13 @@ func splitResourceReference(ref string) (refPath, rawQuery, fragment string) {
 	return ref, rawQuery, fragment
 }
 
-func extractBodyHTML(bodyNode *html.Node, doc *html.Node) (string, error) {
+func extractBodyHTML(bodyNode *html.Node, doc *html.Node, sizeHint int) (string, error) {
 	var buf bytes.Buffer
+	// The rendered body is roughly the size of the parsed source. Pre-grow once
+	// so rendering each child does not repeatedly reallocate the buffer.
+	if sizeHint > 0 {
+		buf.Grow(sizeHint)
+	}
 	if bodyNode == nil {
 		if err := html.Render(&buf, doc); err != nil {
 			return "", fmt.Errorf("render document: %w", err)
