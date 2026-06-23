@@ -54,18 +54,18 @@ type fontRoleEntry struct {
 // recordToJSON converts a SettingsRecord (which may have NULL columns for a
 // fresh profile) into the JSON shape sent to the client. The literal values
 // below are the application defaults returned when no row exists yet.
-// NOTE: these defaults must stay in sync with the initial signal values in the
-// client settings store (frontend/src/store/settings.ts).
+// NOTE: these defaults must stay in sync with DEFAULT_USER_SETTINGS in the
+// client settings store (frontend/src/lib/settings.svelte.ts).
 func recordToJSON(s storage.SettingsRecord) settingsJSON {
 	j := settingsJSON{
-		FontSize:       26,
+		FontSize:       30,
 		FontFamily:     "eb-garamond",
 		DisplayMode:    "scroll",
 		PreserveStyles: true,
 		PreserveFonts:  false,
 		Justify:        true,
-		Hyphenation:    false,
-		Theme:          "rose-pine",
+		Hyphenation:    true,
+		Theme:          "catppuccin",
 		FontRoles:      map[string]fontRoleEntry{},
 	}
 
@@ -306,7 +306,21 @@ func getSettingsHandler(_ *Dependencies) http.HandlerFunc {
 				writeError(w, http.StatusInternalServerError, "db_error", "failed to load settings")
 				return
 			}
-			writeJSON(w, http.StatusOK, recordToJSON(storage.SettingsRecord{}))
+			// Fresh profile (no settings row yet): start from the stored-record
+			// defaults and apply the app's non-Auto defaults for the Auto-capable
+			// fields. These are applied ONLY here, never in recordToJSON, so an
+			// existing profile that explicitly chose "Auto" (a NULL column) keeps
+			// Auto on reload instead of being silently reset to these values.
+			fresh := recordToJSON(storage.SettingsRecord{})
+			textIndent := 0.0
+			fresh.TextIndent = &textIndent
+			titleAlign := "center"
+			fresh.ChapterTitleAlign = &titleAlign
+			titleSize := 48
+			fresh.ChapterTitleSize = &titleSize
+			titleSpacing := 1.0
+			fresh.ChapterTitleSpacing = &titleSpacing
+			writeJSON(w, http.StatusOK, fresh)
 			return
 		}
 
