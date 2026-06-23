@@ -7,6 +7,7 @@ import {
   logout as apiLogout,
 } from "~/api/client";
 import { settings } from "~/lib/settings.svelte";
+import { subscribeUnauthenticated } from "~/lib/sessionGate";
 
 // Holds the currently authenticated profile. Replaces the legacy lib/profile.ts
 // module-level state with a Svelte 5 rune. The real session lives server-side in
@@ -17,8 +18,22 @@ class Session {
   /** True once the initial server status check has completed. */
   ready = $state(false);
 
+  constructor() {
+    // When the API layer detects the server-side session is gone (e.g. a
+    // restart dropped a non-remembered session, or it expired), fall back to
+    // the login screen. No-op when already signed out.
+    subscribeUnauthenticated(() => this.handleSessionLost());
+  }
+
   get authenticated(): boolean {
     return this.profile !== null;
+  }
+
+  /** Clears local session state after the server reports we're unauthenticated. */
+  private handleSessionLost(): void {
+    if (this.profile === null) return;
+    this.profile = null;
+    settings.reset();
   }
 
   /** Checks the existing cookie session on app start. */

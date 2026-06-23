@@ -125,6 +125,13 @@ func main() {
 
 	deps := api.NewDependencies(profilesDB, profileMgr, absLibRoot, fontScanner)
 
+	// Rehydrate "remember me" sessions persisted by a previous run so restarting
+	// the server doesn't sign everyone out. Non-fatal: on failure the server
+	// still runs, users just have to log in again.
+	if err := deps.RestoreSessions(); err != nil {
+		slog.Error("restore sessions", "err", err)
+	}
+
 	handler := buildHandler(deps)
 
 	manager := &serverManager{

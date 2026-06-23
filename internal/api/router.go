@@ -27,9 +27,16 @@ func NewDependencies(profilesDB *storage.ProfilesDB, profileMgr *ProfileManager,
 		ProfileMgr:  profileMgr,
 		LibraryRoot: libraryRoot,
 		Fonts:       fontScanner,
-		sessions:    newSessionStore(),
+		sessions:    newSessionStore(profilesDB),
 		throttle:    newLoginThrottle(),
 	}
+}
+
+// RestoreSessions rehydrates persisted "remember me" sessions from disk so a
+// server restart doesn't sign everyone out. Call once at startup, before
+// serving traffic. A failure is safe to treat as non-fatal by the caller.
+func (d *Dependencies) RestoreSessions() error {
+	return d.sessions.restore()
 }
 
 // StartBackgroundTasks runs periodic maintenance until ctx is canceled.

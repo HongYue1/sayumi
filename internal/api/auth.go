@@ -49,16 +49,38 @@ type session struct {
 	verifiedUntil time.Time
 }
 
-// sessionStore holds active sessions in memory. The map is unbounded between
-// sweep cycles (every 5 minutes via StartBackgroundTasks). For a self-hosted
-// single-user server the accumulation between sweeps is negligible.
-type sessionStore struct {
-	mu   sync.Mutex
-	data map[string]session
+// sessionPersistence persists "remember me" sessions so they survive a server
+// restart. Non-remember sessions are intentionally NOT persisted: they vanish
+// on restart and the user simply logs in again. A nil persist disables all
+// persistence (used by tests that construct a bare store).
+//
+// Tokens are stored as-is in the local profiles.db, which already holds bcrypt
+// PIN hashes and never leaves the host. For this single-user, localhost-first
+// server that file is the trust boundary: anyone who can read it already has
+// full access, and sessions are revocable and expiring, so they're strictly
+// lower-value than the PINs stored alongside them.
+type sessionPersistence interface {
+	SaveSession(token, profile string, expiry time.Time) error
+	DeleteSession(token string) error
+	DeleteSessionsForProfile(profile string) error
+	DeleteExpiredSessions(now time.Time) error
+	LoadSessions() ([]storage.PersistedSession, error)
 }
 
-func newSessionStore() *sessionStore {
-	return &sessionStore{data: make(map[string]session)}
+// sessionStore holds active sessions in memory, write-through backed by an
+// optional sessionPersistence so "remember me" sessions outlive a restart. The
+// in-memory map is the runtime source of truth; restore() rehydrates it from
+// disk at startup. The map is unbounded between sweep cycles (every 5 minutes
+// via StartBackgroundTasks). For a self-hosted single-user server the
+// accumulation between sweeps is negligible.
+type sessionStore struct {
+	mu      sync.Mutex
+	data    map[string]session
+	persist sessionPersistence
+}
+
+func newSessionStore(persist sessionPersistence) *sessionStore {
+	return &sessionStore{data: make(map[string]session), persist: persist}
 }
 
 func (ss *sessionStore) create(profile string, remember bool) (string, session, error) {
@@ -78,6 +100,16 @@ func (ss *sessionStore) create(profile string, remember bool) (string, session, 
 	ss.mu.Lock()
 	ss.data[token] = sess
 	ss.mu.Unlock()
+
+	// Only "remember me" sessions are persisted; non-remember sessions stay in
+	// memory and are gone after a restart by design. A persistence failure must
+	// not fail the login — the session already works in memory for this server's
+	// lifetime.
+	if remember && ss.persist != nil {
+		if err := ss.persist.SaveSession(token, profile, sess.expiry); err != nil {
+			slog.Error("persist session", "profile", profile, "err", err)
+		}
+	}
 
 	return token, sess, nil
 }
@@ -101,6 +133,11 @@ func (ss *sessionStore) deleteToken(token string) {
 	ss.mu.Lock()
 	delete(ss.data, token)
 	ss.mu.Unlock()
+	if ss.persist != nil {
+		if err := ss.persist.DeleteSession(token); err != nil {
+			slog.Error("delete persisted session", "err", err)
+		}
+	}
 }
 
 // markProfileVerified records that token's profile was just confirmed to exist,
@@ -125,19 +162,60 @@ func (ss *sessionStore) deleteAllForProfile(profile string) {
 		}
 	}
 	ss.mu.Unlock()
+	if ss.persist != nil {
+		if err := ss.persist.DeleteSessionsForProfile(profile); err != nil {
+			slog.Error("delete persisted sessions for profile", "profile", profile, "err", err)
+		}
+	}
 }
 
 // sweep removes all sessions whose expiry has passed. Called periodically
 // by Dependencies.StartBackgroundTasks.
 func (ss *sessionStore) sweep() {
-	ss.mu.Lock()
-	defer ss.mu.Unlock()
 	now := time.Now()
+	ss.mu.Lock()
 	for token, sess := range ss.data {
 		if now.After(sess.expiry) {
 			delete(ss.data, token)
 		}
 	}
+	ss.mu.Unlock()
+	if ss.persist != nil {
+		if err := ss.persist.DeleteExpiredSessions(now); err != nil {
+			slog.Error("sweep persisted sessions", "err", err)
+		}
+	}
+}
+
+// restore rehydrates persisted "remember me" sessions into memory at startup so
+// they survive a server restart. Expired rows are pruned first and skipped.
+// Restored sessions carry remember=true (only those are persisted) and an empty
+// verifiedUntil, so the next request re-confirms the profile still exists.
+func (ss *sessionStore) restore() error {
+	if ss.persist == nil {
+		return nil
+	}
+	now := time.Now()
+	if err := ss.persist.DeleteExpiredSessions(now); err != nil {
+		return fmt.Errorf("prune expired sessions: %w", err)
+	}
+	rows, err := ss.persist.LoadSessions()
+	if err != nil {
+		return fmt.Errorf("load persisted sessions: %w", err)
+	}
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	for _, row := range rows {
+		if now.After(row.Expiry) {
+			continue
+		}
+		ss.data[row.Token] = session{
+			profile:  row.Profile,
+			expiry:   row.Expiry,
+			remember: true,
+		}
+	}
+	return nil
 }
 
 func sessionFromRequest(r *http.Request, store *sessionStore) (string, session, bool) {

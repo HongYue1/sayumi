@@ -3,6 +3,7 @@ import {
   reportUnreachable,
   isReachable,
 } from "~/lib/reachability";
+import { reportUnauthenticated } from "~/lib/sessionGate";
 
 const BASE = "/api";
 
@@ -195,6 +196,16 @@ async function request<T>(
         ? "Server error. Please try again."
         : `Request failed: ${res.status}`;
     const parsed = await parseErrorResponse(res, fallback);
+    // A 401 "unauthenticated" on a request we made while believing we were
+    // logged in means the server-side session is gone (commonly: the server
+    // restarted and a non-remembered session wasn't restored, or the session
+    // expired). Notify the session store so the app falls back to the login
+    // screen instead of looking broken. Credential failures use other codes
+    // ("invalid_credentials") and /auth/status returns 200, so neither trips
+    // this.
+    if (res.status === 401 && parsed.code === "unauthenticated") {
+      reportUnauthenticated();
+    }
     throw new ApiError(parsed.message, res.status, parsed.code);
   }
 
