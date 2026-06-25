@@ -45,15 +45,15 @@ fi
 
 # ── 2. modules tidy (read-only) ──────────────────────────────────────────────
 step "2. go.mod / go.sum tidy"
-tmp="$(mktemp -d)"
-cp go.mod go.sum "$tmp"/
-if go mod tidy >/dev/null 2>&1 && diff -q go.mod "$tmp/go.mod" >/dev/null && diff -q go.sum "$tmp/go.sum" >/dev/null; then
+# `go mod tidy -diff` (Go 1.23+) reports whether tidy WOULD change go.mod/go.sum
+# without writing to them — keeps this gate strictly read-only and interrupt-safe
+# (no mutate-then-restore that could leave the files dirty if killed mid-run).
+if tidy_diff="$(go mod tidy -diff 2>&1)" && [[ -z "$tidy_diff" ]]; then
   ok "tidy"
 else
-  fail "go.mod/go.sum are not tidy — run ./fix.sh (or 'go mod tidy')"
+  fail "go.mod/go.sum are not tidy — run ./fix.sh (or 'go mod tidy'):
+$(echo "$tidy_diff" | sed 's/^/       /')"
 fi
-cp "$tmp"/go.mod "$tmp"/go.sum . 2>/dev/null || true   # restore originals
-rm -rf "$tmp"
 
 # ── 3. formatting (read-only) ────────────────────────────────────────────────
 step "3. Go formatting"
