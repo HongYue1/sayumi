@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the GitHub Release and upload assets
+      id-token: write # OIDC token Sigstore uses to sign the provenance attestation
+      attestations: write # upload the provenance attestation to the attestations API
     env:
       # Force cgo so the gate step runs `go test -race` (see ci.yml).
       CGO_ENABLED: "1"
@@ -61,6 +63,13 @@ jobs:
 
       - name: Build release artifacts
         run: ./release.sh
+
+      # Sign SLSA build provenance for each published archive (not SHA256SUMS).
+      # Needs the id-token + attestations permissions granted on this job above.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@00014ed6ed5efc5b1ab7f7f34a39eb55d41aa4f8 # v3.1.0
+        with:
+          subject-path: "dist-release/sayumi-*"
 
       - name: Publish to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
