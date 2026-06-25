@@ -44,7 +44,9 @@
 
 <main>
   {#if !session.ready}
-    <div class="boot"></div>
+    <div class="boot" role="status" aria-busy="true">
+      <span class="sr-only">Loading…</span>
+    </div>
   {:else if !session.authenticated}
     <Login />
   {:else if router.route.path === "/read/:id"}
@@ -68,5 +70,17 @@
   }
   .boot {
     min-height: calc(100vh - var(--offline-banner-h, 0px));
+  }
+  /* Visually hidden but announced by AT during boot (no global utility exists). */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 </style>

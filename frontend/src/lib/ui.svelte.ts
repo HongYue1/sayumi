@@ -6,6 +6,10 @@ class UIState {
 
   togglePalette(): void {
     this.palette = !this.palette;
+    // Opening the palette dismisses the shortcuts sheet so the two
+    // focus-trapped overlays can't stack (mirrors openShortcuts() closing the
+    // palette). Closing the palette leaves shortcuts untouched.
+    if (this.palette) this.shortcuts = false;
   }
   openShortcuts(): void {
     this.palette = false;

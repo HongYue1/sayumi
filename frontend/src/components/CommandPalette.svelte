@@ -203,7 +203,7 @@
             class:active={i === sel}
             role="option"
             aria-selected={i === sel}
-            onmousemove={() => (active = i)}
+            onmouseenter={() => (active = i)}
             onclick={() => choose(cmd)}
           >
             <span class="cmd-label">{cmd.label}</span>
