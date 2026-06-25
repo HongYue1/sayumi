@@ -129,9 +129,23 @@
   const chapterLabel = $derived(
     book ? findTocLabel(book.toc, book.spine, currentChapter) : "",
   );
+  // Bookmarks grouped by chapter, rebuilt only when the bookmark list itself
+  // changes (add/remove/edit) rather than on every reading-position tick. This
+  // lets currentBookmarkId scan just the current chapter's bookmarks instead of
+  // the whole list on each chapterPercent change (~5/s while scrolling), so the
+  // per-tick cost is independent of the total bookmark count.
+  const bookmarksByChapter = $derived.by(() => {
+    const byChapter = new Map<number, Bookmark[]>();
+    for (const b of bookmarks) {
+      const list = byChapter.get(b.chapter);
+      if (list) list.push(b);
+      else byChapter.set(b.chapter, [b]);
+    }
+    return byChapter;
+  });
   // A bookmark at (or very near) the current reading position, if any.
   const currentBookmarkId = $derived(
-    bookmarks.find((b) =>
+    (bookmarksByChapter.get(currentChapter) ?? []).find((b) =>
       isBookmarkAtPosition(b, currentChapter, chapterPercent),
     )?.id ?? null,
   );
