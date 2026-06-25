@@ -73,8 +73,14 @@
     void check();
   }
   function handleOffline(): void {
-    // The OS reports the network interface is down — definitely offline.
-    setOffline(true);
+    // The OS network interface is down, but that alone does NOT mean the sayumi
+    // server is unreachable: on a localhost deployment 127.0.0.1 still answers
+    // with WiFi off, so trusting the `offline` event would flash a false banner.
+    // Defer to a real /health probe instead (checkHealth is 5s-bounded and
+    // fails fast on a genuinely dead LAN), keeping the banner driven by actual
+    // request reachability — this module's source of truth — in both the
+    // localhost and LAN deployments.
+    void check();
   }
   function handleVisibility(): void {
     // Don't burn requests on a backgrounded tab; check immediately on return so
