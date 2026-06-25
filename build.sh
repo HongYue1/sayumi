@@ -56,12 +56,21 @@ fi
 
 # ---- decide GOAMD64 level ----
 # v3 (AVX2/BMI2/FMA) gives the Go runtime faster memmove/memclr/math on capable
-# CPUs. Detect support and fall back to the safe default otherwise.
+# CPUs. Detect support and fall back to the safe baseline otherwise. CPU flags
+# live in /proc/cpuinfo on Linux and in sysctl on macOS (AVX2/BMI2 under
+# leaf7_features, FMA under features); read whichever exists. Any other host
+# (or a missing flag) keeps the baseline default so the binary stays runnable.
 GOAMD64_LEVEL=""
 if [[ "$(go env GOARCH)" == "amd64" ]]; then
-  if grep -qE '(^| )avx2( |$)' /proc/cpuinfo 2>/dev/null \
-     && grep -qE '(^| )bmi2( |$)' /proc/cpuinfo 2>/dev/null \
-     && grep -qE '(^| )fma( |$)' /proc/cpuinfo 2>/dev/null; then
+  cpuflags=""
+  if [[ -r /proc/cpuinfo ]]; then
+    cpuflags="$(grep -m1 -i '^flags' /proc/cpuinfo 2>/dev/null || true)"
+  elif command -v sysctl >/dev/null 2>&1; then
+    cpuflags="$(sysctl -n machdep.cpu.features machdep.cpu.leaf7_features 2>/dev/null || true)"
+  fi
+  if grep -qiw avx2 <<<"$cpuflags" \
+     && grep -qiw bmi2 <<<"$cpuflags" \
+     && grep -qiw fma <<<"$cpuflags"; then
     GOAMD64_LEVEL="v3"
   fi
 fi
