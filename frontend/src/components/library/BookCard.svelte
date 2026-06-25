@@ -47,6 +47,10 @@
 
   let flairBtn = $state<HTMLButtonElement | null>(null);
   let menuEl = $state<HTMLDivElement | null>(null);
+  // Flip the flair popover inward when a card near the right/bottom viewport
+  // edge would otherwise open it off-screen.
+  let flipX = $state(false);
+  let flipY = $state(false);
 
   function toggleMenu(e: MouseEvent): void {
     e.stopPropagation();
@@ -88,6 +92,23 @@
       window.removeEventListener("click", onClick, true);
       window.removeEventListener("keydown", onKeyDown);
     };
+  });
+
+  // Measure the open menu once and flip it inward if it spills past the
+  // viewport edge; reset on close so the next open re-measures from the
+  // default top-left position rather than inheriting a stale flip. Reads
+  // menuOpen/menuEl only (never flipX/flipY), so applying a flip doesn't
+  // re-trigger this effect.
+  $effect(() => {
+    if (!menuOpen || !menuEl) {
+      flipX = false;
+      flipY = false;
+      return;
+    }
+    const r = menuEl.getBoundingClientRect();
+    const margin = 8;
+    if (r.right > window.innerWidth - margin) flipX = true;
+    if (r.bottom > window.innerHeight - margin) flipY = true;
   });
 
   function pick(e: MouseEvent, id: string): void {
@@ -153,7 +174,7 @@
   }
 </script>
 
-<div class="card" style:--enter-delay={`${enterDelay}ms`}>
+<div class="card" style:--enter-delay={`${enterDelay}ms`} role="listitem">
   <!-- A real button carries native Enter/Space + focus semantics for "open",
        so the card no longer nests action buttons inside a role="button". -->
   <button
@@ -229,6 +250,8 @@
     <div
       bind:this={menuEl}
       class="flair-menu"
+      class:flip-x={flipX}
+      class:flip-y={flipY}
       role="menu"
       tabindex="-1"
       aria-label="Set flair"
@@ -281,6 +304,22 @@
     text-align: left;
     animation: card-in var(--dur-slow) var(--ease-out) both;
     animation-delay: var(--enter-delay, 0ms);
+    /* Skip layout + paint for off-screen cards so a large library only renders
+       what's near the viewport. contain-intrinsic-size keeps the scrollbar
+       stable before a card's first render; the `auto` keyword then remembers
+       each card's real measured size. content-visibility implies paint
+       containment, which would clip a tall flair menu — the card is
+       deliberately not overflow:hidden so that menu can escape — so the
+       :has() rule below drops containment for whichever card has it open. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 320px;
+  }
+
+  /* While its flair menu is open, drop containment on that one card so the
+     popover can overflow the card box (the menu element exists only while
+     open, so this targets exactly the active card). */
+  .card:has(.flair-menu) {
+    content-visibility: visible;
   }
 
   /* Transparent full-card hit target for "open". Sits above the cover art but
@@ -449,6 +488,22 @@
     transform-origin: top left;
     --menu-pop-y: -2px;
     animation: app-menu-pop-in var(--dur-fast) var(--ease-out) both;
+  }
+  /* Edge-aware flips: keep the popover inside the viewport for cards in the
+     last column / near the bottom. flip-y anchors the menu's bottom to where
+     its top would have been (just below the trigger) and grows upward. */
+  .flair-menu.flip-x {
+    left: auto;
+    right: var(--sp-1);
+    transform-origin: top right;
+  }
+  .flair-menu.flip-y {
+    top: auto;
+    bottom: calc(100% - 2rem);
+    transform-origin: bottom left;
+  }
+  .flair-menu.flip-x.flip-y {
+    transform-origin: bottom right;
   }
   .menu-heading {
     margin: 0.1rem 0.4rem 0.3rem;

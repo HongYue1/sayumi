@@ -248,7 +248,7 @@
       >
     </div>
   {:else}
-    <div class="grid">
+    <div class="grid" role="list">
       {#each library.visible as book, i (book.id)}
         <BookCard
           {book}
