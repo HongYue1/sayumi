@@ -215,15 +215,13 @@ export const THEMES: ThemeDef[] = [
   },
 ];
 
-export const THEME_IDS = THEMES.map((t) => t.id);
-
 const THEME_MAP = new Map(THEMES.map((t) => [t.id, t] as const));
-const THEME_ID_SET = new Set(THEME_IDS);
 
-export function getTheme(id: string): ThemeDef | undefined {
-  return THEME_MAP.get(id);
-}
+// Single source of truth for id -> theme resolution. O(1) Map lookup, falling
+// back to the first theme (light) for an unknown/empty id so every caller is
+// guaranteed a usable ThemeDef.
+const FALLBACK: ThemeDef = THEMES[0];
 
-export function isValidTheme(id: string): boolean {
-  return THEME_ID_SET.has(id);
+export function getTheme(id: string): ThemeDef {
+  return THEME_MAP.get(id) ?? FALLBACK;
 }

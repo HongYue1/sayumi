@@ -27,11 +27,7 @@
   import { buildAllFontFaces } from "~/lib/readerFontFaces";
   import { router } from "~/lib/router.svelte";
   import { ui } from "~/lib/ui.svelte";
-  import {
-    resolveHref,
-    findTocLabel,
-    buildTocChapterEntries,
-  } from "~/lib/href";
+  import { resolveHref, buildTocChapterEntries } from "~/lib/href";
   import { getErrorMessage } from "~/lib/errors";
   import { isReachable } from "~/lib/reachability";
   import { applyTheme } from "~/lib/theme";
@@ -126,9 +122,6 @@
   const fontFaceCSS = $derived(
     buildAllFontFaces(fontRegistry.families, settings.value.fontRoles),
   );
-  const chapterLabel = $derived(
-    book ? findTocLabel(book.toc, book.spine, currentChapter) : "",
-  );
   // Bookmarks grouped by chapter, rebuilt only when the bookmark list itself
   // changes (add/remove/edit) rather than on every reading-position tick. This
   // lets currentBookmarkId scan just the current chapter's bookmarks instead of
@@ -164,6 +157,12 @@
   const activeTocEntry = $derived(
     tocChapterEntries ? (tocChapterEntries[currentChapter] ?? null) : null,
   );
+  // Chrome chapter title: reuse the same resolved TOC entry that drives the
+  // sidebar highlight so the title and the highlighted line can't disagree, and
+  // so we don't run a second full TOC walk per chapter change. activeTocEntry
+  // already inherits the nearest preceding heading for chapters with no TOC line
+  // of their own (fill-forward in buildTocChapterEntries).
+  const chapterLabel = $derived(activeTocEntry?.title ?? "");
 
   // Non-reactive instance state.
   let api: ChapterFrameAPI | null = null;

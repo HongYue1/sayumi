@@ -1,10 +1,8 @@
-import { THEMES, type ThemeDef } from "~/lib/themes";
+// getTheme now lives in lib/themes (single Map-backed source of truth). It's
+// re-exported here so existing importers using "~/lib/theme" keep working.
+import { getTheme } from "~/lib/themes";
 
-const FALLBACK: ThemeDef = THEMES[0];
-
-export function getTheme(id: string): ThemeDef {
-  return THEMES.find((t) => t.id === id) ?? FALLBACK;
-}
+export { getTheme };
 
 /**
  * Picks a readable foreground (near-black or white) for text/icons sitting on

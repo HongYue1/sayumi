@@ -5,15 +5,6 @@ function pathBasename(p: string): string {
   return i >= 0 ? p.slice(i + 1) : p;
 }
 
-function hrefMatches(a: string, b: string): boolean {
-  if (a === b) return true;
-  return (
-    pathBasename(a) === pathBasename(b) ||
-    a.endsWith("/" + b) ||
-    b.endsWith("/" + a)
-  );
-}
-
 /** Resolves an in-book href (possibly with #fragment) to a spine chapter. */
 export function resolveHref(
   href: string,
@@ -88,29 +79,4 @@ export function buildTocChapterEntries(
     if (result[i] == null) result[i] = result[i - 1];
   }
   return result;
-}
-
-/** Finds the TOC title for the chapter at the given spine index, if any. */
-export function findTocLabel(
-  toc: TocEntry[],
-  spine: SpineEntry[],
-  chapterIndex: number,
-): string {
-  if (chapterIndex < 0 || chapterIndex >= spine.length) return "";
-  const spineHref = spine[chapterIndex].href.split("#")[0];
-
-  function search(entries: TocEntry[]): string | null {
-    let best: string | null = null;
-    for (const entry of entries) {
-      const entryBase = entry.href.split("#")[0];
-      if (hrefMatches(entryBase, spineHref)) best = entry.title;
-      if (entry.children) {
-        const child = search(entry.children);
-        if (child) best = child;
-      }
-    }
-    return best;
-  }
-
-  return search(toc) || "";
 }
