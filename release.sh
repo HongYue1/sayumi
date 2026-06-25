@@ -74,8 +74,12 @@ for tgt in "${TARGETS[@]}"; do
   # Stage a clean payload: binary named plainly + Fonts/ + README.
   stage="$OUT/_stage/sayumi-${os}-${arch}"
   mkdir -p "$stage"
+  # -buildvcs=false: regenerating the .syso (go-winres) or building from a dirty
+  # / .git-less tree must NOT leak a vcs.revision/modified stamp into the binary.
+  # version + buildDate come from -ldflags, so the bytes stay identical whatever
+  # the git state is — which is what makes the artifact reproducible.
   env CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
-    go build -trimpath -ldflags "$LDFLAGS" -o "$stage/sayumi${ext}" ./cmd/sayumi
+    go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "$stage/sayumi${ext}" ./cmd/sayumi
 
   if [[ -d "$FONTS_SRC" ]]; then
     cp -R "$FONTS_SRC" "$stage/Fonts"
