@@ -48,7 +48,9 @@ step "2. go.mod / go.sum tidy"
 # `go mod tidy -diff` (Go 1.23+) reports whether tidy WOULD change go.mod/go.sum
 # without writing to them — keeps this gate strictly read-only and interrupt-safe
 # (no mutate-then-restore that could leave the files dirty if killed mid-run).
-if tidy_diff="$(go mod tidy -diff 2>&1)" && [[ -z "$tidy_diff" ]]; then
+# Capture ONLY stdout (the diff); `go mod tidy` writes module-download progress
+# to stderr, so folding it in with 2>&1 makes a cold module cache look like drift.
+if tidy_diff="$(go mod tidy -diff 2>/dev/null)" && [[ -z "$tidy_diff" ]]; then
   ok "tidy"
 else
   fail "go.mod/go.sum are not tidy — run ./fix.sh (or 'go mod tidy'):
