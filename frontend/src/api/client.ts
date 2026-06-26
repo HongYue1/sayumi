@@ -608,6 +608,14 @@ export function getCoverUrl(id: string, version?: string): string {
   return version ? `${base}?v=${encodeURIComponent(version)}` : base;
 }
 
+// getDownloadUrl points at the endpoint that streams the original .epub with a
+// Content-Disposition: attachment header. A plain same-origin <a download>
+// pointed here triggers a browser download and carries the session cookie, so
+// no fetch/JS plumbing is needed.
+export function getDownloadUrl(id: string): string {
+  return `${BASE}/books/${pathSegment(id)}/file`;
+}
+
 // updateBookMeta edits a book's title/author. Only provided fields change
 // (patch semantics); the server returns the refreshed BookMeta.
 export function updateBookMeta(

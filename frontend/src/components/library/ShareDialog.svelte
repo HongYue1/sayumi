@@ -1,15 +1,27 @@
 <script lang="ts">
-  import { ApiError, uploadToGofile, type BookMeta } from "~/api/client";
+  import {
+    ApiError,
+    getDownloadUrl,
+    uploadToGofile,
+    type BookMeta,
+  } from "~/api/client";
   import { toast } from "~/lib/toast.svelte";
   import { focusTrap } from "~/lib/focusTrap";
   import Icon from "~/lib/Icon.svelte";
-  import { X, UploadCloud, Copy, Check } from "@lucide/svelte";
+  import { X, UploadCloud, Copy, Check, Download } from "@lucide/svelte";
 
   interface Props {
     book: BookMeta;
     onclose: () => void;
   }
   let { book, onclose }: Props = $props();
+
+  // Direct local download: a same-origin <a download> hitting the file endpoint
+  // streams the .epub with Content-Disposition: attachment, so the browser
+  // saves it without any JS. The download attribute is just a filename hint;
+  // the server's Content-Disposition is authoritative.
+  const downloadUrl = getDownloadUrl(book.id);
+  const downloadName = `${book.title || "book"}.epub`;
 
   let busy = $state(false);
   let url = $state<string | null>(null);
@@ -77,8 +89,20 @@
     </header>
 
     <div class="body">
+      <p class="lead">Download the original .epub to this device.</p>
+      <a
+        class="btn secondary download-btn"
+        href={downloadUrl}
+        download={downloadName}
+      >
+        <Icon icon={Download} size={16} />
+        Download EPUB
+      </a>
+
+      <hr class="divider" />
+
       <p class="lead">
-        Upload the .epub to gofile.io and get a shareable link.
+        Or upload the .epub to gofile.io and get a shareable link.
       </p>
       <p class="hint">
         Anonymous upload — anyone with the link can download the file.
@@ -268,5 +292,22 @@
   }
   .upload-btn {
     align-self: flex-start;
+  }
+  .btn.secondary {
+    align-self: flex-start;
+    background: var(--surface);
+    color: var(--fg);
+    border-color: var(--hairline-strong);
+    text-decoration: none;
+  }
+  .btn.secondary:hover:not(:disabled) {
+    background: var(--surface-hover);
+  }
+  .divider {
+    align-self: stretch;
+    width: 100%;
+    margin: var(--sp-1) 0;
+    border: none;
+    border-top: 1px solid var(--hairline);
   }
 </style>
