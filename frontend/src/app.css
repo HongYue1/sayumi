@@ -2,9 +2,9 @@
  * Interface typefaces — embedded in the binary (internal/fonts/) and
  * served at /fonts/, so the chrome never depends on the user-writable
  * ./Fonts/ folder. Literata is the literary display face (wordmark,
- * titles, headings); Manrope is the UI face. Atkinson Hyperlegible Next
+ * titles, headings); Satoshi is the UI face. Atkinson Hyperlegible Next
  * stays embedded as a high-legibility reading option (see READER_FONTS).
- * Literata and Atkinson are variable (Roman + Italic file each); Manrope
+ * Literata and Atkinson are variable (Roman + Italic file each); Satoshi
  * is one upright variable file (no italic — the UI never italicizes).
  * ------------------------------------------------------------------ */
 @font-face {
@@ -37,8 +37,8 @@
   font-display: swap;
 }
 @font-face {
-  font-family: "Manrope";
-  src: url("/fonts/Manrope-VariableFont.woff2") format("woff2");
+  font-family: "Satoshi";
+  src: url("/fonts/Satoshi-Variable.woff2") format("woff2");
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
@@ -67,7 +67,7 @@
 
   /* Literary-press typefaces. */
   --font-display: "Literata", Georgia, "Times New Roman", serif;
-  --font-ui: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-ui: "Satoshi", ui-sans-serif, system-ui, sans-serif;
 
   /* Derived surface tokens — computed from the active theme so every one
      of the themes (light + dark) gets a coherent set automatically. */
