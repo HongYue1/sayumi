@@ -176,6 +176,16 @@ func sanitizeAttributes(n *html.Node) {
 }
 
 func normalizeURIForSafetyCheck(value string) string {
+	// Fast path: a value made entirely of printable, lowercase ASCII bytes is
+	// left unchanged by the strip+lowercase below (the common case -- most EPUB
+	// resource refs are plain lowercase relative paths). Returning it directly
+	// avoids allocating a strings.Builder for every href/src/action/xlink:href
+	// attribute on the cold sanitize path. Same no-alloc shortcut as asciiToLower
+	// in internal/storage.
+	if !needsURINormalization(value) {
+		return value
+	}
+
 	var builder strings.Builder
 	builder.Grow(len(value))
 	for _, r := range value {
@@ -185,6 +195,21 @@ func normalizeURIForSafetyCheck(value string) string {
 		builder.WriteRune(unicode.ToLower(r))
 	}
 	return builder.String()
+}
+
+// needsURINormalization reports whether value contains any byte that the
+// strip-and-lowercase normalization would alter or drop: an ASCII control or
+// space byte (<= 0x20 or DEL), an uppercase ASCII letter, or any non-ASCII byte
+// (which may be a space/control rune or fold under unicode.ToLower). When none
+// are present the value is already in normalized form and can be returned as-is.
+func needsURINormalization(value string) bool {
+	for i := range len(value) {
+		b := value[i]
+		if b <= 0x20 || b == 0x7f || (b >= 'A' && b <= 'Z') || b >= 0x80 {
+			return true
+		}
+	}
+	return false
 }
 
 func sanitizeSVG(n *html.Node, depth int) {
