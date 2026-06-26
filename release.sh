@@ -95,13 +95,14 @@ in here is an extra drop-in you can add to, remove, or replace freely.
 
 Adding a family
 ---------------
-Create a folder and drop in up to four .woff2 files, named by role:
+Create a folder and drop in up to four font files, named by role. Any common
+font format works - .woff2, .ttf or .otf:
 
     ./Fonts/<FamilyDir>/
-        Regular.woff2       (required)
-        Bold.woff2          (optional)
-        Italic.woff2        (optional)
-        BoldItalic.woff2    (optional)
+        Regular.<ext>       (required)    <ext> = woff2, ttf or otf
+        Bold.<ext>          (optional)
+        Italic.<ext>        (optional)
+        BoldItalic.<ext>    (optional)
         family.json         (optional metadata)
 
 Then click "Rescan ./Fonts" in font settings - no restart needed.
@@ -112,7 +113,7 @@ Rules
     (e.g. "CrimsonPro", "SourceSerif4"). Use family.json "label" for the
     pretty name shown in the UI.
   * .woff2 is strongly preferred (smallest). .woff, .ttf and .otf also load.
-  * Only Regular.woff2 is required. Any missing role falls back to the nearest
+  * Only the Regular file is required. Any missing role falls back to the nearest
     available file (the browser may synthesize the rest), so a single Regular
     file still works.
 
