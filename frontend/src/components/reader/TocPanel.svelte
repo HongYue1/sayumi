@@ -110,13 +110,16 @@
       e.preventDefault();
       const first = filteredRows[0];
       if (first) onnavigate(first.entry.href);
-    } else if (e.key === "Escape" && normalizedQuery) {
-      // Escape clears the filter first; stopPropagation keeps it from bubbling
-      // to the reader's global Escape (which would close the panel). A second
-      // Escape with an empty query bubbles through and closes the panel.
+    } else if (e.key === "Escape") {
+      // The reader's global Escape (which closes the panel) never fires while a
+      // panel input is focused — handleWindowKey in Read.svelte bails on
+      // INPUT/TEXTAREA so letter shortcuts aren't typed — and this field is
+      // focused on open. So drive both steps locally: a non-empty query clears
+      // first, an empty query closes the panel.
       e.preventDefault();
       e.stopPropagation();
-      query = "";
+      if (normalizedQuery) query = "";
+      else onclose();
     }
   }
 
