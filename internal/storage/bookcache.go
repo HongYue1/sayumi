@@ -193,6 +193,17 @@ func (c *BookCache) Add(b BookRecord) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Fast path: an existing book whose title is unchanged keeps its sort
+	// position, so skip the O(N) order-slice delete + binary-search reinsert
+	// (each comparison re-lowercases a title) and just refresh the record in
+	// place. This covers duplicate re-uploads and cache re-warms where only
+	// non-title fields (e.g. cover state) change.
+	if existing, exists := c.byID[b.ID]; exists && existing.Title == b.Title {
+		c.byID[b.ID] = b
+		delete(c.spines, b.ID)
+		return
+	}
+
 	titleLower := asciiToLower(b.Title)
 
 	if _, exists := c.byID[b.ID]; exists {

@@ -164,10 +164,27 @@ func (db *DB) migrate() error {
 	// Additive column migrations for databases created before the column existed.
 	// CREATE TABLE IF NOT EXISTS above is a no-op on such DBs, so new columns
 	// must be added explicitly. ADD COLUMN is idempotent here via the guard.
+	// Read each table's existing columns once rather than re-querying
+	// pragma_table_info for every column migration (10 of the 11 migrations
+	// target the same `settings` table).
+	tableCols := make(map[string]map[string]bool)
 	for _, mig := range columnMigrations {
-		if err := db.addColumnIfMissing(mig.table, mig.column, mig.definition); err != nil {
+		cols, ok := tableCols[mig.table]
+		if !ok {
+			var err error
+			cols, err = db.tableColumns(mig.table)
+			if err != nil {
+				return fmt.Errorf("inspect %s columns: %w", mig.table, err)
+			}
+			tableCols[mig.table] = cols
+		}
+		if cols[mig.column] {
+			continue // already present
+		}
+		if err := db.addColumn(mig.table, mig.column, mig.definition); err != nil {
 			return fmt.Errorf("migrate %s.%s: %w", mig.table, mig.column, err)
 		}
+		cols[mig.column] = true
 	}
 	// Books that already have a cover are by definition cover-resolved. Mark them
 	// so the first scan after cover_checked is added does not re-parse the entire
@@ -204,28 +221,33 @@ var columnMigrations = []columnMigration{
 	{table: "books", column: "cover_checked", definition: "INTEGER NOT NULL DEFAULT 0"},
 }
 
-// addColumnIfMissing runs ALTER TABLE ... ADD COLUMN only when the column is
-// absent, so the migration is safe to run on every startup.
-func (db *DB) addColumnIfMissing(table, column, definition string) error {
+// tableColumns returns the set of existing column names for a table, read in a
+// single pragma_table_info query so callers can check many columns without
+// re-querying per column.
+func (db *DB) tableColumns(table string) (map[string]bool, error) {
 	rows, err := db.QueryContext(context.Background(), "SELECT name FROM pragma_table_info(?)", table)
 	if err != nil {
-		return fmt.Errorf("inspect columns: %w", err)
+		return nil, fmt.Errorf("inspect columns: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
+	cols := make(map[string]bool)
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
-			return fmt.Errorf("scan column: %w", err)
+			return nil, fmt.Errorf("scan column: %w", err)
 		}
-		if name == column {
-			return nil // already present
-		}
+		cols[name] = true
 	}
 	if err := rows.Err(); err != nil {
-		return err
+		return nil, err
 	}
+	return cols, nil
+}
 
+// addColumn runs ALTER TABLE ... ADD COLUMN. Callers must first confirm the
+// column is absent (see tableColumns); ADD COLUMN is not idempotent.
+func (db *DB) addColumn(table, column, definition string) error {
 	stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition)
 	if _, err := db.ExecContext(context.Background(), stmt); err != nil {
 		return fmt.Errorf("add column: %w", err)
