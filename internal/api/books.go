@@ -31,7 +31,7 @@ type BookResponse struct {
 	// UpdatedAt is the books row's updated_at. The client appends it to the cover
 	// URL as ?v=<updatedAt> so an edited cover (which keeps the same path) busts
 	// the immutable browser cache; it also folds into the cover/detail ETags.
-	UpdatedAt    string  `json:"updatedAt,omitempty"`
+	UpdatedAt string `json:"updatedAt,omitempty"`
 }
 
 type BookDetailResponse struct {

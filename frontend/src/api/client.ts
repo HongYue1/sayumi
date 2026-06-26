@@ -615,12 +615,7 @@ export function updateBookMeta(
   patch: { title?: string; author?: string },
   signal?: AbortSignal,
 ): Promise<BookMeta> {
-  return request<BookMeta>(
-    "PATCH",
-    `/books/${pathSegment(id)}`,
-    patch,
-    signal,
-  );
+  return request<BookMeta>("PATCH", `/books/${pathSegment(id)}`, patch, signal);
 }
 
 // uploadCover replaces a book's cover with an image file (JPEG/PNG/WebP); the

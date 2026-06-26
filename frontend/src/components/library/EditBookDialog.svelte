@@ -112,7 +112,12 @@
   >
     <header>
       <h2>Edit book</h2>
-      <button class="close" aria-label="Close" onclick={onclose} disabled={busy}>
+      <button
+        class="close"
+        aria-label="Close"
+        onclick={onclose}
+        disabled={busy}
+      >
         <Icon icon={X} size={18} />
       </button>
     </header>
@@ -160,7 +165,12 @@
 
       <label class="field">
         <span>Author</span>
-        <input type="text" bind:value={author} maxlength="512" autocomplete="off" />
+        <input
+          type="text"
+          bind:value={author}
+          maxlength="512"
+          autocomplete="off"
+        />
       </label>
 
       {#if error}
@@ -168,7 +178,12 @@
       {/if}
 
       <div class="actions">
-        <button type="button" class="btn ghost" onclick={onclose} disabled={busy}>
+        <button
+          type="button"
+          class="btn ghost"
+          onclick={onclose}
+          disabled={busy}
+        >
           Cancel
         </button>
         <button type="submit" class="btn primary" disabled={!canSubmit}>

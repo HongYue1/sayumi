@@ -23,7 +23,8 @@
       const { downloadPage } = await uploadToGofile(book.id);
       url = downloadPage;
     } catch (err) {
-      error = err instanceof ApiError ? err.message : "Upload to gofile failed.";
+      error =
+        err instanceof ApiError ? err.message : "Upload to gofile failed.";
     } finally {
       busy = false;
     }
@@ -65,13 +66,20 @@
   >
     <header>
       <h2 title={book.title}>Share “{book.title}”</h2>
-      <button class="close" aria-label="Close" onclick={onclose} disabled={busy}>
+      <button
+        class="close"
+        aria-label="Close"
+        onclick={onclose}
+        disabled={busy}
+      >
         <Icon icon={X} size={18} />
       </button>
     </header>
 
     <div class="body">
-      <p class="lead">Upload the .epub to gofile.io and get a shareable link.</p>
+      <p class="lead">
+        Upload the .epub to gofile.io and get a shareable link.
+      </p>
       <p class="hint">
         Anonymous upload — anyone with the link can download the file.
       </p>
