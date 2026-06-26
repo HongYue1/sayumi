@@ -4,6 +4,8 @@
   import { READER_FONTS, getFontById } from "~/lib/fonts";
   import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry.svelte";
   import { toast } from "~/lib/toast.svelte";
+  import { router } from "~/lib/router.svelte";
+  import { SPECIMEN_BOOK_ID } from "~/lib/specimen";
   import type { UserSettings } from "~/api/client";
   import Icon from "~/lib/Icon.svelte";
   import { X } from "@lucide/svelte";
@@ -12,6 +14,13 @@
     onclose: () => void;
   }
   let { onclose }: Props = $props();
+
+  // Opens the built-in typography specimen in the reader so these settings can
+  // be tuned against rich sample text. Navigation remounts the reader
+  // (App.svelte keys it on the book id), which closes this panel.
+  function openSpecimen(): void {
+    router.navigate(`/read/${SPECIMEN_BOOK_ID}`);
+  }
 
   const s = $derived(settings.value);
 
@@ -268,6 +277,10 @@
 
     <section>
       <h3>Font</h3>
+      <button class="specimen" onclick={openSpecimen}>
+        Open type specimen
+      </button>
+      <p class="hint">A sample chapter for previewing your settings.</p>
       <label class="toggle">
         <input
           type="checkbox"
@@ -779,6 +792,21 @@
   .rescan:disabled {
     opacity: 0.6;
     cursor: default;
+  }
+  .specimen {
+    width: 100%;
+    padding: 0.45rem;
+    margin-bottom: 0.4rem;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--accent);
+    font: inherit;
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+  .specimen:hover {
+    background: var(--surface-hover);
   }
 
   .row {

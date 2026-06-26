@@ -26,6 +26,11 @@
   import { fontRegistry } from "~/lib/fontRegistry.svelte";
   import { buildAllFontFaces } from "~/lib/readerFontFaces";
   import { router } from "~/lib/router.svelte";
+  import {
+    SPECIMEN_BOOK_ID,
+    specimenBookDetail,
+    specimenChapter,
+  } from "~/lib/specimen";
   import { ui } from "~/lib/ui.svelte";
   import { resolveHref, buildTocChapterEntries } from "~/lib/href";
   import { getErrorMessage } from "~/lib/errors";
@@ -78,6 +83,11 @@
   // different book remounts this component rather than mutating bookId in place.
   // svelte-ignore state_referenced_locally
   const progressCacheKey = `sayumi:progress:${bookId}`;
+  // The reader doubles as a live typography preview: a sentinel bookId renders
+  // a built-in specimen chapter entirely client-side (no book/progress/bookmark
+  // server calls), so users can tune reading settings against rich sample text.
+  // svelte-ignore state_referenced_locally
+  const isSpecimen = bookId === SPECIMEN_BOOK_ID;
 
   // Reactive (rendered) state.
   let book = $state<BookDetail | null>(null);
@@ -384,6 +394,7 @@
       // changed since the last persisted save.
       if (
         bookLoaded &&
+        !isSpecimen &&
         !isProgressDuplicate(
           { chapter: saveData.chapter, percent: saveData.percent },
           { chapter: lastPersistedChapter, percent: lastPersistedPercent },
@@ -409,6 +420,12 @@
 
     // User font families are non-blocking for startup; faces re-push on load.
     void fontRegistry.load();
+
+    // The specimen is fully client-side: no saved position and no bookmarks.
+    if (isSpecimen) {
+      await openBook({ chapter: 0, percent: 0 });
+      return;
+    }
 
     let saved: ProgressData = { chapter: 0, percent: 0 };
     let serverLoaded = false;
@@ -447,6 +464,14 @@
   async function openBook(saved: ProgressData): Promise<void> {
     error = "";
     bookLoadFailed = false;
+    if (isSpecimen) {
+      book = specimenBookDetail();
+      bookLoaded = true;
+      currentChapter = 0;
+      saveData = { chapter: 0, percent: 0 };
+      tryInitialLoad();
+      return;
+    }
     try {
       const data = await getBook(bookId);
       book = data;
@@ -490,6 +515,7 @@
     index: number,
     signal?: AbortSignal,
   ): Promise<ChapterData> {
+    if (isSpecimen) return specimenChapter();
     const cached = chapterCache.get(index);
     if (cached) {
       chapterCache.delete(index);
@@ -600,7 +626,7 @@
 
   // ---- progress persistence -----------------------------------------------
   function flushProgress(force = false): Promise<void> {
-    if (!bookLoaded) return Promise.resolve();
+    if (!bookLoaded || isSpecimen) return Promise.resolve();
     const now = Date.now();
     if (!force && now - lastFlushTime < PROGRESS_FLUSH_THROTTLE_MS)
       return Promise.resolve();
@@ -634,7 +660,7 @@
   }
 
   function scheduleProgressSave(): void {
-    if (!bookLoaded || progressTimer) return;
+    if (!bookLoaded || isSpecimen || progressTimer) return;
     progressTimer = setTimeout(() => {
       progressTimer = undefined;
       void flushProgress();
@@ -650,7 +676,7 @@
   }
 
   function handleVisibility(): void {
-    if (!bookLoaded) return;
+    if (!bookLoaded || isSpecimen) return;
     if (document.visibilityState === "hidden") {
       cancelProgressSave();
       try {
@@ -905,6 +931,18 @@
     // while open, so reader shortcuts (Esc → back, arrows, etc.) must stand
     // down — otherwise Esc would close the modal *and* navigate to the library.
     if (ui.palette || ui.shortcuts) return false;
+    // The specimen has no TOC, search, or bookmarks; ignore those shortcuts so
+    // they can't open panels whose buttons are hidden in preview mode.
+    if (
+      isSpecimen &&
+      (e.key === "t" ||
+        e.key === "T" ||
+        e.key === "f" ||
+        e.key === "F" ||
+        e.key === "b" ||
+        e.key === "B")
+    )
+      return false;
     switch (e.key) {
       case "?":
         // The book renders in an iframe; once it has focus the window-level
@@ -1014,6 +1052,7 @@
       {/if}
     </div>
     <div class="tools">
+      {#if !isSpecimen}
       <button
         class="icon"
         class:active={currentBookmarkId !== null}
@@ -1037,6 +1076,7 @@
         aria-label="Search in book"
         aria-pressed={activePanel === "search"}><Icon icon={Search} /></button
       >
+      {/if}
       <button
         class="icon"
         onclick={() => togglePanel("settings")}
@@ -1044,12 +1084,14 @@
         aria-pressed={activePanel === "settings"}
         ><Icon icon={Settings} /></button
       >
+      {#if !isSpecimen}
       <button
         class="icon"
         onclick={() => togglePanel("toc")}
         aria-label="Table of contents"
         aria-pressed={activePanel === "toc"}><Icon icon={List} /></button
       >
+      {/if}
       <button
         class="icon"
         onclick={() => ui.openShortcuts()}
