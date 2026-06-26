@@ -15,6 +15,24 @@ import { createSearchHighlight } from "./searchHighlight";
 import { createBoundary } from "./boundary";
 import { createPagination } from "./pagination";
 
+// Keys whose browser default is to scroll the viewport / nearest scroller. In
+// paged mode the page turn is a JS opacity cross-fade plus a single scrollLeft
+// swap on #content (a scroll-snap container), so letting these keys ALSO
+// natively scroll/snap it races the fade and makes the turn flicker. Their
+// default is prevented in paged mode while the parent still drives discrete
+// page navigation from the forwarded key event.
+const PAGED_SCROLL_KEYS = new Set<string>([
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "ArrowDown",
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+  " ",
+]);
+
 (function () {
   "use strict";
 
@@ -998,6 +1016,19 @@ import { createPagination } from "./pagination";
     }
 
     if (isPagedMode) {
+      // The parent drives paged navigation from this forwarded key. Suppress
+      // the browser's native scroll/snap for scrolling keys so it does not move
+      // #content underneath the JS page-turn cross-fade — that native scroll
+      // racing the fade is what made ARROW-KEY turns flicker while edge-clicks
+      // (which never scroll natively) stayed smooth.
+      if (
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        PAGED_SCROLL_KEYS.has(e.key)
+      ) {
+        e.preventDefault();
+      }
       sendMessage({
         type: "key",
         seq: activeSeq,
