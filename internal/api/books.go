@@ -302,6 +302,21 @@ func getCoverHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
+		// Cover bytes are immutable for a given file_hash, so the response ETag
+		// is fully derivable from the cached book. Run the conditional 304 check
+		// before opening the file: an unchanged re-request (only a hard refresh
+		// or a post-eviction reload, since covers are served from the immutable
+		// cache without revalidating) then skips the coverRoot.Open + Stat
+		// syscalls entirely. Mirrors the stat-light 304 path used for fonts.
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		if etag := coverResponseETag(book.FileHash); etag != "" {
+			w.Header().Set("ETag", etag)
+			if ifNoneMatchMatches(r, etag) {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+		}
+
 		if pd.coverRoot == nil {
 			slog.Error("cover root not available", "book", id)
 			writeError(w, http.StatusInternalServerError, "server_error", "failed to read cover")
@@ -327,16 +342,7 @@ func getCoverHandler(_ *Dependencies) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", contentType)
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-
-		if etag := coverResponseETag(book.FileHash); etag != "" {
-			w.Header().Set("ETag", etag)
-			if ifNoneMatchMatches(r, etag) {
-				w.WriteHeader(http.StatusNotModified)
-				return
-			}
-		}
 
 		http.ServeContent(w, r, "", fileInfo.ModTime(), file)
 	}

@@ -243,15 +243,20 @@ func validateEPUB(filePath string) error {
 	return errors.New("file is not a valid EPUB (missing container.xml)")
 }
 
+// filenameSanitizer maps characters that are illegal or awkward in filenames
+// across common filesystems to underscores. It is built once at package scope:
+// strings.Replacer is immutable and safe for concurrent use, so rebuilding it
+// on every upload (a cold path, but trivially avoidable) is pure waste.
+var filenameSanitizer = strings.NewReplacer(
+	"/", "_", "\\", "_", ":", "_", "*", "_",
+	"?", "_", "\"", "_", "<", "_", ">", "_", "|", "_",
+)
+
 func sanitizeFilename(name string) string {
 	name = filepath.Base(name)
 	name = strings.TrimSpace(name)
 
-	replacer := strings.NewReplacer(
-		"/", "_", "\\", "_", ":", "_", "*", "_",
-		"?", "_", "\"", "_", "<", "_", ">", "_", "|", "_",
-	)
-	name = replacer.Replace(name)
+	name = filenameSanitizer.Replace(name)
 	name = strings.Map(func(r rune) rune {
 		if r < 0x20 {
 			return '_'

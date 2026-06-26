@@ -81,15 +81,32 @@ func filterAndSortBooks(books []BookResponse, q, sortField, order string) []Book
 	}
 
 	desc := strings.EqualFold(strings.TrimSpace(order), "desc")
+	// Precompute lowercased title keys once (O(N)) instead of lowercasing
+	// inside the comparator, which the stable sort calls O(N log N) times —
+	// each strings.ToLower allocating a fresh string. Keys are keyed by the
+	// stable book ID, not slice position, so they stay correct as the sort
+	// swaps elements; this keeps the in-place, no-clone sort below (no second
+	// []BookResponse is allocated). Title keys back the default/title sort and
+	// the author/progress tie-break, so they are always built.
+	lowerTitle := make(map[string]string, len(books))
+	for i := range books {
+		lowerTitle[books[i].ID] = strings.ToLower(books[i].Title)
+	}
 	byTitle := func(a, b BookResponse) int {
-		return cmp.Compare(strings.ToLower(a.Title), strings.ToLower(b.Title))
+		return cmp.Compare(lowerTitle[a.ID], lowerTitle[b.ID])
 	}
 
 	var less func(a, b BookResponse) int
 	switch strings.ToLower(strings.TrimSpace(sortField)) {
 	case "author":
+		// Author sort also needs lowercased author keys; build them once here
+		// so this non-default path pays no per-comparison ToLower either.
+		lowerAuthor := make(map[string]string, len(books))
+		for i := range books {
+			lowerAuthor[books[i].ID] = strings.ToLower(books[i].Author)
+		}
 		less = func(a, b BookResponse) int {
-			if c := cmp.Compare(strings.ToLower(a.Author), strings.ToLower(b.Author)); c != 0 {
+			if c := cmp.Compare(lowerAuthor[a.ID], lowerAuthor[b.ID]); c != 0 {
 				return c
 			}
 			return byTitle(a, b)
