@@ -33,7 +33,7 @@
     const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
     if (e.key === "?" && !typing && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
-      ui.shortcuts = true;
+      ui.openShortcuts();
     }
   }
 </script>
