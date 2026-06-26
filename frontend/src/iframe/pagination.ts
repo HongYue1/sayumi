@@ -1,7 +1,20 @@
 import type { FrameToParentMessage } from "~/lib/frameMessages";
 
-const PAGE_TURN_BASE_MS = 240;
-const PAGE_TURN_PER_PAGE_MS = 70;
+// Page-turn cross-fade timing. The paged view is one multicol scroller, so a
+// turn fades out, swaps scrollLeft while invisible, then fades back in (see
+// applyPageScroll). Fast + asymmetric on purpose — a quick dip out, a gentler
+// reveal in — so it reads as a smooth fade, not the slow symmetric blink the
+// old ~155ms/phase value produced.
+const PAGE_TURN_FADE_OUT_MS = 70;
+const PAGE_TURN_FADE_IN_MS = 110;
+// Cap on the per-frame opacity delta. The step is time-based (so a retargeted
+// turn resumes from the current opacity), but the FIRST frame after
+// setPageTurning() promotes #content to its own layer (will-change: opacity)
+// can be delayed enough that an unclamped step exceeds 1 and collapses the
+// entire fade-out into a single frame — the turn then reads as an instant cut
+// with no fade. Clamping guarantees the fade always spans several frames
+// regardless of frame pacing. 0.2 => at least ~5 frames per phase.
+const MAX_FADE_STEP = 0.2;
 // Minimum bottom inset for the paged column box so the last line never sits
 // under the fixed #page-indicator pill (bottom: 12px + pill height).
 const PAGE_INDICATOR_CLEARANCE = 32;
@@ -209,13 +222,20 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     // opacity rather than snapping back to 1. A literal two-page blend is not
     // possible here: every page is a column in one multicol scroller, not its
     // own layer.
-    const FADE_MS = (PAGE_TURN_BASE_MS + PAGE_TURN_PER_PAGE_MS) / 2;
     let lastTime = performance.now();
 
     const animate = (now: number): void => {
       if (deps.isDestroyed()) return;
 
-      const step = FADE_MS > 0 ? (now - lastTime) / FADE_MS : 1;
+      // Quick fade-out, gentler fade-in (asymmetric; see the constants) so the
+      // turn reads as a smooth dip rather than a slow symmetric blink.
+      const phaseMs = pageTurnSwapped
+        ? PAGE_TURN_FADE_IN_MS
+        : PAGE_TURN_FADE_OUT_MS;
+      // Clamp so a single delayed frame can't skip the whole fade (see
+      // MAX_FADE_STEP) — that collapse is what read as an instant cut.
+      const rawStep = phaseMs > 0 ? (now - lastTime) / phaseMs : 1;
+      const step = Math.min(rawStep, MAX_FADE_STEP);
       lastTime = now;
 
       let opacity = parseFloat(content.style.opacity || "1");
