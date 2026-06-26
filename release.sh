@@ -154,7 +154,7 @@ Your books live in a ./Library folder created next to the binary.
 Fonts:
   Two reading fonts (Literata, Atkinson Hyperlegible Next) are built into the
   binary; Literata is the default. The ./Fonts folder beside this file adds
-  ~25 more drop-in reading fonts. To add your own, drop a family folder into
+  ~27 more drop-in reading fonts. To add your own, drop a family folder into
   ./Fonts/ - see ./Fonts/README.txt for the exact layout - then click
   "Rescan ./Fonts" in the reader's font settings.
 EOF
