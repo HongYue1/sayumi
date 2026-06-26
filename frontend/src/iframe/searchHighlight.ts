@@ -34,8 +34,16 @@ export interface SearchHighlighter {
   clearSearchHighlights: () => void;
 }
 
+// Matches the guarded + lazily-cached MediaQueryList form used by the two other
+// frame-side helpers (frame.ts, pagination.ts). The MQL is live, so a cached
+// instance still reflects the current OS setting on every read; caching avoids
+// allocating a fresh MediaQueryList per highlight scroll, and the typeof guard
+// keeps it safe where window.matchMedia is absent (e.g. the test DOM).
+let reduceMotionQuery: MediaQueryList | null = null;
 function prefersReducedMotion(): boolean {
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (typeof window.matchMedia !== "function") return false;
+  reduceMotionQuery ??= window.matchMedia("(prefers-reduced-motion: reduce)");
+  return reduceMotionQuery.matches;
 }
 
 const TEXT_BOUNDARY_TAGS = new Set([
