@@ -83,6 +83,66 @@ for tgt in "${TARGETS[@]}"; do
 
   if [[ -d "$FONTS_SRC" ]]; then
     cp -R "$FONTS_SRC" "$stage/Fonts"
+    # Ship the drop-in font layout/convention guide inside ./Fonts itself.
+    cat > "$stage/Fonts/README.txt" <<'FONTSREADME'
+Sayumi - drop-in reading fonts (./Fonts/)
+=========================================
+
+Every subfolder of ./Fonts/ is one font family that appears in the reader's
+font picker under Settings -> reading font -> "Your fonts". Two families
+(Literata and Atkinson Hyperlegible Next) are built into the binary; everything
+in here is an extra drop-in you can add to, remove, or replace freely.
+
+Adding a family
+---------------
+Create a folder and drop in up to four .woff2 files, named by role:
+
+    ./Fonts/<FamilyDir>/
+        Regular.woff2       (required)
+        Bold.woff2          (optional)
+        Italic.woff2        (optional)
+        BoldItalic.woff2    (optional)
+        family.json         (optional metadata)
+
+Then click "Rescan ./Fonts" in font settings - no restart needed.
+
+Rules
+-----
+  * The folder name is the family id: letters and digits only, no spaces
+    (e.g. "CrimsonPro", "SourceSerif4"). Use family.json "label" for the
+    pretty name shown in the UI.
+  * .woff2 is strongly preferred (smallest). .woff, .ttf and .otf also load.
+  * Only Regular.woff2 is required. Any missing role falls back to the nearest
+    available file (the browser may synthesize the rest), so a single Regular
+    file still works.
+
+Variable fonts
+--------------
+If your font is a variable font with a weight axis, ship just:
+
+    ./Fonts/<FamilyDir>/
+        Regular.woff2       (the upright variable file)
+        Italic.woff2        (optional, the italic variable file)
+        family.json         with  "variable": true
+
+One 100-900 face then provides regular AND real bold straight from the weight
+axis (and Italic.woff2 covers italic + bold-italic). Do NOT also add
+Bold.woff2 / BoldItalic.woff2 for a variable family.
+
+family.json
+-----------
+All fields are optional:
+
+    {
+        "label":    "Crimson Pro",
+        "category": "serif",
+        "variable": false
+    }
+
+  * label    - display name in the picker (defaults to the folder name).
+  * category - "serif", "sans-serif", "monospace" or "display" (grouping hint).
+  * variable - true if Regular.woff2 is a weight-axis variable font (see above).
+FONTSREADME
   fi
   cat > "$stage/README.txt" <<EOF
 Sayumi — portable EPUB reader ($VERSION)
@@ -91,11 +151,11 @@ Run the 'sayumi' binary; it opens your browser automatically.
 Your books live in a ./Library folder created next to the binary.
 
 Fonts:
-  Two reading fonts (EB Garamond, Atkinson Hyperlegible) are built in.
-  The ./Fonts folder beside this file adds more (Literata, Lora, Crimson Pro,
-  Spectral, Ovo, Bookerly, Bitter). Drop your own font family into
-  ./Fonts/<Name>/ (a folder with .woff2/.ttf/.otf files) to add it, then use
-  "Rescan" in the reader's font settings.
+  Two reading fonts (Literata, Atkinson Hyperlegible Next) are built into the
+  binary; Literata is the default. The ./Fonts folder beside this file adds
+  ~25 more drop-in reading fonts. To add your own, drop a family folder into
+  ./Fonts/ - see ./Fonts/README.txt for the exact layout - then click
+  "Rescan ./Fonts" in the reader's font settings.
 EOF
 
   # Normalize mtimes so the zip (which stores filesystem timestamps) is
