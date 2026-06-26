@@ -46,9 +46,10 @@ type Family struct {
 // DetectedRoles is a filename-heuristic guess of which file fits each role.
 // Empty strings mean "no obvious match".
 type DetectedRoles struct {
-	Regular string `json:"regular"`
-	Italic  string `json:"italic"`
-	Bold    string `json:"bold"`
+	Regular    string `json:"regular"`
+	Italic     string `json:"italic"`
+	Bold       string `json:"bold"`
+	BoldItalic string `json:"boldItalic"`
 }
 
 // familyMeta is the optional ./Fonts/<Dir>/family.json schema.
@@ -306,9 +307,9 @@ func readFamilyMeta(famDir string) (familyMeta, bool) {
 	return meta, true
 }
 
-// detectRoles guesses role→file from filename tokens. Bold-italic and other
-// combos are intentionally ignored; the three primary roles are enough to
-// pre-fill the UI, which the user can then correct.
+// detectRoles guesses role→file from filename tokens. The four roles
+// (regular, italic, bold, bold-italic) are enough to pre-fill the UI, which
+// the user can then correct.
 func detectRoles(files []string) DetectedRoles {
 	var d DetectedRoles
 	for _, f := range files {
@@ -317,6 +318,10 @@ func detectRoles(files []string) DetectedRoles {
 		isBold := strings.Contains(lower, "bold") || strings.Contains(lower, "-700") || strings.Contains(lower, "semibold")
 
 		switch {
+		case isItalic && isBold:
+			if d.BoldItalic == "" {
+				d.BoldItalic = f
+			}
 		case isItalic && !isBold:
 			if d.Italic == "" {
 				d.Italic = f

@@ -396,6 +396,9 @@ export interface BookMeta {
   flairId?: string;
   addedAt?: string;
   lastReadAt?: string;
+  // Server's updated_at; appended to the cover URL as ?v=<updatedAt> so an
+  // edited cover (same path) busts the immutable browser cache.
+  updatedAt?: string;
 }
 
 export interface FlairDef {
@@ -499,6 +502,7 @@ export interface FontRoleMap {
   regular?: string;
   italic?: string;
   bold?: string;
+  boldItalic?: string;
 }
 
 /** A user-supplied font family discovered under ./Fonts/<dir>/. */
@@ -507,7 +511,12 @@ export interface UserFontFamily {
   label: string;
   category: "serif" | "sans-serif";
   files: string[];
-  detected: FontRoleMap & { regular: string; italic: string; bold: string };
+  detected: FontRoleMap & {
+    regular: string;
+    italic: string;
+    bold: string;
+    boldItalic: string;
+  };
 }
 
 export function getFonts(signal?: AbortSignal): Promise<UserFontFamily[]> {
@@ -591,8 +600,62 @@ export function uploadBook(
   return request<BookMeta>("POST", "/books/upload", form, signal);
 }
 
-export function getCoverUrl(id: string): string {
-  return `${BASE}/books/${pathSegment(id)}/cover`;
+// version (the book's updatedAt) is appended as ?v= so that editing a cover —
+// which reuses the same /cover path — produces a new URL and bypasses the
+// immutable browser cache; without it the stale cover would persist for a year.
+export function getCoverUrl(id: string, version?: string): string {
+  const base = `${BASE}/books/${pathSegment(id)}/cover`;
+  return version ? `${base}?v=${encodeURIComponent(version)}` : base;
+}
+
+// updateBookMeta edits a book's title/author. Only provided fields change
+// (patch semantics); the server returns the refreshed BookMeta.
+export function updateBookMeta(
+  id: string,
+  patch: { title?: string; author?: string },
+  signal?: AbortSignal,
+): Promise<BookMeta> {
+  return request<BookMeta>(
+    "PATCH",
+    `/books/${pathSegment(id)}`,
+    patch,
+    signal,
+  );
+}
+
+// uploadCover replaces a book's cover with an image file (JPEG/PNG/WebP); the
+// server normalizes it to the same resized JPEG the importer produces and
+// returns the refreshed BookMeta (with a bumped updatedAt for cache-busting).
+export function uploadCover(
+  id: string,
+  file: File,
+  signal?: AbortSignal,
+): Promise<BookMeta> {
+  const form = new FormData();
+  form.append("cover", file);
+  return request<BookMeta>(
+    "PUT",
+    `/books/${pathSegment(id)}/cover`,
+    form,
+    signal,
+  );
+}
+
+// uploadToGofile uploads the book's .epub to gofile.io (anonymous) and returns
+// the public download page URL. This is the app's only outbound network call.
+export function uploadToGofile(
+  id: string,
+  signal?: AbortSignal,
+): Promise<{ downloadPage: string }> {
+  return request<{ downloadPage: string }>(
+    "POST",
+    `/books/${pathSegment(id)}/gofile`,
+    undefined,
+    signal,
+    // gofile picks a server then streams the upload; allow well beyond the
+    // default request timeout for a large book over a slow link.
+    30 * 60 * 1000,
+  );
 }
 
 export interface ChapterData {

@@ -55,33 +55,43 @@
     return getFontById(id) ? id : DEFAULT_USER_SETTINGS.fontFamily;
   });
 
-  const ROLES: { key: "regular" | "italic" | "bold"; label: string }[] = [
+  const ROLES: {
+    key: "regular" | "italic" | "bold" | "boldItalic";
+    label: string;
+  }[] = [
     { key: "regular", label: "Regular" },
     { key: "italic", label: "Italic" },
     { key: "bold", label: "Bold" },
+    { key: "boldItalic", label: "Bold Italic" },
   ];
 
   // The file currently chosen for a role: the explicit override, else the
   // backend's detected guess, else empty.
-  function roleValue(role: "regular" | "italic" | "bold"): string {
+  function roleValue(
+    role: "regular" | "italic" | "bold" | "boldItalic",
+  ): string {
     const fam = selectedUserFamily;
     if (!fam) return "";
     return s.fontRoles?.[fam.id]?.[role] ?? fam.detected[role] ?? "";
   }
 
-  function setRole(role: "regular" | "italic" | "bold", file: string): void {
+  function setRole(
+    role: "regular" | "italic" | "bold" | "boldItalic",
+    file: string,
+  ): void {
     const fam = selectedUserFamily;
     if (!fam) return;
     const next: Record<
       string,
-      { regular?: string; italic?: string; bold?: string }
+      { regular?: string; italic?: string; bold?: string; boldItalic?: string }
     > = {
       ...(s.fontRoles ?? {}),
     };
     const entry = { ...(next[fam.id] ?? {}) };
     if (file) entry[role] = file;
     else delete entry[role];
-    if (!entry.regular && !entry.italic && !entry.bold) delete next[fam.id];
+    if (!entry.regular && !entry.italic && !entry.bold && !entry.boldItalic)
+      delete next[fam.id];
     else next[fam.id] = entry;
     set("fontRoles", next);
   }

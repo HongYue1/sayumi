@@ -55,9 +55,9 @@ export function buildReaderFontFaces(): string {
 // Builds @font-face rules for the user families that have at least one role
 // assigned. The CSS family name matches userFamilyCSSValue() (the directory
 // segment of the id). Roles map to weight/style: regular→400/normal,
-// bold→700/normal, italic→400/italic. Only assigned roles emit a face; the
-// browser synthesizes missing styles. `dir` is the on-disk folder used in the
-// served URL.
+// bold→700/normal, italic→400/italic, boldItalic→700/italic. Only assigned
+// roles emit a face; the browser synthesizes missing styles. `dir` is the
+// on-disk folder used in the served URL.
 function buildUserFontFaces(
   families: UserFontFamily[],
   roles: Record<string, FontRoleMap> | undefined,
@@ -81,11 +81,14 @@ function buildUserFontFaces(
     const regular = map.regular ?? fam.detected.regular;
     const italic = map.italic ?? fam.detected.italic;
     const bold = map.bold ?? fam.detected.bold;
+    const boldItalic = map.boldItalic ?? fam.detected.boldItalic;
 
     if (regular)
       out.push(face(dir, userFontUrl(dir, regular), "400", "normal"));
     if (bold) out.push(face(dir, userFontUrl(dir, bold), "700", "normal"));
     if (italic) out.push(face(dir, userFontUrl(dir, italic), "400", "italic"));
+    if (boldItalic)
+      out.push(face(dir, userFontUrl(dir, boldItalic), "700", "italic"));
   }
   return out.join("\n");
 }

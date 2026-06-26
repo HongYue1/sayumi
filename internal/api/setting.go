@@ -46,9 +46,10 @@ type settingsJSON struct {
 }
 
 type fontRoleEntry struct {
-	Regular string `json:"regular,omitempty"`
-	Italic  string `json:"italic,omitempty"`
-	Bold    string `json:"bold,omitempty"`
+	Regular    string `json:"regular,omitempty"`
+	Italic     string `json:"italic,omitempty"`
+	Bold       string `json:"bold,omitempty"`
+	BoldItalic string `json:"boldItalic,omitempty"`
 }
 
 // recordToJSON converts a SettingsRecord (which may have NULL columns for a
@@ -204,7 +205,8 @@ func normalizeSettings(j *settingsJSON) {
 			e.Regular = strings.TrimSpace(e.Regular)
 			e.Italic = strings.TrimSpace(e.Italic)
 			e.Bold = strings.TrimSpace(e.Bold)
-			if e.Regular == "" && e.Italic == "" && e.Bold == "" {
+			e.BoldItalic = strings.TrimSpace(e.BoldItalic)
+			if e.Regular == "" && e.Italic == "" && e.Bold == "" && e.BoldItalic == "" {
 				delete(j.FontRoles, id)
 			} else {
 				j.FontRoles[id] = e
@@ -283,7 +285,7 @@ func validateSettings(j *settingsJSON) (string, bool) {
 		if len(id) > 128 {
 			return "font family id too long", false
 		}
-		for _, file := range []string{e.Regular, e.Italic, e.Bold} {
+		for _, file := range []string{e.Regular, e.Italic, e.Bold, e.BoldItalic} {
 			if len(file) > 256 || strings.ContainsAny(file, "/\\") || strings.Contains(file, "..") {
 				return "invalid font role file name", false
 			}
