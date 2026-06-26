@@ -562,46 +562,31 @@ import { createPagination } from "./pagination";
       "body { margin: 0 !important; }",
     ];
 
-    if (settings.mode === "paged") {
-      const pt =
-        settings.margins.top != null ? `${settings.margins.top}px` : "24px";
-      const pb =
-        settings.margins.bottom != null
-          ? `${settings.margins.bottom}px`
-          : "24px";
-      const ps =
-        settings.margins.side != null ? `${settings.margins.side}px` : "40px";
-
-      css.push(
-        `html { --paged-padding-top: ${pt}; --paged-padding-bottom: ${pb}; --paged-padding-side: ${ps}; }`,
-      );
-      css.push(
-        "body { padding: 0 !important; height: 100vh !important; overflow: hidden !important; }",
-      );
-      // Vertical margin is applied as the paged column-box inset (clip
-      // height/offset in pagination, via --paged-padding-top/bottom) so it
-      // insets EVERY page, not just the first/last page of the chapter. Only the
-      // side inset belongs on #content-inner here.
-      css.push(`#content-inner { padding: 0 ${ps} !important; }`);
-      css.push(
-        "#content-inner > * { margin-left: 0 !important; margin-right: 0 !important; padding-left: 0 !important; padding-right: 0 !important; }",
-      );
-      css.push(
-        "#content-inner > *:first-child { margin-top: 0 !important; padding-top: 0 !important; }",
-      );
-      css.push(
-        "#content-inner > *:last-child { margin-bottom: 0 !important; padding-bottom: 0 !important; }",
-      );
-    } else if (settings.mode === "paged-two") {
-      // Double-page spread now honors the user's vertical margin, clamped to a
-      // stable minimum so the spread geometry stays predictable. Side inset stays
-      // fixed. The vertical inset is applied to the column box itself (see
-      // pagination.setPagedHeights, which reads --paged-padding-top/bottom), not
-      // as #content-inner padding.
-      const MIN_TWO_MARGIN = 24;
-      const pt = `${Math.max(settings.margins.top ?? 24, MIN_TWO_MARGIN)}px`;
-      const pb = `${Math.max(settings.margins.bottom ?? 24, MIN_TWO_MARGIN)}px`;
-      const ps = "48px";
+    if (settings.mode === "paged" || settings.mode === "paged-two") {
+      // paged and paged-two share identical layout CSS; only the margin inputs
+      // differ. paged-two clamps the vertical margin to a stable minimum and
+      // pins the side inset; paged uses the raw margins with a 40px side
+      // default. The vertical inset is applied to the column box itself (see
+      // pagination.setPagedHeights, which reads --paged-padding-top/bottom),
+      // not as #content-inner padding.
+      let pt: string;
+      let pb: string;
+      let ps: string;
+      if (settings.mode === "paged-two") {
+        const MIN_TWO_MARGIN = 24;
+        pt = `${Math.max(settings.margins.top ?? 24, MIN_TWO_MARGIN)}px`;
+        pb = `${Math.max(settings.margins.bottom ?? 24, MIN_TWO_MARGIN)}px`;
+        ps = "48px";
+      } else {
+        pt =
+          settings.margins.top != null ? `${settings.margins.top}px` : "24px";
+        pb =
+          settings.margins.bottom != null
+            ? `${settings.margins.bottom}px`
+            : "24px";
+        ps =
+          settings.margins.side != null ? `${settings.margins.side}px` : "40px";
+      }
 
       css.push(
         `html { --paged-padding-top: ${pt}; --paged-padding-bottom: ${pb}; --paged-padding-side: ${ps}; }`,

@@ -426,16 +426,18 @@ th {
   font-weight: 700;
 }
 
-mark.search-highlight {
+mark.search-highlight,
+mark.search-highlight-active {
   background: var(--accent);
   color: var(--bg-primary);
+}
+
+mark.search-highlight {
   border-radius: 2px;
   padding: 0 1px;
 }
 
 mark.search-highlight-active {
-  background: var(--accent);
-  color: var(--bg-primary);
   outline: 2px solid color-mix(in srgb, var(--accent) 60%, var(--text-primary));
   outline-offset: 1px;
 }
