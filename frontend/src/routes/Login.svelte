@@ -96,6 +96,14 @@
       busy = false;
     }
   }
+
+  // Focus the field on every (re)mount. The HTML `autofocus` attribute fires
+  // only ONCE per document, so a profile re-selection or a pick<->create switch
+  // would otherwise leave the field unfocused. An attachment runs on each mount,
+  // matching the explicit focus-on-open pattern the dialogs already use.
+  function focusOnMount(node: HTMLElement): void {
+    node.focus({ preventScroll: true });
+  }
 </script>
 
 <div class="screen">
@@ -149,14 +157,13 @@
     {:else if selected}
       <form onsubmit={submitPin}>
         <p class="muted">Enter PIN for <strong>{selected.name}</strong></p>
-        <!-- svelte-ignore a11y_autofocus -->
         <input
           class="field"
           type="password"
           inputmode="numeric"
           autocomplete="off"
           aria-label="PIN"
-          autofocus
+          {@attach focusOnMount}
           bind:value={pin}
           placeholder="PIN"
           disabled={busy}
@@ -180,13 +187,12 @@
         {:else}
           <p class="muted">Create a profile</p>
         {/if}
-        <!-- svelte-ignore a11y_autofocus -->
         <input
           class="field"
           type="text"
           autocomplete="off"
           aria-label="Profile name"
-          autofocus
+          {@attach focusOnMount}
           bind:value={newName}
           placeholder="Profile name"
           disabled={busy}
