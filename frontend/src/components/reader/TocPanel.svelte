@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { TocEntry } from "~/api/client";
   import Icon from "~/lib/Icon.svelte";
-  import { X } from "@lucide/svelte";
+  import { Search, X } from "@lucide/svelte";
 
   interface Props {
     toc: TocEntry[];
@@ -34,33 +34,90 @@
     walk(toc, 0);
     return out;
   });
+
+  // Client-side filter over the flattened list. Case-insensitive substring on
+  // the title (mirrors the library's substring filter). The match is cheap even
+  // for huge TOCs, so no debounce; an empty query passes the list through
+  // untouched so the virtual-list math below is identical to the unfiltered
+  // case. The filtered list (not the full list) is what the window renders, so
+  // every derived below keys off it.
+  let query = $state("");
+  const normalizedQuery = $derived(query.trim().toLowerCase());
+  const filteredRows = $derived.by(() => {
+    const q = normalizedQuery;
+    if (!q) return rows;
+    return rows.filter((r) => r.entry.title.toLowerCase().includes(q));
+  });
+
+  // Highlight the matched substring (first occurrence) so a filtered list is
+  // scannable. Returns null when there's no active query so unfiltered rows
+  // render as plain text. The highlight is a height-neutral inline <mark>
+  // (background/colour only, no vertical padding or border) so it can't shift
+  // the fixed row height the virtual-scroll math depends on.
+  function highlight(
+    title: string,
+  ): { before: string; match: string; after: string } | null {
+    const q = normalizedQuery;
+    if (!q) return null;
+    const idx = title.toLowerCase().indexOf(q);
+    if (idx < 0) return null;
+    return {
+      before: title.slice(0, idx),
+      match: title.slice(idx, idx + q.length),
+      after: title.slice(idx + q.length),
+    };
+  }
+
   // Match on reference identity (not href) so exactly one row is current even
   // when two entries point at the same file.
   const activeIndex = $derived(
-    activeEntry ? rows.findIndex((r) => r.entry === activeEntry) : -1,
+    activeEntry ? filteredRows.findIndex((r) => r.entry === activeEntry) : -1,
   );
 
   let scrollEl: HTMLElement | null = $state(null);
+  let queryEl: HTMLInputElement | null = $state(null);
   let scrollTop = $state(0);
   let viewportH = $state(0);
   let initialised = false;
-  let needsFocus = false;
+  let lastQuery = "";
 
   const startIndex = $derived(
     Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN),
   );
   const endIndex = $derived(
     Math.min(
-      rows.length,
+      filteredRows.length,
       startIndex + Math.ceil(viewportH / ROW_H) + OVERSCAN * 2,
     ),
   );
-  const windowRows = $derived(rows.slice(startIndex, endIndex));
-  const totalHeight = $derived(rows.length * ROW_H);
+  const windowRows = $derived(filteredRows.slice(startIndex, endIndex));
+  const totalHeight = $derived(filteredRows.length * ROW_H);
   const offsetY = $derived(startIndex * ROW_H);
 
   function onScroll(): void {
     if (scrollEl) scrollTop = scrollEl.scrollTop;
+  }
+
+  function clearQuery(): void {
+    query = "";
+    queryEl?.focus();
+  }
+
+  function onQueryKey(e: KeyboardEvent): void {
+    if (e.key === "Enter") {
+      // Jump straight to the first match so a quick filter-then-Enter opens the
+      // most likely chapter without touching the mouse.
+      e.preventDefault();
+      const first = filteredRows[0];
+      if (first) onnavigate(first.entry.href);
+    } else if (e.key === "Escape" && normalizedQuery) {
+      // Escape clears the filter first; stopPropagation keeps it from bubbling
+      // to the reader's global Escape (which would close the panel). A second
+      // Escape with an empty query bubbles through and closes the panel.
+      e.preventDefault();
+      e.stopPropagation();
+      query = "";
+    }
   }
 
   // Track the viewport height (the panel resizes with the window).
@@ -74,31 +131,33 @@
   });
 
   // On open, jump straight to the current chapter (centered) instead of opening
-  // at the top of a long book. Runs once.
+  // at the top of a long book, then put focus in the filter field so the user
+  // can type immediately. Focusing our own element here is the focus-trap
+  // opt-out (preventScroll keeps the centered position) — without it the trap
+  // would grab the first row and yank the scroll back to the top. Runs once.
   $effect(() => {
     if (initialised || !scrollEl) return;
     viewportH = scrollEl.clientHeight;
     if (activeIndex >= 0) {
       const target = activeIndex * ROW_H - (viewportH - ROW_H) / 2;
       scrollEl.scrollTop = Math.max(0, target);
-      needsFocus = true;
     }
     scrollTop = scrollEl.scrollTop;
+    queryEl?.focus({ preventScroll: true });
     initialised = true;
   });
 
-  // Once the current row is rendered in the window, move focus to it (once) so
-  // the focus trap defers to us instead of grabbing the first row (the book
-  // title) and yanking the scroll back to the top. preventScroll keeps the
-  // centered position. Re-runs as the window fills, so it still lands even if
-  // the row wasn't mounted on the first pass.
+  // Whenever the query changes, reset the scroll to the top of the results so a
+  // new filter starts at its first match rather than wherever the previous list
+  // was scrolled. Skips the initial empty-query pass so it can't clobber the
+  // open-time centering above.
   $effect(() => {
-    void windowRows;
-    if (!needsFocus || !scrollEl) return;
-    const current = scrollEl.querySelector<HTMLElement>(".entry.current");
-    if (current) {
-      current.focus({ preventScroll: true });
-      needsFocus = false;
+    const q = normalizedQuery;
+    if (q === lastQuery) return;
+    lastQuery = q;
+    if (scrollEl) {
+      scrollEl.scrollTop = 0;
+      scrollTop = 0;
     }
   });
 </script>
@@ -113,35 +172,60 @@
   {#if rows.length === 0}
     <p class="empty">No table of contents.</p>
   {:else}
-    <nav
-      class="scroll"
-      aria-label="Table of contents"
-      bind:this={scrollEl}
-      onscroll={onScroll}
-      style="--toc-row-h: {ROW_H}px"
-    >
-      <div class="sizer" style:height={`${totalHeight}px`}>
-        <ul class="window" style:transform={`translateY(${offsetY}px)`}>
-          {#each windowRows as row, i (row.entry.href + row.entry.title + "@" + (startIndex + i))}
-            <li aria-level={row.depth + 1}>
-              <button
-                class="entry"
-                class:current={row.entry === activeEntry}
-                class:top={row.depth === 0}
-                aria-current={row.entry === activeEntry
-                  ? "location"
-                  : undefined}
-                style:padding-left={`${row.depth * 0.75 + 0.75}rem`}
-                title={row.entry.title}
-                onclick={() => onnavigate(row.entry.href)}
-              >
-                {row.entry.title}
-              </button>
-            </li>
-          {/each}
-        </ul>
-      </div>
-    </nav>
+    <div class="filter">
+      <Icon icon={Search} size={16} class="filter-icon" />
+      <input
+        bind:this={queryEl}
+        bind:value={query}
+        class="field"
+        type="text"
+        placeholder="Filter chapters…"
+        autocomplete="off"
+        spellcheck="false"
+        aria-label="Filter table of contents"
+        onkeydown={onQueryKey}
+      />
+      {#if query}
+        <button class="clear" onclick={clearQuery} aria-label="Clear filter"
+          ><Icon icon={X} size={16} /></button
+        >
+      {/if}
+    </div>
+    {#if filteredRows.length === 0}
+      <p class="empty" role="status">No chapters match “{query}”.</p>
+    {:else}
+      <nav
+        class="scroll"
+        aria-label="Table of contents"
+        bind:this={scrollEl}
+        onscroll={onScroll}
+        style="--toc-row-h: {ROW_H}px"
+      >
+        <div class="sizer" style:height={`${totalHeight}px`}>
+          <ul class="window" style:transform={`translateY(${offsetY}px)`}>
+            {#each windowRows as row, i (row.entry.href + row.entry.title + "@" + (startIndex + i))}
+              {@const hl = highlight(row.entry.title)}
+              <li aria-level={row.depth + 1}>
+                <button
+                  class="entry"
+                  class:current={row.entry === activeEntry}
+                  class:top={row.depth === 0}
+                  aria-current={row.entry === activeEntry
+                    ? "location"
+                    : undefined}
+                  style:padding-left={`${row.depth * 0.75 + 0.75}rem`}
+                  title={row.entry.title}
+                  onclick={() => onnavigate(row.entry.href)}
+                >
+                  {#if hl}{hl.before}<mark>{hl.match}</mark
+                    >{hl.after}{:else}{row.entry.title}{/if}
+                </button>
+              </li>
+            {/each}
+          </ul>
+        </div>
+      </nav>
+    {/if}
   {/if}
 </div>
 
@@ -187,6 +271,55 @@
   }
   .close:active {
     transform: scale(0.94);
+  }
+  .filter {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: var(--sp-2) var(--sp-3);
+    border-bottom: 1px solid var(--hairline);
+    flex: 0 0 auto;
+  }
+  .filter-icon {
+    color: var(--muted);
+    flex: 0 0 auto;
+  }
+  .field {
+    flex: 1;
+    min-width: 0;
+    padding: 0.45rem 0.6rem;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--fg);
+    font: inherit;
+    font-size: var(--text-sm);
+    transition: border-color var(--dur) var(--ease-out);
+  }
+  .field:hover {
+    border-color: var(--accent);
+  }
+  .field::placeholder {
+    color: var(--muted);
+  }
+  .clear {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    padding: 0.3rem;
+    border-radius: var(--radius);
+    cursor: pointer;
+    flex: 0 0 auto;
+    transition:
+      background var(--dur) var(--ease-out),
+      color var(--dur) var(--ease-out);
+  }
+  .clear:hover {
+    background: var(--surface-hover);
+    color: var(--fg);
   }
   .scroll {
     flex: 1;
@@ -257,6 +390,15 @@
     color: var(--accent);
     font-weight: 600;
     box-shadow: inset 2px 0 0 var(--accent);
+  }
+  /* Filter match highlight: height-neutral (background + radius + horizontal
+     padding only, never vertical padding or a border) so the fixed row height
+     stays exact. Inherits the row's colour so it reads on muted/current rows. */
+  .entry mark {
+    background: color-mix(in srgb, var(--accent) 32%, transparent);
+    color: inherit;
+    border-radius: 2px;
+    padding: 0 1px;
   }
   .empty {
     padding: var(--sp-4);
