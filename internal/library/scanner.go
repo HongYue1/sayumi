@@ -561,6 +561,14 @@ var hashBufPool = sync.Pool{
 	},
 }
 
+// HashFile returns the SHA-256 content hash (hex) and byte size of the file at
+// filePath. It is the exported entry point the API uses to recompute a book's
+// file_hash/file_size after an in-place EPUB edit, sharing the exact hashing of
+// the import path so the value matches what a rescan would compute.
+func HashFile(ctx context.Context, filePath string) (hash string, size int64, err error) {
+	return contentHash(ctx, filePath)
+}
+
 func contentHash(ctx context.Context, filePath string) (hash string, size int64, err error) {
 	file, err := os.Open(filePath)
 	if err != nil {

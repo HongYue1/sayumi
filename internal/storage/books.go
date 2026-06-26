@@ -307,6 +307,77 @@ func (db *DB) UpdateBookCoverContext(ctx context.Context, id, coverPath string) 
 	return nil
 }
 
+// ErrFileHashConflict is returned by the in-place-edit update methods when the
+// recomputed file_hash already belongs to a different book row. It guards the
+// partial unique index idx_books_file_hash_uniq so a (astronomically unlikely)
+// collision surfaces as a clean 409 rather than a raw constraint-violation 500.
+var ErrFileHashConflict = errors.New("storage: file hash conflicts with another book")
+
+// assertFileHashFree reports ErrFileHashConflict when fileHash is non-empty and
+// already recorded against a book other than id. The caller MUST hold writeMu
+// so the check and the subsequent UPDATE are atomic with respect to other
+// writers.
+func (db *DB) assertFileHashFree(ctx context.Context, id, fileHash string) error {
+	if fileHash == "" {
+		return nil
+	}
+	var other string
+	err := db.QueryRowContext(ctx, "SELECT id FROM books WHERE file_hash = ? AND id <> ? LIMIT 1", fileHash, id).Scan(&other)
+	switch {
+	case err == nil:
+		return ErrFileHashConflict
+	case errors.Is(err, sql.ErrNoRows):
+		return nil
+	default:
+		return fmt.Errorf("check file hash for %s: %w", id, err)
+	}
+}
+
+// UpdateBookMetadataAndFileContext sets a book's title/author together with the
+// recomputed file_hash/file_size after the source EPUB has been rewritten in
+// place. Updating file_hash deliberately rotates the values derived from it
+// (resource bearer token, cover/detail/chapter ETags); bumping updated_at folds
+// the change into those ETags too.
+func (db *DB) UpdateBookMetadataAndFileContext(ctx context.Context, id, title, author, fileHash string, fileSize int64) error {
+	db.writeMu.Lock()
+	defer db.writeMu.Unlock()
+
+	if err := db.assertFileHashFree(ctx, id, fileHash); err != nil {
+		return err
+	}
+
+	_, err := db.ExecContext(ctx, `
+		UPDATE books SET title = ?, author = ?, file_hash = ?, file_size = ?, updated_at = datetime('now')
+		WHERE id = ?
+	`, title, author, fileHash, fileSize, id)
+	if err != nil {
+		return fmt.Errorf("update metadata+file for %s: %w", id, err)
+	}
+	return nil
+}
+
+// UpdateBookCoverAndFileContext sets a book's cover_path together with the
+// recomputed file_hash/file_size after the cover image has been embedded into
+// the source EPUB in place. See UpdateBookMetadataAndFileContext for why the
+// file_hash/updated_at change matters.
+func (db *DB) UpdateBookCoverAndFileContext(ctx context.Context, id, coverPath, fileHash string, fileSize int64) error {
+	db.writeMu.Lock()
+	defer db.writeMu.Unlock()
+
+	if err := db.assertFileHashFree(ctx, id, fileHash); err != nil {
+		return err
+	}
+
+	_, err := db.ExecContext(ctx, `
+		UPDATE books SET cover_path = ?, has_cover = 1, cover_checked = 1, file_hash = ?, file_size = ?, updated_at = datetime('now')
+		WHERE id = ?
+	`, coverPath, fileHash, fileSize, id)
+	if err != nil {
+		return fmt.Errorf("update cover+file for %s: %w", id, err)
+	}
+	return nil
+}
+
 // UpdateBookMetadataContext updates the user-editable bibliographic fields
 // (title, author) for a book and bumps updated_at so the book-list cache and
 // the cover/detail ETags (which fold updated_at) invalidate. It touches neither

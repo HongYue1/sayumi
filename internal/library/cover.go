@@ -105,29 +105,40 @@ func decodeAndResizeCoverData(bookID string, coverData []byte) (image.Image, err
 	return resizeToFit(img, maxCoverWidth, maxCoverHeight), nil
 }
 
-// SaveCoverImage validates, resizes, and writes an uploaded cover image for a
-// book, OVERWRITING any existing cover — the deliberate difference from
-// extractCover, which preserves an existing cover. It returns the cover path
-// relative to libraryPath (".sayumi/covers/<id>.jpg") for storage in cover_path.
-// Oversized or too-many-pixel images return ErrCoverSkipped, which the API maps
-// to a 400. The decode slot (coverDecodeSem) is acquired honoring ctx and
-// released before the disk write so the bounded RGBA buffer is not held during I/O.
-func SaveCoverImage(ctx context.Context, libraryPath, bookID string, data []byte) (relPath string, err error) {
+// EncodeCoverJPEG validates and resizes an uploaded cover image and returns the
+// normalized JPEG bytes (the same resized JPEG the importer produces, so the
+// served cover stays uniform regardless of the source format/size). Oversized
+// or too-many-pixel images return ErrCoverSkipped, which the API maps to a 400.
+// The decode slot (coverDecodeSem) is acquired honoring ctx and released before
+// encoding so the bounded RGBA buffer is not held longer than the decode.
+func EncodeCoverJPEG(ctx context.Context, bookID string, data []byte) ([]byte, error) {
 	if int64(len(data)) > maxCoverBytes {
-		return "", errors.New("cover image too large")
+		return nil, errors.New("cover image too large")
 	}
 
 	select {
 	case coverDecodeSem <- struct{}{}:
 	case <-ctx.Done():
-		return "", ctx.Err()
+		return nil, ctx.Err()
 	}
 	img, decErr := decodeAndResizeCoverData(bookID, data)
 	<-coverDecodeSem
 	if decErr != nil {
-		return "", decErr
+		return nil, decErr
 	}
 
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 85}); err != nil {
+		return nil, fmt.Errorf("encode jpeg: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// WriteCoverImageJPEG writes pre-encoded cover JPEG bytes to the sidecar cover
+// store (".sayumi/covers/<id>.jpg"), OVERWRITING any existing cover via an
+// atomic temp+rename, and returns the path relative to libraryPath for storage
+// in cover_path.
+func WriteCoverImageJPEG(libraryPath, bookID string, jpegData []byte) (relPath string, err error) {
 	coversDir := filepath.Join(libraryPath, ".sayumi", "covers")
 	if mkErr := os.MkdirAll(coversDir, 0o755); mkErr != nil {
 		return "", fmt.Errorf("create covers dir: %w", mkErr)
@@ -165,8 +176,8 @@ func SaveCoverImage(ctx context.Context, libraryPath, bookID string, data []byte
 		}
 	}()
 
-	if encodeErr := jpeg.Encode(tempFile, img, &jpeg.Options{Quality: 85}); encodeErr != nil {
-		return "", fmt.Errorf("encode jpeg: %w", encodeErr)
+	if _, writeErr := tempFile.Write(jpegData); writeErr != nil {
+		return "", fmt.Errorf("write cover file: %w", writeErr)
 	}
 
 	if closeErr := tempFile.Close(); closeErr != nil {
@@ -180,6 +191,19 @@ func SaveCoverImage(ctx context.Context, libraryPath, bookID string, data []byte
 	}
 
 	return filepath.Join(".sayumi", "covers", coverFilename), nil
+}
+
+// SaveCoverImage validates, resizes, and writes an uploaded cover image for a
+// book, OVERWRITING any existing cover — the deliberate difference from
+// extractCover, which preserves an existing cover. It returns the cover path
+// relative to libraryPath (".sayumi/covers/<id>.jpg") for storage in cover_path.
+// It is the encode-then-write composition of EncodeCoverJPEG + WriteCoverImageJPEG.
+func SaveCoverImage(ctx context.Context, libraryPath, bookID string, data []byte) (relPath string, err error) {
+	jpegData, err := EncodeCoverJPEG(ctx, bookID, data)
+	if err != nil {
+		return "", err
+	}
+	return WriteCoverImageJPEG(libraryPath, bookID, jpegData)
 }
 
 func extractCover(ctx context.Context, libraryPath, bookID string, zr *zip.Reader, coverPathInZip string) (err error) {

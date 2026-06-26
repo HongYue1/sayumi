@@ -372,6 +372,37 @@ func (s *EPUBStore) CloseBook(filePath string) {
 	}
 }
 
+// TryCloseForReplace fully releases any cached reader for filePath so the
+// on-disk EPUB can be atomically replaced (an in-place metadata/cover edit).
+// It returns false WITHOUT touching the entry when a request currently holds
+// the book open (refs > 0): the file must not be swapped while a reader has it
+// mapped (notably on Windows), so the caller surfaces a "close the book and
+// retry" conflict instead. When the book is not open, or is cached but idle, it
+// closes and drops the cached reader, clears the derived chapter/text/css
+// caches for the book, and returns true.
+func (s *EPUBStore) TryCloseForReplace(filePath string) bool {
+	s.mu.Lock()
+	if e, ok := s.openFiles[filePath]; ok {
+		if e.refs > 0 {
+			s.mu.Unlock()
+			return false
+		}
+		s.lru.remove(filePath)
+		if e.reader != nil {
+			if err := e.reader.Close(); err != nil {
+				slog.Error("failed to close book reader for replace", "path", filePath, "err", err)
+			}
+		}
+		delete(s.openFiles, filePath)
+	}
+	s.mu.Unlock()
+
+	// EvictBook locks the per-cache mutexes (not s.mu), so it runs after s.mu is
+	// released to avoid a lock-order inversion.
+	s.EvictBook(filePath)
+	return true
+}
+
 func (s *EPUBStore) EvictBook(filePath string) {
 	s.chapters.DeleteFunc(func(k chapterRenderKey) bool { return k.filePath != filePath })
 	s.texts.DeleteFunc(func(k chapterTextKey) bool { return k.filePath != filePath })
