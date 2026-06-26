@@ -311,13 +311,18 @@ func getCoverHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		// Cover bytes are immutable for a given file_hash, so the response ETag
-		// is fully derivable from the cached book. Run the conditional 304 check
-		// before opening the file: an unchanged re-request (only a hard refresh
-		// or a post-eviction reload, since covers are served from the immutable
-		// cache without revalidating) then skips the coverRoot.Open + Stat
-		// syscalls entirely. Mirrors the stat-light 304 path used for fonts.
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		// A cover can change in place: an in-app cover edit overwrites the
+		// sidecar at this same /cover path, so the response must NOT be cached
+		// immutably or a stale cover sticks for a year. A ?v=<updatedAt> URL
+		// buster is not enough on its own: datetime('now') has 1s granularity,
+		// so editing metadata and the cover in the same second reuses one URL
+		// (the metadata write pins the still-old cover under it). 'no-cache'
+		// keeps the bytes cached but forces an If-None-Match revalidation; the
+		// ETag folds in file_hash (content-addressed), so an edited cover yields
+		// a new ETag + 200 while an unchanged cover still returns a stat-light
+		// 304 before the coverRoot.Open + Stat syscalls. Matches the
+		// book-detail revalidation policy (bookDetailCacheControl).
+		w.Header().Set("Cache-Control", "private, no-cache")
 		if etag := coverResponseETag(book.FileHash, book.UpdatedAt); etag != "" {
 			w.Header().Set("ETag", etag)
 			if ifNoneMatchMatches(r, etag) {
