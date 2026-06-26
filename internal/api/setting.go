@@ -60,7 +60,7 @@ type fontRoleEntry struct {
 func recordToJSON(s storage.SettingsRecord) settingsJSON {
 	j := settingsJSON{
 		FontSize:       30,
-		FontFamily:     "eb-garamond",
+		FontFamily:     "literata",
 		DisplayMode:    "scroll",
 		PreserveStyles: true,
 		PreserveFonts:  false,
