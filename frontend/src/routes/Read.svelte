@@ -1053,29 +1053,29 @@
     </div>
     <div class="tools">
       {#if !isSpecimen}
-      <button
-        class="icon"
-        class:active={currentBookmarkId !== null}
-        onclick={() => void toggleBookmark()}
-        aria-label={currentBookmarkId ? "Remove bookmark" : "Add bookmark"}
-        aria-pressed={currentBookmarkId !== null}
-        ><Icon
-          icon={currentBookmarkId ? BookmarkCheck : BookmarkIcon}
-        /></button
-      >
-      <button
-        class="icon"
-        onclick={() => togglePanel("bookmarks")}
-        aria-label="Bookmarks"
-        aria-pressed={activePanel === "bookmarks"}
-        ><Icon icon={BookMarked} /></button
-      >
-      <button
-        class="icon"
-        onclick={() => togglePanel("search")}
-        aria-label="Search in book"
-        aria-pressed={activePanel === "search"}><Icon icon={Search} /></button
-      >
+        <button
+          class="icon"
+          class:active={currentBookmarkId !== null}
+          onclick={() => void toggleBookmark()}
+          aria-label={currentBookmarkId ? "Remove bookmark" : "Add bookmark"}
+          aria-pressed={currentBookmarkId !== null}
+          ><Icon
+            icon={currentBookmarkId ? BookmarkCheck : BookmarkIcon}
+          /></button
+        >
+        <button
+          class="icon"
+          onclick={() => togglePanel("bookmarks")}
+          aria-label="Bookmarks"
+          aria-pressed={activePanel === "bookmarks"}
+          ><Icon icon={BookMarked} /></button
+        >
+        <button
+          class="icon"
+          onclick={() => togglePanel("search")}
+          aria-label="Search in book"
+          aria-pressed={activePanel === "search"}><Icon icon={Search} /></button
+        >
       {/if}
       <button
         class="icon"
@@ -1085,12 +1085,12 @@
         ><Icon icon={Settings} /></button
       >
       {#if !isSpecimen}
-      <button
-        class="icon"
-        onclick={() => togglePanel("toc")}
-        aria-label="Table of contents"
-        aria-pressed={activePanel === "toc"}><Icon icon={List} /></button
-      >
+        <button
+          class="icon"
+          onclick={() => togglePanel("toc")}
+          aria-label="Table of contents"
+          aria-pressed={activePanel === "toc"}><Icon icon={List} /></button
+        >
       {/if}
       <button
         class="icon"
