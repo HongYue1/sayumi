@@ -45,6 +45,48 @@ func TestDetectRoles(t *testing.T) {
 	}
 }
 
+func TestLooksVariable(t *testing.T) {
+	variable := [][]string{
+		{"Lora-VariableFont_wght.woff2"},
+		{"Lora-Italic-VariableFont_wght.woff2", "Lora-VariableFont_wght.woff2"},
+		{"Foo[wght].woff2"},
+		{"Bar-VF.woff2"},
+	}
+	for _, files := range variable {
+		if !looksVariable(files) {
+			t.Errorf("looksVariable(%v) = false, want true", files)
+		}
+	}
+	static := [][]string{
+		{"Bookerly-Regular.woff2", "Bookerly-Bold.woff2"},
+		{"Minion Pro Regular.woff2", "Minion Pro Bold.woff2"},
+	}
+	for _, files := range static {
+		if looksVariable(files) {
+			t.Errorf("looksVariable(%v) = true, want false", files)
+		}
+	}
+}
+
+func TestApplyVariableRoles(t *testing.T) {
+	// Two-file variable family: bold mirrors regular, bold-italic mirrors italic.
+	d := applyVariableRoles(DetectedRoles{Regular: "Regular.woff2", Italic: "Italic.woff2"})
+	if d.Bold != "Regular.woff2" || d.BoldItalic != "Italic.woff2" {
+		t.Errorf("mirror = %+v, want bold=Regular.woff2 boldItalic=Italic.woff2", d)
+	}
+	// Explicit bold / bold-italic files are preserved, not overwritten.
+	d2 := applyVariableRoles(DetectedRoles{Regular: "R", Italic: "I", Bold: "B", BoldItalic: "BI"})
+	if d2.Bold != "B" || d2.BoldItalic != "BI" {
+		t.Errorf("explicit roles overwritten: %+v", d2)
+	}
+	// Regular-only variable family (e.g. Lexend Deca): bold mirrors regular,
+	// italics stay empty (browser synthesizes the rare italic case).
+	d3 := applyVariableRoles(DetectedRoles{Regular: "Regular.woff2"})
+	if d3.Bold != "Regular.woff2" || d3.Italic != "" || d3.BoldItalic != "" {
+		t.Errorf("regular-only mirror = %+v", d3)
+	}
+}
+
 func TestParseUserFontPath(t *testing.T) {
 	tests := []struct {
 		path      string

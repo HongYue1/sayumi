@@ -40,6 +40,7 @@ type Family struct {
 	Category string        `json:"category"` // "serif" | "sans-serif"
 	Dir      string        `json:"-"`        // on-disk directory name (URL path segment)
 	Files    []string      `json:"files"`    // font file names, sorted
+	Variable bool          `json:"variable"` // variable family: one upright file covers regular+bold, one italic file covers italic+boldItalic
 	Detected DetectedRoles `json:"detected"` // best-effort role guess for UI pre-fill
 }
 
@@ -56,6 +57,9 @@ type DetectedRoles struct {
 type familyMeta struct {
 	Label    string `json:"label"`
 	Category string `json:"category"`
+	// Variable, when present in family.json, authoritatively marks the family
+	// as variable (overriding the looksVariable filename heuristic either way).
+	Variable *bool `json:"variable"`
 }
 
 // familyIndex is the set of font file names in one family, keyed for O(1)
@@ -276,6 +280,9 @@ func (s *Scanner) scanFamily(dirName string) (Family, bool) {
 
 	label := dirName
 	category := "serif"
+	// A variable family is guessed from filenames; an explicit "variable" in
+	// family.json overrides that heuristic either way.
+	variable := looksVariable(files)
 	if meta, ok := readFamilyMeta(famDir); ok {
 		if strings.TrimSpace(meta.Label) != "" {
 			label = strings.TrimSpace(meta.Label)
@@ -283,6 +290,14 @@ func (s *Scanner) scanFamily(dirName string) (Family, bool) {
 		if meta.Category == "serif" || meta.Category == "sans-serif" {
 			category = meta.Category
 		}
+		if meta.Variable != nil {
+			variable = *meta.Variable
+		}
+	}
+
+	detected := detectRoles(files)
+	if variable {
+		detected = applyVariableRoles(detected)
 	}
 
 	return Family{
@@ -291,7 +306,8 @@ func (s *Scanner) scanFamily(dirName string) (Family, bool) {
 		Category: category,
 		Dir:      dirName,
 		Files:    files,
-		Detected: detectRoles(files),
+		Variable: variable,
+		Detected: detected,
 	}, true
 }
 
@@ -305,6 +321,37 @@ func readFamilyMeta(famDir string) (familyMeta, bool) {
 		return familyMeta{}, false
 	}
 	return meta, true
+}
+
+// looksVariable reports whether the family's filenames look like variable
+// fonts (Google Fonts "VariableFont"/"[wght]"/"_wght" naming, or a "-VF"
+// suffix). It is only a fallback: an explicit "variable" in family.json wins.
+func looksVariable(files []string) bool {
+	for _, f := range files {
+		lower := strings.ToLower(f)
+		if strings.Contains(lower, "variablefont") ||
+			strings.Contains(lower, "[wght]") ||
+			strings.Contains(lower, "_wght") ||
+			strings.Contains(lower, "-vf.") {
+			return true
+		}
+	}
+	return false
+}
+
+// applyVariableRoles mirrors a variable family's single upright/italic files
+// into the bold slots when the user hasn't split them out. A variable file
+// carries the whole weight axis, so the upright file also serves bold and the
+// italic file also serves bold-italic — this is what lets the reader render a
+// real bold instead of synthesizing a faux (fake) bold for a two-file family.
+func applyVariableRoles(d DetectedRoles) DetectedRoles {
+	if d.Bold == "" {
+		d.Bold = d.Regular
+	}
+	if d.BoldItalic == "" {
+		d.BoldItalic = d.Italic
+	}
+	return d
 }
 
 // detectRoles guesses role→file from filename tokens. The four roles

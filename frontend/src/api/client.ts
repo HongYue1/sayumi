@@ -511,6 +511,11 @@ export interface UserFontFamily {
   label: string;
   category: "serif" | "sans-serif";
   files: string[];
+  /**
+   * A variable family: one upright file covers regular+bold and one italic
+   * file covers italic+boldItalic via a weight range (no synthesized bold).
+   */
+  variable: boolean;
   detected: FontRoleMap & {
     regular: string;
     italic: string;
