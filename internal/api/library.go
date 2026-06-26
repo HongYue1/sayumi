@@ -81,18 +81,23 @@ func filterAndSortBooks(books []BookResponse, q, sortField, order string) []Book
 	}
 
 	desc := strings.EqualFold(strings.TrimSpace(order), "desc")
-	// Precompute lowercased title keys once (O(N)) instead of lowercasing
-	// inside the comparator, which the stable sort calls O(N log N) times —
-	// each strings.ToLower allocating a fresh string. Keys are keyed by the
-	// stable book ID, not slice position, so they stay correct as the sort
-	// swaps elements; this keeps the in-place, no-clone sort below (no second
-	// []BookResponse is allocated). Title keys back the default/title sort and
-	// the author/progress tie-break, so they are always built.
-	lowerTitle := make(map[string]string, len(books))
-	for i := range books {
-		lowerTitle[books[i].ID] = strings.ToLower(books[i].Title)
-	}
+	// Lowercased title keys back the default/title sort and the author/progress
+	// tie-break, so they are precomputed once (O(N)) instead of lowercasing
+	// inside the comparator, which the stable sort would call O(N log N) times —
+	// each strings.ToLower allocating a fresh string. They are built lazily on
+	// first use so the "added" and "read" sorts (which never call byTitle) skip
+	// the map and per-title allocations entirely. Keys are keyed by the stable
+	// book ID, not slice position, so they stay correct as the sort swaps
+	// elements; this keeps the in-place, no-clone sort below (no second
+	// []BookResponse is allocated).
+	var lowerTitle map[string]string
 	byTitle := func(a, b BookResponse) int {
+		if lowerTitle == nil {
+			lowerTitle = make(map[string]string, len(books))
+			for i := range books {
+				lowerTitle[books[i].ID] = strings.ToLower(books[i].Title)
+			}
+		}
 		return cmp.Compare(lowerTitle[a.ID], lowerTitle[b.ID])
 	}
 

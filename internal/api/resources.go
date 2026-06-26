@@ -2,7 +2,6 @@ package api
 
 import (
 	"crypto/subtle"
-	"hash/fnv"
 	"io"
 	"log/slog"
 	"net/http"
@@ -39,9 +38,19 @@ func validResourceToken(fileHash, token string) bool {
 // fixed-width, quote-free token — a raw request path may contain a double
 // quote, which would otherwise break the ETag header grammar.
 func resourceETag(fileHash, resourcePath string) string {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(resourcePath))
-	return `"` + fileHash + ":" + strconv.FormatUint(h.Sum64(), 16) + `"`
+	// Inline FNV-1a over the path so this allocates nothing on the per-resource
+	// request path: hash/fnv's constructor escapes a hasher to the heap and
+	// h.Write([]byte(resourcePath)) copies the string, both avoidable here.
+	const (
+		fnvOffset64 = 14695981039346656037
+		fnvPrime64  = 1099511628211
+	)
+	var h uint64 = fnvOffset64
+	for i := range len(resourcePath) {
+		h ^= uint64(resourcePath[i])
+		h *= fnvPrime64
+	}
+	return `"` + fileHash + ":" + strconv.FormatUint(h, 16) + `"`
 }
 
 func getResourceHandler(deps *Dependencies) http.HandlerFunc {
