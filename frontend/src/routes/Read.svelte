@@ -376,6 +376,21 @@
       preloadBookmarksPanel();
     });
     return () => {
+      // SPA route changes that don't go through handleBack or a page
+      // visibilitychange (command-palette navigation, browser back, or a
+      // {#key bookId} remount) unmount the reader without flushing, dropping up
+      // to one save-interval of progress. Beacon the latest position on the way
+      // out, fire-and-forget like the page-hide path, and skip it when nothing
+      // changed since the last persisted save.
+      if (
+        bookLoaded &&
+        !isProgressDuplicate(
+          { chapter: saveData.chapter, percent: saveData.percent },
+          { chapter: lastPersistedChapter, percent: lastPersistedPercent },
+        )
+      ) {
+        beaconProgress(bookId, { ...saveData });
+      }
       cancelProgressSave();
       fetchAbort?.abort();
       if (highlightTimer) clearTimeout(highlightTimer);

@@ -1013,7 +1013,6 @@ import { createPagination } from "./pagination";
 
     updateBoundaryState();
     let handled = false;
-    const scrollMax = getScrollableMax();
 
     if (atTop && (e.key === "ArrowUp" || e.key === "PageUp")) {
       if (hasPrevChapter) {
@@ -1025,6 +1024,7 @@ import { createPagination } from "./pagination";
       (e.key === "ArrowDown" || e.key === "PageDown" || e.key === " ")
     ) {
       if (e.key !== " " || !e.shiftKey) {
+        const scrollMax = getScrollableMax();
         if (scrollMax <= 0 || window.scrollY >= scrollMax - 1) {
           if (hasNextChapter) {
             sendMessage({
