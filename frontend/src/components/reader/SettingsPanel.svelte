@@ -823,7 +823,6 @@
   .hint {
     font-size: var(--text-xs);
     color: var(--muted);
-    font-style: italic;
   }
   .row-disabled .label {
     color: var(--muted);
