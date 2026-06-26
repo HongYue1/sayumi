@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { TocEntry } from "~/api/client";
   import Icon from "~/lib/Icon.svelte";
-  import { Search, X } from "@lucide/svelte";
+  import { X } from "@lucide/svelte";
 
   interface Props {
     toc: TocEntry[];
@@ -173,7 +173,6 @@
     <p class="empty">No table of contents.</p>
   {:else}
     <div class="filter">
-      <Icon icon={Search} size={16} class="filter-icon" />
       <input
         bind:this={queryEl}
         bind:value={query}
@@ -280,10 +279,6 @@
     border-bottom: 1px solid var(--hairline);
     flex: 0 0 auto;
   }
-  .filter-icon {
-    color: var(--muted);
-    flex: 0 0 auto;
-  }
   .field {
     flex: 1;
     min-width: 0;
@@ -325,7 +320,7 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 0 var(--sp-2) var(--sp-8);
+    padding: var(--sp-3) var(--sp-2) var(--sp-8);
   }
   .sizer {
     position: relative;
