@@ -1,1 +1,5 @@
-{"label":"Spectral","category":"serif"}
+{
+  "label": "Spectral",
+  "category": "serif",
+  "variable": false
+}

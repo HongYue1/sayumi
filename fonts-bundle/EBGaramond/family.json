@@ -1,1 +1,5 @@
-{"label":"EB Garamond","category":"serif"}
+{
+  "label": "EB Garamond",
+  "category": "serif",
+  "variable": true
+}

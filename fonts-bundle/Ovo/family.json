@@ -1,1 +1,5 @@
-{"label":"Ovo","category":"serif"}
+{
+  "label": "Ovo",
+  "category": "serif",
+  "variable": false
+}

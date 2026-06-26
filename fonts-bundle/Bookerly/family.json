@@ -1,1 +1,5 @@
-{"label":"Bookerly","category":"serif"}
+{
+  "label": "Bookerly",
+  "category": "serif",
+  "variable": false
+}
