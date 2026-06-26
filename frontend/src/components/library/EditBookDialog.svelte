@@ -1,16 +1,11 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
-  import {
-    ApiError,
-    getCoverUrl,
-    uploadToGofile,
-    type BookMeta,
-  } from "~/api/client";
+  import { ApiError, getCoverUrl, type BookMeta } from "~/api/client";
   import { library } from "~/lib/library.svelte";
   import { toast } from "~/lib/toast.svelte";
   import { focusTrap } from "~/lib/focusTrap";
   import Icon from "~/lib/Icon.svelte";
-  import { X, ImageUp, UploadCloud, Copy, Check } from "@lucide/svelte";
+  import { X, ImageUp } from "@lucide/svelte";
 
   interface Props {
     book: BookMeta;
@@ -26,7 +21,9 @@
   // svelte-ignore state_referenced_locally
   const initialAuthor = book.author;
 
+  // svelte-ignore state_referenced_locally
   let title = $state(book.title);
+  // svelte-ignore state_referenced_locally
   let author = $state(book.author);
 
   let coverFile = $state<File | null>(null);
@@ -34,12 +31,6 @@
 
   let busy = $state(false);
   let error = $state<string | null>(null);
-
-  // gofile upload is independent of the Save action.
-  let gofileBusy = $state(false);
-  let gofileUrl = $state<string | null>(null);
-  let gofileError = $state<string | null>(null);
-  let copied = $state(false);
 
   const trimmedTitle = $derived(title.trim());
   const dirty = $derived(
@@ -93,31 +84,6 @@
     } catch (err) {
       error = err instanceof ApiError ? err.message : "Something went wrong.";
       busy = false;
-    }
-  }
-
-  async function doGofile(): Promise<void> {
-    gofileBusy = true;
-    gofileError = null;
-    try {
-      const { downloadPage } = await uploadToGofile(book.id);
-      gofileUrl = downloadPage;
-    } catch (err) {
-      gofileError =
-        err instanceof ApiError ? err.message : "Upload to gofile failed.";
-    } finally {
-      gofileBusy = false;
-    }
-  }
-
-  async function copyLink(): Promise<void> {
-    if (!gofileUrl) return;
-    try {
-      await navigator.clipboard.writeText(gofileUrl);
-      copied = true;
-      setTimeout(() => (copied = false), 1500);
-    } catch {
-      toast.show("Could not copy link");
     }
   }
 
@@ -196,46 +162,6 @@
         <span>Author</span>
         <input type="text" bind:value={author} maxlength="512" autocomplete="off" />
       </label>
-
-      <!-- gofile share: independent of Save, isolated so its own error/result
-           doesn't block editing metadata. Outbound upload of the .epub. -->
-      <div class="gofile">
-        <div class="gofile-head">
-          <span>Share .epub via gofile</span>
-          <button
-            type="button"
-            class="btn ghost"
-            onclick={doGofile}
-            disabled={gofileBusy}
-          >
-            <Icon icon={UploadCloud} size={16} />
-            {gofileBusy ? "Uploading…" : "Upload"}
-          </button>
-        </div>
-        <p class="hint">
-          Uploads the book file to gofile.io (anonymous). Anyone with the link
-          can download it.
-        </p>
-        {#if gofileUrl}
-          <div class="gofile-result">
-            <a href={gofileUrl} target="_blank" rel="noopener noreferrer"
-              >{gofileUrl}</a
-            >
-            <button
-              type="button"
-              class="icon-btn"
-              aria-label="Copy link"
-              title="Copy link"
-              onclick={copyLink}
-            >
-              <Icon icon={copied ? Check : Copy} size={15} />
-            </button>
-          </div>
-        {/if}
-        {#if gofileError}
-          <p class="note" role="alert">{gofileError}</p>
-        {/if}
-      </div>
 
       {#if error}
         <p class="error" role="alert">{error}</p>
@@ -410,63 +336,6 @@
     outline: none;
     border-color: var(--accent);
     box-shadow: var(--focus);
-  }
-
-  .gofile {
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-2);
-    padding: var(--sp-3);
-    border: 1px solid var(--hairline);
-    border-radius: var(--radius);
-    background: var(--surface);
-  }
-  .gofile-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--sp-3);
-  }
-  .gofile-head span {
-    font-size: var(--text-sm);
-    color: var(--fg);
-  }
-  .gofile-result {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    padding: var(--sp-2);
-    border-radius: var(--radius-sm);
-    background: var(--bg);
-    border: 1px solid var(--hairline);
-  }
-  .gofile-result a {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--accent);
-    font-size: var(--text-xs);
-  }
-  .icon-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    padding: 0.3rem;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    transition:
-      background var(--dur) var(--ease-out),
-      color var(--dur) var(--ease-out);
-  }
-  .icon-btn:hover {
-    background: var(--surface-hover);
-    color: var(--fg);
   }
 
   .error {
