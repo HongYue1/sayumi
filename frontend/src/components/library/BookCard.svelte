@@ -2,7 +2,7 @@
   import { getCoverUrl, type BookMeta, type FlairDef } from "~/api/client";
   import { findFlair, flairTextColor } from "~/lib/flairs";
   import Icon from "~/lib/Icon.svelte";
-  import { Trash2, Tag, Check, Pencil } from "@lucide/svelte";
+  import { Trash2, Tag, Check, Pencil, Settings, Share2 } from "@lucide/svelte";
 
   interface Props {
     book: BookMeta;
@@ -11,6 +11,7 @@
     onopen: (id: string) => void;
     onremove: (id: string) => void;
     onedit: (id: string) => void;
+    onshare: (id: string) => void;
     onsetflair: (bookId: string, flairId: string | null) => void;
   }
 
@@ -21,6 +22,7 @@
     onopen,
     onremove,
     onedit,
+    onshare,
     onsetflair,
   }: Props = $props();
   // One-shot entrance stagger: index is read once on mount by design (cards are
@@ -31,7 +33,7 @@
   const enterDelay = Math.min(index, 16) * 28;
 
   let coverFailed = $state(false);
-  let menuOpen = $state(false);
+  let openMenu = $state<"flair" | "actions" | null>(null);
   const showCover = $derived(book.hasCover && !coverFailed);
   const pct = $derived(
     Math.round(Math.max(0, Math.min(1, book.progress)) * 100),
@@ -42,31 +44,58 @@
   // ThemeDropdown) and fall back to the first item only when nothing is set.
   const hasActiveFlair = $derived(flairs.some((f) => f.id === book.flairId));
 
-  function remove(e: MouseEvent): void {
-    e.stopPropagation();
-    if (confirm(`Remove “${book.title}” from your library?`)) onremove(book.id);
-  }
-
-  function edit(e: MouseEvent): void {
-    e.stopPropagation();
-    onedit(book.id);
-  }
-
   let flairBtn = $state<HTMLButtonElement | null>(null);
+  let actionsBtn = $state<HTMLButtonElement | null>(null);
   let menuEl = $state<HTMLDivElement | null>(null);
+  // The trigger that owns the currently-open popover, so dismiss/Escape can
+  // restore focus to the right chip (gear or flair) regardless of which menu
+  // is open.
+  const activeTrigger = $derived(
+    openMenu === "flair"
+      ? flairBtn
+      : openMenu === "actions"
+        ? actionsBtn
+        : null,
+  );
   // Flip the flair popover inward when a card near the right/bottom viewport
   // edge would otherwise open it off-screen.
   let flipX = $state(false);
   let flipY = $state(false);
 
-  function toggleMenu(e: MouseEvent): void {
+  function toggleFlair(e: MouseEvent): void {
     e.stopPropagation();
-    menuOpen = !menuOpen;
+    openMenu = openMenu === "flair" ? null : "flair";
+  }
+
+  function toggleActions(e: MouseEvent): void {
+    e.stopPropagation();
+    openMenu = openMenu === "actions" ? null : "actions";
   }
 
   function closeMenu(restoreFocus = true): void {
-    menuOpen = false;
-    if (restoreFocus) flairBtn?.focus();
+    // Capture the trigger before clearing openMenu, since activeTrigger derives
+    // from it and would otherwise read null.
+    const trigger = activeTrigger;
+    openMenu = null;
+    if (restoreFocus) trigger?.focus();
+  }
+
+  function chooseEdit(e: MouseEvent): void {
+    e.stopPropagation();
+    closeMenu(false);
+    onedit(book.id);
+  }
+
+  function chooseShare(e: MouseEvent): void {
+    e.stopPropagation();
+    closeMenu(false);
+    onshare(book.id);
+  }
+
+  function chooseDelete(e: MouseEvent): void {
+    e.stopPropagation();
+    closeMenu(false);
+    if (confirm(`Remove “${book.title}” from your library?`)) onremove(book.id);
   }
 
   // Dismiss on outside-click / Escape via window listeners instead of a fixed
@@ -79,10 +108,10 @@
   // swallows the dismissing click (like the old scrim) so it doesn't fall
   // through and open a book.
   $effect(() => {
-    if (!menuOpen) return;
+    if (!openMenu) return;
     const onClick = (e: MouseEvent): void => {
       const t = e.target as Node | null;
-      if (menuEl?.contains(t) || flairBtn?.contains(t)) return;
+      if (menuEl?.contains(t) || activeTrigger?.contains(t)) return;
       e.preventDefault();
       e.stopPropagation();
       closeMenu(false);
@@ -107,7 +136,7 @@
   // menuOpen/menuEl only (never flipX/flipY), so applying a flip doesn't
   // re-trigger this effect.
   $effect(() => {
-    if (!menuOpen || !menuEl) {
+    if (!openMenu || !menuEl) {
       flipX = false;
       flipY = false;
       return;
@@ -227,20 +256,15 @@
        these buttons beneath the z-index:1 open-overlay and swallow their
        clicks + :hover. At card level they stay above the overlay (z-index:3). -->
   <button
-    class="chip-btn remove"
-    title="Remove"
-    aria-label="Remove book"
-    onclick={remove}
+    bind:this={actionsBtn}
+    class="chip-btn actions-btn"
+    title="Actions"
+    aria-label="Book actions"
+    aria-haspopup="menu"
+    aria-expanded={openMenu === "actions"}
+    onclick={toggleActions}
   >
-    <Icon icon={Trash2} size={15} />
-  </button>
-  <button
-    class="chip-btn edit"
-    title="Edit"
-    aria-label="Edit book"
-    onclick={edit}
-  >
-    <Icon icon={Pencil} size={15} />
+    <Icon icon={Settings} size={15} />
   </button>
   <button
     bind:this={flairBtn}
@@ -248,8 +272,8 @@
     title="Set flair"
     aria-label="Set flair"
     aria-haspopup="menu"
-    aria-expanded={menuOpen}
-    onclick={toggleMenu}
+    aria-expanded={openMenu === "flair"}
+    onclick={toggleFlair}
   >
     <Icon icon={Tag} size={15} />
   </button>
@@ -261,7 +285,7 @@
       </div>{/if}
   </div>
 
-  {#if menuOpen}
+  {#if openMenu === "flair"}
     <div
       bind:this={menuEl}
       class="flair-menu"
@@ -299,6 +323,54 @@
       {/each}
     </div>
   {/if}
+
+  {#if openMenu === "actions"}
+    <div
+      bind:this={menuEl}
+      class="actions-menu"
+      class:flip-x={flipX}
+      class:flip-y={flipY}
+      role="menu"
+      tabindex="-1"
+      aria-label="Book actions"
+      onkeydown={onMenuKeydown}
+    >
+      <button
+        class="menu-item"
+        role="menuitem"
+        tabindex="0"
+        {@attach (el) => (el as HTMLButtonElement).focus()}
+        onclick={chooseEdit}
+      >
+        <span class="menu-ico" aria-hidden="true"
+          ><Icon icon={Pencil} size={15} /></span
+        >
+        <span class="menu-label">Edit</span>
+      </button>
+      <button
+        class="menu-item"
+        role="menuitem"
+        tabindex="-1"
+        onclick={chooseShare}
+      >
+        <span class="menu-ico" aria-hidden="true"
+          ><Icon icon={Share2} size={15} /></span
+        >
+        <span class="menu-label">Share</span>
+      </button>
+      <button
+        class="menu-item danger"
+        role="menuitem"
+        tabindex="-1"
+        onclick={chooseDelete}
+      >
+        <span class="menu-ico" aria-hidden="true"
+          ><Icon icon={Trash2} size={15} /></span
+        >
+        <span class="menu-label">Delete</span>
+      </button>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -330,10 +402,11 @@
     contain-intrinsic-size: auto 320px;
   }
 
-  /* While its flair menu is open, drop containment on that one card so the
-     popover can overflow the card box (the menu element exists only while
-     open, so this targets exactly the active card). */
-  .card:has(.flair-menu) {
+  /* While a popover (flair or actions) is open, drop containment on that one
+     card so the menu can overflow the card box (the menu element exists only
+     while open, so this targets exactly the active card). */
+  .card:has(.flair-menu),
+  .card:has(.actions-menu) {
     content-visibility: visible;
   }
 
@@ -431,7 +504,7 @@
     background: var(--accent);
   }
 
-  /* Shared style for the two corner actions (remove + flair). */
+  /* Shared style for the two corner actions (gear + flair). */
   .chip-btn {
     position: absolute;
     /* Cover is full-bleed at the card's top edge, so corner buttons offset by
@@ -461,17 +534,11 @@
   .chip-btn:active {
     transform: scale(0.95);
   }
-  .remove {
+  /* The gear opens the actions menu (edit / share / delete) at top-right. */
+  .actions-btn {
     right: var(--sp-1);
   }
-  .remove:hover {
-    background: var(--danger-surface);
-  }
-  /* Edit sits just left of remove on the top-right of the cover. */
-  .edit {
-    right: calc(var(--sp-1) + 1.6rem + var(--sp-1));
-  }
-  .edit:hover {
+  .actions-btn:hover {
     background: color-mix(in srgb, #000 72%, transparent);
   }
   .flair-btn {
@@ -527,6 +594,29 @@
   .flair-menu.flip-x.flip-y {
     transform-origin: bottom right;
   }
+
+  /* The gear's actions menu mirrors the flair popover's framing but anchors to
+     the top-right (under the gear). It's right-anchored, so it only needs the
+     vertical flip near the viewport's bottom edge. */
+  .actions-menu {
+    position: absolute;
+    top: 2rem;
+    right: var(--sp-1);
+    z-index: 21;
+    min-width: 9rem;
+    padding: var(--sp-1);
+    background: var(--bg);
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius);
+    transform-origin: top right;
+    --menu-pop-y: -2px;
+    animation: app-menu-pop-in var(--dur-fast) var(--ease-out) both;
+  }
+  .actions-menu.flip-y {
+    top: auto;
+    bottom: calc(100% - 2rem);
+    transform-origin: bottom right;
+  }
   .menu-heading {
     margin: 0.1rem 0.4rem 0.3rem;
   }
@@ -572,6 +662,20 @@
   .menu-item .check {
     display: inline-flex;
     color: var(--accent);
+  }
+  .menu-item .menu-ico {
+    display: inline-flex;
+    flex-shrink: 0;
+    color: var(--muted);
+  }
+  .menu-item.danger {
+    color: var(--danger);
+  }
+  .menu-item.danger .menu-ico {
+    color: var(--danger);
+  }
+  .menu-item.danger:hover {
+    background: var(--danger-surface);
   }
 
   .meta {

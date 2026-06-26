@@ -10,6 +10,7 @@
   import ProfileMenu from "~/components/library/ProfileMenu.svelte";
   import ProfileDialog from "~/components/library/ProfileDialog.svelte";
   import EditBookDialog from "~/components/library/EditBookDialog.svelte";
+  import ShareDialog from "~/components/library/ShareDialog.svelte";
   import Icon from "~/lib/Icon.svelte";
   import { Plus, RefreshCw, ArrowUpDown, Check, X } from "@lucide/svelte";
 
@@ -33,6 +34,13 @@
   let editingId = $state<string | null>(null);
   const editingBook = $derived(
     editingId ? (library.books.find((b) => b.id === editingId) ?? null) : null,
+  );
+
+  // Same id-tracked pattern for the share dialog so it reflects live store
+  // updates and auto-closes if the book is removed.
+  let sharingId = $state<string | null>(null);
+  const sharingBook = $derived(
+    sharingId ? (library.books.find((b) => b.id === sharingId) ?? null) : null,
   );
 
   onMount(() => {
@@ -266,6 +274,7 @@
           onopen={openBook}
           onremove={(id) => library.remove(id)}
           onedit={(id) => (editingId = id)}
+          onshare={(id) => (sharingId = id)}
           onsetflair={(id, flairId) => library.setFlair(id, flairId)}
         />
       {/each}
@@ -282,6 +291,10 @@
 
   {#if editingBook}
     <EditBookDialog book={editingBook} onclose={() => (editingId = null)} />
+  {/if}
+
+  {#if sharingBook}
+    <ShareDialog book={sharingBook} onclose={() => (sharingId = null)} />
   {/if}
 
   {#if dragging}
