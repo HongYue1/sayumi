@@ -28,6 +28,10 @@ type BookResponse struct {
 	FlairID      string  `json:"flairId,omitempty"`
 	AddedAt      string  `json:"addedAt,omitempty"`
 	LastReadAt   string  `json:"lastReadAt,omitempty"`
+	// UpdatedAt is the books row's updated_at. The client appends it to the cover
+	// URL as ?v=<updatedAt> so an edited cover (which keeps the same path) busts
+	// the immutable browser cache; it also folds into the cover/detail ETags.
+	UpdatedAt    string  `json:"updatedAt,omitempty"`
 }
 
 type BookDetailResponse struct {
@@ -44,11 +48,15 @@ func calcProgress(chapter int, percent float64, chapterCount int) float64 {
 	return max(0, min(progress, 1))
 }
 
-func coverResponseETag(fileHash string) string {
+// coverResponseETag identifies a cover response. The cover bytes for a given
+// file_hash are immutable on import, but an in-place cover edit rewrites the
+// same file, so bookUpdatedAt (the books row's updated_at, bumped on edit) is
+// folded in to invalidate a non-versioned conditional request.
+func coverResponseETag(fileHash, bookUpdatedAt string) string {
 	if fileHash == "" {
 		return ""
 	}
-	return `"` + fileHash + ":cover" + `"`
+	return `"` + fileHash + ":" + bookUpdatedAt + ":cover" + `"`
 }
 
 const bookDetailCacheControl = "private, no-cache"
@@ -85,6 +93,7 @@ func bookResponseFromSummary(b storage.BookSummary) BookResponse {
 		Direction:    b.Direction,
 		ChapterCount: b.ChapterCount,
 		AddedAt:      b.CreatedAt,
+		UpdatedAt:    b.UpdatedAt,
 	}
 }
 
@@ -309,7 +318,7 @@ func getCoverHandler(_ *Dependencies) http.HandlerFunc {
 		// cache without revalidating) then skips the coverRoot.Open + Stat
 		// syscalls entirely. Mirrors the stat-light 304 path used for fonts.
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		if etag := coverResponseETag(book.FileHash); etag != "" {
+		if etag := coverResponseETag(book.FileHash, book.UpdatedAt); etag != "" {
 			w.Header().Set("ETag", etag)
 			if ifNoneMatchMatches(r, etag) {
 				w.WriteHeader(http.StatusNotModified)

@@ -9,6 +9,7 @@
   import ThemeDropdown from "~/components/library/ThemeDropdown.svelte";
   import ProfileMenu from "~/components/library/ProfileMenu.svelte";
   import ProfileDialog from "~/components/library/ProfileDialog.svelte";
+  import EditBookDialog from "~/components/library/EditBookDialog.svelte";
   import Icon from "~/lib/Icon.svelte";
   import { Plus, RefreshCw, ArrowUpDown, Check, X } from "@lucide/svelte";
 
@@ -25,6 +26,14 @@
   // inside the masthead, whose backdrop-filter would clip a fixed overlay to
   // the masthead box.
   let profileDialog = $state<"clone" | "delete" | null>(null);
+
+  // The book currently being edited, tracked by id so the open dialog reflects
+  // live store updates (and auto-closes if the book is removed) rather than
+  // pinning a stale snapshot.
+  let editingId = $state<string | null>(null);
+  const editingBook = $derived(
+    editingId ? (library.books.find((b) => b.id === editingId) ?? null) : null,
+  );
 
   onMount(() => {
     library.load();
@@ -256,6 +265,7 @@
           flairs={library.allFlairs}
           onopen={openBook}
           onremove={(id) => library.remove(id)}
+          onedit={(id) => (editingId = id)}
           onsetflair={(id, flairId) => library.setFlair(id, flairId)}
         />
       {/each}
@@ -268,6 +278,10 @@
       profileName={session.profile}
       onclose={() => (profileDialog = null)}
     />
+  {/if}
+
+  {#if editingBook}
+    <EditBookDialog book={editingBook} onclose={() => (editingId = null)} />
   {/if}
 
   {#if dragging}

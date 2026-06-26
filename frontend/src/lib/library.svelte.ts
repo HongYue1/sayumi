@@ -1,6 +1,8 @@
 import {
   getBooks,
   uploadBook,
+  updateBookMeta,
+  uploadCover,
   deleteBook,
   rescanLibrary,
   getFlairs,
@@ -261,6 +263,36 @@ class Library {
       toast.show(
         `${failed} ${failed === 1 ? "file" : "files"} failed to import`,
       );
+  }
+
+  /** Edits a book's title/author with an optimistic update + rollback. Resolves
+   *  with the server's refreshed record; rejects (after rollback) so the caller
+   *  dialog can surface the error inline instead of a toast. */
+  async editMetadata(
+    id: string,
+    patch: { title?: string; author?: string },
+  ): Promise<void> {
+    const prev = this.books;
+    this.books = this.books.map((b) => (b.id === id ? { ...b, ...patch } : b));
+    try {
+      const updated = await updateBookMeta(id, patch);
+      // Reconcile with the server's canonical record (e.g. trimmed values,
+      // bumped updatedAt) and drop the stale search haystack for this book.
+      this.books = this.books.map((b) => (b.id === id ? updated : b));
+      this.hayCache.delete(id);
+    } catch (e) {
+      this.books = prev;
+      throw e;
+    }
+  }
+
+  /** Replaces a book's cover from an image file. Resolves once the grid reflects
+   *  the new cover; rejects so the caller dialog can surface the error. No
+   *  optimistic preview — the server normalizes the image, and the returned
+   *  updatedAt is what busts the cover cache. */
+  async replaceCover(id: string, file: File): Promise<void> {
+    const updated = await uploadCover(id, file);
+    this.books = this.books.map((b) => (b.id === id ? updated : b));
   }
 
   async remove(id: string): Promise<void> {

@@ -307,6 +307,24 @@ func (db *DB) UpdateBookCoverContext(ctx context.Context, id, coverPath string) 
 	return nil
 }
 
+// UpdateBookMetadataContext updates the user-editable bibliographic fields
+// (title, author) for a book and bumps updated_at so the book-list cache and
+// the cover/detail ETags (which fold updated_at) invalidate. It touches neither
+// the cover nor the file columns.
+func (db *DB) UpdateBookMetadataContext(ctx context.Context, id, title, author string) error {
+	db.writeMu.Lock()
+	defer db.writeMu.Unlock()
+
+	_, err := db.ExecContext(ctx, `
+		UPDATE books SET title = ?, author = ?, updated_at = datetime('now')
+		WHERE id = ?
+	`, title, author, id)
+	if err != nil {
+		return fmt.Errorf("update metadata for %s: %w", id, err)
+	}
+	return nil
+}
+
 // MarkCoverCheckedContext records that the scanner has resolved a book's cover
 // state (extracted one, or determined none is available/renderable) without
 // setting a cover_path. The post-walk cover backfill skips rows where

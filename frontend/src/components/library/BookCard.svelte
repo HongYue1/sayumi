@@ -2,7 +2,7 @@
   import { getCoverUrl, type BookMeta, type FlairDef } from "~/api/client";
   import { findFlair, flairTextColor } from "~/lib/flairs";
   import Icon from "~/lib/Icon.svelte";
-  import { Trash2, Tag, Check } from "@lucide/svelte";
+  import { Trash2, Tag, Check, Pencil } from "@lucide/svelte";
 
   interface Props {
     book: BookMeta;
@@ -10,6 +10,7 @@
     index?: number;
     onopen: (id: string) => void;
     onremove: (id: string) => void;
+    onedit: (id: string) => void;
     onsetflair: (bookId: string, flairId: string | null) => void;
   }
 
@@ -19,6 +20,7 @@
     index = 0,
     onopen,
     onremove,
+    onedit,
     onsetflair,
   }: Props = $props();
   // One-shot entrance stagger: index is read once on mount by design (cards are
@@ -43,6 +45,11 @@
   function remove(e: MouseEvent): void {
     e.stopPropagation();
     if (confirm(`Remove “${book.title}” from your library?`)) onremove(book.id);
+  }
+
+  function edit(e: MouseEvent): void {
+    e.stopPropagation();
+    onedit(book.id);
   }
 
   let flairBtn = $state<HTMLButtonElement | null>(null);
@@ -185,7 +192,7 @@
   <div class="cover">
     {#if showCover}
       <img
-        src={getCoverUrl(book.id)}
+        src={getCoverUrl(book.id, book.updatedAt)}
         alt=""
         loading={index < 8 ? "eager" : "lazy"}
         fetchpriority={index === 0 ? "high" : undefined}
@@ -226,6 +233,14 @@
     onclick={remove}
   >
     <Icon icon={Trash2} size={15} />
+  </button>
+  <button
+    class="chip-btn edit"
+    title="Edit"
+    aria-label="Edit book"
+    onclick={edit}
+  >
+    <Icon icon={Pencil} size={15} />
   </button>
   <button
     bind:this={flairBtn}
@@ -451,6 +466,13 @@
   }
   .remove:hover {
     background: var(--danger-surface);
+  }
+  /* Edit sits just left of remove on the top-right of the cover. */
+  .edit {
+    right: calc(var(--sp-1) + 1.6rem + var(--sp-1));
+  }
+  .edit:hover {
+    background: color-mix(in srgb, #000 72%, transparent);
   }
   .flair-btn {
     left: var(--sp-1);
