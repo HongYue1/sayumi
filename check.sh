@@ -58,13 +58,23 @@ $(echo "$tidy_diff" | sed 's/^/       /')"
 fi
 
 # ── 3. formatting (read-only) ────────────────────────────────────────────────
+# gofumpt is a strict superset of gofmt, and goimports also covers gofmt-level
+# formatting, so we never stack a plain-gofmt pass on top of either:
+#   * gofumpt present        -> gofumpt -l (its superset rules)
+#   * only goimports present -> goimports -l already covers gofmt-level
+#   * neither present        -> fall back to gofmt -l
 step "3. Go formatting"
-fmt_tool="gofmt"; have gofumpt && fmt_tool="gofumpt"
-unformatted="$($fmt_tool -l cmd internal 2>/dev/null)"
-[[ -z "$unformatted" ]] && ok "$fmt_tool: all files formatted" || fail "$fmt_tool: needs formatting:
+if have gofumpt; then
+  unformatted="$(gofumpt -l cmd internal 2>/dev/null)"
+  [[ -z "$unformatted" ]] && ok "gofumpt: all files formatted" || fail "gofumpt: needs formatting:
 $(echo "$unformatted" | sed 's/^/       /')"
+elif ! have goimports; then
+  unformatted="$(gofmt -l cmd internal 2>/dev/null)"
+  [[ -z "$unformatted" ]] && ok "gofmt: all files formatted" || fail "gofmt: needs formatting:
+$(echo "$unformatted" | sed 's/^/       /')"
+fi
 if have goimports; then
-  unorganized="$(goimports -l cmd internal 2>/dev/null)"
+  unorganized="$(goimports -l -local sayumi cmd internal 2>/dev/null)"
   [[ -z "$unorganized" ]] && ok "goimports: imports organized" || fail "goimports: needs organizing:
 $(echo "$unorganized" | sed 's/^/       /')"
 else

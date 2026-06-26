@@ -12,17 +12,22 @@ skip() { echo "   ${dim}– skipped: $*${reset}"; }
 step() { echo; echo "${bold}$*${reset}"; }
 have() { command -v "$1" &>/dev/null; }
 
-step "1. Imports & formatting"
-if have goimports; then goimports -w cmd internal && ok "goimports -w"; else
-  gofmt -w cmd internal && ok "gofmt -w"; skip "goimports"; fi
-if have gofumpt; then gofumpt -w cmd internal && ok "gofumpt -w"; else skip "gofumpt"; fi
-
-step "2. Modernizations (go fix)"
+step "1. Modernizations (go fix)"
 go fix ./... >/dev/null 2>&1 && ok "go fix"
 
-step "3. golangci-lint --fix"
+step "2. golangci-lint --fix"
 if have golangci-lint; then golangci-lint run ./... --fix --timeout=5m || true; ok "lint --fix"; else
   skip "golangci-lint"; fi
+
+# Formatting runs LAST: go fix and golangci --fix can emit code that isn't
+# gofumpt-clean, so format after them to hand check.sh a fully-formatted tree.
+# gofumpt is a strict superset of gofmt, so gofmt only runs as a true last
+# resort (neither goimports nor gofumpt present) — never stacked on gofumpt.
+step "3. Imports & formatting"
+if have goimports; then goimports -w -local sayumi cmd internal && ok "goimports -w"; else skip "goimports (imports not auto-managed)"; fi
+if have gofumpt; then gofumpt -w cmd internal && ok "gofumpt -w";
+elif ! have goimports; then gofmt -w cmd internal && ok "gofmt -w (fallback)";
+else skip "gofumpt"; fi
 
 step "4. go mod tidy"
 go mod tidy && ok "tidy"
