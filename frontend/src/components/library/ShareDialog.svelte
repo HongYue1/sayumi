@@ -20,8 +20,8 @@
   // streams the .epub with Content-Disposition: attachment, so the browser
   // saves it without any JS. The download attribute is just a filename hint;
   // the server's Content-Disposition is authoritative.
-  const downloadUrl = getDownloadUrl(book.id);
-  const downloadName = `${book.title || "book"}.epub`;
+  const downloadUrl = $derived(getDownloadUrl(book.id));
+  const downloadName = $derived(`${book.title || "book"}.epub`);
 
   let busy = $state(false);
   let url = $state<string | null>(null);
