@@ -26,14 +26,14 @@ Library view:
 ### Typography and themes
 
 - Two reading fonts built into the binary: Literata (serif) and Atkinson Hyperlegible Next (sans-serif).
-- Drop-in font families from a `Fonts` folder, including variable fonts, with per-role file mapping for regular, bold, italic, and bold italic.
+- Drop-in font families from a `Fonts` folder, including variable fonts, with per-role file mapping for regular, bold, italic, and bold italic (Total 29 Reading fonts bundled).
 - Text controls for font size, line height, paragraph spacing, paragraph indent, font weight, justification, and hyphenation.
 - Independent letter-spacing controls for body text and for headings.
 - Dedicated chapter-title controls: alignment, size, weight, and per-heading sizing.
 - Code blocks fall back to the browser's monospace font instead of the reading font.
 - Optional "use the book's own fonts" mode that keeps the publisher's styling.
 - A built-in type specimen page for tuning settings against real sample text.
-- 26 light and dark themes, including Solarized, Nord, Dracula, Gruvbox, Catppuccin, Tokyo Night, Rosé Pine, Everforest, Flexoki, and Kanagawa.
+- 25 light and dark themes, including Solarized, Nord, Dracula, Gruvbox, Catppuccin, Tokyo Night, Rosé Pine, Everforest, Flexoki, and Kanagawa.
 
 ### Library
 
@@ -60,10 +60,8 @@ Library view:
 
 ## Quick start
 
-```sh
-./build.sh        # build an optimized ./sayumi (frontend plus binary)
-./sayumi          # run it; your browser opens automatically
-```
+- Download the correct excutable for your pc from the release page: https://github.com/HongYue1/sayumi/releases/latest
+- launch the executable normally
 
 Add books by dropping `.epub` files into the `Library` folder next to the binary, or by uploading them in the app. Extra reading fonts go in the `Fonts` folder next to the binary; see the README inside that folder for the expected layout.
 
@@ -73,18 +71,18 @@ Add books by dropping `.epub` files into the `Library` folder next to the binary
 sayumi [flags]
 ```
 
-| Flag | Default | Description |
-| --- | --- | --- |
-| `-port` | `8080` | Port to listen on. |
-| `-library` | `./Library` | Path to the library root directory. |
-| `-fonts` | `./Fonts` | Path to the user fonts directory. |
-| `-network` | `false` | Allow LAN access by binding to `0.0.0.0`. |
-| `-debug` | `false` | Enable verbose debug logging. |
-| `-version` | | Print version and exit. |
-| `-pprof` | `false` | Expose `net/http/pprof` on localhost for diagnostics. |
-| `-pprof-port` | `6060` | Port for the localhost-only pprof server. |
-| `-cpuprofile` | | Write a CPU profile to the given file. |
-| `-trace` | | Write an execution trace to the given file. |
+| Flag          | Default     | Description                                           |
+| ------------- | ----------- | ----------------------------------------------------- |
+| `-port`       | `8080`      | Port to listen on.                                    |
+| `-library`    | `./Library` | Path to the library root directory.                   |
+| `-fonts`      | `./Fonts`   | Path to the user fonts directory.                     |
+| `-network`    | `false`     | Allow LAN access by binding to `0.0.0.0`.             |
+| `-debug`      | `false`     | Enable verbose debug logging.                         |
+| `-version`    |             | Print version and exit.                               |
+| `-pprof`      | `false`     | Expose `net/http/pprof` on localhost for diagnostics. |
+| `-pprof-port` | `6060`      | Port for the localhost-only pprof server.             |
+| `-cpuprofile` |             | Write a CPU profile to the given file.                |
+| `-trace`      |             | Write an execution trace to the given file.           |
 
 The library path can also be set with the `SAYUMI_LIBRARY` environment variable. While the server is running, press `n` to toggle LAN access and `q` to quit.
 
