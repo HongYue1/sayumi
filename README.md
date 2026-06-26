@@ -61,7 +61,7 @@ Library view:
 ## Quick start
 
 - Download the correct excutable for your pc from the release page: https://github.com/HongYue1/sayumi/releases/latest
-- launch the executable normally
+- Launch the executable normally
 
 Add books by dropping `.epub` files into the `Library` folder next to the binary, or by uploading them in the app. Extra reading fonts go in the `Fonts` folder next to the binary; see the README inside that folder for the expected layout.
 
