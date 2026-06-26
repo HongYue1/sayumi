@@ -220,7 +220,7 @@
   {/if}
 
   {#if library.loading}
-    <p class="state">Loading…</p>
+    <p class="state" role="status">Loading…</p>
   {:else if library.books.length === 0}
     <div class="empty">
       <p>Your library is empty.</p>
@@ -237,7 +237,7 @@
       </p>
     </div>
   {:else if library.visible.length === 0}
-    <div class="noresults">
+    <div class="noresults" role="status">
       <p class="state">No books match your search or filters.</p>
       <button
         class="clear-filters"
