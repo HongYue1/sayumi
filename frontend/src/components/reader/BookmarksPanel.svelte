@@ -84,8 +84,7 @@
                   placeholder="Note…"
                   rows="3"
                   aria-label="Bookmark note"
-                  onkeydown={(e) => onEditKey(e, bm.id)}
-                ></textarea>
+                  onkeydown={(e) => onEditKey(e, bm.id)}></textarea>
                 <div class="actions">
                   <button class="primary" onclick={() => saveEdit(bm.id)}
                     >Save</button
