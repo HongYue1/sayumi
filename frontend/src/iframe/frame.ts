@@ -658,6 +658,12 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       css.push(
         `body, body * { font-family: ${settings.fontFamily} !important; }`,
       );
+      // Code is meant to be monospaced: exempt it from the reader font and fall
+      // back to the browser's default monospace face. Same specificity as the
+      // `body *` rule above but emitted later, so it wins for code/pre subtrees.
+      css.push(
+        "body pre, body code, body kbd, body samp, body pre * { font-family: monospace !important; }",
+      );
     }
 
     css.push(`body { font-size: ${settings.fontSize}px !important; }`);
@@ -674,6 +680,14 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       css.push(
         `p { text-indent: ${settings.textIndent}em !important; }`,
         "p:first-child, h1+p, h2+p, h3+p, h4+p, h5+p, h6+p, hr+p, blockquote+p, figure+p { text-indent: 0 !important; }",
+      );
+    }
+    if (settings.letterSpacing != null) {
+      // Body letter-spacing. Headings keep their own value: a heading's direct
+      // letter-spacing rule (frame.css, or headingLetterSpacing below) beats
+      // this inherited one, so the two controls stay independent.
+      css.push(
+        `body { letter-spacing: ${settings.letterSpacing}em !important; }`,
       );
     }
 
@@ -693,6 +707,11 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     if (settings.chapterTitleAlign != null) {
       css.push(
         `h1, h2, h3, h4, h5, h6 { text-align: ${settings.chapterTitleAlign} !important; }`,
+      );
+    }
+    if (settings.headingLetterSpacing != null) {
+      css.push(
+        `h1, h2, h3, h4, h5, h6 { letter-spacing: ${settings.headingLetterSpacing}em !important; }`,
       );
     }
     if (settings.headerSizesEnabled) {
