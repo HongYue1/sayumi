@@ -165,7 +165,7 @@ func (db *DB) migrate() error {
 	// CREATE TABLE IF NOT EXISTS above is a no-op on such DBs, so new columns
 	// must be added explicitly. ADD COLUMN is idempotent here via the guard.
 	// Read each table's existing columns once rather than re-querying
-	// pragma_table_info for every column migration (10 of the 11 migrations
+	// pragma_table_info for every column migration (12 of the 13 migrations
 	// target the same `settings` table).
 	tableCols := make(map[string]map[string]bool)
 	for _, mig := range columnMigrations {
@@ -214,6 +214,8 @@ var columnMigrations = []columnMigration{
 	{table: "settings", column: "h6_size", definition: "INTEGER"},
 	{table: "settings", column: "header_weight", definition: "INTEGER"},
 	{table: "settings", column: "text_weight", definition: "INTEGER"},
+	{table: "settings", column: "letter_spacing", definition: "REAL"},
+	{table: "settings", column: "heading_letter_spacing", definition: "REAL"},
 	// cover_checked records whether the library scanner has already resolved this
 	// book's cover (extracted one, or determined none is available). The post-walk
 	// cover backfill only revisits rows where it is 0, so a cover-less or skipped
@@ -325,6 +327,7 @@ CREATE TABLE IF NOT EXISTS settings (
 	line_height           REAL,
 	paragraph_spacing     REAL,
 	text_indent           REAL,
+	letter_spacing        REAL,
 	content_width         INTEGER,
 	display_mode          TEXT,
 	margin_top            INTEGER,
@@ -338,6 +341,7 @@ CREATE TABLE IF NOT EXISTS settings (
 	chapter_title_align   TEXT,
 	chapter_title_size    INTEGER,
 	chapter_title_spacing REAL,
+	heading_letter_spacing REAL,
 	header_sizes_enabled  INTEGER,
 	h1_size               INTEGER,
 	h2_size               INTEGER,

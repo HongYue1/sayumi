@@ -13,33 +13,35 @@ import (
 )
 
 type settingsJSON struct {
-	FontSize            int      `json:"fontSize"`
-	FontFamily          string   `json:"fontFamily"`
-	LineHeight          *float64 `json:"lineHeight"`
-	ParagraphSpacing    *float64 `json:"paragraphSpacing"`
-	TextIndent          *float64 `json:"textIndent"`
-	ContentWidth        *int     `json:"contentWidth"`
-	DisplayMode         string   `json:"displayMode"`
-	MarginTop           *int     `json:"marginTop"`
-	MarginBottom        *int     `json:"marginBottom"`
-	MarginSide          *int     `json:"marginSide"`
-	PreserveStyles      bool     `json:"preserveStyles"`
-	PreserveFonts       bool     `json:"preserveFonts"`
-	Justify             bool     `json:"justify"`
-	Hyphenation         bool     `json:"hyphenation"`
-	Theme               string   `json:"theme"`
-	ChapterTitleAlign   *string  `json:"chapterTitleAlign"`
-	ChapterTitleSize    *int     `json:"chapterTitleSize"`
-	ChapterTitleSpacing *float64 `json:"chapterTitleSpacing"`
-	HeaderSizesEnabled  bool     `json:"headerSizesEnabled"`
-	H1Size              *int     `json:"h1Size"`
-	H2Size              *int     `json:"h2Size"`
-	H3Size              *int     `json:"h3Size"`
-	H4Size              *int     `json:"h4Size"`
-	H5Size              *int     `json:"h5Size"`
-	H6Size              *int     `json:"h6Size"`
-	HeaderWeight        *int     `json:"headerWeight"`
-	TextWeight          *int     `json:"textWeight"`
+	FontSize             int      `json:"fontSize"`
+	FontFamily           string   `json:"fontFamily"`
+	LineHeight           *float64 `json:"lineHeight"`
+	ParagraphSpacing     *float64 `json:"paragraphSpacing"`
+	TextIndent           *float64 `json:"textIndent"`
+	LetterSpacing        *float64 `json:"letterSpacing"`
+	ContentWidth         *int     `json:"contentWidth"`
+	DisplayMode          string   `json:"displayMode"`
+	MarginTop            *int     `json:"marginTop"`
+	MarginBottom         *int     `json:"marginBottom"`
+	MarginSide           *int     `json:"marginSide"`
+	PreserveStyles       bool     `json:"preserveStyles"`
+	PreserveFonts        bool     `json:"preserveFonts"`
+	Justify              bool     `json:"justify"`
+	Hyphenation          bool     `json:"hyphenation"`
+	Theme                string   `json:"theme"`
+	ChapterTitleAlign    *string  `json:"chapterTitleAlign"`
+	ChapterTitleSize     *int     `json:"chapterTitleSize"`
+	ChapterTitleSpacing  *float64 `json:"chapterTitleSpacing"`
+	HeadingLetterSpacing *float64 `json:"headingLetterSpacing"`
+	HeaderSizesEnabled   bool     `json:"headerSizesEnabled"`
+	H1Size               *int     `json:"h1Size"`
+	H2Size               *int     `json:"h2Size"`
+	H3Size               *int     `json:"h3Size"`
+	H4Size               *int     `json:"h4Size"`
+	H5Size               *int     `json:"h5Size"`
+	H6Size               *int     `json:"h6Size"`
+	HeaderWeight         *int     `json:"headerWeight"`
+	TextWeight           *int     `json:"textWeight"`
 	// FontRoles maps a font family id -> the file chosen for each role. Only
 	// meaningful for user-supplied (./Fonts/) families; embedded fonts ignore it.
 	FontRoles map[string]fontRoleEntry `json:"fontRoles"`
@@ -104,6 +106,7 @@ func recordToJSON(s storage.SettingsRecord) settingsJSON {
 	j.LineHeight = nullFloat64ToPtr(s.LineHeight)
 	j.ParagraphSpacing = nullFloat64ToPtr(s.ParagraphSpacing)
 	j.TextIndent = nullFloat64ToPtr(s.TextIndent)
+	j.LetterSpacing = nullFloat64ToPtr(s.LetterSpacing)
 	j.ContentWidth = nullInt64ToIntPtr(s.ContentWidth)
 	// Only override the fresh-profile defaults above when a value is actually
 	// stored; a NULL column (no row yet, or a row saved without margins) must
@@ -120,6 +123,7 @@ func recordToJSON(s storage.SettingsRecord) settingsJSON {
 	j.ChapterTitleAlign = nullStringToPtr(s.ChapterTitleAlign)
 	j.ChapterTitleSize = nullInt64ToIntPtr(s.ChapterTitleSize)
 	j.ChapterTitleSpacing = nullFloat64ToPtr(s.ChapterTitleSpacing)
+	j.HeadingLetterSpacing = nullFloat64ToPtr(s.HeadingLetterSpacing)
 	if s.HeaderSizesEnabled.Valid {
 		j.HeaderSizesEnabled = s.HeaderSizesEnabled.Bool
 	}
@@ -246,6 +250,9 @@ func validateSettings(j *settingsJSON) (string, bool) {
 	if j.TextIndent != nil && (*j.TextIndent < 0 || *j.TextIndent > 5.0) {
 		return "textIndent must be 0-5.0", false
 	}
+	if j.LetterSpacing != nil && (*j.LetterSpacing < -0.5 || *j.LetterSpacing > 1.0) {
+		return "letterSpacing must be -0.5-1.0", false
+	}
 	if j.ContentWidth != nil && (*j.ContentWidth < 40 || *j.ContentWidth > 100) {
 		return "contentWidth must be 40-100", false
 	}
@@ -266,6 +273,9 @@ func validateSettings(j *settingsJSON) (string, bool) {
 	}
 	if j.ChapterTitleSpacing != nil && (*j.ChapterTitleSpacing < 0 || *j.ChapterTitleSpacing > 5.0) {
 		return "chapterTitleSpacing must be 0-5.0", false
+	}
+	if j.HeadingLetterSpacing != nil && (*j.HeadingLetterSpacing < -0.5 || *j.HeadingLetterSpacing > 1.0) {
+		return "headingLetterSpacing must be -0.5-1.0", false
 	}
 	for _, hs := range []*int{j.H1Size, j.H2Size, j.H3Size, j.H4Size, j.H5Size, j.H6Size} {
 		if hs != nil && (*hs < 10 || *hs > 100) {
@@ -366,35 +376,37 @@ func putSettingsHandler(_ *Dependencies) http.HandlerFunc {
 		}
 
 		record := storage.SettingsRecord{
-			UserID:              userID,
-			FontSize:            sql.NullInt64{Int64: int64(j.FontSize), Valid: true},
-			FontFamily:          sql.NullString{String: j.FontFamily, Valid: j.FontFamily != ""},
-			DisplayMode:         sql.NullString{String: j.DisplayMode, Valid: true},
-			Theme:               sql.NullString{String: j.Theme, Valid: true},
-			PreserveStyles:      sql.NullBool{Bool: j.PreserveStyles, Valid: true},
-			PreserveFonts:       sql.NullBool{Bool: j.PreserveFonts, Valid: true},
-			Justify:             sql.NullBool{Bool: j.Justify, Valid: true},
-			Hyphenation:         sql.NullBool{Bool: j.Hyphenation, Valid: true},
-			LineHeight:          ptrToNullFloat64(j.LineHeight),
-			ParagraphSpacing:    ptrToNullFloat64(j.ParagraphSpacing),
-			TextIndent:          ptrToNullFloat64(j.TextIndent),
-			ContentWidth:        ptrToNullInt64(j.ContentWidth),
-			MarginTop:           ptrToNullInt64(j.MarginTop),
-			MarginBottom:        ptrToNullInt64(j.MarginBottom),
-			MarginSide:          ptrToNullInt64(j.MarginSide),
-			ChapterTitleAlign:   ptrToNullString(j.ChapterTitleAlign),
-			ChapterTitleSize:    ptrToNullInt64(j.ChapterTitleSize),
-			ChapterTitleSpacing: ptrToNullFloat64(j.ChapterTitleSpacing),
-			HeaderSizesEnabled:  sql.NullBool{Bool: j.HeaderSizesEnabled, Valid: true},
-			H1Size:              ptrToNullInt64(j.H1Size),
-			H2Size:              ptrToNullInt64(j.H2Size),
-			H3Size:              ptrToNullInt64(j.H3Size),
-			H4Size:              ptrToNullInt64(j.H4Size),
-			H5Size:              ptrToNullInt64(j.H5Size),
-			H6Size:              ptrToNullInt64(j.H6Size),
-			HeaderWeight:        ptrToNullInt64(j.HeaderWeight),
-			TextWeight:          ptrToNullInt64(j.TextWeight),
-			FontRoles:           sql.NullString{String: fontRolesJSON, Valid: true},
+			UserID:               userID,
+			FontSize:             sql.NullInt64{Int64: int64(j.FontSize), Valid: true},
+			FontFamily:           sql.NullString{String: j.FontFamily, Valid: j.FontFamily != ""},
+			DisplayMode:          sql.NullString{String: j.DisplayMode, Valid: true},
+			Theme:                sql.NullString{String: j.Theme, Valid: true},
+			PreserveStyles:       sql.NullBool{Bool: j.PreserveStyles, Valid: true},
+			PreserveFonts:        sql.NullBool{Bool: j.PreserveFonts, Valid: true},
+			Justify:              sql.NullBool{Bool: j.Justify, Valid: true},
+			Hyphenation:          sql.NullBool{Bool: j.Hyphenation, Valid: true},
+			LineHeight:           ptrToNullFloat64(j.LineHeight),
+			ParagraphSpacing:     ptrToNullFloat64(j.ParagraphSpacing),
+			TextIndent:           ptrToNullFloat64(j.TextIndent),
+			LetterSpacing:        ptrToNullFloat64(j.LetterSpacing),
+			ContentWidth:         ptrToNullInt64(j.ContentWidth),
+			MarginTop:            ptrToNullInt64(j.MarginTop),
+			MarginBottom:         ptrToNullInt64(j.MarginBottom),
+			MarginSide:           ptrToNullInt64(j.MarginSide),
+			ChapterTitleAlign:    ptrToNullString(j.ChapterTitleAlign),
+			ChapterTitleSize:     ptrToNullInt64(j.ChapterTitleSize),
+			ChapterTitleSpacing:  ptrToNullFloat64(j.ChapterTitleSpacing),
+			HeadingLetterSpacing: ptrToNullFloat64(j.HeadingLetterSpacing),
+			HeaderSizesEnabled:   sql.NullBool{Bool: j.HeaderSizesEnabled, Valid: true},
+			H1Size:               ptrToNullInt64(j.H1Size),
+			H2Size:               ptrToNullInt64(j.H2Size),
+			H3Size:               ptrToNullInt64(j.H3Size),
+			H4Size:               ptrToNullInt64(j.H4Size),
+			H5Size:               ptrToNullInt64(j.H5Size),
+			H6Size:               ptrToNullInt64(j.H6Size),
+			HeaderWeight:         ptrToNullInt64(j.HeaderWeight),
+			TextWeight:           ptrToNullInt64(j.TextWeight),
+			FontRoles:            sql.NullString{String: fontRolesJSON, Valid: true},
 		}
 
 		if err := pd.DB.SaveSettingsContext(r.Context(), record); err != nil {

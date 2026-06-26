@@ -18,6 +18,7 @@ export interface IframeSettings {
   lineHeight: number | null;
   paragraphSpacing: number | null;
   textIndent: number | null;
+  letterSpacing: number | null;
   contentWidth: number | null;
   margins: { top: number | null; bottom: number | null; side: number | null };
   justify: boolean;
@@ -26,6 +27,7 @@ export interface IframeSettings {
   chapterTitleAlign: "left" | "center" | "right" | null;
   chapterTitleSize: number | null;
   chapterTitleSpacing: number | null;
+  headingLetterSpacing: number | null;
   headerSizesEnabled: boolean;
   h1Size: number | null;
   h2Size: number | null;
@@ -43,6 +45,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   lineHeight: null,
   paragraphSpacing: null,
   textIndent: 0,
+  letterSpacing: null,
   contentWidth: null,
   displayMode: "scroll",
   marginTop: 48,
@@ -56,6 +59,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   chapterTitleAlign: "center",
   chapterTitleSize: 48,
   chapterTitleSpacing: 1,
+  headingLetterSpacing: null,
   headerSizesEnabled: false,
   h1Size: null,
   h2Size: null,
@@ -86,6 +90,7 @@ export function toIframeSettings(s: UserSettings): IframeSettings {
     lineHeight: s.lineHeight,
     paragraphSpacing: s.paragraphSpacing,
     textIndent: s.textIndent,
+    letterSpacing: s.letterSpacing,
     contentWidth: s.contentWidth,
     margins: { top: s.marginTop, bottom: s.marginBottom, side: s.marginSide },
     justify: s.justify,
@@ -94,6 +99,7 @@ export function toIframeSettings(s: UserSettings): IframeSettings {
     chapterTitleAlign: s.chapterTitleAlign,
     chapterTitleSize: s.chapterTitleSize,
     chapterTitleSpacing: s.chapterTitleSpacing,
+    headingLetterSpacing: s.headingLetterSpacing,
     headerSizesEnabled: s.headerSizesEnabled,
     h1Size: s.h1Size,
     h2Size: s.h2Size,

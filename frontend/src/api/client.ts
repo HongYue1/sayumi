@@ -466,6 +466,8 @@ export interface UserSettings {
   lineHeight: number | null;
   paragraphSpacing: number | null;
   textIndent: number | null;
+  /** Extra letter-spacing (em) for body text; null leaves the browser default. */
+  letterSpacing: number | null;
   contentWidth: number | null;
   displayMode: "scroll" | "paged" | "paged-two";
   marginTop: number | null;
@@ -479,6 +481,8 @@ export interface UserSettings {
   chapterTitleAlign: "left" | "center" | "right" | null;
   chapterTitleSize: number | null;
   chapterTitleSpacing: number | null;
+  /** Extra letter-spacing (em) for headings; null leaves the browser default. */
+  headingLetterSpacing: number | null;
   /** When true, per-heading sizes (h1Size..h6Size) apply and chapterTitleSize is ignored. */
   headerSizesEnabled: boolean;
   h1Size: number | null;

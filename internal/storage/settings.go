@@ -9,45 +9,48 @@ import (
 )
 
 type SettingsRecord struct {
-	UserID              string
-	FontSize            sql.NullInt64
-	FontFamily          sql.NullString
-	LineHeight          sql.NullFloat64
-	ParagraphSpacing    sql.NullFloat64
-	TextIndent          sql.NullFloat64
-	ContentWidth        sql.NullInt64
-	DisplayMode         sql.NullString
-	MarginTop           sql.NullInt64
-	MarginBottom        sql.NullInt64
-	MarginSide          sql.NullInt64
-	PreserveStyles      sql.NullBool
-	PreserveFonts       sql.NullBool
-	Justify             sql.NullBool
-	Hyphenation         sql.NullBool
-	Theme               sql.NullString
-	ChapterTitleAlign   sql.NullString
-	ChapterTitleSize    sql.NullInt64
-	ChapterTitleSpacing sql.NullFloat64
-	HeaderSizesEnabled  sql.NullBool
-	H1Size              sql.NullInt64
-	H2Size              sql.NullInt64
-	H3Size              sql.NullInt64
-	H4Size              sql.NullInt64
-	H5Size              sql.NullInt64
-	H6Size              sql.NullInt64
-	HeaderWeight        sql.NullInt64
-	TextWeight          sql.NullInt64
-	FontRoles           sql.NullString // JSON map: family id -> {regular,italic,bold}
-	UpdatedAt           string
+	UserID               string
+	FontSize             sql.NullInt64
+	FontFamily           sql.NullString
+	LineHeight           sql.NullFloat64
+	ParagraphSpacing     sql.NullFloat64
+	TextIndent           sql.NullFloat64
+	LetterSpacing        sql.NullFloat64
+	ContentWidth         sql.NullInt64
+	DisplayMode          sql.NullString
+	MarginTop            sql.NullInt64
+	MarginBottom         sql.NullInt64
+	MarginSide           sql.NullInt64
+	PreserveStyles       sql.NullBool
+	PreserveFonts        sql.NullBool
+	Justify              sql.NullBool
+	Hyphenation          sql.NullBool
+	Theme                sql.NullString
+	ChapterTitleAlign    sql.NullString
+	ChapterTitleSize     sql.NullInt64
+	ChapterTitleSpacing  sql.NullFloat64
+	HeadingLetterSpacing sql.NullFloat64
+	HeaderSizesEnabled   sql.NullBool
+	H1Size               sql.NullInt64
+	H2Size               sql.NullInt64
+	H3Size               sql.NullInt64
+	H4Size               sql.NullInt64
+	H5Size               sql.NullInt64
+	H6Size               sql.NullInt64
+	HeaderWeight         sql.NullInt64
+	TextWeight           sql.NullInt64
+	FontRoles            sql.NullString // JSON map: family id -> {regular,italic,bold}
+	UpdatedAt            string
 }
 
 func (db *DB) GetSettingsContext(ctx context.Context, userID string) (SettingsRecord, error) {
 	row := db.QueryRowContext(ctx, `
 		SELECT user_id, font_size, font_family, line_height, paragraph_spacing,
-		       text_indent, content_width, display_mode,
+		       text_indent, letter_spacing, content_width, display_mode,
 		       margin_top, margin_bottom, margin_side,
 		       preserve_styles, preserve_fonts, justify, hyphenation, theme,
 		       chapter_title_align, chapter_title_size, chapter_title_spacing,
+		       heading_letter_spacing,
 		       header_sizes_enabled, h1_size, h2_size, h3_size, h4_size, h5_size, h6_size,
 		       header_weight, text_weight,
 		       font_roles, updated_at
@@ -58,10 +61,11 @@ func (db *DB) GetSettingsContext(ctx context.Context, userID string) (SettingsRe
 	var settings SettingsRecord
 	err := row.Scan(
 		&settings.UserID, &settings.FontSize, &settings.FontFamily, &settings.LineHeight, &settings.ParagraphSpacing,
-		&settings.TextIndent, &settings.ContentWidth, &settings.DisplayMode,
+		&settings.TextIndent, &settings.LetterSpacing, &settings.ContentWidth, &settings.DisplayMode,
 		&settings.MarginTop, &settings.MarginBottom, &settings.MarginSide,
 		&settings.PreserveStyles, &settings.PreserveFonts, &settings.Justify, &settings.Hyphenation, &settings.Theme,
 		&settings.ChapterTitleAlign, &settings.ChapterTitleSize, &settings.ChapterTitleSpacing,
+		&settings.HeadingLetterSpacing,
 		&settings.HeaderSizesEnabled, &settings.H1Size, &settings.H2Size, &settings.H3Size,
 		&settings.H4Size, &settings.H5Size, &settings.H6Size,
 		&settings.HeaderWeight, &settings.TextWeight,
@@ -85,20 +89,22 @@ func (db *DB) SaveSettingsContext(ctx context.Context, settings SettingsRecord) 
 		ctx, `
 		INSERT INTO settings (
 			user_id, font_size, font_family, line_height, paragraph_spacing,
-			text_indent, content_width, display_mode,
+			text_indent, letter_spacing, content_width, display_mode,
 			margin_top, margin_bottom, margin_side,
 			preserve_styles, preserve_fonts, justify, hyphenation, theme,
 			chapter_title_align, chapter_title_size, chapter_title_spacing,
+			heading_letter_spacing,
 			header_sizes_enabled, h1_size, h2_size, h3_size, h4_size, h5_size, h6_size,
 			header_weight, text_weight,
 			font_roles, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id) DO UPDATE SET
 			font_size = excluded.font_size,
 			font_family = excluded.font_family,
 			line_height = excluded.line_height,
 			paragraph_spacing = excluded.paragraph_spacing,
 			text_indent = excluded.text_indent,
+			letter_spacing = excluded.letter_spacing,
 			content_width = excluded.content_width,
 			display_mode = excluded.display_mode,
 			margin_top = excluded.margin_top,
@@ -112,6 +118,7 @@ func (db *DB) SaveSettingsContext(ctx context.Context, settings SettingsRecord) 
 			chapter_title_align = excluded.chapter_title_align,
 			chapter_title_size = excluded.chapter_title_size,
 			chapter_title_spacing = excluded.chapter_title_spacing,
+			heading_letter_spacing = excluded.heading_letter_spacing,
 			header_sizes_enabled = excluded.header_sizes_enabled,
 			h1_size = excluded.h1_size,
 			h2_size = excluded.h2_size,
@@ -124,10 +131,11 @@ func (db *DB) SaveSettingsContext(ctx context.Context, settings SettingsRecord) 
 			font_roles = excluded.font_roles,
 			updated_at = excluded.updated_at
 	`, settings.UserID, settings.FontSize, settings.FontFamily, settings.LineHeight, settings.ParagraphSpacing,
-		settings.TextIndent, settings.ContentWidth, settings.DisplayMode,
+		settings.TextIndent, settings.LetterSpacing, settings.ContentWidth, settings.DisplayMode,
 		settings.MarginTop, settings.MarginBottom, settings.MarginSide,
 		settings.PreserveStyles, settings.PreserveFonts, settings.Justify, settings.Hyphenation, settings.Theme,
 		settings.ChapterTitleAlign, settings.ChapterTitleSize, settings.ChapterTitleSpacing,
+		settings.HeadingLetterSpacing,
 		settings.HeaderSizesEnabled, settings.H1Size, settings.H2Size, settings.H3Size,
 		settings.H4Size, settings.H5Size, settings.H6Size,
 		settings.HeaderWeight, settings.TextWeight,

@@ -398,6 +398,16 @@
         (v) => set("textIndent", v),
       )}
       {@render autoRow(
+        "Letter spacing",
+        s.letterSpacing,
+        -0.05,
+        0.25,
+        0.01,
+        0,
+        "em",
+        (v) => set("letterSpacing", v),
+      )}
+      {@render autoRow(
         "Font weight",
         s.textWeight,
         100,
@@ -527,6 +537,16 @@
         (v) => set("headerWeight", v),
         null,
         weightName,
+      )}
+      {@render autoRow(
+        "Title letter spacing",
+        s.headingLetterSpacing,
+        -0.05,
+        0.25,
+        0.01,
+        0,
+        "em",
+        (v) => set("headingLetterSpacing", v),
       )}
       {@render autoRow(
         "Title spacing",
