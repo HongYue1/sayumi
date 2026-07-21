@@ -153,6 +153,24 @@
   function weightName(v: number): string {
     return WEIGHT_NAMES[v] ?? "";
   }
+
+  // Reset-to-defaults uses a two-step confirm (no blocking dialog): the first
+  // click arms it, a second click within 3s applies. Avoids nuking a tuned
+  // setup on a stray tap.
+  let resetArmed = $state(false);
+  let resetTimer: ReturnType<typeof setTimeout> | undefined;
+  function resetToDefaults(): void {
+    if (!resetArmed) {
+      resetArmed = true;
+      clearTimeout(resetTimer);
+      resetTimer = setTimeout(() => (resetArmed = false), 3000);
+      return;
+    }
+    clearTimeout(resetTimer);
+    resetArmed = false;
+    settings.resetToDefaults();
+    toast.show("Settings reset to defaults");
+  }
 </script>
 
 <!-- Numeric row with an "Auto" toggle for nullable settings. -->
@@ -572,6 +590,17 @@
       </label>
     </section>
   </div>
+
+  <footer>
+    <button
+      class="reset"
+      class:armed={resetArmed}
+      onclick={resetToDefaults}
+      aria-label="Reset all settings to defaults"
+    >
+      {resetArmed ? "Click again to reset everything" : "Reset to defaults"}
+    </button>
+  </footer>
 </div>
 
 <style>
@@ -625,6 +654,34 @@
     flex-direction: column;
     gap: var(--sp-3);
     padding: var(--sp-4) var(--sp-4) var(--sp-8);
+  }
+  footer {
+    flex: 0 0 auto;
+    padding: var(--sp-3) var(--sp-4);
+    border-top: 1px solid var(--hairline);
+  }
+  .reset {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    cursor: pointer;
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
+  }
+  .reset:hover {
+    background: var(--surface-hover);
+    color: var(--fg);
+  }
+  .reset.armed {
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
   }
   /* Each section reads as its own editorial card rather than a divider-
      separated list: a subtle raised surface, generous internal padding, and a

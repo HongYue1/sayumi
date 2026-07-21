@@ -174,6 +174,16 @@ class Settings {
     this.#lastSaved = { ...DEFAULT_USER_SETTINGS };
   }
 
+  /**
+   * Restore every setting to its default and persist. Unlike reset() (which is
+   * for logout and drops the loaded flag), this keeps the session live and
+   * schedules a save so the server row is overwritten with the defaults. A
+   * fresh fontRoles object avoids sharing the module-level default map.
+   */
+  resetToDefaults(): void {
+    this.update({ ...DEFAULT_USER_SETTINGS, fontRoles: {} });
+  }
+
   #scheduleSave(): void {
     if (this.#saveTimer) clearTimeout(this.#saveTimer);
     this.#saveTimer = setTimeout(() => {

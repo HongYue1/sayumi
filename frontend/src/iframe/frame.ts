@@ -702,6 +702,14 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       css.push(
         "h1, h2, h3, h4, h5, h6 { hyphens: none !important; -webkit-hyphens: none !important; }",
       );
+    } else {
+      // Disabled must actually win. A preserved book stylesheet can set
+      // `hyphens: auto`, so force `manual` (the CSS default) on the body and
+      // every descendant — targeting descendants too so a book's own
+      // `p { hyphens: auto }` can't keep hyphenating after the toggle is off.
+      css.push(
+        "body, body * { hyphens: manual !important; -webkit-hyphens: manual !important; }",
+      );
     }
 
     if (settings.chapterTitleAlign != null) {
@@ -743,9 +751,12 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       );
     }
     // Font weight: text weight applies to body copy; header weight to every
-    // heading. Heading rules are pushed last so they win over the body weight
-    // headings would otherwise inherit. When only text weight is set, headings
-    // revert to their natural (book/UA) weight instead of inheriting it.
+    // heading. When header weight is Auto we push NO heading rule, so headings
+    // keep their natural weight from frame.css (h1–h6 { font-weight: 700 }) or
+    // the book stylesheet. That direct rule already outranks the body weight
+    // headings would otherwise inherit, so setting body weight alone no longer
+    // drags titles down to normal. (The old `revert` fallback here resolved to
+    // normal in some engines, un-bolding chapter titles — bug #1.)
     if (settings.textWeight != null) {
       css.push(`body { font-weight: ${settings.textWeight} !important; }`);
     }
@@ -753,8 +764,6 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       css.push(
         `h1, h2, h3, h4, h5, h6 { font-weight: ${settings.headerWeight} !important; }`,
       );
-    } else if (settings.textWeight != null) {
-      css.push(`h1, h2, h3, h4, h5, h6 { font-weight: revert !important; }`);
     }
 
     const overrideCSS = css.join("\n");

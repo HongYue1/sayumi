@@ -241,6 +241,12 @@
 
 <svelte:window onmessage={handleMessage} />
 
+<!--
+  sandbox: allow-scripts runs frame.ts. allow-popups (+ escape-sandbox) let an
+  in-book link open in a real new tab via window.open() in frame.ts — without
+  them the popup is silently blocked, so a left-click did nothing while a
+  middle-click (the browser's native new-tab path) still worked (bug #8).
+-->
 <iframe
   {@attach (el) => {
     iframeEl = el as HTMLIFrameElement;
@@ -254,7 +260,7 @@
   }}
   class="frame"
   {srcdoc}
-  sandbox="allow-scripts"
+  sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
   title="Book content"
 ></iframe>
 
