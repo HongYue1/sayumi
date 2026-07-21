@@ -394,4 +394,20 @@ CREATE TABLE IF NOT EXISTS presets (
 	created_at    TEXT NOT NULL DEFAULT (datetime('now')),
 	updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- User-defined custom themes: a small palette (bg/fg/accent) plus a name and
+-- light/dark grouping. accent may be empty, which the client treats as "auto"
+-- (derived from bg/fg). Built-in themes live on the client; only custom ones
+-- are stored here. Starts empty; users save their own.
+CREATE TABLE IF NOT EXISTS custom_themes (
+	id          TEXT PRIMARY KEY,
+	user_id     TEXT NOT NULL DEFAULT 'default',
+	name        TEXT NOT NULL DEFAULT '',
+	theme_group TEXT NOT NULL DEFAULT 'light',
+	bg          TEXT NOT NULL DEFAULT '',
+	fg          TEXT NOT NULL DEFAULT '',
+	accent      TEXT NOT NULL DEFAULT '',
+	created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+	updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `

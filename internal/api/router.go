@@ -97,6 +97,11 @@ func RegisterRoutes(mux *http.ServeMux, deps *Dependencies) {
 	mux.Handle("POST /api/presets", applyAuth(deps, createPresetHandler(deps)))
 	mux.Handle("DELETE /api/presets/{id}", applyAuth(deps, deletePresetHandler(deps)))
 
+	mux.Handle("GET /api/themes", applyAuth(deps, listCustomThemesHandler(deps)))
+	mux.Handle("POST /api/themes", applyAuth(deps, createCustomThemeHandler(deps)))
+	mux.Handle("PUT /api/themes/{id}", applyAuth(deps, updateCustomThemeHandler(deps)))
+	mux.Handle("DELETE /api/themes/{id}", applyAuth(deps, deleteCustomThemeHandler(deps)))
+
 	mux.Handle("GET /api/fonts", applyAuth(deps, listFontsHandler(deps)))
 	mux.Handle("POST /api/fonts/rescan", applyAuth(deps, rescanFontsHandler(deps)))
 
