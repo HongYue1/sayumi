@@ -465,20 +465,48 @@ mark.search-highlight-active {
 }
 
 .boundary-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   font-weight: 600;
+  letter-spacing: 0.01em;
   color: var(--accent);
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  padding: 4px 12px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  padding: 5px 14px;
   border-radius: 999px;
   white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
+/* A small directional caret makes the pull affordance read at a glance: up
+   when pulling toward the previous chapter, down toward the next. */
+.boundary-label::before {
+  font-weight: 700;
+  line-height: 1;
+}
+
+.boundary-top .boundary-label::before {
+  content: "↑";
+}
+
+.boundary-bottom .boundary-label::before {
+  content: "↓";
+}
+
+/* At the very start/end of the book there's nowhere to go, so the pill reads
+   as a muted, arrow-less end-stop rather than an actionable chapter jump. */
 .boundary-indicator.edge .boundary-label {
   color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 8%, var(--bg-primary));
   border-color: var(--border);
+}
+
+.boundary-indicator.edge .boundary-label::before {
+  display: none;
 }
 
 #page-indicator {

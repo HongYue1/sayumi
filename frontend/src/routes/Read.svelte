@@ -1498,7 +1498,7 @@
     right: 0;
     z-index: 5;
     height: 3px;
-    background: color-mix(in srgb, var(--fg) 12%, transparent);
+    background: color-mix(in srgb, var(--fg) 10%, transparent);
     transition: opacity var(--dur) var(--ease-out);
   }
   .progress.hidden {
@@ -1507,9 +1507,26 @@
   .fill {
     width: 100%;
     height: 100%;
-    background: var(--accent);
+    /* A full-width gradient that scaleX compresses toward the leading edge,
+       giving a subtle "comet tip": brightest at the current reading position
+       and fading into the accent behind it. Only transform animates, so the
+       bar stays GPU-cheap. */
+    background: linear-gradient(
+      to right,
+      color-mix(in srgb, var(--accent) 45%, transparent),
+      var(--accent) 65%,
+      color-mix(in srgb, var(--accent) 80%, white)
+    );
     transform: scaleX(var(--progress-scale, 0));
     transform-origin: left center;
     transition: transform var(--dur-fast) var(--ease-out);
+  }
+
+  /* Progress reflects reading position, not decoration: honor reduced-motion
+     by snapping the fill instead of easing it. */
+  @media (prefers-reduced-motion: reduce) {
+    .fill {
+      transition: none;
+    }
   }
 </style>
