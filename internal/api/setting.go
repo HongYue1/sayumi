@@ -32,6 +32,7 @@ type settingsJSON struct {
 	ChapterTitleAlign    *string  `json:"chapterTitleAlign"`
 	ChapterTitleSize     *int     `json:"chapterTitleSize"`
 	ChapterTitleSpacing  *float64 `json:"chapterTitleSpacing"`
+	ChapterTitleFont     *string  `json:"chapterTitleFontFamily"`
 	HeadingLetterSpacing *float64 `json:"headingLetterSpacing"`
 	HeaderSizesEnabled   bool     `json:"headerSizesEnabled"`
 	H1Size               *int     `json:"h1Size"`
@@ -123,6 +124,7 @@ func recordToJSON(s storage.SettingsRecord) settingsJSON {
 	j.ChapterTitleAlign = nullStringToPtr(s.ChapterTitleAlign)
 	j.ChapterTitleSize = nullInt64ToIntPtr(s.ChapterTitleSize)
 	j.ChapterTitleSpacing = nullFloat64ToPtr(s.ChapterTitleSpacing)
+	j.ChapterTitleFont = nullStringToPtr(s.ChapterTitleFont)
 	j.HeadingLetterSpacing = nullFloat64ToPtr(s.HeadingLetterSpacing)
 	if s.HeaderSizesEnabled.Valid {
 		j.HeaderSizesEnabled = s.HeaderSizesEnabled.Bool
@@ -203,6 +205,15 @@ func normalizeSettings(j *settingsJSON) {
 		}
 	}
 
+	if j.ChapterTitleFont != nil {
+		value := strings.TrimSpace(*j.ChapterTitleFont)
+		if value == "" {
+			j.ChapterTitleFont = nil
+		} else {
+			j.ChapterTitleFont = &value
+		}
+	}
+
 	// Drop empty role entries so the stored map stays compact.
 	if j.FontRoles != nil {
 		for id, e := range j.FontRoles {
@@ -273,6 +284,9 @@ func validateSettings(j *settingsJSON) (string, bool) {
 	}
 	if j.ChapterTitleSpacing != nil && (*j.ChapterTitleSpacing < 0 || *j.ChapterTitleSpacing > 5.0) {
 		return "chapterTitleSpacing must be 0-5.0", false
+	}
+	if j.ChapterTitleFont != nil && len(*j.ChapterTitleFont) > 64 {
+		return "chapterTitleFontFamily must be at most 64 characters", false
 	}
 	if j.HeadingLetterSpacing != nil && (*j.HeadingLetterSpacing < -0.5 || *j.HeadingLetterSpacing > 1.0) {
 		return "headingLetterSpacing must be -0.5-1.0", false
@@ -396,6 +410,7 @@ func putSettingsHandler(_ *Dependencies) http.HandlerFunc {
 			ChapterTitleAlign:    ptrToNullString(j.ChapterTitleAlign),
 			ChapterTitleSize:     ptrToNullInt64(j.ChapterTitleSize),
 			ChapterTitleSpacing:  ptrToNullFloat64(j.ChapterTitleSpacing),
+			ChapterTitleFont:     ptrToNullString(j.ChapterTitleFont),
 			HeadingLetterSpacing: ptrToNullFloat64(j.HeadingLetterSpacing),
 			HeaderSizesEnabled:   sql.NullBool{Bool: j.HeaderSizesEnabled, Valid: true},
 			H1Size:               ptrToNullInt64(j.H1Size),

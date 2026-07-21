@@ -216,6 +216,7 @@ var columnMigrations = []columnMigration{
 	{table: "settings", column: "text_weight", definition: "INTEGER"},
 	{table: "settings", column: "letter_spacing", definition: "REAL"},
 	{table: "settings", column: "heading_letter_spacing", definition: "REAL"},
+	{table: "settings", column: "chapter_title_font_family", definition: "TEXT"},
 	// cover_checked records whether the library scanner has already resolved this
 	// book's cover (extracted one, or determined none is available). The post-walk
 	// cover backfill only revisits rows where it is 0, so a cover-less or skipped
@@ -341,6 +342,7 @@ CREATE TABLE IF NOT EXISTS settings (
 	chapter_title_align   TEXT,
 	chapter_title_size    INTEGER,
 	chapter_title_spacing REAL,
+	chapter_title_font_family TEXT,
 	heading_letter_spacing REAL,
 	header_sizes_enabled  INTEGER,
 	h1_size               INTEGER,

@@ -27,6 +27,7 @@ export interface IframeSettings {
   chapterTitleAlign: "left" | "center" | "right" | null;
   chapterTitleSize: number | null;
   chapterTitleSpacing: number | null;
+  chapterTitleFontFamily: string | null;
   headingLetterSpacing: number | null;
   headerSizesEnabled: boolean;
   h1Size: number | null;
@@ -59,6 +60,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   chapterTitleAlign: "center",
   chapterTitleSize: 48,
   chapterTitleSpacing: 1,
+  chapterTitleFontFamily: null,
   headingLetterSpacing: null,
   headerSizesEnabled: false,
   h1Size: null,
@@ -99,6 +101,9 @@ export function toIframeSettings(s: UserSettings): IframeSettings {
     chapterTitleAlign: s.chapterTitleAlign,
     chapterTitleSize: s.chapterTitleSize,
     chapterTitleSpacing: s.chapterTitleSpacing,
+    chapterTitleFontFamily: s.chapterTitleFontFamily
+      ? resolveFontFamily(s.chapterTitleFontFamily)
+      : null,
     headingLetterSpacing: s.headingLetterSpacing,
     headerSizesEnabled: s.headerSizesEnabled,
     h1Size: s.h1Size,

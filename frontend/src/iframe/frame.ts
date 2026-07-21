@@ -664,6 +664,14 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       css.push(
         "body pre, body code, body kbd, body samp, body pre * { font-family: monospace !important; }",
       );
+      // A chapter-title font override targets headings only. Emitted after the
+      // `body *` rule above (same specificity) so it wins for h1–h6; still gated
+      // on !preserveBookFonts so "use the book's fonts" wins over both.
+      if (settings.chapterTitleFontFamily) {
+        css.push(
+          `h1, h2, h3, h4, h5, h6 { font-family: ${settings.chapterTitleFontFamily} !important; }`,
+        );
+      }
     }
 
     css.push(`body { font-size: ${settings.fontSize}px !important; }`);

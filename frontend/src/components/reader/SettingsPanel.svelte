@@ -64,6 +64,19 @@
     return getFontById(id) ? id : DEFAULT_USER_SETTINGS.fontFamily;
   });
 
+  // Title-font override. Unlike the body font, null is a valid choice ("inherit
+  // the body font"), so an unset or unresolved id shows "Auto" (empty value)
+  // instead of snapping to a concrete default. Storage is left untouched.
+  const effectiveTitleFont = $derived.by(() => {
+    const id = s.chapterTitleFontFamily;
+    if (id == null) return "";
+    if (isUserFamilyId(id)) {
+      if (!fontRegistry.loaded) return id;
+      return fontRegistry.get(id) ? id : "";
+    }
+    return getFontById(id) ? id : "";
+  });
+
   const ROLES: {
     key: "regular" | "italic" | "bold" | "boldItalic";
     label: string;
@@ -488,6 +501,35 @@
 
     <section>
       <h3>Chapter titles</h3>
+      <p class="group-label">Title font</p>
+      <!-- Overrides the font for headings only. Like the body font it applies
+           only when the book's own fonts aren't in use, so it's disabled while
+           "Use the book's fonts" is on; "Auto" inherits the body reading font. -->
+      <select
+        class="font-select"
+        id="title-font"
+        name="title-font"
+        value={effectiveTitleFont}
+        aria-label="Chapter title font"
+        disabled={s.preserveFonts}
+        onchange={(e) =>
+          set("chapterTitleFontFamily", e.currentTarget.value || null)}
+      >
+        <option value="">Auto (match body)</option>
+        <optgroup label="Built-in">
+          {#each READER_FONTS as f (f.id)}
+            <option value={f.id}>{f.label}</option>
+          {/each}
+        </optgroup>
+        {#if userFamilies.length}
+          <optgroup label="Your fonts">
+            {#each userFamilies as f (f.id)}
+              <option value={f.id}>{f.label}</option>
+            {/each}
+          </optgroup>
+        {/if}
+      </select>
+
       <div class="row">
         <div class="row-head"><span class="label">Alignment</span></div>
         <div

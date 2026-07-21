@@ -481,6 +481,8 @@ export interface UserSettings {
   chapterTitleAlign: "left" | "center" | "right" | null;
   chapterTitleSize: number | null;
   chapterTitleSpacing: number | null;
+  /** Font family id for chapter titles (headings); null inherits the body font. */
+  chapterTitleFontFamily: string | null;
   /** Extra letter-spacing (em) for headings; null leaves the browser default. */
   headingLetterSpacing: number | null;
   /** When true, per-heading sizes (h1Size..h6Size) apply and chapterTitleSize is ignored. */
