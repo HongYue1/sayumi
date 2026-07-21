@@ -34,6 +34,7 @@ Library view:
 - Optional "use the book's own fonts" mode that keeps the publisher's styling.
 - A built-in type specimen page for tuning settings against real sample text.
 - 25 light and dark themes, including Solarized, Nord, Dracula, Gruvbox, Catppuccin, Tokyo Night, Rosé Pine, Everforest, Flexoki, and Kanagawa.
+- The ability to create your custom themes.
 
 ### Library
 
