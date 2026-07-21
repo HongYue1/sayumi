@@ -737,6 +737,64 @@ export function deletePreset(id: string, signal?: AbortSignal): Promise<void> {
   );
 }
 
+/** A user-created theme saved on the server. An empty accent means "auto":
+ *  the client derives it from bg/fg (see lib/themes autoAccent). */
+export interface CustomTheme {
+  id: string;
+  name: string;
+  group: "light" | "dark";
+  bg: string;
+  fg: string;
+  accent: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Fields sent when creating or updating a custom theme. */
+export interface CustomThemeInput {
+  name: string;
+  group: "light" | "dark";
+  bg: string;
+  fg: string;
+  accent: string;
+}
+
+export function getCustomThemes(signal?: AbortSignal): Promise<CustomTheme[]> {
+  return request<CustomTheme[]>("GET", "/themes", undefined, signal);
+}
+
+export function createCustomTheme(
+  data: CustomThemeInput,
+  signal?: AbortSignal,
+): Promise<CustomTheme> {
+  return request<CustomTheme>("POST", "/themes", data, signal);
+}
+
+export function updateCustomTheme(
+  id: string,
+  data: CustomThemeInput,
+  signal?: AbortSignal,
+): Promise<CustomTheme> {
+  return request<CustomTheme>(
+    "PUT",
+    `/themes/${pathSegment(id)}`,
+    data,
+    signal,
+  );
+}
+
+export function deleteCustomTheme(
+  id: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  return request<void>(
+    "DELETE",
+    `/themes/${pathSegment(id)}`,
+    undefined,
+    signal,
+  );
+}
+
 export function getProgress(
   bookId: string,
   signal?: AbortSignal,

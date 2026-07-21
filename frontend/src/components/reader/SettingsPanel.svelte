@@ -1,7 +1,14 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { settings, DEFAULT_USER_SETTINGS } from "~/lib/settings.svelte";
-  import { THEMES } from "~/lib/themes";
+  import {
+    THEMES,
+    getTheme,
+    isBuiltInTheme,
+    type ThemeDef,
+  } from "~/lib/themes";
+  import { customThemes } from "~/lib/customThemes.svelte";
+  import CustomThemeDialog from "./CustomThemeDialog.svelte";
   import { READER_FONTS, getFontById } from "~/lib/fonts";
   import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry.svelte";
   import { toast } from "~/lib/toast.svelte";
@@ -15,7 +22,7 @@
     type SettingsPreset,
   } from "~/api/client";
   import Icon from "~/lib/Icon.svelte";
-  import { X } from "@lucide/svelte";
+  import { X, Plus, Pencil } from "@lucide/svelte";
 
   interface Props {
     onclose: () => void;
@@ -97,8 +104,34 @@
     }
   }
 
-  const lightThemes = THEMES.filter((t) => t.group === "light");
-  const darkThemes = THEMES.filter((t) => t.group === "dark");
+  // Built-ins plus the user's custom themes, split by group. Derived so that
+  // creating / editing / deleting a custom theme (customThemes.list is reactive
+  // $state) reflows the right row immediately.
+  const lightThemes = $derived([
+    ...THEMES.filter((t) => t.group === "light"),
+    ...customThemes.list.filter((t) => t.group === "light"),
+  ]);
+  const darkThemes = $derived([
+    ...THEMES.filter((t) => t.group === "dark"),
+    ...customThemes.list.filter((t) => t.group === "dark"),
+  ]);
+
+  // Custom-theme editor overlay: null = closed. `base` seeds the colors (the
+  // active theme for a new one); `edit` is the target when editing an existing
+  // custom theme.
+  let editor = $state<{ base: ThemeDef; edit: ThemeDef | null } | null>(null);
+
+  function openCreate(): void {
+    editor = { base: getTheme(s.theme), edit: null };
+  }
+
+  function openEdit(t: ThemeDef): void {
+    editor = { base: t, edit: t };
+  }
+
+  function closeEditor(): void {
+    editor = null;
+  }
 
   const MODES: { id: UserSettings["displayMode"]; label: string }[] = [
     { id: "scroll", label: "Scroll" },
@@ -399,41 +432,77 @@
 
     <section>
       <h3>Theme</h3>
+
+      {#snippet themeSwatch(t: ThemeDef)}
+        {#if isBuiltInTheme(t.id)}
+          <button
+            class="swatch"
+            class:active={s.theme === t.id}
+            aria-pressed={s.theme === t.id}
+            style:background={t.bg}
+            style:color={t.fg}
+            title={t.label}
+            aria-label={t.label}
+            onclick={() => set("theme", t.id)}
+          >
+            <span class="aa">Aa</span>
+            <span class="dot" style:background={t.accent}></span>
+          </button>
+        {:else}
+          <div class="swatch-wrap">
+            <button
+              class="swatch"
+              class:active={s.theme === t.id}
+              aria-pressed={s.theme === t.id}
+              style:background={t.bg}
+              style:color={t.fg}
+              title={t.label}
+              aria-label={t.label}
+              onclick={() => set("theme", t.id)}
+            >
+              <span class="aa">Aa</span>
+              <span class="dot" style:background={t.accent}></span>
+            </button>
+            <button
+              class="edit"
+              title={`Edit ${t.label}`}
+              aria-label={`Edit ${t.label}`}
+              onclick={() => openEdit(t)}
+            >
+              <Icon icon={Pencil} size={11} />
+            </button>
+          </div>
+        {/if}
+      {/snippet}
+
       <p class="group-label">Light</p>
       <div class="swatches" role="group" aria-label="Light themes">
         {#each lightThemes as t (t.id)}
-          <button
-            class="swatch"
-            class:active={s.theme === t.id}
-            aria-pressed={s.theme === t.id}
-            style:background={t.bg}
-            style:color={t.fg}
-            title={t.label}
-            aria-label={t.label}
-            onclick={() => set("theme", t.id)}
-          >
-            <span class="aa">Aa</span>
-            <span class="dot" style:background={t.accent}></span>
-          </button>
+          {@render themeSwatch(t)}
         {/each}
+        <button
+          class="swatch add"
+          title="Create custom theme"
+          aria-label="Create custom theme"
+          onclick={openCreate}
+        >
+          <Icon icon={Plus} size={16} />
+        </button>
       </div>
+
       <p class="group-label">Dark</p>
       <div class="swatches" role="group" aria-label="Dark themes">
         {#each darkThemes as t (t.id)}
-          <button
-            class="swatch"
-            class:active={s.theme === t.id}
-            aria-pressed={s.theme === t.id}
-            style:background={t.bg}
-            style:color={t.fg}
-            title={t.label}
-            aria-label={t.label}
-            onclick={() => set("theme", t.id)}
-          >
-            <span class="aa">Aa</span>
-            <span class="dot" style:background={t.accent}></span>
-          </button>
+          {@render themeSwatch(t)}
         {/each}
+        <button
+          class="swatch add"
+          title="Create custom theme"
+          aria-label="Create custom theme"
+          onclick={openCreate}
+        >
+          <Icon icon={Plus} size={16} />
+        </button>
       </div>
     </section>
 
@@ -776,6 +845,14 @@
   </footer>
 </div>
 
+{#if editor}
+  <CustomThemeDialog
+    base={editor.base}
+    edit={editor.edit}
+    onclose={closeEditor}
+  />
+{/if}
+
 <style>
   .settings {
     height: 100%;
@@ -1059,6 +1136,53 @@
     width: 7px;
     height: 7px;
     border-radius: 50%;
+  }
+  .swatch.add {
+    color: var(--muted);
+    background: transparent;
+    border-style: dashed;
+  }
+  .swatch.add:hover {
+    color: var(--accent);
+  }
+  .swatch-wrap {
+    position: relative;
+    aspect-ratio: 1.3;
+  }
+  .swatch-wrap > .swatch {
+    position: absolute;
+    inset: 0;
+    aspect-ratio: auto;
+  }
+  .edit {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 17px;
+    height: 17px;
+    padding: 0;
+    border: 1px solid var(--hairline-strong);
+    border-radius: 50%;
+    background: var(--bg);
+    color: var(--fg);
+    cursor: pointer;
+    opacity: 0.85;
+    transition:
+      opacity var(--dur) var(--ease-out),
+      background var(--dur) var(--ease-out);
+  }
+  .swatch-wrap:hover .edit {
+    opacity: 1;
+  }
+  .edit:hover {
+    background: var(--surface-hover);
+  }
+  .edit:active {
+    transform: scale(0.94);
   }
 
   .font-select {

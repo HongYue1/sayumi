@@ -774,6 +774,15 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       );
     }
 
+    // Custom themes have no static html.theme-<id> rule in frame.css, so the
+    // parent sends the resolved palette as CSS custom properties to set on
+    // <html>. Built-in themes send null and keep using their frame.css class
+    // (which outranks a bare html selector anyway). Injected via override-css
+    // (after base-css) so it wins the cascade for the classless custom id.
+    if (settings.themeVars) {
+      css.push(`html { ${settings.themeVars} }`);
+    }
+
     const overrideCSS = css.join("\n");
     if (overrideCSS !== _lastOverrideCSS) {
       getStyleEl("override-css").textContent = overrideCSS;

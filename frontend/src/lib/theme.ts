@@ -10,7 +10,7 @@ export { getTheme };
  * Keeps accent buttons legible on light accents (e.g. Gruvbox/Ayu) where
  * white-on-accent would fail contrast. Falls back to white for odd hexes.
  */
-function onAccentColor(hex: string): string {
+export function onAccentColor(hex: string): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
   if (!m) return "#ffffff";
   const n = parseInt(m[1], 16);
@@ -26,12 +26,60 @@ function onAccentColor(hex: string): string {
 }
 
 /**
+ * Applies a previously cached palette (written by applyTheme below) for an id
+ * that no longer resolves to a known theme, without re-caching it. Returns
+ * false when there's no cache entry for that exact id, so the caller can fall
+ * back to the normal resolution path.
+ */
+function applyCachedTheme(id: string): boolean {
+  let raw: string | null;
+  try {
+    raw = localStorage.getItem("sayumi:theme-vars");
+  } catch {
+    return false;
+  }
+  if (!raw) return false;
+  let cached: unknown;
+  try {
+    cached = JSON.parse(raw);
+  } catch {
+    return false;
+  }
+  if (typeof cached !== "object" || cached === null) return false;
+  const v = cached as Record<string, unknown>;
+  if (
+    v.id !== id ||
+    typeof v.bg !== "string" ||
+    typeof v.fg !== "string" ||
+    typeof v.accent !== "string" ||
+    typeof v.accentFg !== "string" ||
+    typeof v.scheme !== "string"
+  ) {
+    return false;
+  }
+  const root = document.documentElement;
+  root.style.setProperty("--bg", v.bg);
+  root.style.setProperty("--fg", v.fg);
+  root.style.setProperty("--accent", v.accent);
+  root.style.setProperty("--accent-fg", v.accentFg);
+  root.style.colorScheme = v.scheme;
+  root.dataset.theme = id;
+  return true;
+}
+
+/**
  * Applies a theme's tokens to the document root as CSS custom properties.
  * App chrome reads --bg / --fg / --accent; the reader iframe mirrors these
  * separately via its own override layer.
  */
 export function applyTheme(id: string): void {
   const t = getTheme(id);
+  // getTheme falls back to the light theme for an unknown id. A custom theme
+  // whose definitions haven't loaded yet (cold boot, before customThemes.load)
+  // is "unknown" here — painting the fallback would flash the shell to light
+  // and overwrite the cached palette. Reuse the cached vars for that exact id
+  // until a later applyTheme (after the registry loads) paints the real one.
+  if (t.id !== id && applyCachedTheme(id)) return;
   const accentFg = onAccentColor(t.accent);
   const scheme = t.group === "dark" ? "dark" : "light";
   const root = document.documentElement;

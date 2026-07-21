@@ -7,6 +7,8 @@ import {
 import { getFontById, getFontFamily } from "~/lib/fonts";
 import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry.svelte";
 import { toast } from "~/lib/toast.svelte";
+import { customThemes } from "~/lib/customThemes.svelte";
+import { readerThemeVars, type ThemeDef } from "~/lib/themes";
 
 // Shape the reader iframe expects (see iframe/frame.ts apply-settings handler).
 export interface IframeSettings {
@@ -24,6 +26,9 @@ export interface IframeSettings {
   justify: boolean;
   hyphenation: boolean;
   theme: string;
+  // Resolved reader palette (CSS custom-property declarations) for a custom
+  // theme that has no static frame.css class; null for built-ins. See frame.ts.
+  themeVars: string | null;
   chapterTitleAlign: "left" | "center" | "right" | null;
   chapterTitleSize: number | null;
   chapterTitleSpacing: number | null;
@@ -82,7 +87,10 @@ function resolveFontFamily(id: string): string {
   return getFontFamily(id);
 }
 
-export function toIframeSettings(s: UserSettings): IframeSettings {
+export function toIframeSettings(
+  s: UserSettings,
+  customThemesList: ThemeDef[] = [],
+): IframeSettings {
   return {
     mode: s.displayMode,
     fontSize: s.fontSize,
@@ -98,6 +106,7 @@ export function toIframeSettings(s: UserSettings): IframeSettings {
     justify: s.justify,
     hyphenation: s.hyphenation,
     theme: s.theme,
+    themeVars: readerThemeVars(s.theme, customThemesList),
     chapterTitleAlign: s.chapterTitleAlign,
     chapterTitleSize: s.chapterTitleSize,
     chapterTitleSpacing: s.chapterTitleSpacing,
@@ -120,7 +129,9 @@ export function toIframeSettings(s: UserSettings): IframeSettings {
 class Settings {
   value = $state<UserSettings>({ ...DEFAULT_USER_SETTINGS });
   /** Memoised mapping to the reader-iframe settings shape. */
-  iframe = $derived.by<IframeSettings>(() => toIframeSettings(this.value));
+  iframe = $derived.by<IframeSettings>(() =>
+    toIframeSettings(this.value, customThemes.list),
+  );
 
   #loaded = false;
   #saveTimer: ReturnType<typeof setTimeout> | undefined;

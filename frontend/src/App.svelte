@@ -4,6 +4,7 @@
   import { router } from "~/lib/router.svelte";
   import { ui } from "~/lib/ui.svelte";
   import { applyTheme } from "~/lib/theme";
+  import { customThemes } from "~/lib/customThemes.svelte";
   import Login from "~/routes/Login.svelte";
   import Library from "~/routes/Library.svelte";
   import Read from "~/routes/Read.svelte";
@@ -18,6 +19,14 @@
     // for a fresh visitor. The saved server theme is applied once settings load.
     applyTheme(localStorage.getItem("sayumi:theme") ?? "light");
     session.init();
+  });
+
+  // Load the user's custom themes once signed in so a custom id resolves through
+  // getTheme across the whole shell, not just the reader. applyTheme already
+  // paints the cached palette for an unresolved id, so nothing flashes before
+  // this arrives; it just upgrades resolution to the loaded registry.
+  $effect(() => {
+    if (session.authenticated) void customThemes.load();
   });
 
   // Global shortcuts. Only active once signed in; ignored while typing so the
