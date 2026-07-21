@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { settings, DEFAULT_USER_SETTINGS } from "~/lib/settings.svelte";
   import { THEMES } from "~/lib/themes";
   import { READER_FONTS, getFontById } from "~/lib/fonts";
@@ -6,7 +7,13 @@
   import { toast } from "~/lib/toast.svelte";
   import { router } from "~/lib/router.svelte";
   import { SPECIMEN_BOOK_ID } from "~/lib/specimen";
-  import type { UserSettings } from "~/api/client";
+  import {
+    getPresets,
+    createPreset,
+    deletePreset,
+    type UserSettings,
+    type SettingsPreset,
+  } from "~/api/client";
   import Icon from "~/lib/Icon.svelte";
   import { X } from "@lucide/svelte";
 
@@ -23,6 +30,72 @@
   }
 
   const s = $derived(settings.value);
+
+  // --- Presets: server-synced snapshots of the whole settings object --------
+  // A preset captures every setting (including theme + fonts) and round-trips
+  // through the same validator as a normal save. The list starts empty; users
+  // build their own. Kept as local panel state since presets surface only here.
+  let presets = $state<SettingsPreset[]>([]);
+  let naming = $state(false);
+  let presetName = $state("");
+  let saving = $state(false);
+
+  onMount(() => {
+    void loadPresets();
+  });
+
+  async function loadPresets(): Promise<void> {
+    try {
+      presets = await getPresets();
+    } catch {
+      // Non-fatal: presets are a convenience; leave the list empty on failure.
+    }
+  }
+
+  function startNaming(): void {
+    naming = true;
+    presetName = "";
+  }
+
+  function cancelNaming(): void {
+    naming = false;
+    presetName = "";
+  }
+
+  async function savePreset(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+    const name = presetName.trim();
+    if (!name || saving) return;
+    saving = true;
+    try {
+      const created = await createPreset({ name, settings: { ...s } });
+      presets = [...presets, created];
+      naming = false;
+      presetName = "";
+      toast.show(`Saved preset "${created.name}"`);
+    } catch {
+      toast.show("Couldn't save preset");
+    } finally {
+      saving = false;
+    }
+  }
+
+  function applyPreset(p: SettingsPreset): void {
+    settings.update({ ...p.settings });
+    toast.show(`Applied "${p.name}"`);
+  }
+
+  async function removePreset(p: SettingsPreset): Promise<void> {
+    // Optimistic remove; restore the previous list if the delete fails.
+    const prev = presets;
+    presets = presets.filter((x) => x.id !== p.id);
+    try {
+      await deletePreset(p.id);
+    } catch {
+      presets = prev;
+      toast.show("Couldn't delete preset");
+    }
+  }
 
   const lightThemes = THEMES.filter((t) => t.group === "light");
   const darkThemes = THEMES.filter((t) => t.group === "dark");
@@ -251,6 +324,64 @@
   </header>
 
   <div class="body">
+    <section>
+      <h3>Presets</h3>
+      <p class="hint">
+        Save your current settings as a preset, then tap one to apply it later.
+      </p>
+
+      {#if presets.length}
+        <div class="presets" role="group" aria-label="Saved presets">
+          {#each presets as p (p.id)}
+            <div class="preset-chip">
+              <button
+                class="preset-apply"
+                onclick={() => applyPreset(p)}
+                title={`Apply ${p.name}`}
+              >
+                {p.name}
+              </button>
+              <button
+                class="preset-del"
+                onclick={() => removePreset(p)}
+                aria-label={`Delete preset ${p.name}`}
+                title="Delete preset"
+              >
+                <Icon icon={X} size={13} />
+              </button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+      {#if naming}
+        <form class="preset-save" onsubmit={savePreset}>
+          <input
+            class="preset-name"
+            type="text"
+            bind:value={presetName}
+            placeholder="Preset name"
+            maxlength="60"
+            aria-label="Preset name"
+          />
+          <button
+            class="preset-confirm"
+            type="submit"
+            disabled={!presetName.trim() || saving}
+          >
+            Save
+          </button>
+          <button class="preset-cancel" type="button" onclick={cancelNaming}>
+            Cancel
+          </button>
+        </form>
+      {:else}
+        <button class="preset-new" onclick={startNaming}>
+          + Save current as preset
+        </button>
+      {/if}
+    </section>
+
     <section>
       <h3>Reading mode</h3>
       <div class="segmented" role="group" aria-label="Reading mode">
@@ -724,6 +855,111 @@
     border-color: var(--accent);
     color: var(--accent);
     font-weight: 600;
+  }
+
+  .presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: var(--sp-3);
+  }
+  .preset-chip {
+    display: inline-flex;
+    align-items: stretch;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .preset-apply {
+    padding: 0.3rem 0.6rem;
+    border: none;
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    font-size: var(--text-sm);
+    cursor: pointer;
+    transition: background var(--dur) var(--ease-out);
+  }
+  .preset-apply:hover {
+    background: var(--surface-hover);
+  }
+  .preset-del {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.35rem;
+    border: none;
+    border-left: 1px solid var(--hairline);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    transition:
+      background var(--dur) var(--ease-out),
+      color var(--dur) var(--ease-out);
+  }
+  .preset-del:hover {
+    background: var(--surface-hover);
+    color: var(--accent);
+  }
+  .preset-new {
+    width: 100%;
+    padding: 0.45rem;
+    border: 1px dashed var(--hairline-strong);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: var(--text-sm);
+    cursor: pointer;
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
+  }
+  .preset-new:hover {
+    border-color: var(--accent);
+    color: var(--fg);
+  }
+  .preset-save {
+    display: flex;
+    gap: 0.4rem;
+  }
+  .preset-name {
+    flex: 1;
+    min-width: 0;
+    padding: var(--sp-2);
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--fg);
+    font: inherit;
+    font-size: var(--text-sm);
+  }
+  .preset-confirm,
+  .preset-cancel {
+    padding: 0.3rem 0.7rem;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    font-size: var(--text-sm);
+    cursor: pointer;
+    transition:
+      background var(--dur) var(--ease-out),
+      border-color var(--dur) var(--ease-out);
+  }
+  .preset-confirm {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border-color: var(--accent);
+  }
+  .preset-confirm:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .preset-cancel:hover {
+    border-color: var(--accent);
   }
   /* Each section reads as its own editorial card rather than a divider-
      separated list: a subtle raised surface, generous internal padding, and a

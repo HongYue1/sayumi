@@ -708,6 +708,35 @@ export function saveSettings(
   return request<UserSettings>("PUT", "/settings", settings, signal);
 }
 
+/** A saved snapshot of the whole settings object (theme + fonts included). */
+export interface SettingsPreset {
+  id: string;
+  name: string;
+  settings: UserSettings;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function getPresets(signal?: AbortSignal): Promise<SettingsPreset[]> {
+  return request<SettingsPreset[]>("GET", "/presets", undefined, signal);
+}
+
+export function createPreset(
+  data: { name: string; settings: UserSettings },
+  signal?: AbortSignal,
+): Promise<SettingsPreset> {
+  return request<SettingsPreset>("POST", "/presets", data, signal);
+}
+
+export function deletePreset(id: string, signal?: AbortSignal): Promise<void> {
+  return request<void>(
+    "DELETE",
+    `/presets/${pathSegment(id)}`,
+    undefined,
+    signal,
+  );
+}
+
 export function getProgress(
   bookId: string,
   signal?: AbortSignal,

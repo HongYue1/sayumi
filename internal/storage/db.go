@@ -382,4 +382,16 @@ CREATE TABLE IF NOT EXISTS book_flairs (
 	updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 	PRIMARY KEY (book_id, user_id)
 );
+
+-- Saved reader-settings presets. settings_json holds the full settings payload
+-- (identical to the PUT /api/settings body) so applying a preset round-trips
+-- through the same validator. Starts empty; users save their own.
+CREATE TABLE IF NOT EXISTS presets (
+	id            TEXT PRIMARY KEY,
+	user_id       TEXT NOT NULL DEFAULT 'default',
+	name          TEXT NOT NULL DEFAULT '',
+	settings_json TEXT NOT NULL DEFAULT '',
+	created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+	updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `

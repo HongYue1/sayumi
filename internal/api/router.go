@@ -93,6 +93,10 @@ func RegisterRoutes(mux *http.ServeMux, deps *Dependencies) {
 	mux.Handle("GET /api/settings", applyAuth(deps, getSettingsHandler(deps)))
 	mux.Handle("PUT /api/settings", applyAuth(deps, putSettingsHandler(deps)))
 
+	mux.Handle("GET /api/presets", applyAuth(deps, listPresetsHandler(deps)))
+	mux.Handle("POST /api/presets", applyAuth(deps, createPresetHandler(deps)))
+	mux.Handle("DELETE /api/presets/{id}", applyAuth(deps, deletePresetHandler(deps)))
+
 	mux.Handle("GET /api/fonts", applyAuth(deps, listFontsHandler(deps)))
 	mux.Handle("POST /api/fonts/rescan", applyAuth(deps, rescanFontsHandler(deps)))
 
