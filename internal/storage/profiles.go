@@ -47,6 +47,7 @@ func OpenProfilesDB(libraryRoot string) (*ProfilesDB, error) {
 
 func (p *ProfilesDB) migrate() error {
 	// Runs once at startup; use a background context (see storage.migrate).
+	// profiles must exist before sessions so the FK parent is present.
 	_, err := p.db.ExecContext(context.Background(), `
 		CREATE TABLE IF NOT EXISTS profiles (
 			name       TEXT PRIMARY KEY,
@@ -55,7 +56,7 @@ func (p *ProfilesDB) migrate() error {
 		);
 		CREATE TABLE IF NOT EXISTS sessions (
 			token      TEXT PRIMARY KEY,
-			profile    TEXT NOT NULL,
+			profile    TEXT NOT NULL REFERENCES profiles(name) ON DELETE CASCADE,
 			expiry     TEXT NOT NULL,
 			created_at TEXT NOT NULL DEFAULT (datetime('now'))
 		);
@@ -125,6 +126,10 @@ func (p *ProfilesDB) CreateProfileContext(ctx context.Context, name, pinHash str
 	return nil
 }
 
+// DeleteProfileContext removes a profile row. sessions.profile REFERENCES
+// profiles(name) ON DELETE CASCADE, so remember-me rows for this profile are
+// removed with it. The api session store still clears in-memory tokens via
+// DeleteSessionsForProfile before calling this.
 func (p *ProfilesDB) DeleteProfileContext(ctx context.Context, name string) error {
 	res, err := p.db.ExecContext(ctx, "DELETE FROM profiles WHERE name = ?", name)
 	if err != nil {

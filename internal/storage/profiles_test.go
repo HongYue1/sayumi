@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	modernsqlite "modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
@@ -157,13 +158,56 @@ func TestOpenProfilesDBLayout(t *testing.T) {
 		}
 	})
 
-	// File lands under <libraryRoot>/.sayumi/profiles.db
 	path := filepath.Join(root, ".sayumi", "profiles.db")
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("stat profiles.db: %v", err)
 	}
-	// Touch via a no-op list to ensure migrate created the table.
 	if _, err := pdb.ListProfilesContext(context.Background()); err != nil {
 		t.Fatalf("list after open: %v", err)
+	}
+}
+
+func TestDeleteProfileCascadesSessions(t *testing.T) {
+	t.Parallel()
+	pdb := newTestProfilesDB(t)
+	ctx := context.Background()
+
+	if err := pdb.CreateProfileContext(ctx, "alice", ""); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	expiry := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
+	if err := pdb.SaveSession("tok-alice", "alice", expiry); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+	// Delete without DeleteSessionsForProfile — CASCADE alone must clear rows.
+	if err := pdb.DeleteProfileContext(ctx, "alice"); err != nil {
+		t.Fatalf("delete profile: %v", err)
+	}
+	got, err := pdb.LoadSessions()
+	if err != nil {
+		t.Fatalf("load sessions: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("sessions after cascade delete = %+v, want empty", got)
+	}
+}
+
+func TestSaveSessionRejectsUnknownProfile(t *testing.T) {
+	t.Parallel()
+	pdb := newTestProfilesDB(t)
+
+	err := pdb.SaveSession("tok", "no-such-profile", time.Now().UTC().Add(time.Hour))
+	if err == nil {
+		t.Fatal("save session for missing profile: want FK error")
+	}
+	var sqliteErr *modernsqlite.Error
+	if !errors.As(err, &sqliteErr) {
+		t.Fatalf("err = %v (%T), want modernc sqlite Error in chain", err, err)
+	}
+	switch sqliteErr.Code() {
+	case sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY, sqlite3.SQLITE_CONSTRAINT:
+		// ok
+	default:
+		t.Fatalf("sqlite code = %d, want FOREIGNKEY/CONSTRAINT", sqliteErr.Code())
 	}
 }

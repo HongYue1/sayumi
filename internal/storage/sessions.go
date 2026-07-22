@@ -47,8 +47,10 @@ func (p *ProfilesDB) DeleteSession(token string) error {
 	return nil
 }
 
-// DeleteSessionsForProfile removes every persisted session for a profile, used
-// when the profile is deleted.
+// DeleteSessionsForProfile removes every persisted session for a profile.
+// The api session store calls this on profile delete so in-memory tokens go
+// away immediately; the sessions.profile ON DELETE CASCADE FK is the DB-level
+// backstop if a profile row is removed without this call.
 func (p *ProfilesDB) DeleteSessionsForProfile(profile string) error {
 	if _, err := p.db.ExecContext(
 		context.Background(),
