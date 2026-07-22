@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -97,14 +98,16 @@ func (db *DB) Close() error {
 	var stmtErr error
 	if db.saveProgressStmt != nil {
 		stmtErr = db.saveProgressStmt.Close()
+		db.saveProgressStmt = nil
 	}
+	var dbErr error
 	if err := db.DB.Close(); err != nil {
-		return fmt.Errorf("close database: %w", err)
+		dbErr = fmt.Errorf("close database: %w", err)
 	}
 	if stmtErr != nil {
-		return fmt.Errorf("close save-progress statement: %w", stmtErr)
+		stmtErr = fmt.Errorf("close save-progress statement: %w", stmtErr)
 	}
-	return nil
+	return errors.Join(dbErr, stmtErr)
 }
 
 // warmPool eagerly establishes up to n pooled connections so each connection's
@@ -158,9 +161,18 @@ func dataSourceName(dbPath string) string {
 func (db *DB) migrate() error {
 	// Migrations run once at startup and must complete atomically, so they use
 	// context.Background() rather than a cancelable request context.
-	if _, err := db.ExecContext(context.Background(), schema); err != nil {
-		return fmt.Errorf("execute schema: %w", err)
+	//
+	// Order matters for upgrades:
+	//  1) CREATE TABLE IF NOT EXISTS (idempotent base shape)
+	//  2) additive column migrations (old DBs gain new columns)
+	//  3) CREATE INDEX IF NOT EXISTS (may reference columns added in step 2)
+	//  4) one-shot data reconciles
+	// Running indexes before column migrations breaks upgrades when a new index
+	// references a column that only exists via ADD COLUMN (e.g. cover_checked).
+	if _, err := db.ExecContext(context.Background(), schemaTables); err != nil {
+		return fmt.Errorf("execute schema tables: %w", err)
 	}
+
 	// Additive column migrations for databases created before the column existed.
 	// CREATE TABLE IF NOT EXISTS above is a no-op on such DBs, so new columns
 	// must be added explicitly. ADD COLUMN is idempotent here via the guard.
@@ -186,6 +198,11 @@ func (db *DB) migrate() error {
 		}
 		cols[mig.column] = true
 	}
+
+	if _, err := db.ExecContext(context.Background(), schemaIndexes); err != nil {
+		return fmt.Errorf("execute schema indexes: %w", err)
+	}
+
 	// Books that already have a cover are by definition cover-resolved. Mark them
 	// so the first scan after cover_checked is added does not re-parse the entire
 	// library just to rediscover covers it already has. Idempotent: once converged
@@ -258,7 +275,12 @@ func (db *DB) addColumn(table, column, definition string) error {
 	return nil
 }
 
-const schema = `
+// schema is the full DDL used by benchmarks that open a raw sql.DB without
+// going through migrate(). Keep it as tables+indexes so those helpers stay
+// self-contained.
+const schema = schemaTables + "\n" + schemaIndexes
+
+const schemaTables = `
 CREATE TABLE IF NOT EXISTS books (
 	id            TEXT PRIMARY KEY,
 	title         TEXT NOT NULL DEFAULT '',
@@ -282,21 +304,6 @@ CREATE TABLE IF NOT EXISTS books (
 	updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_books_file_hash ON books(file_hash);
-
--- Cover backfill runs after every completed scan and steady state should find no
--- rows. A partial covering index keeps that query proportional to unresolved
--- covers instead of scanning the whole library. Resolved rows (cover_checked = 1)
--- are excluded, so the common case does not pay ongoing index bloat.
-CREATE INDEX IF NOT EXISTS idx_books_cover_unchecked ON books(id, file_path)
-  WHERE cover_checked = 0;
-
--- Partial unique index prevents concurrent imports from inserting duplicate
--- rows for the same content. The WHERE clause excludes the empty-string default
--- so that books inserted before hashing completes don't conflict with each other.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_books_file_hash_uniq ON books(file_hash)
-  WHERE file_hash != '';
-
 CREATE TABLE IF NOT EXISTS progress (
 	book_id    TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
 	user_id    TEXT NOT NULL DEFAULT 'default',
@@ -318,8 +325,6 @@ CREATE TABLE IF NOT EXISTS bookmarks (
 	comment    TEXT NOT NULL DEFAULT '',
 	created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-
-CREATE INDEX IF NOT EXISTS idx_bookmarks_book ON bookmarks(book_id, user_id);
 
 CREATE TABLE IF NOT EXISTS settings (
 	user_id               TEXT PRIMARY KEY DEFAULT 'default',
@@ -410,4 +415,23 @@ CREATE TABLE IF NOT EXISTS custom_themes (
 	created_at  TEXT NOT NULL DEFAULT (datetime('now')),
 	updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+`
+
+const schemaIndexes = `
+CREATE INDEX IF NOT EXISTS idx_books_file_hash ON books(file_hash);
+
+-- Cover backfill runs after every completed scan and steady state should find no
+-- rows. A partial covering index keeps that query proportional to unresolved
+-- covers instead of scanning the whole library. Resolved rows (cover_checked = 1)
+-- are excluded, so the common case does not pay ongoing index bloat.
+CREATE INDEX IF NOT EXISTS idx_books_cover_unchecked ON books(id, file_path)
+  WHERE cover_checked = 0;
+
+-- Partial unique index prevents concurrent imports from inserting duplicate
+-- rows for the same content. The WHERE clause excludes the empty-string default
+-- so that books inserted before hashing completes don't conflict with each other.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_books_file_hash_uniq ON books(file_hash)
+  WHERE file_hash != '';
+
+CREATE INDEX IF NOT EXISTS idx_bookmarks_book ON bookmarks(book_id, user_id);
 `
