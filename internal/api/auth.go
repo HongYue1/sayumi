@@ -357,7 +357,6 @@ func authMiddleware(deps *Dependencies) func(http.Handler) http.Handler {
 			}
 			defer pd.release()
 
-			pd.ProfileName = sess.profile
 			next.ServeHTTP(w, withProfileDeps(r, pd))
 		})
 	}

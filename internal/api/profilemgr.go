@@ -19,8 +19,6 @@ import (
 )
 
 type profileDeps struct {
-	ProfileName string
-
 	DB      *storage.DB
 	Books   *storage.BookCache
 	Store   *epub.EPUBStore
