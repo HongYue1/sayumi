@@ -246,7 +246,7 @@ func (e *plainTextExtractor) extractDepth(node *html.Node, depth int) {
 
 	if node.Type == html.ElementNode {
 		switch node.DataAtom {
-		case atom.Head, atom.Script, atom.Style:
+		case atom.Head, atom.Script, atom.Style, atom.Noscript:
 			return
 		case atom.Br:
 			e.writeBoundary()
