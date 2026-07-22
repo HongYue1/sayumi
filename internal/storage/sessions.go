@@ -63,10 +63,12 @@ func (p *ProfilesDB) DeleteSessionsForProfile(profile string) error {
 }
 
 // DeleteExpiredSessions prunes persisted sessions whose expiry has passed.
+// Uses expiry < now (not <=) so the cutoff matches sessionStore's
+// time.Now().After(expiry): a session is still valid at the exact expiry instant.
 func (p *ProfilesDB) DeleteExpiredSessions(now time.Time) error {
 	if _, err := p.db.ExecContext(
 		context.Background(),
-		"DELETE FROM sessions WHERE expiry <= ?",
+		"DELETE FROM sessions WHERE expiry < ?",
 		now.UTC().Format(sessionTimeFormat),
 	); err != nil {
 		return fmt.Errorf("delete expired sessions: %w", err)
