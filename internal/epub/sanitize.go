@@ -189,7 +189,10 @@ func normalizeURIForSafetyCheck(value string) string {
 	var builder strings.Builder
 	builder.Grow(len(value))
 	for _, r := range value {
-		if unicode.IsControl(r) || unicode.IsSpace(r) {
+		// Drop controls, spaces, and non-ASCII. Dangerous schemes are ASCII; a
+		// NUL (or the U+FFFD the HTML parser substitutes for it) must not split
+		// "javascript:" so the prefix check misses it.
+		if r > unicode.MaxASCII || unicode.IsControl(r) || unicode.IsSpace(r) {
 			continue
 		}
 		builder.WriteRune(unicode.ToLower(r))
@@ -200,8 +203,8 @@ func normalizeURIForSafetyCheck(value string) string {
 // needsURINormalization reports whether value contains any byte that the
 // strip-and-lowercase normalization would alter or drop: an ASCII control or
 // space byte (<= 0x20 or DEL), an uppercase ASCII letter, or any non-ASCII byte
-// (which may be a space/control rune or fold under unicode.ToLower). When none
-// are present the value is already in normalized form and can be returned as-is.
+// (dropped for the safety prefix check). When none are present the value is
+// already in normalized form and can be returned as-is.
 func needsURINormalization(value string) bool {
 	for i := range len(value) {
 		b := value[i]
