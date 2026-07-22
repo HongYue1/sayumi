@@ -69,19 +69,11 @@ func (p *ProfilesDB) migrate() error {
 
 func (p *ProfilesDB) Close() error { return p.db.Close() }
 
-func (p *ProfilesDB) HasAnyProfileContext(ctx context.Context) (bool, error) {
-	var count int
-	err := p.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM profiles").Scan(&count)
-	if err != nil {
-		return false, fmt.Errorf("count profiles: %w", err)
-	}
-	return count > 0, nil
-}
-
 func (p *ProfilesDB) ListProfilesContext(ctx context.Context) (out []ProfileRecord, err error) {
 	rows, err := p.db.QueryContext(
 		ctx,
-		"SELECT name, pin_hash, created_at FROM profiles ORDER BY created_at ASC",
+		// name is the PK and breaks created_at ties (second-resolution datetime('now')).
+		"SELECT name, pin_hash, created_at FROM profiles ORDER BY created_at ASC, name ASC",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list profiles: %w", err)
