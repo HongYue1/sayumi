@@ -12,7 +12,11 @@ import (
 // expected to disappear via ON DELETE CASCADE. This regression test fails if
 // foreign-key enforcement is not actually enabled on the connection, which is
 // exactly the bug the DSN fix in Open addresses.
+//
+// The custom flairs row itself must survive: only book_flairs references books
+// with ON DELETE CASCADE; flairs are user-owned definitions, not book children.
 func TestDeleteBookCascadesChildRows(t *testing.T) {
+	t.Parallel()
 	db := newTestDB(t)
 	ctx := context.Background()
 	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub"))
@@ -62,5 +66,14 @@ func TestDeleteBookCascadesChildRows(t *testing.T) {
 	}
 	if _, ok := assigned["id1"]; ok {
 		t.Error("book_flairs row survived book deletion (cascade off?)")
+	}
+
+	// Cascade must not delete the flair definition — only the book assignment.
+	flairs, err := db.ListFlairsContext(ctx, "default")
+	if err != nil {
+		t.Fatalf("list flairs: %v", err)
+	}
+	if len(flairs) != 1 || flairs[0].ID != "flair_1" {
+		t.Errorf("custom flair definition lost after book delete: got %+v", flairs)
 	}
 }
