@@ -3,14 +3,17 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -82,7 +85,24 @@ func uploadGofileHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
+		// Re-enter the EPUB generation gate after the remote server lookup and
+		// refresh the cache snapshot inside it. This keeps the opened file alive
+		// and generation-consistent for the whole stream without holding the lock
+		// during the preliminary network request.
+		pd.bookReplaceMu.RLock()
+		book, ok = pd.Books.Get(id)
+		if !ok {
+			pd.bookReplaceMu.RUnlock()
+			writeError(w, http.StatusNotFound, "not_found", "book not found")
+			return
+		}
+		if book.FilePath == "" {
+			pd.bookReplaceMu.RUnlock()
+			writeError(w, http.StatusNotFound, "no_file", "book has no file on disk")
+			return
+		}
 		downloadPage, err := uploadFileToGofile(r.Context(), server, book.FilePath)
+		pd.bookReplaceMu.RUnlock()
 		if err != nil {
 			slog.Error("gofile upload failed", "book", id, "err", err)
 			writeError(w, http.StatusBadGateway, "gofile_error", "upload to gofile failed")
@@ -91,6 +111,32 @@ func uploadGofileHandler(_ *Dependencies) http.HandlerFunc {
 
 		writeJSON(w, http.StatusOK, map[string]string{"downloadPage": downloadPage})
 	}
+}
+
+// validateGofileDownloadPage confines third-party response data to a public
+// HTTPS page on gofile.io before the value is rendered as a clickable link.
+func validateGofileDownloadPage(raw string) error {
+	u, err := url.ParseRequestURI(raw)
+	if err != nil {
+		return fmt.Errorf("parse download page: %w", err)
+	}
+	if !strings.EqualFold(u.Scheme, "https") || u.User != nil || u.Port() != "" {
+		return errors.New("download page must be credential-free HTTPS on the default port")
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "gofile.io" {
+		return nil
+	}
+	subdomain, ok := strings.CutSuffix(host, ".gofile.io")
+	if !ok || subdomain == "" {
+		return fmt.Errorf("download page host %q is not gofile.io", host)
+	}
+	for label := range strings.SplitSeq(subdomain, ".") {
+		if !gofileServerNamePattern.MatchString(label) {
+			return fmt.Errorf("download page host %q is not a valid gofile.io subdomain", host)
+		}
+	}
+	return nil
 }
 
 // pickGofileServer asks the gofile API for an upload server and returns its
@@ -183,6 +229,9 @@ func uploadFileToGofile(ctx context.Context, server, filePath string) (string, e
 	}
 	if parsed.Status != "ok" || parsed.Data.DownloadPage == "" {
 		return "", fmt.Errorf("gofile upload rejected (status %q)", parsed.Status)
+	}
+	if err := validateGofileDownloadPage(parsed.Data.DownloadPage); err != nil {
+		return "", fmt.Errorf("invalid gofile download page: %w", err)
 	}
 	return parsed.Data.DownloadPage, nil
 }

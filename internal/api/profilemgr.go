@@ -42,9 +42,10 @@ type profileDeps struct {
 	// bookEditMu serializes in-place EPUB edits without blocking chapter reads
 	// while the replacement file is being built and hashed. bookReplaceMu is
 	// held for the much shorter commit window (rename through DB/cache refresh):
-	// chapter/download handlers take its read side before snapshotting BookCache,
-	// so they can observe either the complete old generation or the complete new
-	// one, never new bytes paired with old file-derived metadata.
+	// chapter/download/gofile handlers take its read side before snapshotting
+	// BookCache, while deletion takes its write side through file removal. This
+	// keeps active readers on one complete generation and prevents replacing or
+	// removing an EPUB while Windows still has a reader handle open.
 	bookEditMu    sync.Mutex
 	bookReplaceMu sync.RWMutex
 

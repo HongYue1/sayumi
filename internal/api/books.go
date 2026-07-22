@@ -221,6 +221,12 @@ func deleteBookHandler(_ *Dependencies) http.HandlerFunc {
 		}
 
 		id := r.PathValue("id")
+		// Deletion removes the EPUB itself, so it takes the write side of the
+		// generation gate used by chapter, download, and gofile readers. In
+		// particular, Windows cannot remove a file while one of those readers
+		// still has it open.
+		pd.bookReplaceMu.Lock()
+		defer pd.bookReplaceMu.Unlock()
 
 		// Use the in-memory cache for the file paths needed during cleanup.
 		// Fall back to the database only on a cache miss (e.g. after a restart
