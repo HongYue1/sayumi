@@ -218,6 +218,7 @@ func TestProgressUpsert(t *testing.T) {
 }
 
 func TestSettingsUpsert(t *testing.T) {
+	t.Parallel()
 	db := newTestDB(t)
 	ctx := context.Background()
 
@@ -225,12 +226,17 @@ func TestSettingsUpsert(t *testing.T) {
 		t.Errorf("settings before save err = %v, want ErrNotFound", err)
 	}
 
-	// font_roles is NOT NULL, so it must be a valid (possibly empty) string.
+	// font_roles is NOT NULL: empty string is the zero / no-mappings value.
+	// Build JSON without adjacent brace pairs (tooling strips doubled braces).
+	fontRolesJSON := `{"user:F":` + `{"regular":"a.ttf"}` + `}`
 	rec := SettingsRecord{
-		UserID:    "default",
-		FontSize:  sql.NullInt64{Int64: 30, Valid: true},
-		Theme:     sql.NullString{String: "rose-pine", Valid: true},
-		FontRoles: sql.NullString{String: "", Valid: true},
+		UserID:        "default",
+		FontSize:      sql.NullInt64{Int64: 30, Valid: true},
+		Theme:         sql.NullString{String: "rose-pine", Valid: true},
+		Justify:       sql.NullBool{Bool: true, Valid: true},
+		LineHeight:    sql.NullFloat64{Float64: 1.5, Valid: true},
+		LetterSpacing: sql.NullFloat64{}, // NULL stays NULL
+		FontRoles:     fontRolesJSON,
 	}
 	if err := db.SaveSettingsContext(ctx, rec); err != nil {
 		t.Fatalf("save settings: %v", err)
@@ -243,8 +249,27 @@ func TestSettingsUpsert(t *testing.T) {
 	if !got.FontSize.Valid || got.FontSize.Int64 != 30 {
 		t.Errorf("font size = %+v, want 30", got.FontSize)
 	}
+	if !got.Theme.Valid || got.Theme.String != "rose-pine" {
+		t.Errorf("theme = %+v, want rose-pine", got.Theme)
+	}
+	if !got.Justify.Valid || !got.Justify.Bool {
+		t.Errorf("justify = %+v, want true", got.Justify)
+	}
+	if !got.LineHeight.Valid || got.LineHeight.Float64 != 1.5 {
+		t.Errorf("line_height = %+v, want 1.5", got.LineHeight)
+	}
+	if got.LetterSpacing.Valid {
+		t.Errorf("letter_spacing = %+v, want NULL", got.LetterSpacing)
+	}
+	if got.FontRoles != rec.FontRoles {
+		t.Errorf("font_roles = %q, want %q", got.FontRoles, rec.FontRoles)
+	}
+	if got.UpdatedAt == "" {
+		t.Error("updated_at empty after save")
+	}
 
 	rec.FontSize = sql.NullInt64{Int64: 18, Valid: true}
+	rec.FontRoles = ""
 	if err := db.SaveSettingsContext(ctx, rec); err != nil {
 		t.Fatalf("resave settings: %v", err)
 	}
@@ -254,6 +279,9 @@ func TestSettingsUpsert(t *testing.T) {
 	}
 	if got.FontSize.Int64 != 18 {
 		t.Errorf("font size after upsert = %d, want 18", got.FontSize.Int64)
+	}
+	if got.FontRoles != "" {
+		t.Errorf("font_roles after clear = %q, want empty", got.FontRoles)
 	}
 }
 

@@ -40,8 +40,10 @@ type SettingsRecord struct {
 	H6Size               sql.NullInt64
 	HeaderWeight         sql.NullInt64
 	TextWeight           sql.NullInt64
-	FontRoles            sql.NullString // JSON map: family id -> {regular,italic,bold}
-	UpdatedAt            string
+	// FontRoles is JSON: family id -> {regular,italic,bold}. NOT NULL in schema
+	// (empty string = no mappings); plain string so a zero value never writes NULL.
+	FontRoles string
+	UpdatedAt string
 }
 
 func (db *DB) GetSettingsContext(ctx context.Context, userID string) (SettingsRecord, error) {

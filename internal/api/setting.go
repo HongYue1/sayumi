@@ -138,9 +138,9 @@ func recordToJSON(s storage.SettingsRecord) settingsJSON {
 	j.HeaderWeight = nullInt64ToIntPtr(s.HeaderWeight)
 	j.TextWeight = nullInt64ToIntPtr(s.TextWeight)
 
-	if s.FontRoles.Valid && strings.TrimSpace(s.FontRoles.String) != "" {
+	if strings.TrimSpace(s.FontRoles) != "" {
 		var roles map[string]fontRoleEntry
-		if err := json.Unmarshal([]byte(s.FontRoles.String), &roles); err == nil && roles != nil {
+		if err := json.Unmarshal([]byte(s.FontRoles), &roles); err == nil && roles != nil {
 			j.FontRoles = roles
 		}
 	}
@@ -421,7 +421,7 @@ func putSettingsHandler(_ *Dependencies) http.HandlerFunc {
 			H6Size:               ptrToNullInt64(j.H6Size),
 			HeaderWeight:         ptrToNullInt64(j.HeaderWeight),
 			TextWeight:           ptrToNullInt64(j.TextWeight),
-			FontRoles:            sql.NullString{String: fontRolesJSON, Valid: true},
+			FontRoles:            fontRolesJSON,
 		}
 
 		if err := pd.DB.SaveSettingsContext(r.Context(), record); err != nil {
