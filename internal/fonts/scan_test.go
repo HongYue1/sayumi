@@ -1,8 +1,14 @@
 package fonts
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"sync"
+	"testing"
+)
 
 func TestDetectRoles(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name                  string
 		files                 []string
@@ -36,6 +42,7 @@ func TestDetectRoles(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := detectRoles(tc.files)
 			if got.Regular != tc.regular || got.Italic != tc.italic || got.Bold != tc.bold {
 				t.Errorf("detectRoles(%v) = %+v, want regular=%q italic=%q bold=%q",
@@ -46,6 +53,7 @@ func TestDetectRoles(t *testing.T) {
 }
 
 func TestLooksVariable(t *testing.T) {
+	t.Parallel()
 	variable := [][]string{
 		{"Lora-VariableFont_wght.woff2"},
 		{"Lora-Italic-VariableFont_wght.woff2", "Lora-VariableFont_wght.woff2"},
@@ -69,6 +77,7 @@ func TestLooksVariable(t *testing.T) {
 }
 
 func TestApplyVariableRoles(t *testing.T) {
+	t.Parallel()
 	// Two-file variable family: bold mirrors regular, bold-italic mirrors italic.
 	d := applyVariableRoles(DetectedRoles{Regular: "Regular.woff2", Italic: "Italic.woff2"})
 	if d.Bold != "Regular.woff2" || d.BoldItalic != "Italic.woff2" {
@@ -88,6 +97,7 @@ func TestApplyVariableRoles(t *testing.T) {
 }
 
 func TestParseUserFontPath(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		path      string
 		dir, file string
@@ -106,5 +116,151 @@ func TestParseUserFontPath(t *testing.T) {
 			t.Errorf("parseUserFontPath(%q) = (%q, %q, %v), want (%q, %q, %v)",
 				tc.path, dir, file, ok, tc.dir, tc.file, tc.ok)
 		}
+	}
+}
+
+func writeFontTree(t *testing.T, root string, files map[string]string) {
+	t.Helper()
+	for rel, body := range files {
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+}
+
+func TestScannerEmptyAndMissingRoot(t *testing.T) {
+	t.Parallel()
+
+	empty := NewScanner("")
+	if got := empty.Families(); got == nil || len(got) != 0 {
+		t.Fatalf("empty dir Families = %#v", got)
+	}
+	if _, _, ok := empty.ReadUserFont("x", "y.woff2"); ok {
+		t.Fatal("empty scanner ReadUserFont should fail")
+	}
+
+	missing := NewScanner(filepath.Join(t.TempDir(), "no-such-fonts"))
+	if got := missing.Families(); got == nil || len(got) != 0 {
+		t.Fatalf("missing root Families = %#v", got)
+	}
+}
+
+func TestScannerDiscoverMetaReadStatRescan(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFontTree(t, root, map[string]string{
+		"Minion/Reg.woff2":     "REG",
+		"Minion/It.woff2":      "IT",
+		"Minion/notes.txt":     "ignore",
+		"Minion/family.json":   `{"label":"Minion Pro","category":"serif","variable":false}`,
+		"EmptyDir/.keep":       "",
+		".hidden/Secret.woff2": "nope",
+		"BareFile.woff2":       "not-a-family-dir",
+	})
+	// EmptyDir with only non-font: remove keep and leave empty subdir without fonts
+	_ = os.Remove(filepath.Join(root, "EmptyDir", ".keep"))
+	_ = os.MkdirAll(filepath.Join(root, "EmptyDir"), 0o755)
+
+	s := NewScanner(root)
+	fams := s.Families()
+	if len(fams) != 1 {
+		t.Fatalf("families = %d, want 1: %+v", len(fams), fams)
+	}
+	f := fams[0]
+	if f.ID != "user:Minion" || f.Dir != "Minion" || f.Label != "Minion Pro" || f.Category != "serif" {
+		t.Fatalf("family meta = %+v", f)
+	}
+	if f.Variable {
+		t.Fatal("variable override false not applied")
+	}
+	if len(f.Files) != 2 || f.Files[0] != "It.woff2" || f.Files[1] != "Reg.woff2" {
+		t.Fatalf("files = %v", f.Files)
+	}
+
+	// Known file: read + stat.
+	data, etag, ok := s.ReadUserFont("Minion", "Reg.woff2")
+	if !ok || string(data) != "REG" || etag == "" {
+		t.Fatalf("ReadUserFont = %q %q %v", data, etag, ok)
+	}
+	size, setag, ok := s.StatUserFont("Minion", "Reg.woff2")
+	if !ok || size != int64(len("REG")) || setag == "" {
+		t.Fatalf("StatUserFont = %d %q %v", size, setag, ok)
+	}
+
+	// Unknown paths rejected.
+	if _, _, ok := s.ReadUserFont("Minion", "notes.txt"); ok {
+		t.Fatal("non-font must not serve")
+	}
+	if _, _, ok := s.ReadUserFont("Minion", "Missing.woff2"); ok {
+		t.Fatal("missing file must not serve")
+	}
+	if _, _, ok := s.ReadUserFont("Other", "Reg.woff2"); ok {
+		t.Fatal("unknown dir must not serve")
+	}
+	if _, _, ok := s.StatUserFont("Other", "Reg.woff2"); ok {
+		t.Fatal("stat unknown dir")
+	}
+
+	// Rescan picks up a new family.
+	writeFontTree(t, root, map[string]string{
+		"Lexend/Lexend-VariableFont_wght.woff2": "VF",
+		"Lexend/family.json":                    `{"label":"Lexend","category":"sans-serif"}`,
+	})
+	fams2 := s.Rescan()
+	if len(fams2) != 2 {
+		t.Fatalf("after rescan families = %d: %+v", len(fams2), fams2)
+	}
+	var lexend *Family
+	for i := range fams2 {
+		if fams2[i].Dir == "Lexend" {
+			lexend = &fams2[i]
+			break
+		}
+	}
+	if lexend == nil {
+		t.Fatal("Lexend not discovered")
+	}
+	if lexend.Label != "Lexend" || lexend.Category != "sans-serif" || !lexend.Variable {
+		t.Fatalf("lexend = %+v", lexend)
+	}
+	if data, _, ok := s.ReadUserFont("Lexend", "Lexend-VariableFont_wght.woff2"); !ok || string(data) != "VF" {
+		t.Fatalf("read lexend = %q %v", data, ok)
+	}
+}
+
+func TestScannerConcurrentFirstFamilies(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFontTree(t, root, map[string]string{
+		"A/A-Regular.woff2": "a",
+	})
+	s := NewScanner(root)
+
+	const n = 32
+	var wg sync.WaitGroup
+	wg.Add(n)
+	start := make(chan struct{})
+	errs := make(chan string, n)
+	for range n {
+		go func() {
+			defer wg.Done()
+			<-start
+			fams := s.Families()
+			if len(fams) != 1 || fams[0].Dir != "A" {
+				errs <- "bad families"
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for e := range errs {
+		t.Fatal(e)
 	}
 }
