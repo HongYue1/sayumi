@@ -9,6 +9,13 @@ import (
 	"time"
 )
 
+func downloadResponseETag(fileHash string) string {
+	if fileHash == "" {
+		return ""
+	}
+	return `"` + fileHash + `:file"`
+}
+
 // downloadBookHandler serves GET /api/books/{id}/file: it streams the book's
 // original .epub with a Content-Disposition that makes the browser download it
 // (used by the share dialog's "Download EPUB" action). Auth is the session
@@ -21,6 +28,13 @@ func downloadBookHandler(_ *Dependencies) http.HandlerFunc {
 		}
 
 		id := r.PathValue("id")
+
+		// Keep the cache snapshot and streamed bytes on one complete EPUB
+		// generation. The read lock also prevents an in-app edit from attempting
+		// an atomic rename while Windows still has this download handle open.
+		pd.bookReplaceMu.RLock()
+		defer pd.bookReplaceMu.RUnlock()
+
 		book, ok := pd.Books.Get(id)
 		if !ok {
 			writeError(w, http.StatusNotFound, "not_found", "book not found")
@@ -39,21 +53,6 @@ func downloadBookHandler(_ *Dependencies) http.HandlerFunc {
 		}
 		defer func() { _ = file.Close() }()
 
-		info, err := file.Stat()
-		if err != nil {
-			slog.Error("stat book file for download failed", "book", id, "err", err)
-			writeError(w, http.StatusNotFound, "no_file", "book file not found")
-			return
-		}
-
-		// Streaming a large book over a slow link can outlast the server
-		// WriteTimeout armed at header-read time; clear the write deadline
-		// (mirrors the gofile/cover handlers). ServeContent streams the file
-		// without buffering it whole and supports range/resume requests.
-		if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
-			slog.Debug("clear download write deadline unsupported", "err", err)
-		}
-
 		// Name the download after the book's title rather than the on-disk file
 		// name. sanitizeFilename strips path separators / control chars and
 		// guarantees a single ".epub" suffix.
@@ -65,8 +64,25 @@ func downloadBookHandler(_ *Dependencies) http.HandlerFunc {
 		// The .epub can change in place (in-app metadata/cover edits rewrite it),
 		// so revalidate rather than cache an out-of-date copy.
 		w.Header().Set("Cache-Control", "private, no-cache")
+		if etag := downloadResponseETag(book.FileHash); etag != "" {
+			w.Header().Set("ETag", etag)
+			if ifNoneMatchMatches(r, etag) {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+		}
 
-		http.ServeContent(w, r, filename, info.ModTime(), file)
+		// Streaming a large book over a slow link can outlast the server
+		// WriteTimeout armed at header-read time; clear the write deadline
+		// (mirrors the gofile/cover handlers). ServeContent streams the file
+		// without buffering it whole and supports range/resume requests. The
+		// content hash above is the authoritative validator; a zero modtime avoids
+		// stale same-second Last-Modified revalidation after an in-app rewrite.
+		if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+			slog.Debug("clear download write deadline unsupported", "err", err)
+		}
+
+		http.ServeContent(w, r, filename, time.Time{}, file)
 	}
 }
 
