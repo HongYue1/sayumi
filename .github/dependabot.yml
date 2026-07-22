@@ -16,3 +16,17 @@ updates:
       interval: weekly
     commit-message:
       prefix: build
+
+  - package-ecosystem: bun
+    directory: /frontend
+    schedule:
+      interval: weekly
+    # TypeScript 7 does not yet expose the stable programmatic API required by
+    # svelte-check. Keep receiving TypeScript 6 patch updates without reopening
+    # the incompatible major until Svelte's language tools officially support it.
+    ignore:
+      - dependency-name: typescript
+        versions:
+          - ">=7.0.0 <8.0.0"
+    commit-message:
+      prefix: build
