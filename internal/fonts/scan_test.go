@@ -264,3 +264,40 @@ func TestScannerConcurrentFirstFamilies(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestScannerConcurrentFamiliesAndRescan(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFontTree(t, root, map[string]string{
+		"A/A-Regular.woff2": "a",
+	})
+	s := NewScanner(root)
+
+	const n = 32
+	var wg sync.WaitGroup
+	wg.Add(n)
+	start := make(chan struct{})
+	errs := make(chan string, n)
+	for i := range n {
+		go func() {
+			defer wg.Done()
+			<-start
+			var fams []Family
+			if i%2 == 0 {
+				fams = s.Families()
+			} else {
+				fams = s.Rescan()
+			}
+			if len(fams) != 1 || fams[0].Dir != "A" {
+				errs <- "bad families"
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for e := range errs {
+		t.Fatal(e)
+	}
+}

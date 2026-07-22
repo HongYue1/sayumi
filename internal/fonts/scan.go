@@ -26,6 +26,10 @@ type Scanner struct {
 	dir string
 
 	loadMu sync.Mutex // serializes the lazy initial scan (see Families)
+	// scanMu serializes every scan-and-publish cycle, including explicit
+	// rescans racing lazy initialization. Without it an older-started scan can
+	// finish last and overwrite a newer snapshot.
+	scanMu sync.Mutex
 
 	mu     sync.RWMutex
 	loaded bool
@@ -95,8 +99,8 @@ func (s *Scanner) Families() []Family {
 // ensureLoaded performs the lazy initial scan at most once even under
 // concurrent first requests: loadMu serializes would-be scanners, and the
 // double-check means only the first runs Rescan while the rest return the
-// freshly populated cache. Explicit Rescan calls bypass this and always
-// re-read the directory.
+// freshly populated cache. Explicit Rescan calls bypass loadMu and always
+// re-read the directory, while scanMu serializes every scan-and-publish cycle.
 func (s *Scanner) ensureLoaded() []Family {
 	s.loadMu.Lock()
 	defer s.loadMu.Unlock()
@@ -115,6 +119,9 @@ func (s *Scanner) ensureLoaded() []Family {
 // Rescan re-reads the fonts directory and replaces the cache (and its lookup
 // index) with a fresh snapshot.
 func (s *Scanner) Rescan() []Family {
+	s.scanMu.Lock()
+	defer s.scanMu.Unlock()
+
 	families := s.scan()
 
 	byDir := make(map[string]familyIndex, len(families))
