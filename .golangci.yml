@@ -63,6 +63,7 @@ linters:
             - golang.org/x/crypto
             - golang.org/x/image
             - golang.org/x/net
+            - golang.org/x/sync
             - modernc.org/sqlite
     misspell:
       locale: US

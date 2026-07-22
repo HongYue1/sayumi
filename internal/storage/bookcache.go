@@ -10,21 +10,24 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"sayumi/internal/epub"
 )
 
 // BookCache mirrors the books table in memory for fast lookups.
 type BookCache struct {
-	// db backs the lazy spine load. The cache is built from book *summaries*
-	// only (ListBookSummariesContext), so the heavy spine_json / toc_json are
-	// not held in memory; GetSpine fetches a book's spine JSON from db on first
-	// access. A book inserted via Add carries its SpineJSON inline, so that path
-	// parses directly without touching db.
-	db *DB
+	// loadBookContent backs lazy spine loads. The cache is built from book
+	// summaries, so the heavy spine/toc JSON is fetched only when a book opens.
+	// Keeping this as a function also makes concurrent-load behavior testable.
+	loadBookContent func(context.Context, string) (string, string, error)
 
-	mu    sync.RWMutex
-	byID  map[string]BookRecord
-	order []string
+	mu             sync.RWMutex
+	byID           map[string]BookRecord
+	order          []string
+	generations    map[string]uint64
+	nextGeneration uint64
+	spineLoads     singleflight.Group
 
 	// spines memoizes parsed spine entries per book ID. It is populated lazily
 	// on the first GetSpine for a book rather than eagerly at construction:
@@ -45,10 +48,11 @@ func NewBookCache(ctx context.Context, db *DB) (*BookCache, error) {
 	listDur := time.Since(listStart)
 
 	c := &BookCache{
-		db:     db,
-		byID:   make(map[string]BookRecord, len(summaries)),
-		order:  make([]string, 0, len(summaries)),
-		spines: make(map[string][]epub.SpineEntry, len(summaries)),
+		loadBookContent: db.GetBookContentContext,
+		byID:            make(map[string]BookRecord, len(summaries)),
+		order:           make([]string, 0, len(summaries)),
+		spines:          make(map[string][]epub.SpineEntry),
+		generations:     make(map[string]uint64),
 	}
 	for _, s := range summaries {
 		// SpineJSON / TocJSON are intentionally left empty here: the list query
@@ -59,8 +63,8 @@ func NewBookCache(ctx context.Context, db *DB) (*BookCache, error) {
 	}
 
 	// Spines are parsed lazily and the heavy spine/toc columns are no longer
-	// read at construction (see the db field doc). Logging the summary-list
-	// duration makes cold-start attribution explicit: the profile-open
+	// read at construction (see the loadBookContent field doc). Logging the
+	// summary-list duration makes cold-start attribution explicit: the profile-open
 	// "book_cache" timing should collapse to roughly this value.
 	slog.Debug("book cache built", "books", len(summaries), "list_books", listDur)
 
@@ -74,48 +78,93 @@ func (c *BookCache) Get(id string) (BookRecord, bool) {
 	return b, ok
 }
 
-func (c *BookCache) GetSpine(ctx context.Context, id string) ([]epub.SpineEntry, bool) {
-	// Fast path: the book exists and its spine has already been parsed.
-	c.mu.RLock()
-	if s, ok := c.spines[id]; ok {
-		c.mu.RUnlock()
-		return s, true
-	}
-	b, ok := c.byID[id]
-	c.mu.RUnlock()
-	if !ok {
-		return nil, false
-	}
+type spineLoadResult struct {
+	spine []epub.SpineEntry
+	found bool
+	retry bool
+}
 
-	// Slow path. The spine JSON usually isn't in memory (the cache is built from
-	// summaries), so load it from the database on demand; a book added at runtime
-	// carries its SpineJSON inline and skips the query. Parse outside the lock
-	// (JSON unmarshal of a large spine can be costly and must not block concurrent
-	// readers), then memoize under the write lock.
-	spineJSON := b.SpineJSON
+func (c *BookCache) GetSpine(ctx context.Context, id string) ([]epub.SpineEntry, bool, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
+
+		// Fast path: the book exists and its spine has already been parsed.
+		c.mu.RLock()
+		if spine, ok := c.spines[id]; ok {
+			c.mu.RUnlock()
+			return spine, true, nil
+		}
+		book, ok := c.byID[id]
+		generation := c.generations[id]
+		c.mu.RUnlock()
+		if !ok {
+			return nil, false, nil
+		}
+
+		// Only one cold load per book generation reaches SQLite and JSON parsing.
+		// Each waiter may still cancel independently; the shared load is allowed to
+		// finish and populate the cache for later requests.
+		key := fmt.Sprintf("%s\x00%d", id, generation)
+		loadCtx := context.WithoutCancel(ctx)
+		resultCh := c.spineLoads.DoChan(key, func() (any, error) {
+			return c.loadSpine(loadCtx, id, book, generation)
+		})
+
+		select {
+		case <-ctx.Done():
+			return nil, false, ctx.Err()
+		case result := <-resultCh:
+			if result.Err != nil {
+				return nil, false, result.Err
+			}
+			loaded := result.Val.(spineLoadResult)
+			if loaded.retry {
+				continue
+			}
+			return loaded.spine, loaded.found, nil
+		}
+	}
+}
+
+func (c *BookCache) loadSpine(
+	ctx context.Context,
+	id string,
+	book BookRecord,
+	generation uint64,
+) (spineLoadResult, error) {
+	spineJSON := book.SpineJSON
 	if spineJSON == "" {
-		loaded, _, err := c.db.GetBookContentContext(ctx, id)
+		loaded, _, err := c.loadBookContent(ctx, id)
 		if err != nil {
-			slog.Warn("load spine failed", "book", id, "err", err)
-			return nil, false
+			return spineLoadResult{}, fmt.Errorf("load spine for book %s: %w", id, err)
 		}
 		spineJSON = loaded
 	}
-	parsed := parseSpine(id, spineJSON)
 
-	// A concurrent caller may have populated the entry meanwhile, so re-check
-	// before storing to keep a single shared slice. Re-check byID too in case the
-	// book was removed during the unlocked load+parse.
+	parsed, err := parseSpine(id, spineJSON)
+	if err != nil {
+		return spineLoadResult{}, err
+	}
+
+	// Add or Remove may have changed this book while the load ran unlocked. A
+	// generation mismatch discards the stale result and makes GetSpine retry
+	// against the newest record instead of repopulating an invalidated entry.
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if s, ok := c.spines[id]; ok {
-		return s, true
+	if spine, ok := c.spines[id]; ok {
+		return spineLoadResult{spine: spine, found: true}, nil
 	}
-	if _, stillExists := c.byID[id]; !stillExists {
-		return nil, false
+	current, stillExists := c.byID[id]
+	if !stillExists {
+		return spineLoadResult{}, nil
+	}
+	if c.generations[id] != generation || current != book {
+		return spineLoadResult{retry: true}, nil
 	}
 	c.spines[id] = parsed
-	return parsed, true
+	return spineLoadResult{spine: parsed, found: true}, nil
 }
 
 func (c *BookCache) List() []BookRecord {
@@ -193,6 +242,9 @@ func (c *BookCache) Add(b BookRecord) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	c.nextGeneration++
+	c.generations[b.ID] = c.nextGeneration
+
 	// Fast path: an existing book whose title is unchanged keeps its sort
 	// position, so skip the O(N) order-slice delete + binary-search reinsert
 	// (each comparison re-lowercases a title) and just refresh the record in
@@ -224,6 +276,8 @@ func (c *BookCache) Remove(id string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	c.nextGeneration++
+	delete(c.generations, id)
 	delete(c.byID, id)
 	delete(c.spines, id)
 	c.order = slices.DeleteFunc(c.order, func(s string) bool {
@@ -237,11 +291,13 @@ func (c *BookCache) Len() int {
 	return len(c.byID)
 }
 
-func parseSpine(bookID, spineJSON string) []epub.SpineEntry {
+func parseSpine(bookID, spineJSON string) ([]epub.SpineEntry, error) {
 	var entries []epub.SpineEntry
 	if err := json.Unmarshal([]byte(spineJSON), &entries); err != nil {
-		slog.Warn("parse spine JSON failed", "book", bookID, "err", err)
-		return []epub.SpineEntry{}
+		return nil, fmt.Errorf("parse spine JSON for book %s: %w", bookID, err)
 	}
-	return entries
+	if entries == nil {
+		entries = []epub.SpineEntry{}
+	}
+	return entries, nil
 }

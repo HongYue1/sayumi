@@ -4,9 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"sayumi/internal/epub"
@@ -86,6 +89,93 @@ func BenchmarkNewBookCache(b *testing.B) {
 	}
 }
 
+const spineBurstCallers = 16
+
+// BenchmarkGetSpineColdBurst compares the old independent-load behavior with
+// the singleflight path when many requests open the same uncached book at once.
+func BenchmarkGetSpineColdBurst(b *testing.B) {
+	db, err := Open(b.TempDir())
+	if err != nil {
+		b.Fatalf("open: %v", err)
+	}
+	b.Cleanup(func() { _ = db.Close() })
+	seedBooksWithSpines(b, db, 1, 120)
+	ctx := context.Background()
+	cache, err := NewBookCache(ctx, db)
+	if err != nil {
+		b.Fatalf("new book cache: %v", err)
+	}
+	const bookID = "id0000"
+
+	b.Run("before/no_dedupe", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ReportMetric(spineBurstCallers, "loads/op")
+		for b.Loop() {
+			if err := runSpineBurst(spineBurstCallers, func() error {
+				raw, _, err := db.GetBookContentContext(ctx, bookID)
+				if err != nil {
+					return err
+				}
+				_, err = parseSpine(bookID, raw)
+				return err
+			}); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("after/singleflight", func(b *testing.B) {
+		originalLoad := cache.loadBookContent
+		var loads atomic.Uint64
+		cache.loadBookContent = func(ctx context.Context, id string) (string, string, error) {
+			loads.Add(1)
+			return originalLoad(ctx, id)
+		}
+
+		b.ReportAllocs()
+		for b.Loop() {
+			cache.mu.Lock()
+			delete(cache.spines, bookID)
+			cache.mu.Unlock()
+
+			if err := runSpineBurst(spineBurstCallers, func() error {
+				_, found, err := cache.GetSpine(ctx, bookID)
+				if err != nil {
+					return err
+				}
+				if !found {
+					return errors.New("book disappeared during benchmark")
+				}
+				return nil
+			}); err != nil {
+				b.Fatal(err)
+			}
+		}
+		b.ReportMetric(float64(loads.Load())/float64(b.N), "loads/op")
+	})
+}
+
+func runSpineBurst(callers int, fn func() error) error {
+	start := make(chan struct{})
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	for range callers {
+		wg.Go(func() {
+			<-start
+			errs <- fn()
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	var result error
+	for err := range errs {
+		result = errors.Join(result, err)
+	}
+	return result
+}
+
 func BenchmarkListBookSummaries(b *testing.B) {
 	db, err := Open(b.TempDir())
 	if err != nil {
@@ -156,21 +246,22 @@ func BenchmarkSaveProgress(b *testing.B) {
 	}
 }
 
-// BenchmarkConcurrentReads compares read throughput under different SQLite
-// connection-pool sizes. conns=1 is the current production setting
-// (SetMaxOpenConns(1)); the larger sizes model the read-pool option under
-// discussion. Every variant uses the exact production DSN/pragmas via
-// dataSourceName, so the comparison is apples-to-apples. This benchmark touches
-// no production code: it constructs raw *sql.DB handles purely to measure the
-// trade-off before any architecture change is committed.
+// BenchmarkConcurrentReads compares steady-state read throughput under
+// different SQLite connection-pool sizes. Production uses four pre-warmed
+// connections; conns=1/2 model constrained pools, while conns=8 measures
+// whether a larger pool adds useful throughput. Every variant uses the exact
+// production DSN/pragmas and is pre-warmed before timing so startup work does
+// not distort the comparison.
 func BenchmarkConcurrentReads(b *testing.B) {
 	for _, conns := range []int{1, 2, 4, 8} {
 		b.Run(fmt.Sprintf("conns=%d", conns), func(b *testing.B) {
 			db := openRawForBench(b, conns)
 			seedRawBooks(b, db, 200)
+			warmRawPool(b, db, conns)
 			ctx := context.Background()
 
 			b.ReportAllocs()
+			b.ResetTimer()
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
 					if err := benchScanBooks(ctx, db); err != nil {
@@ -222,6 +313,32 @@ func openRawForBench(b *testing.B, maxConns int) *sql.DB {
 	}
 	b.Cleanup(func() { _ = sqlDB.Close() })
 	return sqlDB
+}
+
+func warmRawPool(b *testing.B, db *sql.DB, n int) {
+	b.Helper()
+	ctx := context.Background()
+	conns := make([]*sql.Conn, 0, n)
+	for i := range n {
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			for _, opened := range conns {
+				_ = opened.Close()
+			}
+			b.Fatalf("warm connection %d: %v", i, err)
+		}
+		conns = append(conns, conn)
+	}
+
+	var closeErr error
+	for _, conn := range conns {
+		if err := conn.Close(); err != nil && closeErr == nil {
+			closeErr = err
+		}
+	}
+	if closeErr != nil {
+		b.Fatalf("release warm connections: %v", closeErr)
+	}
 }
 
 func seedRawBooks(b *testing.B, db *sql.DB, n int) {

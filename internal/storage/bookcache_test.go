@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"sayumi/internal/epub"
@@ -22,9 +23,6 @@ func bookWithSpine(t *testing.T, id, hash, path string, spine []epub.SpineEntry)
 	return b
 }
 
-// TestBookCacheGetSpineLazy verifies that a spine is parsed on first access,
-// returns the correct entries, is stable on the memoized second access, and
-// that an unknown book reports ok == false.
 func TestBookCacheGetSpineLazy(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
@@ -40,11 +38,16 @@ func TestBookCacheGetSpineLazy(t *testing.T) {
 		t.Fatalf("new book cache: %v", err)
 	}
 
-	if _, ok := cache.GetSpine(ctx, "missing"); ok {
+	if _, ok, err := cache.GetSpine(ctx, "missing"); err != nil {
+		t.Fatalf("GetSpine(missing): %v", err)
+	} else if ok {
 		t.Error("GetSpine(missing) ok = true, want false")
 	}
 
-	got, ok := cache.GetSpine(ctx, "id1")
+	got, ok, err := cache.GetSpine(ctx, "id1")
+	if err != nil {
+		t.Fatalf("GetSpine(id1): %v", err)
+	}
 	if !ok {
 		t.Fatal("GetSpine(id1) ok = false, want true")
 	}
@@ -57,7 +60,10 @@ func TestBookCacheGetSpineLazy(t *testing.T) {
 		}
 	}
 
-	again, ok := cache.GetSpine(ctx, "id1")
+	again, ok, err := cache.GetSpine(ctx, "id1")
+	if err != nil {
+		t.Fatalf("second GetSpine(id1): %v", err)
+	}
 	if !ok {
 		t.Fatal("second GetSpine(id1) ok = false, want true")
 	}
@@ -66,21 +72,20 @@ func TestBookCacheGetSpineLazy(t *testing.T) {
 	}
 }
 
-// TestBookCacheAddInvalidatesSpine verifies that re-adding a book replaces any
-// previously memoized spine so the next GetSpine reflects the new SpineJSON.
 func TestBookCacheAddInvalidatesSpine(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
-	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub")) // empty spine
+	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub"))
 
 	cache, err := NewBookCache(ctx, db)
 	if err != nil {
 		t.Fatalf("new book cache: %v", err)
 	}
 
-	// Memoize the initial (empty) spine.
-	if s, ok := cache.GetSpine(ctx, "id1"); !ok || len(s) != 0 {
-		t.Fatalf("initial spine = (%v, %d entries), want (true, 0)", ok, len(s))
+	if spine, ok, err := cache.GetSpine(ctx, "id1"); err != nil {
+		t.Fatalf("initial GetSpine: %v", err)
+	} else if !ok || len(spine) != 0 {
+		t.Fatalf("initial spine = (%v, %d entries), want (true, 0)", ok, len(spine))
 	}
 
 	newSpine := []epub.SpineEntry{
@@ -88,7 +93,10 @@ func TestBookCacheAddInvalidatesSpine(t *testing.T) {
 	}
 	cache.Add(bookWithSpine(t, "id1", "hash-a", "/lib/a.epub", newSpine))
 
-	got, ok := cache.GetSpine(ctx, "id1")
+	got, ok, err := cache.GetSpine(ctx, "id1")
+	if err != nil {
+		t.Fatalf("GetSpine after Add: %v", err)
+	}
 	if !ok {
 		t.Fatal("GetSpine after Add ok = false, want true")
 	}
@@ -97,8 +105,6 @@ func TestBookCacheAddInvalidatesSpine(t *testing.T) {
 	}
 }
 
-// TestBookCacheRemoveDropsSpine verifies Remove clears both the record and any
-// memoized spine.
 func TestBookCacheRemoveDropsSpine(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
@@ -108,7 +114,9 @@ func TestBookCacheRemoveDropsSpine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new book cache: %v", err)
 	}
-	if _, ok := cache.GetSpine(ctx, "id1"); !ok {
+	if _, ok, err := cache.GetSpine(ctx, "id1"); err != nil {
+		t.Fatalf("precondition GetSpine: %v", err)
+	} else if !ok {
 		t.Fatal("precondition: GetSpine(id1) ok = false")
 	}
 
@@ -117,10 +125,76 @@ func TestBookCacheRemoveDropsSpine(t *testing.T) {
 	if _, ok := cache.Get("id1"); ok {
 		t.Error("Get(id1) after Remove ok = true, want false")
 	}
-	if _, ok := cache.GetSpine(ctx, "id1"); ok {
+	if _, ok, err := cache.GetSpine(ctx, "id1"); err != nil {
+		t.Fatalf("GetSpine after Remove: %v", err)
+	} else if ok {
 		t.Error("GetSpine(id1) after Remove ok = true, want false")
 	}
 	if cache.Len() != 0 {
 		t.Errorf("cache Len = %d, want 0", cache.Len())
+	}
+}
+
+func TestBookCacheGetSpineRejectsStaleConcurrentLoad(t *testing.T) {
+	oldBook := sampleBook("id1", "hash-old", "/lib/a.epub")
+	oldBook.SpineJSON = ""
+	oldRaw, err := json.Marshal([]epub.SpineEntry{{Href: "old.xhtml"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	cache := &BookCache{
+		loadBookContent: func(context.Context, string) (string, string, error) {
+			close(started)
+			<-release
+			return string(oldRaw), "[]", nil
+		},
+		byID:        map[string]BookRecord{"id1": oldBook},
+		order:       []string{"id1"},
+		spines:      make(map[string][]epub.SpineEntry),
+		generations: make(map[string]uint64),
+	}
+
+	type result struct {
+		spine []epub.SpineEntry
+		found bool
+		err   error
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		spine, found, err := cache.GetSpine(context.Background(), "id1")
+		resultCh <- result{spine: spine, found: found, err: err}
+	}()
+
+	<-started
+	cache.Add(bookWithSpine(t, "id1", "hash-new", "/lib/a.epub", []epub.SpineEntry{{Href: "new.xhtml"}}))
+	close(release)
+
+	got := <-resultCh
+	if got.err != nil {
+		t.Fatalf("GetSpine: %v", got.err)
+	}
+	if !got.found || len(got.spine) != 1 || got.spine[0].Href != "new.xhtml" {
+		t.Fatalf("GetSpine = (%+v, %v), want new.xhtml", got.spine, got.found)
+	}
+}
+
+func TestBookCacheGetSpineReturnsParseError(t *testing.T) {
+	book := sampleBook("id1", "hash-a", "/lib/a.epub")
+	book.SpineJSON = "not-json"
+	cache := &BookCache{
+		byID:        map[string]BookRecord{"id1": book},
+		spines:      make(map[string][]epub.SpineEntry),
+		generations: make(map[string]uint64),
+	}
+
+	_, _, err := cache.GetSpine(context.Background(), "id1")
+	if err == nil {
+		t.Fatal("GetSpine error = nil, want parse error")
+	}
+	if errors.Is(err, context.Canceled) {
+		t.Fatalf("GetSpine error = %v, want parse error", err)
 	}
 }

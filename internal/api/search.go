@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"sayumi/internal/epub"
+	"sayumi/internal/storage"
 )
 
 func searchHandler(_ *Dependencies) http.HandlerFunc {
@@ -39,9 +40,21 @@ func searchHandler(_ *Dependencies) http.HandlerFunc {
 			}
 		}
 
-		spine, ok := pd.Books.GetSpine(r.Context(), id)
-		if !ok {
+		spine, ok, err := pd.Books.GetSpine(r.Context(), id)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || r.Context().Err() != nil {
+				return
+			}
+			if errors.Is(err, storage.ErrNotFound) {
+				writeError(w, http.StatusNotFound, "not_found", "book not found")
+				return
+			}
+			slog.Error("load spine failed", "book", id, "err", err)
 			writeError(w, http.StatusInternalServerError, "parse_error", "failed to get spine")
+			return
+		}
+		if !ok {
+			writeError(w, http.StatusNotFound, "not_found", "book not found")
 			return
 		}
 
