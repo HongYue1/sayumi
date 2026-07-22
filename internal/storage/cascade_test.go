@@ -40,7 +40,7 @@ func TestDeleteBookCascadesChildRows(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("insert flair: %v", err)
 	}
-	if err := db.SetBookFlairContext(ctx, "id1", "default", "flair_1"); err != nil {
+	if err := db.SetBookFlairCheckedContext(ctx, "id1", "default", "flair_1", testBuiltinFlairs); err != nil {
 		t.Fatalf("set book flair: %v", err)
 	}
 

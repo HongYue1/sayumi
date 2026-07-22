@@ -264,7 +264,7 @@ func TestFlairDeleteClearsAssignments(t *testing.T) {
 		t.Fatalf("flair count = %d, want 1", len(flairs))
 	}
 
-	if err := db.SetBookFlairContext(ctx, "id1", "default", "flair_1"); err != nil {
+	if err := db.SetBookFlairCheckedContext(ctx, "id1", "default", "flair_1", testBuiltinFlairs); err != nil {
 		t.Fatalf("set book flair: %v", err)
 	}
 	assigned, err := db.GetAllBookFlairsContext(ctx, "default")
@@ -296,10 +296,10 @@ func TestSetBookFlairClearsWhenEmpty(t *testing.T) {
 	ctx := context.Background()
 	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub"))
 
-	if err := db.SetBookFlairContext(ctx, "id1", "default", "builtin:fav"); err != nil {
+	if err := db.SetBookFlairCheckedContext(ctx, "id1", "default", "reading", testBuiltinFlairs); err != nil {
 		t.Fatalf("set book flair: %v", err)
 	}
-	if err := db.SetBookFlairContext(ctx, "id1", "default", ""); err != nil {
+	if err := db.SetBookFlairCheckedContext(ctx, "id1", "default", "", testBuiltinFlairs); err != nil {
 		t.Fatalf("clear book flair: %v", err)
 	}
 
