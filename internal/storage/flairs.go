@@ -162,17 +162,17 @@ func (db *DB) setBookFlairLocked(ctx context.Context, bookID, userID, flairID st
 	}
 
 	now := time.Now().UTC().Format(time.DateTime)
-	_, err := db.ExecContext(ctx, `
+	res, err := db.ExecContext(ctx, `
 		INSERT INTO book_flairs (book_id, user_id, flair_id, updated_at)
-		VALUES (?, ?, ?, ?)
+		SELECT ?, ?, ?, ? FROM books WHERE id = ?
 		ON CONFLICT(book_id, user_id) DO UPDATE SET
 			flair_id = excluded.flair_id,
 			updated_at = excluded.updated_at
-	`, bookID, userID, flairID, now)
+	`, bookID, userID, flairID, now, bookID)
 	if err != nil {
 		return fmt.Errorf("set book flair: %w", err)
 	}
-	return nil
+	return rowsAffectedOrNotFound(res, "set book flair")
 }
 
 // SetBookFlairCheckedContext validates the target flair and assigns it to a book

@@ -26,6 +26,18 @@ type createFlairBody struct {
 	Color string `json:"color"`
 }
 
+func normalizeCreateFlairBody(body *createFlairBody) (string, bool) {
+	body.Label = strings.TrimSpace(body.Label)
+	body.Color = strings.TrimSpace(body.Color)
+	if body.Label == "" || exceedsRuneLimit(body.Label, maxFlairLabelLen) {
+		return "label must be 1-40 characters", false
+	}
+	if !hexColorPattern.MatchString(body.Color) {
+		return "color must be a hex value like #3b82f6", false
+	}
+	return "", true
+}
+
 type setBookFlairBody struct {
 	// FlairID is the flair to assign; null or empty clears the assignment.
 	FlairID *string `json:"flairId"`
@@ -82,14 +94,8 @@ func createFlairHandler(_ *Dependencies) http.HandlerFunc {
 		if !decodeJSONBody(w, r, &body) {
 			return
 		}
-		body.Label = strings.TrimSpace(body.Label)
-		body.Color = strings.TrimSpace(body.Color)
-		if body.Label == "" || len(body.Label) > maxFlairLabelLen {
-			writeError(w, http.StatusBadRequest, "invalid_body", "label must be 1-40 characters")
-			return
-		}
-		if !hexColorPattern.MatchString(body.Color) {
-			writeError(w, http.StatusBadRequest, "invalid_body", "color must be a hex value like #3b82f6")
+		if msg, ok := normalizeCreateFlairBody(&body); !ok {
+			writeError(w, http.StatusBadRequest, "invalid_body", msg)
 			return
 		}
 
@@ -162,7 +168,7 @@ func setBookFlairHandler(_ *Dependencies) http.HandlerFunc {
 		// flair ids are accepted without a DB lookup.
 		if err := pd.DB.SetBookFlairCheckedContext(r.Context(), bookID, userID, flairID, builtinFlairIDs); err != nil {
 			if errors.Is(err, storage.ErrNotFound) {
-				writeError(w, http.StatusNotFound, "not_found", "flair not found")
+				writeError(w, http.StatusNotFound, "not_found", "book or flair not found")
 				return
 			}
 			slog.Error("set book flair failed", "book", bookID, "err", err)

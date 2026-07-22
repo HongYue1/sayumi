@@ -94,6 +94,11 @@ func TestSetBookFlairCheckedContext(t *testing.T) {
 	if err := db.SetBookFlairCheckedContext(ctx, "id1", "other", "flair_1", testBuiltinFlairs); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("wrong-user custom err = %v, want ErrNotFound", err)
 	}
+	// The upsert itself must report a concurrently deleted/missing book as a
+	// domain not-found error rather than leaking a foreign-key constraint error.
+	if err := db.SetBookFlairCheckedContext(ctx, "missing", "default", "reading", testBuiltinFlairs); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing book err = %v, want ErrNotFound", err)
+	}
 
 	// Clear.
 	if err := db.SetBookFlairCheckedContext(ctx, "id1", "default", "", testBuiltinFlairs); err != nil {
