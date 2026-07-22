@@ -167,6 +167,7 @@ func TestUpdateBookFilePathAndCover(t *testing.T) {
 }
 
 func TestProgressUpsert(t *testing.T) {
+	t.Parallel()
 	db := newTestDB(t)
 	ctx := context.Background()
 	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub"))
@@ -177,6 +178,7 @@ func TestProgressUpsert(t *testing.T) {
 
 	if err := db.SaveProgressContext(ctx, ProgressRecord{
 		BookID: "id1", UserID: "default", Chapter: 1, Percent: 0.25,
+		CFI: sql.NullString{String: "epubcfi(/6/2)", Valid: true},
 	}); err != nil {
 		t.Fatalf("save progress: %v", err)
 	}
@@ -184,6 +186,7 @@ func TestProgressUpsert(t *testing.T) {
 	// Saving again for the same (book, user) primary key must update in place.
 	if err := db.SaveProgressContext(ctx, ProgressRecord{
 		BookID: "id1", UserID: "default", Chapter: 4, Percent: 0.5,
+		CFI: sql.NullString{String: "epubcfi(/6/8)", Valid: true},
 	}); err != nil {
 		t.Fatalf("resave progress: %v", err)
 	}
@@ -195,6 +198,12 @@ func TestProgressUpsert(t *testing.T) {
 	if got.Chapter != 4 || got.Percent != 0.5 {
 		t.Errorf("progress = (ch %d, %.2f), want (ch 4, 0.50)", got.Chapter, got.Percent)
 	}
+	if !got.CFI.Valid || got.CFI.String != "epubcfi(/6/8)" {
+		t.Errorf("cfi = %+v, want Valid epubcfi(/6/8)", got.CFI)
+	}
+	if got.UpdatedAt == "" {
+		t.Error("updated_at empty after save")
+	}
 
 	all, err := db.GetAllProgressContext(ctx, "default")
 	if err != nil {
@@ -202,6 +211,9 @@ func TestProgressUpsert(t *testing.T) {
 	}
 	if len(all) != 1 {
 		t.Errorf("all progress count = %d, want 1", len(all))
+	}
+	if all["id1"].CFI.String != "epubcfi(/6/8)" {
+		t.Errorf("all[id1].cfi = %+v, want epubcfi(/6/8)", all["id1"].CFI)
 	}
 }
 
