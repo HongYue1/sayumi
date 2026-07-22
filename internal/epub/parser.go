@@ -317,9 +317,27 @@ func parseNavHTML(data []byte, navPath string) []TocEntry {
 		return nil
 	}
 
-	for child := navNode.FirstChild; child != nil; child = child.NextSibling {
-		if child.Type == html.ElementNode && child.DataAtom == atom.Ol {
-			return parseOLNode(child, navPath, 0)
+	// Find the first <ol> anywhere under the nav (not only a direct child).
+	// Real EPUB 3 NAVs often wrap the list in <div>/<section>/heading chrome.
+	ol := findFirstOL(navNode, 0)
+	if ol == nil {
+		return nil
+	}
+	return parseOLNode(ol, navPath, 0)
+}
+
+// findFirstOL returns the first <ol> under root, depth-bounded like other
+// hostile-HTML walks in this package.
+func findFirstOL(root *html.Node, depth int) *html.Node {
+	if root == nil || depth > maxSanitizeDepth {
+		return nil
+	}
+	if root.Type == html.ElementNode && root.DataAtom == atom.Ol {
+		return root
+	}
+	for child := root.FirstChild; child != nil; child = child.NextSibling {
+		if found := findFirstOL(child, depth+1); found != nil {
+			return found
 		}
 	}
 	return nil
