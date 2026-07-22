@@ -36,7 +36,7 @@ func (db *DB) ListPresetsContext(ctx context.Context, userID string) (out []Pres
 		SELECT id, user_id, name, settings_json, created_at, updated_at
 		FROM presets
 		WHERE user_id = ?
-		ORDER BY created_at ASC
+		ORDER BY created_at ASC, id ASC
 	`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list presets: %w", err)
