@@ -28,7 +28,7 @@ func (db *DB) ListBookmarksContext(ctx context.Context, bookID, userID string) (
 		SELECT id, book_id, user_id, chapter, percent, cfi, label, comment, created_at
 		FROM bookmarks
 		WHERE book_id = ? AND user_id = ?
-		ORDER BY chapter ASC, percent ASC
+		ORDER BY chapter ASC, percent ASC, created_at ASC, id ASC
 	`, bookID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list bookmarks: %w", err)
@@ -89,13 +89,18 @@ func (db *DB) InsertBookmarkContext(ctx context.Context, bookmark BookmarkRecord
 	return nil
 }
 
-func (db *DB) UpdateBookmarkContext(ctx context.Context, id, userID, label, comment string) error {
+func (db *DB) UpdateBookmarkContext(
+	ctx context.Context,
+	id, bookID, userID, label, comment string,
+) error {
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
 
 	res, err := db.ExecContext(ctx, `
-		UPDATE bookmarks SET label = ?, comment = ? WHERE id = ? AND user_id = ?
-	`, label, comment, id, userID)
+		UPDATE bookmarks
+		SET label = ?, comment = ?
+		WHERE id = ? AND book_id = ? AND user_id = ?
+	`, label, comment, id, bookID, userID)
 	if err != nil {
 		return fmt.Errorf("update bookmark: %w", err)
 	}
@@ -109,11 +114,15 @@ func (db *DB) UpdateBookmarkContext(ctx context.Context, id, userID, label, comm
 	return nil
 }
 
-func (db *DB) DeleteBookmarkContext(ctx context.Context, id, userID string) error {
+func (db *DB) DeleteBookmarkContext(ctx context.Context, id, bookID, userID string) error {
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
 
-	res, err := db.ExecContext(ctx, "DELETE FROM bookmarks WHERE id = ? AND user_id = ?", id, userID)
+	res, err := db.ExecContext(
+		ctx,
+		"DELETE FROM bookmarks WHERE id = ? AND book_id = ? AND user_id = ?",
+		id, bookID, userID,
+	)
 	if err != nil {
 		return fmt.Errorf("delete bookmark: %w", err)
 	}

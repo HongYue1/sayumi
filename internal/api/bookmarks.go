@@ -183,7 +183,6 @@ func updateBookmarkHandler(_ *Dependencies) http.HandlerFunc {
 		if !decodeJSONBody(w, r, &body) {
 			return
 		}
-
 		if len(body.Label) > maxBookmarkTextLen {
 			writeError(w, http.StatusBadRequest, "invalid_body", "label too long")
 			return
@@ -193,7 +192,9 @@ func updateBookmarkHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		if err := pd.DB.UpdateBookmarkContext(r.Context(), bookmarkID, userID, body.Label, body.Comment); err != nil {
+		if err := pd.DB.UpdateBookmarkContext(
+			r.Context(), bookmarkID, bookID, userID, body.Label, body.Comment,
+		); err != nil {
 			if errors.Is(err, storage.ErrNotFound) {
 				writeError(w, http.StatusNotFound, "not_found", "bookmark not found")
 				return
@@ -220,22 +221,7 @@ func deleteBookmarkHandler(_ *Dependencies) http.HandlerFunc {
 		bookmarkID := r.PathValue("bid")
 		userID := getUserID(r)
 
-		existing, err := pd.DB.GetBookmarkContext(r.Context(), bookmarkID, userID)
-		if err != nil {
-			if errors.Is(err, storage.ErrNotFound) {
-				writeError(w, http.StatusNotFound, "not_found", "bookmark not found")
-				return
-			}
-			slog.Error("load bookmark for deletion failed", "bookmark", bookmarkID, "book", bookID, "err", err)
-			writeError(w, http.StatusInternalServerError, "db_error", "failed to load bookmark")
-			return
-		}
-		if existing.BookID != bookID {
-			writeError(w, http.StatusNotFound, "not_found", "bookmark not found")
-			return
-		}
-
-		if err := pd.DB.DeleteBookmarkContext(r.Context(), bookmarkID, userID); err != nil {
+		if err := pd.DB.DeleteBookmarkContext(r.Context(), bookmarkID, bookID, userID); err != nil {
 			if errors.Is(err, storage.ErrNotFound) {
 				writeError(w, http.StatusNotFound, "not_found", "bookmark not found")
 				return

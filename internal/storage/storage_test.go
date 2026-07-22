@@ -42,11 +42,11 @@ func sampleBook(id, hash, path string) BookRecord {
 	}
 }
 
-func mustInsertBook(t *testing.T, db *DB, book BookRecord) string {
-	t.Helper()
+func mustInsertBook(tb testing.TB, db *DB, book BookRecord) string {
+	tb.Helper()
 	id, err := db.InsertBookContext(context.Background(), book)
 	if err != nil {
-		t.Fatalf("insert book %q: %v", book.ID, err)
+		tb.Fatalf("insert book %q: %v", book.ID, err)
 	}
 	return id
 }
@@ -333,7 +333,7 @@ func TestBookmarksCRUD(t *testing.T) {
 		t.Fatalf("bookmark count = %d, want 1", len(list))
 	}
 
-	if err := db.UpdateBookmarkContext(ctx, id, "default", "Updated", "second note"); err != nil {
+	if err := db.UpdateBookmarkContext(ctx, id, "id1", "default", "Updated", "second note"); err != nil {
 		t.Fatalf("update bookmark: %v", err)
 	}
 	got, err := db.GetBookmarkContext(ctx, id, "default")
@@ -344,7 +344,7 @@ func TestBookmarksCRUD(t *testing.T) {
 		t.Errorf("bookmark = (%q, %q), want (Updated, second note)", got.Label, got.Comment)
 	}
 
-	if err := db.DeleteBookmarkContext(ctx, id, "default"); err != nil {
+	if err := db.DeleteBookmarkContext(ctx, id, "id1", "default"); err != nil {
 		t.Fatalf("delete bookmark: %v", err)
 	}
 	list, err = db.ListBookmarksContext(ctx, "id1", "default")
@@ -355,10 +355,10 @@ func TestBookmarksCRUD(t *testing.T) {
 		t.Errorf("bookmark count after delete = %d, want 0", len(list))
 	}
 
-	if err := db.UpdateBookmarkContext(ctx, "missing", "default", "x", "y"); !errors.Is(err, ErrNotFound) {
+	if err := db.UpdateBookmarkContext(ctx, "missing", "id1", "default", "x", "y"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("update missing bookmark err = %v, want ErrNotFound", err)
 	}
-	if err := db.DeleteBookmarkContext(ctx, "missing", "default"); !errors.Is(err, ErrNotFound) {
+	if err := db.DeleteBookmarkContext(ctx, "missing", "id1", "default"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("delete missing bookmark err = %v, want ErrNotFound", err)
 	}
 }
