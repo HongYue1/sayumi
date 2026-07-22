@@ -23,11 +23,12 @@ VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
 # commit) unless the caller pins SOURCE_DATE_EPOCH. Everything downstream — the
 # buildDate stamped into the binary and the mtimes inside the archives — uses
 # this single epoch so output is deterministic.
-: "${SOURCE_DATE_EPOCH:=$(git log -1 --pretty=%ct 2>/dev/null || date -u +%s)}"
+if [[ -z "${SOURCE_DATE_EPOCH:-}" ]]; then SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct 2>/dev/null || true)"; fi
+if [[ ! "$SOURCE_DATE_EPOCH" =~ ^[0-9]+$ ]]; then echo "error: SOURCE_DATE_EPOCH must be a non-negative integer (or available from git)" >&2; exit 1; fi
 export SOURCE_DATE_EPOCH
-DATE="$(date -u -d "@${SOURCE_DATE_EPOCH}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
-        || date -u -r "${SOURCE_DATE_EPOCH}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
-        || date -u +%Y-%m-%dT%H:%M:%SZ)"
+if DATE="$(date -u -d "@${SOURCE_DATE_EPOCH}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"; then :
+elif DATE="$(date -u -r "${SOURCE_DATE_EPOCH}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"; then :
+else echo "error: cannot convert SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" >&2; exit 1; fi
 LDFLAGS="-s -w -X main.version=${VERSION} -X main.buildDate=${DATE}"
 
 if command -v bun >/dev/null 2>&1; then JS=bun; else JS=npm; fi
@@ -51,8 +52,9 @@ echo "▸ building frontend ($JS)…"
 # gets the icon. Either way the .syso are picked up automatically by `go build`.
 if command -v go-winres >/dev/null 2>&1; then
   echo "▸ go-winres make (icon/metadata for all windows arches)…"
-  ( cd cmd/sayumi && go-winres make --in winres/winres.json ) || \
-    echo "  (go-winres failed; falling back to committed .syso)"
+  if ! ( cd cmd/sayumi && go-winres make --in winres/winres.json --file-version=git-tag --product-version=git-tag ); then
+    echo "error: go-winres is installed but resource generation failed" >&2; exit 1
+  fi
 else
   echo "▸ go-winres not found — using committed .syso (windows/amd64 icon only)"
 fi
@@ -78,7 +80,8 @@ for tgt in "${TARGETS[@]}"; do
   # / .git-less tree must NOT leak a vcs.revision/modified stamp into the binary.
   # version + buildDate come from -ldflags, so the bytes stay identical whatever
   # the git state is — which is what makes the artifact reproducible.
-  env CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+  arch_env=(); case "$arch" in amd64) arch_env+=("GOAMD64=v1") ;; arm64) arch_env+=("GOARM64=v8.0") ;; esac
+  env CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" "${arch_env[@]}" \
     go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "$stage/sayumi${ext}" ./cmd/sayumi
 
   if [[ -d "$FONTS_SRC" ]]; then
@@ -161,8 +164,11 @@ EOF
 
   # Normalize mtimes so the zip (which stores filesystem timestamps) is
   # reproducible; the tar below pins mtime via --mtime regardless.
-  TZ=UTC find "$stage" -print0 | xargs -0 touch -d "@${SOURCE_DATE_EPOCH}" 2>/dev/null \
-    || TZ=UTC find "$stage" -exec touch -t "$(date -u -d "@${SOURCE_DATE_EPOCH}" +%Y%m%d%H%M.%S 2>/dev/null)" {} + 2>/dev/null || true
+  if TZ=UTC find "$stage" -print0 | xargs -0 touch -d "@${SOURCE_DATE_EPOCH}" 2>/dev/null; then :
+  else
+    touch_stamp="$(date -u -d "@${SOURCE_DATE_EPOCH}" +%Y%m%d%H%M.%S 2>/dev/null || date -u -r "${SOURCE_DATE_EPOCH}" +%Y%m%d%H%M.%S 2>/dev/null)" || { echo "error: cannot derive staging timestamp" >&2; exit 1; }
+    TZ=UTC find "$stage" -exec touch -t "$touch_stamp" {} + || { echo "error: failed to normalize staging timestamps" >&2; exit 1; }
+  fi
 
   # Package from the staging dir so the archive unpacks to a single folder.
   # Deterministic: stable entry order, fixed mtimes, zeroed owner/group, and a

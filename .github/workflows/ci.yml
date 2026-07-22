@@ -19,6 +19,7 @@ jobs:
   check:
     name: Lint, test & build
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       # Force cgo so check.sh runs `go test -race` (and FAILS on data races)
       # instead of silently downgrading to a plain `go test`.
@@ -58,3 +59,29 @@ jobs:
 
       - name: Run checks
         run: ./check.sh
+
+  platform-test:
+    name: Native test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+      - name: Install frontend deps
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+      - name: Build frontend
+        working-directory: frontend
+        run: bun run build
+      - name: Run native Go tests
+        run: go test ./...

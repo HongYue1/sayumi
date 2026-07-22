@@ -12,9 +12,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: write # create the GitHub Release and upload assets
       id-token: write # OIDC token Sigstore uses to sign the provenance attestation

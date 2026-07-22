@@ -26,22 +26,20 @@ for arg in "$@"; do
   esac
 done
 
-# Pick a JS package runner (bun preferred, npm fallback).
-if command -v bun >/dev/null 2>&1; then
-  JS=bun
-elif command -v npm >/dev/null 2>&1; then
-  JS=npm
-else
-  echo "error: need bun or npm to build the frontend" >&2
-  exit 1
-fi
-
 # Version metadata stamped into the binary (best-effort; works without git).
 VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
 DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # ---- frontend ----
 if [[ "$SKIP_WEB" -eq 0 ]]; then
+  if command -v bun >/dev/null 2>&1; then
+    JS=bun
+  elif command -v npm >/dev/null 2>&1; then
+    JS=npm
+  else
+    echo "error: need bun or npm to build the frontend" >&2
+    exit 1
+  fi
   echo "▸ building frontend ($JS)…"
   ( cd frontend && "$JS" run build )
 else
@@ -62,6 +60,7 @@ fi
 # (or a missing flag) keeps the baseline default so the binary stays runnable.
 GOAMD64_LEVEL=""
 if [[ "$(go env GOARCH)" == "amd64" ]]; then
+  GOAMD64_LEVEL="v1"
   cpuflags=""
   if [[ -r /proc/cpuinfo ]]; then
     cpuflags="$(grep -m1 -i '^flags' /proc/cpuinfo 2>/dev/null || true)"

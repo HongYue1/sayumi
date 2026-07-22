@@ -1,6 +1,6 @@
 # Keeps the supply chain current despite SHA-pinning:
 # Dependabot bumps the pinned action SHAs (and the trailing version comment)
-# and the Go module dependencies on a weekly cadence.
+# and the Go/Bun dependencies on a weekly cadence.
 version: 2
 updates:
   - package-ecosystem: github-actions

@@ -32,16 +32,19 @@ else
 	cd frontend && npm run build
 endif
 
-# Format Go sources. Mirrors the gate in check.sh, which enforces gofumpt when
-# available (gofumpt is a strict superset of gofmt); plain gofmt is the fallback.
+# Format imports first, then apply gofumpt's stricter rules. gofmt is needed
+# only when neither richer formatter is installed.
 fmt:
+ifneq (,$(shell command -v goimports))
+	goimports -w -local sayumi cmd internal
+endif
 ifneq (,$(shell command -v gofumpt))
 	gofumpt -w cmd internal
-else
+else ifeq (,$(shell command -v goimports))
 	gofmt -w cmd internal
 endif
 
-version:
+version: web
 	@go run ./cmd/sayumi --version
 
 clean:

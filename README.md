@@ -1,6 +1,6 @@
 # Sayumi
 
-Sayumi is a portable, local-first EPUB reader. It ships as a single Go binary with an embedded Svelte 5 web app that opens in your browser. There are no accounts and no cloud services: your library, reading progress, and settings live in plain folders next to the binary.
+Sayumi is a portable, local-first EPUB reader. It ships as a single Go binary with an embedded Svelte 5 web app that opens in your browser. There are no online accounts and no required cloud services: your library, reading progress, and settings live in plain folders next to the binary.
 
 ## Screenshots
 
@@ -61,7 +61,7 @@ Library view:
 
 ## Quick start
 
-- Download the correct excutable for your pc from the release page: https://github.com/HongYue1/sayumi/releases/latest
+- Download the correct executable for your PC from the release page: https://github.com/HongYue1/sayumi/releases/latest
 - Launch the executable normally
 
 Add books by dropping `.epub` files into the `Library` folder next to the binary, or by uploading them in the app. Extra reading fonts go in the `Fonts` folder next to the binary; see the README inside that folder for the expected layout.
@@ -106,8 +106,10 @@ cd frontend && bun install && bun run dev
 The quality gates use gofumpt and goimports for formatting, golangci-lint and `go vet` for static analysis, govulncheck for known vulnerabilities, `go test` for the backend, and svelte-check plus vitest for the frontend. Install the Go tools once:
 
 ```sh
-go install mvdan.cc/gofumpt@latest
-go install golang.org/x/tools/cmd/goimports@latest
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
+go install mvdan.cc/gofumpt@v0.10.0
+go install golang.org/x/tools/cmd/goimports@v0.46.0
 ```
 
 ## Project layout
@@ -126,5 +128,5 @@ The backend is plain Go on the standard library HTTP router, storing data in per
 
 ## Requirements
 
-- Go 1.26 or newer
+- Go 1.26.5 or newer
 - bun (or npm) for building the frontend
