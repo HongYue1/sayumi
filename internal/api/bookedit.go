@@ -81,43 +81,56 @@ func refreshBookCache(ctx context.Context, pd *profileDeps, id string) (storage.
 	return book, nil
 }
 
-// replaceBookFile rewrites the book's EPUB at filePath with edit applied, then
-// atomically swaps the rewritten copy into place and returns the recomputed
-// content hash and size. The new file is built as a sibling temp first; the
-// swap requires that no reader currently holds the book open, so a book open in
-// the reader yields errBookInUse and leaves the original file untouched. The
-// temp file is removed on every failure path.
-func replaceBookFile(ctx context.Context, pd *profileDeps, filePath string, edit epub.MetadataEdit) (hash string, size int64, err error) {
+type preparedBookFile struct {
+	tmpPath string
+	hash    string
+	size    int64
+}
+
+func (p preparedBookFile) cleanup() {
+	if p.tmpPath == "" {
+		return
+	}
+	if err := os.Remove(p.tmpPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		slog.Error("remove temp epub failed", "path", p.tmpPath, "err", err)
+	}
+}
+
+// prepareBookFile builds and hashes the replacement beside the source EPUB.
+// This expensive work intentionally runs before bookReplaceMu's write lock so
+// chapter reads remain fully concurrent; bookEditMu serializes edit handlers,
+// keeping the source generation stable while this preparation runs.
+func prepareBookFile(ctx context.Context, filePath string, edit epub.MetadataEdit) (preparedBookFile, error) {
 	tmpPath, err := epub.RewriteBook(filePath, edit)
 	if err != nil {
-		return "", 0, fmt.Errorf("rewrite epub: %w", err)
+		return preparedBookFile{}, fmt.Errorf("rewrite epub: %w", err)
 	}
-	removeTmp := func() {
-		if rmErr := os.Remove(tmpPath); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
-			slog.Error("remove temp epub failed", "path", tmpPath, "err", rmErr)
-		}
+	prepared := preparedBookFile{tmpPath: tmpPath}
+	prepared.hash, prepared.size, err = library.HashFile(ctx, tmpPath)
+	if err != nil {
+		prepared.cleanup()
+		return preparedBookFile{}, fmt.Errorf("rehash epub: %w", err)
 	}
+	return prepared, nil
+}
 
+// replaceBookFile atomically installs a prepared sibling file. The caller must
+// hold bookReplaceMu's write side through the following DB/cache refresh so no
+// chapter can pair the new bytes with the previous file hash/resource token.
+func replaceBookFile(pd *profileDeps, filePath, tmpPath string) error {
 	// The cached reader must be fully released before the file is replaced. If a
 	// request still holds it open, refuse rather than risk a torn/failed swap.
 	if !pd.Store.TryCloseForReplace(filePath) {
-		removeTmp()
-		return "", 0, errBookInUse
+		return errBookInUse
 	}
 
 	if renameErr := os.Rename(tmpPath, filePath); renameErr != nil {
-		removeTmp()
 		// A rename failure here is most likely the file still being held open by
 		// another in-flight read (Windows); treat it as retryable in-use.
 		slog.Warn("replace epub failed", "path", filePath, "err", renameErr)
-		return "", 0, errBookInUse
+		return errBookInUse
 	}
-
-	hash, size, err = library.HashFile(ctx, filePath)
-	if err != nil {
-		return "", 0, fmt.Errorf("rehash epub: %w", err)
-	}
-	return hash, size, nil
+	return nil
 }
 
 // updateBookHandler handles PATCH /api/books/{id}: edits the user-facing title
@@ -144,6 +157,17 @@ func updateBookHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
+		// Serialize edit preparation without blocking chapter readers. Re-read the
+		// book after taking the lock so a preceding cover/metadata edit cannot be
+		// overwritten from the stale pre-decode snapshot above.
+		pd.bookEditMu.Lock()
+		defer pd.bookEditMu.Unlock()
+		book, ok = pd.Books.Get(id)
+		if !ok {
+			writeError(w, http.StatusNotFound, "not_found", "book not found")
+			return
+		}
+
 		title, author, errMsg := applyBookMetaPatch(book.Title, book.Author, req)
 		if errMsg != "" {
 			writeError(w, http.StatusBadRequest, "invalid", errMsg)
@@ -167,8 +191,17 @@ func updateBookHandler(_ *Dependencies) http.HandlerFunc {
 			slog.Debug("clear book edit write deadline unsupported", "err", err)
 		}
 
-		hash, size, err := replaceBookFile(r.Context(), pd, book.FilePath, epub.MetadataEdit{Title: &title, Author: &author})
+		prepared, err := prepareBookFile(r.Context(), book.FilePath, epub.MetadataEdit{Title: &title, Author: &author})
 		if err != nil {
+			slog.Error("write book metadata into epub failed", "book", id, "err", err)
+			writeError(w, http.StatusInternalServerError, "edit_failed", "failed to update the book file")
+			return
+		}
+		defer prepared.cleanup()
+
+		pd.bookReplaceMu.Lock()
+		defer pd.bookReplaceMu.Unlock()
+		if err := replaceBookFile(pd, book.FilePath, prepared.tmpPath); err != nil {
 			if errors.Is(err, errBookInUse) {
 				writeError(w, http.StatusConflict, "book_open", "close the book in the reader and try again")
 				return
@@ -178,7 +211,7 @@ func updateBookHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		if err := pd.DB.UpdateBookMetadataAndFileContext(r.Context(), id, title, author, hash, size); err != nil {
+		if err := pd.DB.UpdateBookMetadataAndFileContext(r.Context(), id, title, author, prepared.hash, prepared.size); err != nil {
 			if errors.Is(err, storage.ErrFileHashConflict) {
 				writeError(w, http.StatusConflict, "duplicate", "another copy of this book already exists")
 				return
@@ -279,13 +312,34 @@ func uploadCoverHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
+		// Cover decoding is deliberately outside this lock: it can be expensive
+		// and does not inspect or mutate the EPUB. Serialize only the edit/file
+		// generation work, then refresh the book snapshot before preparing it.
+		pd.bookEditMu.Lock()
+		defer pd.bookEditMu.Unlock()
+		book, ok = pd.Books.Get(id)
+		if !ok {
+			writeError(w, http.StatusNotFound, "not_found", "book not found")
+			return
+		}
+
 		// Embed into the EPUB first: a "book open" conflict then leaves both the
 		// file and the displayed cover untouched (nothing has been written yet).
 		var fileHash string
 		var fileSize int64
 		embedInFile := book.FilePath != ""
 		if embedInFile {
-			fileHash, fileSize, err = replaceBookFile(r.Context(), pd, book.FilePath, epub.MetadataEdit{CoverJPEG: jpegData})
+			prepared, prepareErr := prepareBookFile(r.Context(), book.FilePath, epub.MetadataEdit{CoverJPEG: jpegData})
+			if prepareErr != nil {
+				slog.Error("embed cover into epub failed", "book", id, "err", prepareErr)
+				writeError(w, http.StatusInternalServerError, "edit_failed", "failed to update the book file")
+				return
+			}
+			defer prepared.cleanup()
+
+			pd.bookReplaceMu.Lock()
+			defer pd.bookReplaceMu.Unlock()
+			err = replaceBookFile(pd, book.FilePath, prepared.tmpPath)
 			if err != nil {
 				if errors.Is(err, errBookInUse) {
 					writeError(w, http.StatusConflict, "book_open", "close the book in the reader and try again")
@@ -295,6 +349,8 @@ func uploadCoverHandler(_ *Dependencies) http.HandlerFunc {
 				writeError(w, http.StatusInternalServerError, "edit_failed", "failed to update the book file")
 				return
 			}
+			fileHash = prepared.hash
+			fileSize = prepared.size
 		}
 
 		coverPath, err := library.WriteCoverImageJPEG(pd.LibPath, id, jpegData)

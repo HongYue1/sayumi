@@ -41,6 +41,15 @@ type profileDeps struct {
 	// in-flight request can touch a closed root.
 	coverRoot *os.Root
 
+	// bookEditMu serializes in-place EPUB edits without blocking chapter reads
+	// while the replacement file is being built and hashed. bookReplaceMu is
+	// held for the much shorter commit window (rename through DB/cache refresh):
+	// chapter handlers take its read side before snapshotting BookCache, so they
+	// can observe either the complete old generation or the complete new one,
+	// never a new file paired with an old file-hash resource token.
+	bookEditMu    sync.Mutex
+	bookReplaceMu sync.RWMutex
+
 	lifetimeMu   sync.Mutex
 	lifetimeCond *sync.Cond
 	refs         int
