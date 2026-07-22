@@ -104,7 +104,7 @@ func TestPlainTextExtractor(t *testing.T) {
 	// Block boundaries should separate Hello and World.
 	if !strings.Contains(got, "Hello World") && !strings.Contains(got, "Hello  World") {
 		// writeBoundary collapses to single spaces between blocks.
-		if idx := strings.Index(got, "Hello"); idx < 0 {
+		if found := strings.Contains(got, "Hello"); !found {
 			t.Fatalf("no Hello in %q", got)
 		}
 	}

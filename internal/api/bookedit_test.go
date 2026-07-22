@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func strPtr(s string) *string { return &s }
+//go:fix inline
 
 func TestApplyBookMetaPatch(t *testing.T) {
 	t.Parallel()
@@ -31,7 +31,7 @@ func TestApplyBookMetaPatch(t *testing.T) {
 			name:      "title only",
 			curTitle:  "Old",
 			curAuthor: "Ada",
-			req:       updateBookRequest{Title: strPtr("  New Title  ")},
+			req:       updateBookRequest{Title: new("  New Title  ")},
 			wantTitle: "New Title",
 			wantAuth:  "Ada",
 		},
@@ -39,7 +39,7 @@ func TestApplyBookMetaPatch(t *testing.T) {
 			name:      "author only including empty",
 			curTitle:  "Old",
 			curAuthor: "Ada",
-			req:       updateBookRequest{Author: strPtr("  ")},
+			req:       updateBookRequest{Author: new("  ")},
 			wantTitle: "Old",
 			wantAuth:  "",
 		},
@@ -47,34 +47,34 @@ func TestApplyBookMetaPatch(t *testing.T) {
 			name:      "both fields",
 			curTitle:  "Old",
 			curAuthor: "Ada",
-			req:       updateBookRequest{Title: strPtr("T"), Author: strPtr("B")},
+			req:       updateBookRequest{Title: new("T"), Author: new("B")},
 			wantTitle: "T",
 			wantAuth:  "B",
 		},
 		{
 			name:     "empty title rejected",
 			curTitle: "Old",
-			req:      updateBookRequest{Title: strPtr("   ")},
+			req:      updateBookRequest{Title: new("   ")},
 			wantErr:  "title must not be empty",
 		},
 		{
 			name:     "title too long",
 			curTitle: "Old",
-			req:      updateBookRequest{Title: strPtr(strings.Repeat("x", maxBookTitleLen+1))},
+			req:      updateBookRequest{Title: new(strings.Repeat("x", maxBookTitleLen+1))},
 			wantErr:  "title too long",
 		},
 		{
 			name:      "author too long",
 			curTitle:  "Old",
 			curAuthor: "A",
-			req:       updateBookRequest{Author: strPtr(strings.Repeat("y", maxBookAuthorLen+1))},
+			req:       updateBookRequest{Author: new(strings.Repeat("y", maxBookAuthorLen+1))},
 			wantErr:   "author too long",
 		},
 		{
 			name:      "max length title ok",
 			curTitle:  "Old",
 			curAuthor: "A",
-			req:       updateBookRequest{Title: strPtr(strings.Repeat("z", maxBookTitleLen))},
+			req:       updateBookRequest{Title: new(strings.Repeat("z", maxBookTitleLen))},
 			wantTitle: strings.Repeat("z", maxBookTitleLen),
 			wantAuth:  "A",
 		},

@@ -36,6 +36,24 @@ type customThemeBody struct {
 	Accent string `json:"accent"`
 }
 
+// exceedsRuneLimit keeps the common short-ASCII path at one byte-length check,
+// then counts only when a multibyte name may fit within the character limit.
+// It exits as soon as the limit is exceeded, so an oversized request never
+// forces a full scan of the bounded JSON body.
+func exceedsRuneLimit(s string, limit int) bool {
+	if len(s) <= limit {
+		return false
+	}
+	count := 0
+	for range s {
+		count++
+		if count > limit {
+			return true
+		}
+	}
+	return false
+}
+
 func customThemeToResponse(t storage.CustomThemeRecord) customThemeResponse {
 	return customThemeResponse{
 		ID:        t.ID,
@@ -53,7 +71,7 @@ func customThemeToResponse(t storage.CustomThemeRecord) customThemeResponse {
 // payload in place, returning a user-facing message when invalid.
 func normalizeCustomThemeBody(b *customThemeBody) (string, bool) {
 	b.Name = strings.TrimSpace(b.Name)
-	if b.Name == "" || len(b.Name) > maxThemeNameLen {
+	if b.Name == "" || exceedsRuneLimit(b.Name, maxThemeNameLen) {
 		return "name must be 1-60 characters", false
 	}
 	if b.Group != "light" && b.Group != "dark" {
