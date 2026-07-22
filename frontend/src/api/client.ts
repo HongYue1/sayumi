@@ -8,13 +8,7 @@ import { reportUnauthenticated } from "~/lib/sessionGate";
 const BASE = "/api";
 
 type HttpMethod =
-  | "GET"
-  | "POST"
-  | "PUT"
-  | "PATCH"
-  | "DELETE"
-  | "HEAD"
-  | "OPTIONS";
+  "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
 
 interface ApiErrorBody {
   error?: unknown;
