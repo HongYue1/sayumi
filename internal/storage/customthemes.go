@@ -39,7 +39,7 @@ func (db *DB) ListCustomThemesContext(ctx context.Context, userID string) (out [
 		SELECT id, user_id, name, theme_group, bg, fg, accent, created_at, updated_at
 		FROM custom_themes
 		WHERE user_id = ?
-		ORDER BY created_at ASC
+		ORDER BY created_at ASC, id ASC
 	`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list custom themes: %w", err)
