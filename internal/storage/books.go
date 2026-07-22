@@ -295,12 +295,6 @@ func (db *DB) UpdateBookCoverContext(ctx context.Context, id, coverPath string) 
 	return rowsAffectedOrNotFound(res, "update cover for "+id)
 }
 
-// ErrFileHashConflict is returned by the in-place-edit update methods when the
-// recomputed file_hash already belongs to a different book row. It guards the
-// partial unique index idx_books_file_hash_uniq so a (astronomically unlikely)
-// collision surfaces as a clean 409 rather than a raw constraint-violation 500.
-var ErrFileHashConflict = errors.New("storage: file hash conflicts with another book")
-
 // assertFileHashFree reports ErrFileHashConflict when fileHash is non-empty and
 // already recorded against a book other than id. The caller MUST hold writeMu
 // so the check and the subsequent UPDATE are atomic with respect to other
