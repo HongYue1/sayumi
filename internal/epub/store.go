@@ -409,10 +409,14 @@ func (s *EPUBStore) EvictBook(filePath string) {
 	s.cssFrags.DeleteFunc(func(k cssFragmentKey) bool { return k.filePath != filePath })
 }
 
+// ResourceReader streams one zip entry while holding a store ref on the book.
+// Size is -1 (unknown): zip UncompressedSize64 is attacker-controlled and must
+// not be advertised as Content-Length. Callers should stream without a fixed
+// length (chunked HTTP) unless they measure the body themselves.
 type ResourceReader struct {
 	rc          io.ReadCloser
 	ContentType string
-	Size        int64
+	Size        int64 // always -1 from OpenResource; reserved for measured sizes
 	store       *EPUBStore
 	filePath    string
 	released    bool
@@ -488,7 +492,7 @@ func (s *EPUBStore) OpenResource(filePath, resourcePath string) (*ResourceReader
 	return &ResourceReader{
 		rc:          rc,
 		ContentType: ct,
-		Size:        int64(f.UncompressedSize64),
+		Size:        -1, // do not trust zip UncompressedSize64 for Content-Length
 		store:       s,
 		filePath:    filePath,
 	}, nil
