@@ -41,6 +41,30 @@ type updateBookRequest struct {
 // prompt the user to close the book and retry.
 var errBookInUse = errors.New("book is open in the reader")
 
+// applyBookMetaPatch merges a PATCH body onto the current title/author.
+// Omitted pointer fields keep the current value. Returns a user-facing error
+// message when validation fails (empty title, overlong fields).
+func applyBookMetaPatch(curTitle, curAuthor string, req updateBookRequest) (title, author string, errMsg string) {
+	title = curTitle
+	if req.Title != nil {
+		title = strings.TrimSpace(*req.Title)
+	}
+	author = curAuthor
+	if req.Author != nil {
+		author = strings.TrimSpace(*req.Author)
+	}
+	if title == "" {
+		return "", "", "title must not be empty"
+	}
+	if len(title) > maxBookTitleLen {
+		return "", "", "title too long"
+	}
+	if len(author) > maxBookAuthorLen {
+		return "", "", "author too long"
+	}
+	return title, author, ""
+}
+
 // refreshBookCache reloads a book's summary from the DB and updates the
 // in-memory book cache so list/detail responses (and their ETags) reflect a
 // just-applied change. It returns the refreshed record for the JSON response.
@@ -120,27 +144,9 @@ func updateBookHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		// Patch semantics: start from the current values, override only what was
-		// sent. A trimmed empty title is rejected; author may be empty.
-		title := book.Title
-		if req.Title != nil {
-			title = strings.TrimSpace(*req.Title)
-		}
-		author := book.Author
-		if req.Author != nil {
-			author = strings.TrimSpace(*req.Author)
-		}
-
-		if title == "" {
-			writeError(w, http.StatusBadRequest, "invalid", "title must not be empty")
-			return
-		}
-		if len(title) > maxBookTitleLen {
-			writeError(w, http.StatusBadRequest, "invalid", "title too long")
-			return
-		}
-		if len(author) > maxBookAuthorLen {
-			writeError(w, http.StatusBadRequest, "invalid", "author too long")
+		title, author, errMsg := applyBookMetaPatch(book.Title, book.Author, req)
+		if errMsg != "" {
+			writeError(w, http.StatusBadRequest, "invalid", errMsg)
 			return
 		}
 
