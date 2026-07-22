@@ -113,15 +113,15 @@ func TestGetBookAndLookups(t *testing.T) {
 		t.Errorf("title = %q, want %q", got.Title, "Title id1")
 	}
 
-	byHash, err := db.GetBookByHashContext(ctx, "hash-a")
+	id, filePath, found, err := db.GetBookIDByHashContext(ctx, "hash-a")
 	if err != nil {
-		t.Fatalf("get book by hash: %v", err)
+		t.Fatalf("get book id by hash: %v", err)
 	}
-	if byHash.ID != "id1" {
-		t.Errorf("by-hash id = %q, want id1", byHash.ID)
+	if !found || id != "id1" || filePath != "/lib/a.epub" {
+		t.Errorf("by-hash = (%q, %q, %v), want (id1, /lib/a.epub, true)", id, filePath, found)
 	}
 
-	id, found, err := db.BookExistsByPathContext(ctx, "/lib/a.epub")
+	id, found, err = db.BookExistsByPathContext(ctx, "/lib/a.epub")
 	if err != nil {
 		t.Fatalf("exists by path: %v", err)
 	}

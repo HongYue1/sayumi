@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	modernsqlite "modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 type BookSummary struct {
@@ -40,6 +43,9 @@ type BookRecord struct {
 // opened for reading, yet reading those large TEXT columns for every row (they
 // overflow onto separate SQLite pages) dominated profile-open time. Fetch them
 // on demand with GetBookContentContext.
+//
+// Ordering is title (case-insensitive) then id so equal titles stay stable
+// across list reloads and cache rebuilds.
 func (db *DB) ListBookSummariesContext(ctx context.Context) (out []BookSummary, err error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT id, title, author, language, publisher, description, pub_date, isbn,
@@ -47,7 +53,7 @@ func (db *DB) ListBookSummariesContext(ctx context.Context) (out []BookSummary, 
 		       direction, chapter_count,
 		       created_at, updated_at
 		FROM books
-		ORDER BY title COLLATE NOCASE ASC
+		ORDER BY title COLLATE NOCASE ASC, id ASC
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("list book summaries: %w", err)
@@ -162,24 +168,6 @@ func (db *DB) GetBookContext(ctx context.Context, id string) (BookRecord, error)
 	return book, nil
 }
 
-func (db *DB) GetBookByHashContext(ctx context.Context, hash string) (BookRecord, error) {
-	row := db.QueryRowContext(ctx, `
-		SELECT id, title, author, language, publisher, description, pub_date, isbn,
-		       file_path, file_hash, file_size, cover_path, has_cover,
-		       spine_json, toc_json, direction, chapter_count,
-		       created_at, updated_at
-		FROM books WHERE file_hash = ?
-	`, hash)
-	book, err := scanBook(row)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return book, ErrNotFound
-		}
-		return book, fmt.Errorf("get book by hash %s: %w", hash, err)
-	}
-	return book, nil
-}
-
 // GetBookIDByHashContext returns only the id and file_path for the book matching
 // hash, without reading the heavy spine_json / toc_json columns. The library
 // scan and duplicate-check paths only need to reconcile a path or resolve an ID,
@@ -282,7 +270,7 @@ func (db *DB) UpdateBookFilePathContext(ctx context.Context, id, filePath string
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
 
-	_, err := db.ExecContext(
+	res, err := db.ExecContext(
 		ctx,
 		"UPDATE books SET file_path = ?, updated_at = datetime('now') WHERE id = ?",
 		filePath, id,
@@ -290,21 +278,21 @@ func (db *DB) UpdateBookFilePathContext(ctx context.Context, id, filePath string
 	if err != nil {
 		return fmt.Errorf("update file path for %s: %w", id, err)
 	}
-	return nil
+	return rowsAffectedOrNotFound(res, "update file path for "+id)
 }
 
 func (db *DB) UpdateBookCoverContext(ctx context.Context, id, coverPath string) error {
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
 
-	_, err := db.ExecContext(ctx, `
+	res, err := db.ExecContext(ctx, `
 		UPDATE books SET cover_path = ?, has_cover = 1, cover_checked = 1, updated_at = datetime('now')
 		WHERE id = ?
 	`, coverPath, id)
 	if err != nil {
 		return fmt.Errorf("update cover for %s: %w", id, err)
 	}
-	return nil
+	return rowsAffectedOrNotFound(res, "update cover for "+id)
 }
 
 // ErrFileHashConflict is returned by the in-place-edit update methods when the
@@ -333,6 +321,36 @@ func (db *DB) assertFileHashFree(ctx context.Context, id, fileHash string) error
 	}
 }
 
+// mapFileHashConflict translates a unique-index violation on file_hash into
+// ErrFileHashConflict. It is only consulted on the UPDATE error path, so the
+// happy path pays nothing beyond the existing assertFileHashFree preflight.
+func mapFileHashConflict(err error) error {
+	if err == nil {
+		return nil
+	}
+	var sqliteErr *modernsqlite.Error
+	if !errors.As(err, &sqliteErr) {
+		return err
+	}
+	switch sqliteErr.Code() {
+	case sqlite3.SQLITE_CONSTRAINT_UNIQUE, sqlite3.SQLITE_CONSTRAINT:
+		return ErrFileHashConflict
+	default:
+		return err
+	}
+}
+
+func rowsAffectedOrNotFound(res sql.Result, op string) error {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("%s rows affected: %w", op, err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // UpdateBookMetadataAndFileContext sets a book's title/author together with the
 // recomputed file_hash/file_size after the source EPUB has been rewritten in
 // place. Updating file_hash deliberately rotates the values derived from it
@@ -346,14 +364,17 @@ func (db *DB) UpdateBookMetadataAndFileContext(ctx context.Context, id, title, a
 		return err
 	}
 
-	_, err := db.ExecContext(ctx, `
+	res, err := db.ExecContext(ctx, `
 		UPDATE books SET title = ?, author = ?, file_hash = ?, file_size = ?, updated_at = datetime('now')
 		WHERE id = ?
 	`, title, author, fileHash, fileSize, id)
 	if err != nil {
+		if mapped := mapFileHashConflict(err); errors.Is(mapped, ErrFileHashConflict) {
+			return ErrFileHashConflict
+		}
 		return fmt.Errorf("update metadata+file for %s: %w", id, err)
 	}
-	return nil
+	return rowsAffectedOrNotFound(res, "update metadata+file for "+id)
 }
 
 // UpdateBookCoverAndFileContext sets a book's cover_path together with the
@@ -368,32 +389,17 @@ func (db *DB) UpdateBookCoverAndFileContext(ctx context.Context, id, coverPath, 
 		return err
 	}
 
-	_, err := db.ExecContext(ctx, `
+	res, err := db.ExecContext(ctx, `
 		UPDATE books SET cover_path = ?, has_cover = 1, cover_checked = 1, file_hash = ?, file_size = ?, updated_at = datetime('now')
 		WHERE id = ?
 	`, coverPath, fileHash, fileSize, id)
 	if err != nil {
+		if mapped := mapFileHashConflict(err); errors.Is(mapped, ErrFileHashConflict) {
+			return ErrFileHashConflict
+		}
 		return fmt.Errorf("update cover+file for %s: %w", id, err)
 	}
-	return nil
-}
-
-// UpdateBookMetadataContext updates the user-editable bibliographic fields
-// (title, author) for a book and bumps updated_at so the book-list cache and
-// the cover/detail ETags (which fold updated_at) invalidate. It touches neither
-// the cover nor the file columns.
-func (db *DB) UpdateBookMetadataContext(ctx context.Context, id, title, author string) error {
-	db.writeMu.Lock()
-	defer db.writeMu.Unlock()
-
-	_, err := db.ExecContext(ctx, `
-		UPDATE books SET title = ?, author = ?, updated_at = datetime('now')
-		WHERE id = ?
-	`, title, author, id)
-	if err != nil {
-		return fmt.Errorf("update metadata for %s: %w", id, err)
-	}
-	return nil
+	return rowsAffectedOrNotFound(res, "update cover+file for "+id)
 }
 
 // MarkCoverCheckedContext records that the scanner has resolved a book's cover
@@ -407,10 +413,11 @@ func (db *DB) MarkCoverCheckedContext(ctx context.Context, id string) error {
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
 
-	if _, err := db.ExecContext(ctx, "UPDATE books SET cover_checked = 1 WHERE id = ?", id); err != nil {
+	res, err := db.ExecContext(ctx, "UPDATE books SET cover_checked = 1 WHERE id = ?", id)
+	if err != nil {
 		return fmt.Errorf("mark cover checked for %s: %w", id, err)
 	}
-	return nil
+	return rowsAffectedOrNotFound(res, "mark cover checked for "+id)
 }
 
 // ListBooksMissingCoversContext returns the id and file_path of every book whose
