@@ -32,9 +32,13 @@
   // svelte-ignore state_referenced_locally
   const enterDelay = Math.min(index, 16) * 28;
 
-  let coverFailed = $state(false);
+  // Remember the exact URL that failed rather than permanently suppressing the
+  // cover for this book id. Metadata/cover edits advance updatedAt while the
+  // keyed card instance stays mounted, so a new URL must get a fresh attempt.
+  let failedCoverUrl = $state<string | null>(null);
+  const coverUrl = $derived(getCoverUrl(book.id, book.updatedAt));
   let openMenu = $state<"flair" | "actions" | null>(null);
-  const showCover = $derived(book.hasCover && !coverFailed);
+  const showCover = $derived(book.hasCover && failedCoverUrl !== coverUrl);
   const pct = $derived(
     Math.round(Math.max(0, Math.min(1, book.progress)) * 100),
   );
@@ -82,19 +86,21 @@
 
   function chooseEdit(e: MouseEvent): void {
     e.stopPropagation();
-    closeMenu(false);
+    // The dialog focus trap snapshots the active element on mount. Restore the
+    // trigger before removing this focused menu item so focus can round-trip.
+    closeMenu();
     onedit(book.id);
   }
 
   function chooseShare(e: MouseEvent): void {
     e.stopPropagation();
-    closeMenu(false);
+    closeMenu();
     onshare(book.id);
   }
 
   function chooseDelete(e: MouseEvent): void {
     e.stopPropagation();
-    closeMenu(false);
+    closeMenu();
     if (confirm(`Remove “${book.title}” from your library?`)) onremove(book.id);
   }
 
@@ -221,12 +227,12 @@
   <div class="cover">
     {#if showCover}
       <img
-        src={getCoverUrl(book.id, book.updatedAt)}
+        src={coverUrl}
         alt=""
         loading={index < 8 ? "eager" : "lazy"}
         fetchpriority={index === 0 ? "high" : undefined}
         decoding="async"
-        onerror={() => (coverFailed = true)}
+        onerror={() => (failedCoverUrl = coverUrl)}
       />
     {:else}
       <div class="placeholder">
@@ -235,7 +241,16 @@
     {/if}
 
     {#if pct > 0}
-      <div class="progress" title={`${pct}% read`}>
+      <div
+        class="progress"
+        role="progressbar"
+        aria-label={`Reading progress for ${book.title}`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+        aria-valuetext={`${pct}% read`}
+        title={`${pct}% read`}
+      >
         <div class="bar" style:width={`${pct}%`}></div>
       </div>
     {/if}
@@ -259,7 +274,7 @@
     bind:this={actionsBtn}
     class="chip-btn actions-btn"
     title="Actions"
-    aria-label="Book actions"
+    aria-label={`Book actions for ${book.title}`}
     aria-haspopup="menu"
     aria-expanded={openMenu === "actions"}
     onclick={toggleActions}
@@ -270,7 +285,7 @@
     bind:this={flairBtn}
     class="chip-btn flair-btn"
     title="Set flair"
-    aria-label="Set flair"
+    aria-label={`Set flair for ${book.title}`}
     aria-haspopup="menu"
     aria-expanded={openMenu === "flair"}
     onclick={toggleFlair}
@@ -293,7 +308,7 @@
       class:flip-y={flipY}
       role="menu"
       tabindex="-1"
-      aria-label="Set flair"
+      aria-label={`Set flair for ${book.title}`}
       onkeydown={onMenuKeydown}
     >
       <p class="menu-heading eyebrow" aria-hidden="true">Set flair</p>
@@ -332,7 +347,7 @@
       class:flip-y={flipY}
       role="menu"
       tabindex="-1"
-      aria-label="Book actions"
+      aria-label={`Book actions for ${book.title}`}
       onkeydown={onMenuKeydown}
     >
       <button
@@ -531,6 +546,12 @@
   .card:focus-within .chip-btn {
     opacity: 1;
   }
+  /* Coarse pointers cannot discover hover-only controls before tapping them. */
+  @media (hover: none), (pointer: coarse) {
+    .chip-btn {
+      opacity: 1;
+    }
+  }
   .chip-btn:active {
     transform: scale(0.95);
   }
@@ -570,6 +591,9 @@
     left: var(--sp-1);
     z-index: 21;
     min-width: 10rem;
+    max-height: min(calc(50dvh - var(--sp-2)), 28rem);
+    overflow-x: hidden;
+    overflow-y: auto;
     padding: var(--sp-1);
     background: var(--bg);
     border: 1px solid var(--hairline-strong);
@@ -676,6 +700,10 @@
   }
   .menu-item.danger:hover {
     background: var(--danger-surface);
+    color: var(--danger-surface-fg);
+  }
+  .menu-item.danger:hover .menu-ico {
+    color: var(--danger-surface-fg);
   }
 
   .meta {
