@@ -161,6 +161,14 @@ export class Library {
     this.hayCache.clear();
   }
 
+  /** Activates a profile and performs its lazy initial load as one ordered
+   *  operation. Route/component mount hooks use this instead of assuming the
+   *  parent App effect has already run. */
+  loadForProfile(profile: string | null): Promise<void> {
+    this.activate(profile);
+    return this.load();
+  }
+
   #isCurrent(profile: string, generation: number): boolean {
     return this.#profile === profile && this.#generation === generation;
   }

@@ -68,11 +68,9 @@ describe("library profile lifecycle", () => {
       .mockReturnValueOnce(second.promise);
     const store = new Library();
 
-    store.activate("profile-a");
-    const profileALoad = store.load();
-    store.activate("profile-b");
+    const profileALoad = store.loadForProfile("profile-a");
+    const profileBLoad = store.loadForProfile("profile-b");
     expect(store.books).toEqual([]);
-    const profileBLoad = store.load();
 
     second.resolve([book("b", "Profile B")]);
     await profileBLoad;

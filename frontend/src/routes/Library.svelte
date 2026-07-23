@@ -44,7 +44,10 @@
   );
 
   onMount(() => {
-    library.load();
+    // Activate and load together: child onMount can run before App's profile
+    // effect after a full-page refresh, so a bare load() could still see the
+    // store's initial null profile and silently no-op.
+    void library.loadForProfile(session.profile);
     // Reflect the profile's saved theme in the library (not just the reader).
     // Guard the fetch: on failure, apply whatever theme we already have rather
     // than leaving an unhandled rejection (and a stuck default theme).

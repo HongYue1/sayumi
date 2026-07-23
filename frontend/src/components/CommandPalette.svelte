@@ -110,7 +110,7 @@
       // effect would re-run when data arrives and wipe the user's query. Both
       // stores dedupe current-profile requests.
       untrack(() => {
-        void library.load();
+        void library.loadForProfile(session.profile);
         void customThemes.load();
       });
       queueMicrotask(() => input?.focus());
