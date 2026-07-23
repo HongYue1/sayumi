@@ -2,6 +2,7 @@
   import { settings } from "~/lib/settings.svelte";
   import { THEMES } from "~/lib/themes";
   import { applyTheme, getTheme } from "~/lib/theme";
+  import { customThemes } from "~/lib/customThemes.svelte";
   import Icon from "~/lib/Icon.svelte";
   import { Check, ChevronDown } from "@lucide/svelte";
 
@@ -9,12 +10,24 @@
   let trigger = $state<HTMLButtonElement | null>(null);
   let menuEl = $state<HTMLElement | null>(null);
 
-  const current = $derived(getTheme(settings.value.theme));
+  // Read through the reactive profile list before the global resolver so a
+  // custom-theme load/retry refreshes the trigger even when the saved theme id
+  // itself did not change.
+  const current = $derived(
+    customThemes.get(settings.value.theme) ?? getTheme(settings.value.theme),
+  );
   const lightThemes = THEMES.filter((t) => t.group === "light");
   const darkThemes = THEMES.filter((t) => t.group === "dark");
 
   function toggle(): void {
     open = !open;
+    // App boot normally loads the profile registry. If that non-fatal request
+    // failed, opening a theme selector is an explicit, bounded retry point.
+    if (open && !customThemes.loaded) {
+      void customThemes.load().then(() => {
+        if (customThemes.loaded) applyTheme(settings.value.theme);
+      });
+    }
   }
   function close(restoreFocus = true): void {
     open = false;

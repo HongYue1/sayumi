@@ -8,6 +8,7 @@
     type ThemeDef,
   } from "~/lib/themes";
   import { customThemes } from "~/lib/customThemes.svelte";
+  import { applyTheme } from "~/lib/theme";
   import CustomThemeDialog from "./CustomThemeDialog.svelte";
   import { READER_FONTS, getFontById } from "~/lib/fonts";
   import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry.svelte";
@@ -49,6 +50,13 @@
 
   onMount(() => {
     void loadPresets();
+    // Retry a non-fatal custom-theme boot failure when the user opens the
+    // settings surface that consumes and edits those themes.
+    if (!customThemes.loaded) {
+      void customThemes.load().then(() => {
+        if (customThemes.loaded) applyTheme(settings.value.theme);
+      });
+    }
   });
 
   async function loadPresets(): Promise<void> {

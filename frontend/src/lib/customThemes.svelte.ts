@@ -1,5 +1,5 @@
-// Store for user-created custom themes. Loaded from the backend once per
-// session and mirrored into the themes.ts registry (setCustomThemes) so a
+// Store for user-created custom themes. Loaded from the backend for the active
+// profile and mirrored into the themes.ts registry (setCustomThemes) so a
 // custom id resolves through getTheme everywhere the built-ins do — the app
 // chrome and, via settings.iframe -> apply-settings, the reader frame.
 
@@ -31,7 +31,7 @@ function toThemeDef(ct: CustomTheme): ThemeDef {
   };
 }
 
-class CustomThemes {
+export class CustomThemes {
   /** Custom themes as ThemeDefs, in server (creation) order. */
   list = $state<ThemeDef[]>([]);
 
@@ -43,21 +43,58 @@ class CustomThemes {
   /** Shared in-flight load so concurrent boot callers don't double-fetch. */
   #loadPromise: Promise<void> | null = null;
 
+  /** Profile whose custom themes this instance currently represents. */
+  #profile: string | null = null;
+
+  /** Invalidates async work started under a previous profile. */
+  #generation = 0;
+
+  /**
+   * Switches the store to a profile, clearing profile-owned state before any
+   * asynchronous load. Re-activating the same profile retries a failed load.
+   */
+  activate(profile: string | null): Promise<void> {
+    if (this.#profile === profile) {
+      return profile === null ? Promise.resolve() : this.load();
+    }
+
+    this.#profile = profile;
+    this.#generation++;
+    this.#loadPromise = null;
+    this.loaded = false;
+    this.#apply([]);
+
+    return profile === null ? Promise.resolve() : this.load();
+  }
+
   /** Loads custom themes once; non-fatal on failure (built-ins still work). */
   async load(): Promise<void> {
+    const profile = this.#profile;
+    if (profile === null) return;
     if (this.loaded) return;
     if (this.#loadPromise) return this.#loadPromise;
-    this.#loadPromise = (async () => {
+
+    const generation = this.#generation;
+    const promise = (async () => {
       try {
-        this.#apply((await getCustomThemes()).map(toThemeDef));
+        const themes = (await getCustomThemes()).map(toThemeDef);
+        if (!this.#isCurrent(profile, generation)) return;
+        this.#apply(themes);
         this.loaded = true;
       } catch {
         // Built-ins still work; loaded stays false so a later call retries.
       } finally {
-        this.#loadPromise = null;
+        // A profile change increments the generation before starting its own
+        // load, so an older request must not clear the newer in-flight promise.
+        if (this.#isCurrent(profile, generation)) this.#loadPromise = null;
       }
     })();
-    return this.#loadPromise;
+    this.#loadPromise = promise;
+    return promise;
+  }
+
+  #isCurrent(profile: string, generation: number): boolean {
+    return this.#profile === profile && this.#generation === generation;
   }
 
   /** Replaces the list and keeps the themes.ts registry in sync. */
@@ -68,36 +105,54 @@ class CustomThemes {
 
   /** Creates a theme; returns the stored ThemeDef, or null on failure. */
   async create(input: CustomThemeInput): Promise<ThemeDef | null> {
+    const profile = this.#profile;
+    const generation = this.#generation;
+    if (profile === null) return null;
     try {
       const def = toThemeDef(await createCustomTheme(input));
+      if (!this.#isCurrent(profile, generation)) return null;
       this.#apply([...this.list, def]);
       return def;
     } catch {
-      toast.show("Couldn't save theme");
+      if (this.#isCurrent(profile, generation)) {
+        toast.show("Couldn't save theme");
+      }
       return null;
     }
   }
 
   /** Updates a theme; returns the stored ThemeDef, or null on failure. */
   async update(id: string, input: CustomThemeInput): Promise<ThemeDef | null> {
+    const profile = this.#profile;
+    const generation = this.#generation;
+    if (profile === null) return null;
     try {
       const def = toThemeDef(await updateCustomTheme(id, input));
+      if (!this.#isCurrent(profile, generation)) return null;
       this.#apply(this.list.map((t) => (t.id === id ? def : t)));
       return def;
     } catch {
-      toast.show("Couldn't update theme");
+      if (this.#isCurrent(profile, generation)) {
+        toast.show("Couldn't update theme");
+      }
       return null;
     }
   }
 
   /** Deletes a theme; returns true on success. */
   async remove(id: string): Promise<boolean> {
+    const profile = this.#profile;
+    const generation = this.#generation;
+    if (profile === null) return false;
     try {
       await deleteCustomTheme(id);
+      if (!this.#isCurrent(profile, generation)) return false;
       this.#apply(this.list.filter((t) => t.id !== id));
       return true;
     } catch {
-      toast.show("Couldn't delete theme");
+      if (this.#isCurrent(profile, generation)) {
+        toast.show("Couldn't delete theme");
+      }
       return false;
     }
   }

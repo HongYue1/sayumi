@@ -3,6 +3,7 @@
   import { session } from "~/lib/session.svelte";
   import { router } from "~/lib/router.svelte";
   import { ui } from "~/lib/ui.svelte";
+  import { settings } from "~/lib/settings.svelte";
   import { applyTheme } from "~/lib/theme";
   import { customThemes } from "~/lib/customThemes.svelte";
   import Login from "~/routes/Login.svelte";
@@ -21,12 +22,28 @@
     session.init();
   });
 
-  // Load the user's custom themes once signed in so a custom id resolves through
-  // getTheme across the whole shell, not just the reader. applyTheme already
-  // paints the cached palette for an unresolved id, so nothing flashes before
-  // this arrives; it just upgrades resolution to the loaded registry.
+  // Keep profile-owned singleton state aligned with the active session. A
+  // profile change clears the old custom-theme registry immediately, and the
+  // store generation-guards the async replacement so a late response from the
+  // previous profile cannot publish into the new one. Closing global overlays
+  // on sign-out/session loss also keeps stale library commands and focus traps
+  // off the login screen.
   $effect(() => {
-    if (session.authenticated) void customThemes.load();
+    const profile = session.profile;
+    if (profile === null) ui.closeOverlays();
+    void customThemes.activate(profile).then(() => {
+      // Whichever profile-owned request finishes last (settings or custom
+      // themes) gets a chance to resolve the saved id with the complete
+      // registry. Keep this tied to activation rather than a global theme
+      // effect: Library/Read still own normal theme changes.
+      if (
+        profile !== null &&
+        session.profile === profile &&
+        customThemes.loaded
+      ) {
+        applyTheme(settings.value.theme);
+      }
+    });
   });
 
   // Global shortcuts. Only active once signed in; ignored while typing so the

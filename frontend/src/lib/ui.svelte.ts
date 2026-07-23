@@ -15,6 +15,11 @@ class UIState {
     this.palette = false;
     this.shortcuts = true;
   }
+
+  closeOverlays(): void {
+    this.palette = false;
+    this.shortcuts = false;
+  }
 }
 
 export const ui = new UIState();
