@@ -17,6 +17,7 @@ import (
 
 const (
 	maxUploadSize         = 100 << 20 // 100 MB
+	maxMultipartOverhead  = 1 << 20   // bounded room for multipart headers/fields
 	maxFilenameCollisions = 10_000
 )
 
@@ -37,82 +38,15 @@ func uploadBookHandler(_ *Dependencies) http.HandlerFunc {
 			slog.Debug("clear upload write deadline unsupported", "err", err)
 		}
 
-		// +1024: generous headroom for multipart framing (boundary lines,
-		// Content-Disposition headers) so that a exactly-100 MB EPUB is not
-		// rejected due to framing overhead before the body limit fires.
-		r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize+1024)
-
-		if err := r.ParseMultipartForm(32 << 20); err != nil {
-			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-				writeError(w, http.StatusRequestEntityTooLarge, "too_large", "file too large (max 100MB)")
-				return
-			}
-			writeError(w, http.StatusBadRequest, "invalid", "invalid multipart form")
+		tmpPath, filename, ok := stageMultipartEPUB(w, r, pd.LibPath, maxUploadSize)
+		if !ok {
 			return
 		}
-		if r.MultipartForm != nil {
-			defer func() {
-				if err := r.MultipartForm.RemoveAll(); err != nil {
-					slog.Error("clean multipart temp files failed", "err", err)
-				}
-			}()
-		}
-
-		file, header, err := r.FormFile("epub")
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid", "missing epub file field")
-			return
-		}
-		defer func() {
-			if err := file.Close(); err != nil {
-				slog.Error("close uploaded file failed", "err", err)
-			}
-		}()
-
-		if !strings.HasSuffix(strings.ToLower(header.Filename), ".epub") {
-			writeError(w, http.StatusBadRequest, "invalid", "file must be an .epub")
-			return
-		}
-
-		// Stage the upload in a temp file inside the destination library dir so it
-		// can be placed with a single atomic hard link (see linkOrCopyExclusive)
-		// rather than copied a second full-size time. The dot prefix keeps an
-		// in-progress upload invisible to the scanner, which skips dotfiles.
-		tmpFile, err := os.CreateTemp(pd.LibPath, ".sayumi-upload-*.epub")
-		if err != nil {
-			slog.Error("create temp file failed", "filename", header.Filename, "err", err)
-			writeError(w, http.StatusInternalServerError, "server_error", "failed to create temp file")
-			return
-		}
-
-		tmpPath := tmpFile.Name()
-
-		// Restrict the temp file to the owner only. os.CreateTemp creates with
-		// 0o600 on most Unix systems, but the mode is subject to the process
-		// umask. Calling Chmod explicitly removes any doubt.
-		if err := os.Chmod(tmpPath, 0o600); err != nil {
-			slog.Warn("failed to restrict temp file permissions", "path", tmpPath, "err", err)
-		}
-
 		defer func() {
 			if err := os.Remove(tmpPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 				slog.Error("remove temp file failed", "path", tmpPath, "err", err)
 			}
 		}()
-
-		if _, err := tmpFile.ReadFrom(file); err != nil {
-			if closeErr := tmpFile.Close(); closeErr != nil {
-				slog.Error("close temp file after write error failed", "err", closeErr)
-			}
-			slog.Error("write temp file failed", "filename", header.Filename, "err", err)
-			writeError(w, http.StatusInternalServerError, "server_error", "failed to save upload")
-			return
-		}
-		if err := tmpFile.Close(); err != nil {
-			slog.Error("close temp file failed", "filename", header.Filename, "err", err)
-			writeError(w, http.StatusInternalServerError, "server_error", "failed to save upload")
-			return
-		}
 
 		if err := validateEPUB(tmpPath); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid", err.Error())
@@ -121,32 +55,22 @@ func uploadBookHandler(_ *Dependencies) http.HandlerFunc {
 
 		existingID, contentHash, isDuplicate := pd.Scanner.CheckDuplicate(r.Context(), tmpPath)
 		if isDuplicate {
-			if book, ok := pd.Books.Get(existingID); ok {
-				writeJSON(w, http.StatusOK, bookResponseFromRecord(book))
-				return
-			}
-
-			// Only summary fields are needed here (cache warm + JSON response); the
-			// heavy spine_json / toc_json are loaded lazily by GetSpine on first open.
-			summary, found, err := pd.DB.GetBookSummaryContext(r.Context(), existingID)
+			book, found, err := loadAndWarmUploadedBook(r, pd, existingID, true)
 			if err != nil {
-				slog.Error("load duplicate book failed", "filename", header.Filename, "existing_id", existingID, "err", err)
+				slog.Error("load duplicate book failed", "filename", filename, "existing_id", existingID, "err", err)
 				writeError(w, http.StatusInternalServerError, "db_error", "failed to load duplicate book")
 				return
 			}
 			if !found {
-				slog.Error("duplicate book missing after dedup match", "filename", header.Filename, "existing_id", existingID)
+				slog.Error("duplicate book missing after dedup match", "filename", filename, "existing_id", existingID)
 				writeError(w, http.StatusInternalServerError, "db_error", "failed to load duplicate book")
 				return
 			}
-
-			book := storage.BookRecord{BookSummary: summary}
-			pd.Books.Add(book)
 			writeJSON(w, http.StatusOK, bookResponseFromRecord(book))
 			return
 		}
 
-		destName := sanitizeFilename(header.Filename)
+		destName := sanitizeFilename(filename)
 		baseName := strings.TrimSuffix(destName, ".epub")
 
 		// Atomically reserve a destination filename so two concurrent uploads
@@ -190,34 +114,163 @@ func uploadBookHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		bookID, err := pd.Scanner.ImportFile(r.Context(), destPath, contentHash)
+		bookID, imported, err := pd.Scanner.ImportUploadedFile(r.Context(), destPath, contentHash)
 		if err != nil {
 			if removeErr := os.Remove(destPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 				slog.Error("remove failed import file", "path", destPath, "err", removeErr)
 			}
-			slog.Error("import book failed", "filename", header.Filename, "path", destPath, "err", err)
+			slog.Error("import book failed", "filename", filename, "path", destPath, "err", err)
 			writeError(w, http.StatusInternalServerError, "import_error", "failed to import book")
 			return
 		}
 
-		// Cache warm + JSON response need only summary fields; the spine/toc are
-		// loaded lazily on first open, so skip the heavy columns here too.
-		summary, found, err := pd.DB.GetBookSummaryContext(r.Context(), bookID)
+		// Use an authoritative DB read after ImportUploadedFile: when this upload
+		// lost a content-hash race, the canonical path determines whether our
+		// destination is redundant or was concurrently imported by a scan.
+		book, found, err := loadAndWarmUploadedBook(r, pd, bookID, false)
 		if err != nil {
-			slog.Error("retrieve imported book failed", "filename", header.Filename, "book_id", bookID, "err", err)
+			slog.Error("retrieve imported book failed", "filename", filename, "book_id", bookID, "err", err)
 			writeError(w, http.StatusInternalServerError, "db_error", "book imported but failed to retrieve")
 			return
 		}
 		if !found {
-			slog.Error("imported book missing after import", "filename", header.Filename, "book_id", bookID)
+			slog.Error("imported book missing after import", "filename", filename, "book_id", bookID)
 			writeError(w, http.StatusInternalServerError, "db_error", "book imported but failed to retrieve")
 			return
 		}
-		book := storage.BookRecord{BookSummary: summary}
-		pd.Books.Add(book)
 
-		writeJSON(w, http.StatusCreated, bookResponseFromRecord(book))
+		status := http.StatusCreated
+		if !imported {
+			status = http.StatusOK
+			canonicalPath, pathErr := filepath.Abs(book.FilePath)
+			if pathErr != nil {
+				slog.Error("resolve canonical duplicate path failed", "book_id", bookID, "path", book.FilePath, "err", pathErr)
+				writeError(w, http.StatusInternalServerError, "server_error", "failed to resolve imported book")
+				return
+			}
+			stagedPath, pathErr := filepath.Abs(destPath)
+			if pathErr != nil {
+				slog.Error("resolve staged duplicate path failed", "book_id", bookID, "path", destPath, "err", pathErr)
+				writeError(w, http.StatusInternalServerError, "server_error", "failed to resolve imported book")
+				return
+			}
+			if canonicalPath != stagedPath {
+				if removeErr := os.Remove(destPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+					slog.Error("remove duplicate upload path failed", "path", destPath, "err", removeErr)
+					writeError(w, http.StatusInternalServerError, "server_error", "failed to clean duplicate upload")
+					return
+				}
+			}
+		}
+
+		writeJSON(w, status, bookResponseFromRecord(book))
 	}
+}
+
+func stageMultipartEPUB(
+	w http.ResponseWriter,
+	r *http.Request,
+	libraryPath string,
+	maxFileSize int64,
+) (tmpPath, filename string, ok bool) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxFileSize+maxMultipartOverhead)
+	reader, err := r.MultipartReader()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid", "invalid multipart form")
+		return "", "", false
+	}
+
+	for {
+		part, nextErr := reader.NextPart()
+		if errors.Is(nextErr, io.EOF) {
+			writeError(w, http.StatusBadRequest, "invalid", "missing epub file field")
+			return "", "", false
+		}
+		if nextErr != nil {
+			if _, tooLarge := errors.AsType[*http.MaxBytesError](nextErr); tooLarge {
+				writeError(w, http.StatusRequestEntityTooLarge, "too_large", "file too large (max 100MB)")
+				return "", "", false
+			}
+			writeError(w, http.StatusBadRequest, "invalid", "invalid multipart form")
+			return "", "", false
+		}
+
+		filename = part.FileName()
+		if part.FormName() != "epub" || filename == "" {
+			if closeErr := part.Close(); closeErr != nil {
+				if _, tooLarge := errors.AsType[*http.MaxBytesError](closeErr); tooLarge {
+					writeError(w, http.StatusRequestEntityTooLarge, "too_large", "file too large (max 100MB)")
+					return "", "", false
+				}
+				writeError(w, http.StatusBadRequest, "invalid", "invalid multipart form")
+				return "", "", false
+			}
+			continue
+		}
+		if !strings.HasSuffix(strings.ToLower(filename), ".epub") {
+			writeError(w, http.StatusBadRequest, "invalid", "file must be an .epub")
+			return "", "", false
+		}
+
+		tmpFile, createErr := os.CreateTemp(libraryPath, ".sayumi-upload-*.epub")
+		if createErr != nil {
+			slog.Error("create temp file failed", "filename", filename, "err", createErr)
+			writeError(w, http.StatusInternalServerError, "server_error", "failed to create temp file")
+			return "", "", false
+		}
+		tmpPath = tmpFile.Name()
+		if chmodErr := os.Chmod(tmpPath, 0o600); chmodErr != nil {
+			slog.Warn("failed to restrict temp file permissions", "path", tmpPath, "err", chmodErr)
+		}
+
+		written, copyErr := io.Copy(tmpFile, io.LimitReader(part, maxFileSize+1))
+		if written > maxFileSize {
+			_ = tmpFile.Close()
+			_ = os.Remove(tmpPath)
+			writeError(w, http.StatusRequestEntityTooLarge, "too_large", "file too large (max 100MB)")
+			return "", "", false
+		}
+		partCloseErr := part.Close()
+		fileCloseErr := tmpFile.Close()
+		if copyErr != nil || partCloseErr != nil || fileCloseErr != nil {
+			_ = os.Remove(tmpPath)
+			saveErr := errors.Join(copyErr, partCloseErr, fileCloseErr)
+			if requestContextDone(r, saveErr) {
+				return "", "", false
+			}
+			if _, tooLarge := errors.AsType[*http.MaxBytesError](saveErr); tooLarge {
+				writeError(w, http.StatusRequestEntityTooLarge, "too_large", "file too large (max 100MB)")
+				return "", "", false
+			}
+			slog.Error("write temp file failed", "filename", filename, "err", saveErr)
+			writeError(w, http.StatusInternalServerError, "server_error", "failed to save upload")
+			return "", "", false
+		}
+		return tmpPath, filename, true
+	}
+}
+
+func loadAndWarmUploadedBook(
+	r *http.Request,
+	pd *profileDeps,
+	id string,
+	allowCache bool,
+) (storage.BookRecord, bool, error) {
+	pd.bookReplaceMu.RLock()
+	defer pd.bookReplaceMu.RUnlock()
+
+	if allowCache {
+		if book, ok := pd.Books.Get(id); ok {
+			return book, true, nil
+		}
+	}
+	summary, found, err := pd.DB.GetBookSummaryContext(r.Context(), id)
+	if err != nil || !found {
+		return storage.BookRecord{}, found, err
+	}
+	book := storage.BookRecord{BookSummary: summary}
+	pd.Books.Add(book)
+	return book, true, nil
 }
 
 func bookResponseFromRecord(book storage.BookRecord) BookResponse {

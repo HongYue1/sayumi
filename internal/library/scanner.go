@@ -146,7 +146,7 @@ func (s *Scanner) scan(ctx context.Context) (ScanResult, error) {
 	for range workers {
 		wg.Go(func() {
 			for filePath := range pathCh {
-				id, imported, importErr := s.importFile(ctx, filePath, "", snap)
+				id, imported, importErr := s.importFile(ctx, filePath, "", snap, true)
 				if importErr != nil {
 					// When the scan's ctx is canceled, in-flight imports fail with
 					// context errors as expected teardown — not per-file failures —
@@ -285,7 +285,13 @@ func (s *Scanner) loadDedupSnapshot(ctx context.Context) (*dedupSnapshot, error)
 // importFile imports a single EPUB. When snap is non-nil (the scan path) the
 // ignored/known-path pre-checks are served from the snapshot; when nil (a
 // one-off ImportFile) they hit the DB directly.
-func (s *Scanner) importFile(ctx context.Context, filePath string, knownHash string, snap *dedupSnapshot) (id string, imported bool, err error) {
+func (s *Scanner) importFile(
+	ctx context.Context,
+	filePath string,
+	knownHash string,
+	snap *dedupSnapshot,
+	reconcileExistingPath bool,
+) (id string, imported bool, err error) {
 	absPath, err := filepath.Abs(filePath)
 	if err != nil {
 		return "", false, fmt.Errorf("abs path: %w", err)
@@ -340,7 +346,7 @@ func (s *Scanner) importFile(ctx context.Context, filePath string, knownHash str
 		// copied into a cloned profile, update the DB so future reads use the
 		// correct location. Failures are non-fatal — the book is still usable
 		// at its old path until the next successful reconciliation.
-		if existingPath != absPath {
+		if reconcileExistingPath && existingPath != absPath {
 			if updateErr := s.db.UpdateBookFilePathContext(ctx, existingID, absPath); updateErr != nil {
 				slog.Warn("reconcile book path after hash match failed",
 					"id", existingID, "old", existingPath, "new", absPath, "err", updateErr)
@@ -575,7 +581,7 @@ func (s *Scanner) CheckDuplicate(ctx context.Context, filePath string) (existing
 
 // ImportFile imports a single EPUB file into the library, returning its book ID.
 func (s *Scanner) ImportFile(ctx context.Context, filePath string, knownHash string) (string, error) {
-	id, _, err := s.importFile(ctx, filePath, knownHash, nil)
+	id, _, err := s.importFile(ctx, filePath, knownHash, nil, true)
 	if err != nil {
 		return "", err
 	}
@@ -583,6 +589,26 @@ func (s *Scanner) ImportFile(ctx context.Context, filePath string, knownHash str
 		return id, nil
 	}
 	return "", errors.New("book was not imported and could not be found")
+}
+
+// ImportUploadedFile imports a file newly placed by the upload API and reports
+// whether this call inserted the canonical row. Unlike scan-time imports, a
+// content-hash match does not reconcile the existing row to the upload's path:
+// the handler still owns that just-created path and removes it when another
+// concurrent upload won deduplication.
+func (s *Scanner) ImportUploadedFile(
+	ctx context.Context,
+	filePath string,
+	knownHash string,
+) (id string, imported bool, err error) {
+	id, imported, err = s.importFile(ctx, filePath, knownHash, nil, false)
+	if err != nil {
+		return "", false, err
+	}
+	if id == "" {
+		return "", false, errors.New("book was not imported and could not be found")
+	}
+	return id, imported, nil
 }
 
 // hashBufPool reuses 1 MiB read buffers across the scan worker pool so each

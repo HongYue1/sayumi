@@ -432,3 +432,48 @@ func TestImportFile(t *testing.T) {
 		t.Fatalf("reimport: id=%q err=%v want %q", id2, err, id)
 	}
 }
+
+func TestImportUploadedFilePreservesCanonicalDuplicatePath(t *testing.T) {
+	lib := t.TempDir()
+	db := openTestDB(t, lib)
+	s := NewScanner(lib, db)
+	ctx := context.Background()
+
+	canonicalPath := filepath.Join(lib, "canonical.epub")
+	writeMinimalEPUB(t, canonicalPath, "Canonical")
+	id, err := s.ImportFile(ctx, canonicalPath, "")
+	if err != nil {
+		t.Fatalf("import canonical file: %v", err)
+	}
+
+	duplicatePath := filepath.Join(lib, "duplicate.epub")
+	contents, err := os.ReadFile(canonicalPath)
+	if err != nil {
+		t.Fatalf("read canonical file: %v", err)
+	}
+	if err := os.WriteFile(duplicatePath, contents, 0o644); err != nil {
+		t.Fatalf("write duplicate file: %v", err)
+	}
+
+	duplicateID, imported, err := s.ImportUploadedFile(ctx, duplicatePath, "")
+	if err != nil {
+		t.Fatalf("import uploaded duplicate: %v", err)
+	}
+	if imported || duplicateID != id {
+		t.Fatalf("duplicate result = (%q, %v), want (%q, false)", duplicateID, imported, id)
+	}
+	summary, found, err := db.GetBookSummaryContext(ctx, id)
+	if err != nil {
+		t.Fatalf("load canonical summary: %v", err)
+	}
+	if !found {
+		t.Fatal("canonical book missing")
+	}
+	wantPath, err := filepath.Abs(canonicalPath)
+	if err != nil {
+		t.Fatalf("resolve canonical path: %v", err)
+	}
+	if summary.FilePath != wantPath {
+		t.Fatalf("canonical path = %q, want %q", summary.FilePath, wantPath)
+	}
+}
