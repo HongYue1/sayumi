@@ -12,9 +12,14 @@
   }
   let { bookmarks, onnavigate, ondelete, onupdate, onclose }: Props = $props();
 
+  const MAX_BOOKMARK_TEXT_BYTES = 2000;
+  const textEncoder = new TextEncoder();
+
   let editingId = $state<string | null>(null);
   let editLabel = $state("");
   let editComment = $state("");
+  let editError = $state("");
+  let returnFocusId = $state<string | null>(null);
 
   const sorted = $derived(
     [...bookmarks].sort(
@@ -30,20 +35,47 @@
     editingId = bm.id;
     editLabel = bm.label;
     editComment = bm.comment;
+    editError = "";
+    returnFocusId = null;
   }
   function saveEdit(id: string): void {
-    onupdate(id, editLabel.trim(), editComment.trim());
+    const label = editLabel.trim();
+    const comment = editComment.trim();
+    const labelBytes = textEncoder.encode(label).byteLength;
+    const commentBytes = textEncoder.encode(comment).byteLength;
+    if (labelBytes > MAX_BOOKMARK_TEXT_BYTES) {
+      editError = `Label must be ${MAX_BOOKMARK_TEXT_BYTES} UTF-8 bytes or fewer (currently ${labelBytes}).`;
+      return;
+    }
+    if (commentBytes > MAX_BOOKMARK_TEXT_BYTES) {
+      editError = `Note must be ${MAX_BOOKMARK_TEXT_BYTES} UTF-8 bytes or fewer (currently ${commentBytes}).`;
+      return;
+    }
+    onupdate(id, label, comment);
+    finishEdit(id);
+  }
+
+  function finishEdit(id: string): void {
+    returnFocusId = id;
     editingId = null;
+    editError = "";
+  }
+
+  function restoreEditFocus(node: HTMLButtonElement, id: string): void {
+    if (returnFocusId !== id) return;
+    returnFocusId = null;
+    node.focus({ preventScroll: true });
   }
 
   // Keep edit-mode keys local: Esc cancels (and is stopped from bubbling to the
   // reader's own Esc handler), Enter in the single-line label field saves. The
   // note textarea keeps Enter for newlines.
   function onEditKey(e: KeyboardEvent, id: string): void {
+    if (e.isComposing) return;
     if (e.key === "Escape") {
       e.stopPropagation();
       e.preventDefault();
-      editingId = null;
+      finishEdit(id);
     } else if (e.key === "Enter" && e.target instanceof HTMLInputElement) {
       e.preventDefault();
       saveEdit(id);
@@ -75,6 +107,11 @@
                   bind:value={editLabel}
                   placeholder="Label"
                   aria-label="Bookmark label"
+                  aria-describedby={editError
+                    ? `bookmark-edit-error-${bm.id}`
+                    : undefined}
+                  maxlength={MAX_BOOKMARK_TEXT_BYTES}
+                  oninput={() => (editError = "")}
                   onkeydown={(e) => onEditKey(e, bm.id)}
                   {@attach (el) => (el as HTMLInputElement).focus()}
                 />
@@ -84,12 +121,26 @@
                   placeholder="Note…"
                   rows="3"
                   aria-label="Bookmark note"
+                  aria-describedby={editError
+                    ? `bookmark-edit-error-${bm.id}`
+                    : undefined}
+                  maxlength={MAX_BOOKMARK_TEXT_BYTES}
+                  oninput={() => (editError = "")}
                   onkeydown={(e) => onEditKey(e, bm.id)}></textarea>
+                {#if editError}
+                  <p
+                    class="edit-error"
+                    id={`bookmark-edit-error-${bm.id}`}
+                    role="alert"
+                  >
+                    {editError}
+                  </p>
+                {/if}
                 <div class="actions">
                   <button class="primary" onclick={() => saveEdit(bm.id)}
                     >Save</button
                   >
-                  <button class="ghost-btn" onclick={() => (editingId = null)}
+                  <button class="ghost-btn" onclick={() => finishEdit(bm.id)}
                     >Cancel</button
                   >
                 </div>
@@ -112,6 +163,8 @@
                   class="icon-btn"
                   onclick={() => startEdit(bm)}
                   aria-label={`Edit bookmark: ${bookmarkName(bm)}`}
+                  {@attach (node) =>
+                    restoreEditFocus(node as HTMLButtonElement, bm.id)}
                   ><Icon icon={Pencil} size={15} /></button
                 >
                 <button
@@ -205,11 +258,13 @@
   }
   .edit {
     flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
   }
   .open {
     flex: 1;
+    min-width: 0;
     text-align: left;
     border: none;
     background: transparent;
@@ -229,6 +284,7 @@
   .bm-label {
     font-weight: 500;
     font-size: var(--text-sm);
+    overflow-wrap: anywhere;
   }
   .bm-meta {
     font-size: var(--text-xs);
@@ -238,6 +294,7 @@
     font-size: var(--text-sm);
     color: var(--muted);
     margin-top: var(--sp-1);
+    overflow-wrap: anywhere;
   }
   .actions {
     display: flex;
@@ -246,6 +303,15 @@
   }
   .edit .actions {
     margin-top: 0.2rem;
+  }
+  .edit-error {
+    margin: 0 0 var(--sp-2);
+    padding: var(--sp-2);
+    border-radius: var(--radius-sm);
+    background: var(--danger-surface);
+    color: var(--danger-surface-fg);
+    font-size: var(--text-xs);
+    overflow-wrap: anywhere;
   }
   .field {
     width: 100%;
