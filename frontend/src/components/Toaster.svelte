@@ -2,7 +2,13 @@
   import { toast } from "~/lib/toast.svelte";
 </script>
 
-<div class="container" role="status" aria-live="polite" aria-atomic="false">
+<div
+  class="container"
+  role="log"
+  aria-label="Notifications"
+  aria-live="polite"
+  aria-relevant="additions"
+>
   {#each toast.items as item (item.id)}
     <div class="toast" class:exiting={item.exiting}>{item.message}</div>
   {/each}
@@ -29,7 +35,7 @@
     border-radius: var(--radius);
     font-size: var(--text-sm);
     text-align: center;
-    pointer-events: auto;
+    overflow-wrap: anywhere;
     animation: toast-in var(--dur) var(--ease-out) forwards;
   }
   .toast.exiting {
