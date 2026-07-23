@@ -13,13 +13,17 @@
   }
   let { book, onclose }: Props = $props();
 
-  // Snapshot the title/author at open so the dirty check compares against the
-  // values the user started from, not the live store record (which the
-  // optimistic editMetadata replaces mid-session).
+  const MAX_META_BYTES = 512;
+  const MAX_COVER_BYTES = 20 * 1024 * 1024;
+  const textEncoder = new TextEncoder();
+
+  // Start from the values at open, then advance these baselines after a
+  // successful metadata stage. If a following cover upload fails, the dialog
+  // retries only that failed stage instead of presenting saved details as dirty.
   // svelte-ignore state_referenced_locally
-  const initialTitle = book.title;
+  let savedTitle = $state(book.title);
   // svelte-ignore state_referenced_locally
-  const initialAuthor = book.author;
+  let savedAuthor = $state(book.author);
 
   // svelte-ignore state_referenced_locally
   let title = $state(book.title);
@@ -31,14 +35,31 @@
 
   let busy = $state(false);
   let error = $state<string | null>(null);
+  let coverPickError = $state<string | null>(null);
 
   const trimmedTitle = $derived(title.trim());
+  const trimmedAuthor = $derived(author.trim());
+  const titleTooLong = $derived(
+    textEncoder.encode(trimmedTitle).byteLength > MAX_META_BYTES,
+  );
+  const authorTooLong = $derived(
+    textEncoder.encode(trimmedAuthor).byteLength > MAX_META_BYTES,
+  );
+  const titleError = $derived(
+    trimmedTitle.length === 0
+      ? "Title can’t be empty."
+      : titleTooLong
+        ? "Title is too long (512-byte limit)."
+        : null,
+  );
   const dirty = $derived(
-    trimmedTitle !== initialTitle ||
-      author.trim() !== initialAuthor ||
+    trimmedTitle !== savedTitle ||
+      trimmedAuthor !== savedAuthor ||
       coverFile !== null,
   );
-  const canSubmit = $derived(!busy && trimmedTitle.length > 0 && dirty);
+  const canSubmit = $derived(
+    !busy && titleError === null && !authorTooLong && dirty,
+  );
 
   // The chosen file's object URL is revoked when replaced (below) and on
   // destroy, so a dialog opened/closed repeatedly doesn't leak blob URLs.
@@ -46,16 +67,30 @@
     if (coverPreview) URL.revokeObjectURL(coverPreview);
   });
 
+  function clearCoverSelection(): void {
+    if (coverPreview) URL.revokeObjectURL(coverPreview);
+    coverFile = null;
+    coverPreview = null;
+  }
+
   function onCoverPick(e: Event): void {
     const input = e.currentTarget as HTMLInputElement;
     const file = input.files?.[0] ?? null;
     if (!file) return;
+    error = null;
     if (!/^image\/(jpeg|png|webp)$/.test(file.type)) {
-      error = "Choose a JPEG, PNG, or WebP image.";
+      clearCoverSelection();
+      coverPickError = "Choose a JPEG, PNG, or WebP image.";
       input.value = "";
       return;
     }
-    error = null;
+    if (file.size > MAX_COVER_BYTES) {
+      clearCoverSelection();
+      coverPickError = "Choose an image no larger than 20 MB.";
+      input.value = "";
+      return;
+    }
+    coverPickError = null;
     if (coverPreview) URL.revokeObjectURL(coverPreview);
     coverFile = file;
     coverPreview = URL.createObjectURL(file);
@@ -69,20 +104,38 @@
   async function submit(e: Event): Promise<void> {
     e.preventDefault();
     if (!canSubmit) return;
+
+    // Freeze one coherent submission. Controls are disabled below while busy,
+    // but these snapshots also prevent a late file-picker event from changing
+    // which values an already-running save commits.
+    const submittedTitle = trimmedTitle;
+    const submittedAuthor = trimmedAuthor;
+    const submittedCover = coverFile;
+    let savedDetailsThisAttempt = false;
+
     busy = true;
     error = null;
+    coverPickError = null;
     try {
       const patch: { title?: string; author?: string } = {};
-      if (trimmedTitle !== initialTitle) patch.title = trimmedTitle;
-      if (author.trim() !== initialAuthor) patch.author = author.trim();
+      if (submittedTitle !== savedTitle) patch.title = submittedTitle;
+      if (submittedAuthor !== savedAuthor) patch.author = submittedAuthor;
       if (patch.title !== undefined || patch.author !== undefined) {
         await library.editMetadata(book.id, patch);
+        savedTitle = submittedTitle;
+        savedAuthor = submittedAuthor;
+        savedDetailsThisAttempt = true;
       }
-      if (coverFile) await library.replaceCover(book.id, coverFile);
+      if (submittedCover) await library.replaceCover(book.id, submittedCover);
       toast.show("Saved changes");
       onclose();
     } catch (err) {
-      error = err instanceof ApiError ? err.message : "Something went wrong.";
+      const message =
+        err instanceof ApiError ? err.message : "Something went wrong.";
+      error =
+        savedDetailsThisAttempt && submittedCover
+          ? `Book details were saved, but the cover could not be replaced: ${message}`
+          : message;
       busy = false;
     }
   }
@@ -122,7 +175,7 @@
       </button>
     </header>
 
-    <form onsubmit={submit}>
+    <form onsubmit={submit} aria-busy={busy}>
       <div class="cover-row">
         <div class="cover-preview">
           {#if currentCover}
@@ -132,20 +185,33 @@
           {/if}
         </div>
         <div class="cover-actions">
-          <label class="btn ghost file-btn">
+          <label class="btn ghost file-btn" class:disabled={busy}>
             <Icon icon={ImageUp} size={16} />
             {coverFile ? "Change image" : "Replace cover"}
             <input
+              class="file-input"
               type="file"
               accept="image/jpeg,image/png,image/webp"
-              hidden
+              aria-label={coverFile ? "Change cover image" : "Replace cover"}
+              aria-invalid={coverPickError !== null}
+              aria-describedby={coverPickError
+                ? "cover-hint cover-pick-error"
+                : "cover-hint"}
+              disabled={busy}
               onchange={onCoverPick}
             />
           </label>
           {#if coverFile}
             <p class="cover-name" title={coverFile.name}>{coverFile.name}</p>
           {/if}
-          <p class="hint">JPEG, PNG, or WebP · resized on save.</p>
+          <p class="hint" id="cover-hint">
+            JPEG, PNG, or WebP · up to 20 MB · resized on save.
+          </p>
+          {#if coverPickError}
+            <p class="error" id="cover-pick-error" role="alert">
+              {coverPickError}
+            </p>
+          {/if}
         </div>
       </div>
 
@@ -156,11 +222,14 @@
           bind:value={title}
           maxlength="512"
           autocomplete="off"
+          aria-invalid={titleError !== null}
+          aria-describedby={titleError ? "book-title-error" : undefined}
+          disabled={busy}
           {@attach (el) => (el as HTMLInputElement).focus()}
         />
       </label>
-      {#if trimmedTitle.length === 0}
-        <p class="note" role="alert">Title can’t be empty.</p>
+      {#if titleError}
+        <p class="note" id="book-title-error" role="alert">{titleError}</p>
       {/if}
 
       <label class="field">
@@ -170,8 +239,16 @@
           bind:value={author}
           maxlength="512"
           autocomplete="off"
+          aria-invalid={authorTooLong}
+          aria-describedby={authorTooLong ? "book-author-error" : undefined}
+          disabled={busy}
         />
       </label>
+      {#if authorTooLong}
+        <p class="note" id="book-author-error" role="alert">
+          Author is too long (512-byte limit).
+        </p>
+      {/if}
 
       {#if error}
         <p class="error" role="alert">{error}</p>
@@ -304,8 +381,28 @@
     min-width: 0;
   }
   .file-btn {
+    position: relative;
     cursor: pointer;
     align-self: flex-start;
+    overflow: hidden;
+  }
+  .file-btn:has(.file-input:focus-visible) {
+    box-shadow: var(--focus);
+  }
+  .file-btn.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .file-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .file-input:disabled {
+    cursor: not-allowed;
   }
   .cover-name {
     margin: 0;
@@ -346,6 +443,10 @@
   }
   .field input:hover {
     border-color: var(--accent);
+  }
+  .field input:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
   }
   .field input:focus-visible {
     outline: none;
