@@ -18,7 +18,7 @@ export function buildFrameSrcdoc(nonce: string, initialTheme: string): string {
                  style-src 'unsafe-inline' *;
                  font-src * data: blob:;
                  img-src * data: blob:;
-                 media-src *;
+                 media-src * data: blob:;
                  script-src 'nonce-${safeNonce}';
                  connect-src 'none';
                  frame-src 'none';">
