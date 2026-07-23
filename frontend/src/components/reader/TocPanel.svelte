@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import type { TocEntry } from "~/api/client";
   import Icon from "~/lib/Icon.svelte";
   import { X } from "@lucide/svelte";
@@ -59,12 +60,34 @@
   ): { before: string; match: string; after: string } | null {
     const q = normalizedQuery;
     if (!q) return null;
-    const idx = title.toLowerCase().indexOf(q);
+
+    let folded = "";
+    const sourceStarts: number[] = [];
+    const sourceEnds: number[] = [];
+    let sourceOffset = 0;
+
+    for (const char of title) {
+      const lower = char.toLowerCase();
+      const sourceEnd = sourceOffset + char.length;
+      for (let i = 0; i < lower.length; i += 1) {
+        sourceStarts.push(sourceOffset);
+        sourceEnds.push(sourceEnd);
+      }
+      folded += lower;
+      sourceOffset = sourceEnd;
+    }
+
+    const idx = folded.indexOf(q);
     if (idx < 0) return null;
+
+    const sourceStart = sourceStarts[idx];
+    const sourceEnd = sourceEnds[idx + q.length - 1];
+    if (sourceStart === undefined || sourceEnd === undefined) return null;
+
     return {
-      before: title.slice(0, idx),
-      match: title.slice(idx, idx + q.length),
-      after: title.slice(idx + q.length),
+      before: title.slice(0, sourceStart),
+      match: title.slice(sourceStart, sourceEnd),
+      after: title.slice(sourceEnd),
     };
   }
 
@@ -80,6 +103,8 @@
   let viewportH = $state(0);
   let initialised = false;
   let lastQuery = "";
+  let focusedIndex = $state(-1);
+  let composing = false;
 
   const startIndex = $derived(
     Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN),
@@ -104,7 +129,15 @@
   }
 
   function onQueryKey(e: KeyboardEvent): void {
-    if (e.key === "Enter") {
+    if (e.isComposing || composing) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      void focusRow(focusedIndex >= 0 ? focusedIndex : 0);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      void focusRow(focusedIndex >= 0 ? focusedIndex : filteredRows.length - 1);
+    } else if (e.key === "Enter") {
       // Jump straight to the first match so a quick filter-then-Enter opens the
       // most likely chapter without touching the mouse.
       e.preventDefault();
@@ -121,6 +154,69 @@
       if (normalizedQuery) query = "";
       else onclose();
     }
+  }
+
+  function onCompositionStart(): void {
+    composing = true;
+  }
+
+  function onCompositionEnd(): void {
+    composing = false;
+  }
+
+  function rowId(index: number): string {
+    return `toc-entry-${index}`;
+  }
+
+  async function focusRow(index: number): Promise<void> {
+    if (!scrollEl || filteredRows.length === 0) return;
+
+    const nextIndex = Math.max(0, Math.min(filteredRows.length - 1, index));
+    const rowTop = nextIndex * ROW_H;
+    const rowBottom = rowTop + ROW_H;
+    const visibleTop = scrollEl.scrollTop;
+    const visibleBottom = visibleTop + scrollEl.clientHeight;
+
+    if (rowTop < visibleTop) {
+      scrollEl.scrollTop = rowTop;
+    } else if (rowBottom > visibleBottom) {
+      scrollEl.scrollTop = Math.max(0, rowBottom - scrollEl.clientHeight);
+    }
+
+    scrollTop = scrollEl.scrollTop;
+    focusedIndex = nextIndex;
+    await tick();
+    document.getElementById(rowId(nextIndex))?.focus({ preventScroll: true });
+  }
+
+  function onEntryKey(e: KeyboardEvent, index: number): void {
+    let nextIndex: number | null = null;
+
+    switch (e.key) {
+      case "ArrowDown":
+        nextIndex = index + 1;
+        break;
+      case "ArrowUp":
+        nextIndex = index - 1;
+        break;
+      case "Home":
+        nextIndex = 0;
+        break;
+      case "End":
+        nextIndex = filteredRows.length - 1;
+        break;
+      case "PageDown":
+        nextIndex = index + Math.max(1, Math.floor(viewportH / ROW_H));
+        break;
+      case "PageUp":
+        nextIndex = index - Math.max(1, Math.floor(viewportH / ROW_H));
+        break;
+      default:
+        return;
+    }
+
+    e.preventDefault();
+    void focusRow(nextIndex);
   }
 
   // Track the viewport height (the panel resizes with the window).
@@ -146,6 +242,8 @@
       scrollEl.scrollTop = Math.max(0, target);
     }
     scrollTop = scrollEl.scrollTop;
+    focusedIndex =
+      activeIndex >= 0 ? activeIndex : filteredRows.length > 0 ? 0 : -1;
     queryEl?.focus({ preventScroll: true });
     initialised = true;
   });
@@ -161,6 +259,7 @@
     if (scrollEl) {
       scrollEl.scrollTop = 0;
       scrollTop = 0;
+      focusedIndex = filteredRows.length > 0 ? 0 : -1;
     }
   });
 </script>
@@ -186,6 +285,8 @@
         spellcheck="false"
         aria-label="Filter table of contents"
         onkeydown={onQueryKey}
+        oncompositionstart={onCompositionStart}
+        oncompositionend={onCompositionEnd}
       />
       {#if query}
         <button class="clear" onclick={clearQuery} aria-label="Clear filter"
@@ -207,16 +308,25 @@
           <ul class="window" style:transform={`translateY(${offsetY}px)`}>
             {#each windowRows as row, i (row.entry.href + row.entry.title + "@" + (startIndex + i))}
               {@const hl = highlight(row.entry.title)}
-              <li aria-level={row.depth + 1}>
+              {@const globalIndex = startIndex + i}
+              <li
+                aria-level={row.depth + 1}
+                aria-setsize={filteredRows.length}
+                aria-posinset={globalIndex + 1}
+              >
                 <button
+                  id={rowId(globalIndex)}
                   class="entry"
                   class:current={row.entry === activeEntry}
                   class:top={row.depth === 0}
                   aria-current={row.entry === activeEntry
                     ? "location"
                     : undefined}
+                  tabindex={globalIndex === focusedIndex ? 0 : -1}
                   style:padding-left={`${row.depth * 0.75 + 0.75}rem`}
                   title={row.entry.title}
+                  onfocus={() => (focusedIndex = globalIndex)}
+                  onkeydown={(e) => onEntryKey(e, globalIndex)}
                   onclick={() => onnavigate(row.entry.href)}
                 >
                   {#if hl}{hl.before}<mark>{hl.match}</mark
