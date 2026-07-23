@@ -93,6 +93,12 @@
     close(true);
     action();
   }
+
+  function signOut(): void {
+    // logout clears local session state in its finally block even if the request
+    // fails; consume that rejection after cleanup so it never becomes unhandled.
+    void session.logout().catch(() => undefined);
+  }
 </script>
 
 <svelte:window onpointerdown={open ? onWindowPointerDown : undefined} />
@@ -145,7 +151,7 @@
         class="item"
         role="menuitem"
         tabindex="-1"
-        onclick={() => pick(() => session.logout())}
+        onclick={() => pick(signOut)}
       >
         <Icon icon={LogOut} size={16} />
         Sign out
@@ -158,12 +164,14 @@
   .profile-menu {
     position: relative;
     display: inline-flex;
+    min-width: 0;
   }
   .trigger {
     display: inline-flex;
     align-items: center;
     gap: var(--sp-2);
-    max-width: 14rem;
+    min-width: 0;
+    max-width: min(14rem, 26vw);
     padding: 0.3rem 0.5rem;
     border: 1px solid var(--hairline-strong);
     border-radius: var(--radius);
@@ -239,15 +247,22 @@
     outline: none;
   }
   .item.danger {
-    color: var(--danger);
+    color: var(--fg);
   }
   .item.danger:hover,
   .item.danger:focus-visible {
-    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    background: var(--danger-surface);
+    color: var(--danger-surface-fg);
   }
   .sep {
     height: 1px;
     margin: var(--sp-1) 0;
     background: var(--hairline);
+  }
+
+  @media (max-width: 360px) {
+    .trigger :global(.who-icon) {
+      display: none;
+    }
   }
 </style>
