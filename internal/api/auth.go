@@ -501,14 +501,20 @@ func loginHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid", "name is required")
 			return
 		}
+		if !validateProfileName(body.Name) {
+			writeError(w, http.StatusBadRequest, "invalid_name",
+				"profile name must be 1–32 characters: letters, digits, spaces, dashes, underscores")
+			return
+		}
 
 		key := throttleKey(body.Name, r)
-		if wait := deps.throttle.retryAfter(key); wait > 0 {
+		if wait := deps.throttle.beginAttempt(key); wait > 0 {
 			w.Header().Set("Retry-After", strconv.Itoa(int(wait/time.Second)+1))
 			writeError(w, http.StatusTooManyRequests, "rate_limited",
 				"too many failed attempts; please wait and try again")
 			return
 		}
+		defer deps.throttle.releaseAttempt(key)
 
 		profile, err := deps.ProfilesDB.GetProfileContext(r.Context(), body.Name)
 		if errors.Is(err, storage.ErrNotFound) {
