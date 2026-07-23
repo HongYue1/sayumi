@@ -110,7 +110,9 @@ function buildUserFontFaces(
 }
 
 function formatHint(url: string): string {
-  const lower = url.toLowerCase();
+  const queryStart = url.indexOf("?");
+  const path = queryStart === -1 ? url : url.slice(0, queryStart);
+  const lower = path.toLowerCase();
   if (lower.endsWith(".woff2")) return "woff2";
   if (lower.endsWith(".woff")) return "woff";
   if (lower.endsWith(".otf")) return "opentype";

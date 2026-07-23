@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { requestWithRetry, ApiError } from "~/api/client";
+import {
+  requestWithRetry,
+  ApiError,
+  getFonts,
+  rescanFonts,
+  userFontUrl,
+} from "~/api/client";
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -122,5 +128,38 @@ describe("requestWithRetry", () => {
     expect(err).toBeInstanceOf(DOMException);
     expect(err).toMatchObject({ name: "AbortError" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("user font access token", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("adds the latest authenticated font token to user font URLs", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({ user: [], userToken: "first-token" }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ user: [], userToken: "second-token" }),
+      );
+
+    await expect(getFonts()).resolves.toEqual([]);
+    expect(userFontUrl("My Family", "Regular.woff2")).toBe(
+      `${window.location.origin}/fonts/user/My%20Family/Regular.woff2?token=first-token`,
+    );
+
+    await expect(rescanFonts()).resolves.toEqual([]);
+    expect(userFontUrl("My Family", "Regular.woff2")).toBe(
+      `${window.location.origin}/fonts/user/My%20Family/Regular.woff2?token=second-token`,
+    );
   });
 });

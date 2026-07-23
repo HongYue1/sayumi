@@ -524,27 +524,38 @@ export interface UserFontFamily {
   };
 }
 
+interface FontsResponse {
+  user: UserFontFamily[];
+  userToken: string;
+}
+
+let userFontToken = "";
+
+function acceptFontsResponse(response: FontsResponse): UserFontFamily[] {
+  userFontToken = response.userToken;
+  return response.user ?? [];
+}
+
 export function getFonts(signal?: AbortSignal): Promise<UserFontFamily[]> {
-  return request<{ user: UserFontFamily[] }>(
-    "GET",
-    "/fonts",
-    undefined,
-    signal,
-  ).then((r) => r.user ?? []);
+  return request<FontsResponse>("GET", "/fonts", undefined, signal).then(
+    acceptFontsResponse,
+  );
 }
 
 export function rescanFonts(signal?: AbortSignal): Promise<UserFontFamily[]> {
-  return request<{ user: UserFontFamily[] }>(
+  return request<FontsResponse>(
     "POST",
     "/fonts/rescan",
     undefined,
     signal,
-  ).then((r) => r.user ?? []);
+  ).then(acceptFontsResponse);
 }
 
 /** Absolute URL for a user font file (used in @font-face src across the iframe boundary). */
 export function userFontUrl(dir: string, file: string): string {
-  return `${window.location.origin}/fonts/user/${encodeURIComponent(dir)}/${encodeURIComponent(file)}`;
+  return `${window.location.origin}/fonts/user/${encodeURIComponent(
+    dir,
+  )}/${encodeURIComponent(file)}?token=${encodeURIComponent(userFontToken)}`;
 }
 
 export interface ProgressData {

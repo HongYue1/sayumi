@@ -2,7 +2,11 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"net/http"
+	"strings"
 	"time"
 
 	"sayumi/internal/api/middleware"
@@ -17,6 +21,17 @@ type Dependencies struct {
 	Fonts       *fonts.Scanner
 	sessions    *sessionStore
 	throttle    *loginThrottle
+	fontToken   string
+}
+
+const userFontTokenBytes = 32
+
+func newUserFontToken() string {
+	var token [userFontTokenBytes]byte
+	if _, err := rand.Read(token[:]); err != nil {
+		panic("crypto/rand unavailable: " + err.Error())
+	}
+	return hex.EncodeToString(token[:])
 }
 
 // NewDependencies constructs a Dependencies value with all internal state
@@ -29,6 +44,7 @@ func NewDependencies(profilesDB *storage.ProfilesDB, profileMgr *ProfileManager,
 		Fonts:       fontScanner,
 		sessions:    newSessionStore(profilesDB),
 		throttle:    newLoginThrottle(),
+		fontToken:   newUserFontToken(),
 	}
 }
 
@@ -57,6 +73,27 @@ func (d *Dependencies) StartBackgroundTasks(ctx context.Context) {
 
 func applyAuth(deps *Dependencies, h http.HandlerFunc) http.Handler {
 	return authMiddleware(deps)(h)
+}
+
+func validUserFontToken(rawQuery, expected string) bool {
+	const prefix = "token="
+	if expected == "" ||
+		len(rawQuery) != len(prefix)+len(expected) ||
+		!strings.HasPrefix(rawQuery, prefix) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(rawQuery[len(prefix):]), []byte(expected)) == 1
+}
+
+func protectUserFonts(deps *Dependencies, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/fonts/user/") &&
+			(deps == nil || !validUserFontToken(r.URL.RawQuery, deps.fontToken)) {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func RegisterRoutes(mux *http.ServeMux, deps *Dependencies) {
@@ -123,12 +160,13 @@ func RegisterRoutes(mux *http.ServeMux, deps *Dependencies) {
 }
 
 func NewHandler(deps *Dependencies, fontHandler http.Handler, staticHandler http.Handler) http.Handler {
-	mux := http.NewServeMux()
+	apiMux := http.NewServeMux()
+	RegisterRoutes(apiMux, deps)
 
-	mux.Handle("/fonts/", fontHandler)
-	RegisterRoutes(mux, deps)
+	contentMux := http.NewServeMux()
+	contentMux.Handle("/fonts/", protectUserFonts(deps, fontHandler))
 
-	mux.HandleFunc("GET /robots.txt", func(w http.ResponseWriter, _ *http.Request) {
+	contentMux.HandleFunc("GET /robots.txt", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -136,6 +174,13 @@ func NewHandler(deps *Dependencies, fontHandler http.Handler, staticHandler http
 		_, _ = w.Write([]byte("User-agent: *\nDisallow: /api/\n"))
 	})
 
-	mux.Handle("/", staticHandler)
-	return middleware.Gzip(mux)
+	contentMux.Handle("/", staticHandler)
+	root := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
+			apiMux.ServeHTTP(w, r)
+			return
+		}
+		contentMux.ServeHTTP(w, r)
+	})
+	return middleware.Gzip(root)
 }

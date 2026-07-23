@@ -10,24 +10,31 @@ import (
 // Only user-supplied families are reported; the embedded catalog is a static
 // constant on the client side.
 type fontsResponse struct {
-	User []fonts.Family `json:"user"`
+	User      []fonts.Family `json:"user"`
+	UserToken string         `json:"userToken"`
+}
+
+func newFontsResponse(deps *Dependencies, families []fonts.Family) fontsResponse {
+	return fontsResponse{User: families, UserToken: deps.fontToken}
 }
 
 func listFontsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, fontsResponse{User: userFamilies(deps)})
+		w.Header().Set("Cache-Control", "private, no-store")
+		writeJSON(w, http.StatusOK, newFontsResponse(deps, userFamilies(deps)))
 	}
 }
 
 func rescanFontsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "private, no-store")
 		var families []fonts.Family
 		if deps.Fonts != nil {
 			families = deps.Fonts.Rescan()
 		} else {
 			families = []fonts.Family{}
 		}
-		writeJSON(w, http.StatusOK, fontsResponse{User: families})
+		writeJSON(w, http.StatusOK, newFontsResponse(deps, families))
 	}
 }
 
