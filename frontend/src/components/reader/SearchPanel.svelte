@@ -30,6 +30,7 @@
   let token = 0;
   let abort: AbortController | undefined;
   let lastQuery = "";
+  let composing = false;
 
   function responseCursor(resp: { nextCursor?: unknown }): string {
     const cursor = typeof resp.nextCursor === "string" ? resp.nextCursor : "";
@@ -222,11 +223,13 @@
     };
   });
 
-  function onInput(value: string): void {
+  function onInput(value: string, deferSearch = false): void {
     query = value;
     if (debounce) clearTimeout(debounce);
     const trimmed = value.trim();
-    if (trimmed && trimmed === lastQuery && status === "done") return;
+    if (!deferSearch && trimmed && trimmed === lastQuery && status === "done") {
+      return;
+    }
     // Invalidate any in-flight search immediately, not after the debounce. This
     // keeps a slow previous query/load-more response from repainting stale
     // results while the user is already typing the next query.
@@ -254,6 +257,10 @@
     loadMoreError = "";
     currentIdx = 0;
     activeOptionEl = null;
+    if (deferSearch) {
+      status = "idle";
+      return;
+    }
     debounce = setTimeout(() => run(trimmed), 300);
   }
 
@@ -355,7 +362,24 @@
     if (target?.closest("button.result")) e.preventDefault();
   }
 
+  function onTextInput(e: Event): void {
+    const value = (e.currentTarget as HTMLInputElement).value;
+    const isComposing = (e as InputEvent).isComposing === true;
+    onInput(value, isComposing);
+  }
+
+  function onCompositionStart(e: CompositionEvent): void {
+    composing = true;
+    onInput((e.currentTarget as HTMLInputElement).value, true);
+  }
+
+  function onCompositionEnd(e: CompositionEvent): void {
+    composing = false;
+    onInput((e.currentTarget as HTMLInputElement).value);
+  }
+
   function onKey(e: KeyboardEvent): void {
+    if (e.isComposing || composing) return;
     const total = resultItems.length;
     switch (e.key) {
       case "Escape":
@@ -398,7 +422,9 @@
       type="search"
       placeholder="Search book…"
       value={query}
-      oninput={(e) => onInput(e.currentTarget.value)}
+      oninput={onTextInput}
+      oncompositionstart={onCompositionStart}
+      oncompositionend={onCompositionEnd}
       autocomplete="off"
       spellcheck="false"
       role="combobox"
@@ -410,8 +436,12 @@
         ? resultItems[currentIdx]?.id
         : undefined}
     />
-    {#if countText}<span class="count tnum" aria-live="polite">{countText}</span
-      >{/if}
+    <span class="live-count" aria-live="polite" aria-atomic="true">
+      {countText}
+    </span>
+    {#if countText}
+      <span class="count tnum" aria-hidden="true">{countText}</span>
+    {/if}
     <button class="close" onclick={onclose} aria-label="Close search"
       ><Icon icon={X} size={18} /></button
     >
@@ -512,6 +542,17 @@
     color: var(--muted);
     white-space: nowrap;
   }
+  .live-count {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
   .close {
     display: inline-flex;
     align-items: center;
@@ -603,7 +644,10 @@
     background: color-mix(in srgb, var(--accent) 18%, transparent);
   }
   .snippet {
+    display: block;
+    min-width: 0;
     font-size: var(--text-sm);
+    overflow-wrap: anywhere;
   }
   .snippet mark {
     background: color-mix(in srgb, var(--accent) 40%, transparent);
