@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { customThemes } from "~/lib/customThemes.svelte";
   import { settings } from "~/lib/settings.svelte";
   import { applyTheme, onAccentColor } from "~/lib/theme";
@@ -56,12 +57,61 @@
   );
 
   let busy = $state(false);
+  let pendingAction = $state<"save" | "delete" | null>(null);
+  let operationController: AbortController | null = null;
+  let deleteArmed = $state(false);
+  let nameDirty = $state(false);
 
+  const MAX_THEME_NAME_CHARS = 60;
   const resolvedAccent = $derived(auto ? autoAccent(bg, fg) : accent);
   const accentText = $derived(onAccentColor(resolvedAccent));
   const group = $derived(themeGroupFor(bg));
   const trimmedName = $derived(name.trim());
-  const canSave = $derived(!busy && trimmedName.length > 0);
+  const nameError = $derived(
+    trimmedName.length === 0
+      ? "Enter a theme name."
+      : Array.from(trimmedName).length > MAX_THEME_NAME_CHARS
+        ? `Theme names can contain at most ${MAX_THEME_NAME_CHARS} characters.`
+        : "",
+  );
+  const visibleNameError = $derived(nameDirty ? nameError : "");
+  const canSave = $derived(!busy && nameError === "");
+  const closeLabel = $derived(
+    pendingAction === "delete"
+      ? "Cancel deleting theme"
+      : pendingAction === "save"
+        ? "Cancel saving theme"
+        : "Close",
+  );
+
+  function beginOperation(action: "save" | "delete"): AbortController {
+    const controller = new AbortController();
+    operationController = controller;
+    pendingAction = action;
+    busy = true;
+    return controller;
+  }
+
+  function finishOperation(controller: AbortController): boolean {
+    if (operationController !== controller || controller.signal.aborted) {
+      return false;
+    }
+    operationController = null;
+    pendingAction = null;
+    busy = false;
+    return true;
+  }
+
+  function close(): void {
+    operationController?.abort();
+    operationController = null;
+    onclose();
+  }
+
+  onDestroy(() => {
+    operationController?.abort();
+    operationController = null;
+  });
 
   function toggleAuto(e: Event): void {
     auto = (e.currentTarget as HTMLInputElement).checked;
@@ -72,8 +122,9 @@
 
   async function save(e: Event): Promise<void> {
     e.preventDefault();
-    if (!canSave) return;
-    busy = true;
+    if (busy) return;
+    nameDirty = true;
+    if (nameError) return;
     const input: CustomThemeInput = {
       name: trimmedName,
       group,
@@ -81,36 +132,46 @@
       fg,
       accent: auto ? "" : accent,
     };
+    const controller = beginOperation("save");
     if (edit) {
-      const def = await customThemes.update(edit.id, input);
+      const def = await customThemes.update(edit.id, input, controller.signal);
+      if (controller.signal.aborted) return;
       if (def) {
         // Its id is unchanged, so the settings effect won't re-fire; repaint
         // the app chrome directly when the edited theme is the active one. The
         // reader frame updates reactively via settings.iframe.
         if (settings.value.theme === def.id) applyTheme(def.id);
+        operationController = null;
         onclose();
         return;
       }
     } else {
-      const def = await customThemes.create(input);
+      const def = await customThemes.create(input, controller.signal);
+      if (controller.signal.aborted) return;
       if (def) {
         // Apply the new theme immediately so the user sees their creation.
         settings.update({ theme: def.id });
         applyTheme(def.id);
+        operationController = null;
         onclose();
         return;
       }
     }
     // create/update already surfaced a toast on failure; let the user retry.
-    busy = false;
+    finishOperation(controller);
   }
 
   async function remove(): Promise<void> {
     if (!edit || busy) return;
+    if (!deleteArmed) {
+      deleteArmed = true;
+      return;
+    }
     const t = edit;
-    busy = true;
+    const controller = beginOperation("delete");
     const wasActive = settings.value.theme === t.id;
-    const ok = await customThemes.remove(t.id);
+    const ok = await customThemes.remove(t.id, controller.signal);
+    if (controller.signal.aborted) return;
     if (ok) {
       if (wasActive) {
         // Fall back to the first built-in sharing the deleted theme's group.
@@ -120,10 +181,11 @@
         settings.update({ theme: fallback });
         applyTheme(fallback);
       }
+      operationController = null;
       onclose();
       return;
     }
-    busy = false;
+    finishOperation(controller);
   }
 
   function onKeydown(e: KeyboardEvent): void {
@@ -131,14 +193,14 @@
       e.preventDefault();
       // Consume so the reader / settings window handlers don't also act on it.
       e.stopImmediatePropagation();
-      if (!busy) onclose();
+      close();
     }
   }
 </script>
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="overlay" role="presentation" onclick={() => !busy && onclose()}>
+<div class="overlay" role="presentation" onclick={close}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     class="sheet"
@@ -151,12 +213,7 @@
   >
     <header>
       <h2>{editing ? "Edit theme" : "New theme"}</h2>
-      <button
-        class="close"
-        aria-label="Close"
-        onclick={onclose}
-        disabled={busy}
-      >
+      <button class="close" aria-label={closeLabel} onclick={close}>
         <Icon icon={X} size={18} />
       </button>
     </header>
@@ -188,39 +245,68 @@
         <input
           type="text"
           bind:value={name}
-          maxlength="60"
+          maxlength={MAX_THEME_NAME_CHARS * 2}
           placeholder="My theme"
           autocomplete="off"
+          disabled={busy}
+          aria-invalid={visibleNameError ? "true" : undefined}
+          aria-describedby={visibleNameError ? "theme-name-error" : undefined}
+          oninput={() => (nameDirty = true)}
           {@attach (el) => (el as HTMLInputElement).focus()}
         />
+        {#if visibleNameError}
+          <small id="theme-name-error" class="field-error" role="alert">
+            {visibleNameError}
+          </small>
+        {/if}
       </label>
 
       <div class="colors">
         <label class="field">
           <span>Background</span>
           <div class="color-row">
-            <input type="color" bind:value={bg} aria-label="Background color" />
+            <input
+              type="color"
+              bind:value={bg}
+              aria-label="Background color"
+              disabled={busy}
+            />
             <code>{bg}</code>
           </div>
         </label>
         <label class="field">
           <span>Text</span>
           <div class="color-row">
-            <input type="color" bind:value={fg} aria-label="Text color" />
+            <input
+              type="color"
+              bind:value={fg}
+              aria-label="Text color"
+              disabled={busy}
+            />
             <code>{fg}</code>
           </div>
         </label>
       </div>
 
       <label class="check">
-        <input type="checkbox" checked={auto} onchange={toggleAuto} />
+        <input
+          type="checkbox"
+          checked={auto}
+          onchange={toggleAuto}
+          disabled={busy}
+        />
         <span>Auto accent <small>(derive from your colors)</small></span>
       </label>
       {#if !auto}
         <label class="field">
           <span>Accent</span>
           <div class="color-row">
-            <input type="color" bind:value={accent} aria-label="Accent color" />
+            <input
+              type="color"
+              bind:value={accent}
+              aria-label="Accent color"
+              disabled={busy}
+            />
             <code>{accent}</code>
           </div>
         </label>
@@ -231,24 +317,31 @@
           <button
             type="button"
             class="btn danger-ghost"
+            class:armed={deleteArmed}
             onclick={remove}
             disabled={busy}
+            aria-label={deleteArmed
+              ? `Confirm deleting ${trimmedName || "custom theme"}`
+              : `Delete ${trimmedName || "custom theme"}`}
           >
             <Icon icon={Trash2} size={16} />
-            Delete
+            {deleteArmed ? "Click again to delete" : "Delete"}
           </button>
         {/if}
         <span class="spacer"></span>
-        <button
-          type="button"
-          class="btn ghost"
-          onclick={onclose}
-          disabled={busy}
-        >
-          Cancel
+        <button type="button" class="btn ghost" onclick={close}>
+          {pendingAction === "delete"
+            ? "Cancel delete"
+            : pendingAction === "save"
+              ? "Cancel save"
+              : "Cancel"}
         </button>
         <button type="submit" class="btn primary" disabled={!canSave}>
-          {busy ? "Saving…" : editing ? "Save changes" : "Create theme"}
+          {pendingAction === "save"
+            ? "Saving…"
+            : editing
+              ? "Save changes"
+              : "Create theme"}
         </button>
       </div>
     </form>
@@ -269,6 +362,7 @@
   .sheet {
     width: min(32rem, 100%);
     max-height: calc(100vh - var(--sp-12));
+    max-height: calc(100dvh - var(--sp-12));
     overflow-y: auto;
     background: var(--bg);
     border: 1px solid var(--hairline-strong);
@@ -389,6 +483,11 @@
     border-color: var(--accent);
     box-shadow: var(--focus);
   }
+  .field-error {
+    color: var(--danger);
+    font-size: var(--text-xs);
+    line-height: 1.35;
+  }
 
   .colors {
     display: grid;
@@ -408,6 +507,10 @@
     border-radius: var(--radius);
     background: var(--bg);
     cursor: pointer;
+  }
+  .color-row input[type="color"]:disabled,
+  .check input:disabled {
+    cursor: not-allowed;
   }
   .color-row code {
     font-family: var(--font-mono, ui-monospace, monospace);
@@ -452,6 +555,7 @@
     border-radius: var(--radius);
     font: inherit;
     font-weight: 600;
+    white-space: nowrap;
     cursor: pointer;
     transition:
       background var(--dur) var(--ease-out),
@@ -489,5 +593,40 @@
   }
   .btn.danger-ghost:hover:not(:disabled) {
     background: color-mix(in srgb, var(--danger) 12%, transparent);
+  }
+  .btn.danger-ghost.armed {
+    background: var(--danger-surface);
+    color: var(--danger-surface-fg);
+  }
+  .btn.danger-ghost.armed:hover:not(:disabled) {
+    background: var(--danger-surface);
+    color: var(--danger-surface-fg);
+    opacity: 0.88;
+  }
+
+  @media (max-width: 30rem) {
+    .overlay {
+      padding: var(--sp-3);
+    }
+    .sheet {
+      max-height: calc(100vh - var(--sp-6));
+      max-height: calc(100dvh - var(--sp-6));
+    }
+    .colors {
+      grid-template-columns: 1fr;
+    }
+    .actions {
+      flex-wrap: wrap;
+    }
+    .actions .spacer {
+      display: none;
+    }
+    .actions .btn {
+      flex: 1 1 auto;
+      justify-content: center;
+    }
+    .actions .danger-ghost {
+      flex-basis: 100%;
+    }
   }
 </style>

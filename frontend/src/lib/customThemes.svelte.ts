@@ -104,17 +104,23 @@ export class CustomThemes {
   }
 
   /** Creates a theme; returns the stored ThemeDef, or null on failure. */
-  async create(input: CustomThemeInput): Promise<ThemeDef | null> {
+  async create(
+    input: CustomThemeInput,
+    signal?: AbortSignal,
+  ): Promise<ThemeDef | null> {
     const profile = this.#profile;
     const generation = this.#generation;
     if (profile === null) return null;
     try {
-      const def = toThemeDef(await createCustomTheme(input));
+      const def = toThemeDef(await createCustomTheme(input, signal));
       if (!this.#isCurrent(profile, generation)) return null;
       this.#apply([...this.list, def]);
       return def;
-    } catch {
-      if (this.#isCurrent(profile, generation)) {
+    } catch (error) {
+      if (
+        !(error instanceof DOMException && error.name === "AbortError") &&
+        this.#isCurrent(profile, generation)
+      ) {
         toast.show("Couldn't save theme");
       }
       return null;
@@ -122,17 +128,24 @@ export class CustomThemes {
   }
 
   /** Updates a theme; returns the stored ThemeDef, or null on failure. */
-  async update(id: string, input: CustomThemeInput): Promise<ThemeDef | null> {
+  async update(
+    id: string,
+    input: CustomThemeInput,
+    signal?: AbortSignal,
+  ): Promise<ThemeDef | null> {
     const profile = this.#profile;
     const generation = this.#generation;
     if (profile === null) return null;
     try {
-      const def = toThemeDef(await updateCustomTheme(id, input));
+      const def = toThemeDef(await updateCustomTheme(id, input, signal));
       if (!this.#isCurrent(profile, generation)) return null;
       this.#apply(this.list.map((t) => (t.id === id ? def : t)));
       return def;
-    } catch {
-      if (this.#isCurrent(profile, generation)) {
+    } catch (error) {
+      if (
+        !(error instanceof DOMException && error.name === "AbortError") &&
+        this.#isCurrent(profile, generation)
+      ) {
         toast.show("Couldn't update theme");
       }
       return null;
@@ -140,17 +153,20 @@ export class CustomThemes {
   }
 
   /** Deletes a theme; returns true on success. */
-  async remove(id: string): Promise<boolean> {
+  async remove(id: string, signal?: AbortSignal): Promise<boolean> {
     const profile = this.#profile;
     const generation = this.#generation;
     if (profile === null) return false;
     try {
-      await deleteCustomTheme(id);
+      await deleteCustomTheme(id, signal);
       if (!this.#isCurrent(profile, generation)) return false;
       this.#apply(this.list.filter((t) => t.id !== id));
       return true;
-    } catch {
-      if (this.#isCurrent(profile, generation)) {
+    } catch (error) {
+      if (
+        !(error instanceof DOMException && error.name === "AbortError") &&
+        this.#isCurrent(profile, generation)
+      ) {
         toast.show("Couldn't delete theme");
       }
       return false;
