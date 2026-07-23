@@ -8,7 +8,11 @@ import type { ParentToFrameMessage } from "~/lib/frameMessages";
 // `load` replaces the chapter; for apply-settings/set-font-faces only the latest
 // value matters). Coalescing stops the brief startup flush from replaying
 // chapters the user already navigated past.
-const COALESCE_TYPES = new Set(["load", "apply-settings", "set-font-faces"]);
+const COALESCE_TYPES = new Set<ParentToFrameMessage["type"]>([
+  "load",
+  "apply-settings",
+  "set-font-faces",
+]);
 // Safety valve: if the frame never signals ready (e.g. its script is blocked),
 // bound the queue instead of letting it grow with every interaction.
 const MAX_QUEUED = 64;
