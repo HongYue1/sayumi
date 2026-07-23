@@ -35,6 +35,19 @@ describe("createFrameMessageQueue", () => {
     expect((surviving as { seq: number }).seq).toBe(2);
   });
 
+  it("coalesces font-face state with the newest CSS in queue order", () => {
+    const q = createFrameMessageQueue();
+    q.enqueue(setFontFaces("old"));
+    q.enqueue(scrollTo(0.1));
+    q.enqueue(setFontFaces("new"));
+
+    const drained = q.drain();
+    expect(drained.map((m) => m.type)).toEqual(["scroll-to", "set-font-faces"]);
+    expect(
+      (drained[1] as { type: "set-font-faces"; fontFaces: string }).fontFaces,
+    ).toBe("new");
+  });
+
   it("keeps every non-coalesced message (no dedupe)", () => {
     const q = createFrameMessageQueue();
     q.enqueue(scrollTo(0.1));
@@ -57,17 +70,19 @@ describe("createFrameMessageQueue", () => {
     ]);
   });
 
-  it("preserves coalesced startup state when capping stray interactions", () => {
-    const q = createFrameMessageQueue(3);
+  it("preserves all coalesced startup state when capping stray interactions", () => {
+    const q = createFrameMessageQueue(4);
     q.enqueue(load(1));
     q.enqueue(applySettings());
+    q.enqueue(setFontFaces("fonts"));
     q.enqueue(scrollTo(0.1));
-    q.enqueue(scrollTo(0.2)); // drop scrollTo(0.1), not load/apply-settings
+    q.enqueue(scrollTo(0.2)); // drop scrollTo(0.1), not startup state
 
-    expect(q.size).toBe(3);
+    expect(q.size).toBe(4);
     expect(q.drain().map((m) => m.type)).toEqual([
       "load",
       "apply-settings",
+      "set-font-faces",
       "scroll-to",
     ]);
   });
