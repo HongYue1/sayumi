@@ -7,6 +7,7 @@
   import { session } from "~/lib/session.svelte";
   import { applyTheme } from "~/lib/theme";
   import { THEMES } from "~/lib/themes";
+  import { customThemes } from "~/lib/customThemes.svelte";
   import Icon from "~/lib/Icon.svelte";
   import { Search } from "@lucide/svelte";
   import { focusTrap } from "~/lib/focusTrap";
@@ -62,17 +63,21 @@
         run: () => router.navigate(`/read/${encodeURIComponent(b.id)}`),
       });
     }
-    for (const t of THEMES) {
+    const pushTheme = (t: (typeof THEMES)[number], custom: boolean): void => {
       list.push({
         id: `theme-${t.id}`,
         label: `Theme: ${t.label}`,
-        hint: t.group === "dark" ? "Dark" : "Light",
+        hint: `${custom ? "Custom · " : ""}${
+          t.group === "dark" ? "Dark" : "Light"
+        }`,
         run: () => {
           settings.update({ theme: t.id });
           applyTheme(t.id);
         },
       });
-    }
+    };
+    for (const t of THEMES) pushTheme(t, false);
+    for (const t of customThemes.list) pushTheme(t, true);
     return list.map((c) => ({
       ...c,
       haystack: (c.label + " " + (c.hint ?? "")).toLowerCase(),
@@ -101,10 +106,12 @@
     if (ui.palette) {
       query = "";
       active = 0;
-      // Trigger the lazy book load without tracking books.length, or this
-      // effect would re-run when books arrive and wipe the user's query.
+      // Trigger lazy/retry loads without tracking their reactive state, or this
+      // effect would re-run when data arrives and wipe the user's query. Both
+      // stores dedupe current-profile requests.
       untrack(() => {
-        if (library.books.length === 0) void library.load();
+        void library.load();
+        void customThemes.load();
       });
       queueMicrotask(() => input?.focus());
     }
@@ -125,6 +132,10 @@
         ?.querySelector<HTMLElement>(`#cmd-opt-${i}`)
         ?.scrollIntoView({ block: "nearest" });
     });
+  }
+  function onInput(): void {
+    active = 0;
+    scrollActiveIntoView(0);
   }
   function onKeydown(e: KeyboardEvent): void {
     switch (e.key) {
@@ -185,6 +196,7 @@
           autocomplete="off"
           spellcheck="false"
           bind:value={query}
+          oninput={onInput}
           onkeydown={onKeydown}
         />
       </div>

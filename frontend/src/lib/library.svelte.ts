@@ -40,7 +40,7 @@ const collator = new Intl.Collator(undefined, {
   sensitivity: "base",
 });
 
-class Library {
+export class Library {
   books = $state<BookMeta[]>([]);
   loading = $state(false);
   uploading = $state(false);
@@ -55,6 +55,17 @@ class Library {
   customFlairs = $state<FlairDef[]>([]);
   /** Active flair filters (OR semantics); empty = no flair filtering. */
   flairFilters = $state<string[]>([]);
+
+  /** Profile whose library state is currently published by this singleton. */
+  #profile: string | null = null;
+  /** Invalidates async work started under a previous profile. */
+  #generation = 0;
+  /** Current-profile request dedupe; failures clear these so a later call retries. */
+  #loadPromise: Promise<void> | null = null;
+  #refreshPromise: Promise<void> | null = null;
+  #flairsPromise: Promise<void> | null = null;
+  #booksLoaded = false;
+  #flairsLoaded = false;
 
   /** Built-in plus custom flairs, for pickers and filter chips. */
   allFlairs = $derived<FlairDef[]>([...DEFAULT_FLAIRS, ...this.customFlairs]);
@@ -119,23 +130,117 @@ class Library {
     return list;
   });
 
+  /**
+   * Switches this app-lifetime singleton to a profile. Profile-owned state is
+   * cleared synchronously so neither the library route nor the command palette
+   * can render the previous profile while the replacement request is pending.
+   * Loading remains lazy: Library and CommandPalette call load() when needed.
+   */
+  activate(profile: string | null): void {
+    if (this.#profile === profile) return;
+
+    this.#profile = profile;
+    this.#generation++;
+    this.#loadPromise = null;
+    this.#refreshPromise = null;
+    this.#flairsPromise = null;
+    this.#booksLoaded = false;
+    this.#flairsLoaded = false;
+
+    if (this.queryTimer) clearTimeout(this.queryTimer);
+    this.queryTimer = null;
+    this.books = [];
+    this.customFlairs = [];
+    this.flairFilters = [];
+    this.query = "";
+    this.debouncedQuery = "";
+    this.loading = false;
+    this.uploading = false;
+    this.rescanning = false;
+    this.error = "";
+    this.hayCache.clear();
+  }
+
+  #isCurrent(profile: string, generation: number): boolean {
+    return this.#profile === profile && this.#generation === generation;
+  }
+
+  #loadFlairs(profile: string, generation: number): void {
+    if (this.#flairsLoaded || this.#flairsPromise) return;
+
+    const promise = getFlairs()
+      .then((flairs) => {
+        if (!this.#isCurrent(profile, generation)) return;
+        this.customFlairs = flairs;
+        this.#flairsLoaded = true;
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (this.#isCurrent(profile, generation)) this.#flairsPromise = null;
+      });
+    this.#flairsPromise = promise;
+  }
+
   async load(): Promise<void> {
+    const profile = this.#profile;
+    if (profile === null) return;
+    const generation = this.#generation;
+
+    // Custom flairs are non-blocking; built-in flairs always work. Retry them
+    // independently so a transient flair failure does not refetch all books.
+    this.#loadFlairs(profile, generation);
+    if (this.#booksLoaded) return;
+    if (this.#loadPromise) return this.#loadPromise;
+
     this.loading = true;
     this.error = "";
-    try {
-      this.books = await getBooks();
-    } catch (e) {
-      // When the server is unreachable the global offline banner already says
-      // so; don't stack a redundant red error above the empty list. Genuine
-      // errors (e.g. a 500) still surface inline.
-      this.error = isReachable() ? msg(e, "Failed to load library") : "";
-    } finally {
-      this.loading = false;
-    }
-    // Custom flairs are non-blocking; built-in flairs always work.
-    getFlairs()
-      .then((f) => (this.customFlairs = f))
-      .catch(() => {});
+    const promise = (async () => {
+      try {
+        const books = await getBooks();
+        if (!this.#isCurrent(profile, generation)) return;
+        this.books = books;
+        this.#booksLoaded = true;
+      } catch (e) {
+        if (!this.#isCurrent(profile, generation)) return;
+        // When the server is unreachable the global offline banner already says
+        // so; don't stack a redundant red error above the empty list. Genuine
+        // errors (e.g. a 500) still surface inline.
+        this.error = isReachable() ? msg(e, "Failed to load library") : "";
+      } finally {
+        // A profile switch increments the generation before a new load starts,
+        // so an old request cannot clear the new profile's loading state/promise.
+        if (this.#isCurrent(profile, generation)) {
+          this.loading = false;
+          this.#loadPromise = null;
+        }
+      }
+    })();
+    this.#loadPromise = promise;
+    return promise;
+  }
+
+  /** Refreshes books after an operation that can change the server library.
+   *  Refreshes are deduped and wait for any older initial load before issuing
+   *  the authoritative post-mutation read. */
+  async refresh(): Promise<void> {
+    const profile = this.#profile;
+    if (profile === null) return;
+    const generation = this.#generation;
+    if (this.#refreshPromise) return this.#refreshPromise;
+
+    const promise = (async () => {
+      try {
+        const initialLoad = this.#loadPromise;
+        if (initialLoad) await initialLoad;
+        if (!this.#isCurrent(profile, generation)) return;
+        this.#booksLoaded = false;
+        await this.load();
+      } finally {
+        if (this.#isCurrent(profile, generation)) this.#refreshPromise = null;
+      }
+    })();
+    this.#refreshPromise = promise;
+    return promise;
   }
 
   /** Update the search box value instantly but debounce the expensive filter. */
@@ -160,6 +265,9 @@ class Library {
 
   /** Assigns/clears a book's flair with an optimistic update + rollback. */
   async setFlair(bookId: string, flairId: string | null): Promise<void> {
+    const profile = this.#profile;
+    if (profile === null) return;
+    const generation = this.#generation;
     const prev = this.books;
     this.books = this.books.map((b) =>
       b.id === bookId ? { ...b, flairId: flairId ?? undefined } : b,
@@ -167,24 +275,33 @@ class Library {
     try {
       await setBookFlair(bookId, flairId);
     } catch (e) {
+      if (!this.#isCurrent(profile, generation)) return;
       this.books = prev;
       toast.show(msg(e, "Could not update flair"));
     }
   }
 
   async addCustomFlair(label: string): Promise<void> {
+    const profile = this.#profile;
+    if (profile === null) return;
+    const generation = this.#generation;
     const trimmed = label.trim();
     if (!trimmed) return;
     const color = getNextPaletteColor(this.customFlairs.length);
     try {
       const flair = await createFlair({ label: trimmed, color });
+      if (!this.#isCurrent(profile, generation)) return;
       this.customFlairs = [...this.customFlairs, flair];
     } catch (e) {
+      if (!this.#isCurrent(profile, generation)) return;
       toast.show(msg(e, "Could not create flair"));
     }
   }
 
   async removeCustomFlair(id: string): Promise<void> {
+    const profile = this.#profile;
+    if (profile === null) return;
+    const generation = this.#generation;
     const prevFlairs = this.customFlairs;
     const prevFilters = this.flairFilters;
     const prevBooks = this.books;
@@ -197,6 +314,7 @@ class Library {
     try {
       await deleteFlair(id);
     } catch (e) {
+      if (!this.#isCurrent(profile, generation)) return;
       this.customFlairs = prevFlairs;
       this.flairFilters = prevFilters;
       this.books = prevBooks;
@@ -211,6 +329,9 @@ class Library {
 
   /** Uploads one or more .epub files (e.g. a drag-and-drop batch). */
   async uploadFiles(files: File[]): Promise<void> {
+    const profile = this.#profile;
+    if (profile === null) return;
+    const generation = this.#generation;
     const epubs = files.filter(
       (f) =>
         f.name.toLowerCase().endsWith(".epub") ||
@@ -251,13 +372,17 @@ class Library {
     await Promise.all(
       Array.from({ length: Math.min(CONCURRENCY, epubs.length) }, worker),
     );
+    if (!this.#isCurrent(profile, generation)) return;
     try {
-      await this.load();
+      await this.refresh();
     } catch (e) {
-      toast.show(msg(e, "Failed to refresh library"));
+      if (this.#isCurrent(profile, generation)) {
+        toast.show(msg(e, "Failed to refresh library"));
+      }
     } finally {
-      this.uploading = false;
+      if (this.#isCurrent(profile, generation)) this.uploading = false;
     }
+    if (!this.#isCurrent(profile, generation)) return;
     if (ok > 0) toast.show(`Added ${ok} ${ok === 1 ? "book" : "books"}`);
     if (failed > 0)
       toast.show(
@@ -272,15 +397,20 @@ class Library {
     id: string,
     patch: { title?: string; author?: string },
   ): Promise<void> {
+    const profile = this.#profile;
+    if (profile === null) return;
+    const generation = this.#generation;
     const prev = this.books;
     this.books = this.books.map((b) => (b.id === id ? { ...b, ...patch } : b));
     try {
       const updated = await updateBookMeta(id, patch);
+      if (!this.#isCurrent(profile, generation)) return;
       // Reconcile with the server's canonical record (e.g. trimmed values,
       // bumped updatedAt) and drop the stale search haystack for this book.
       this.books = this.books.map((b) => (b.id === id ? updated : b));
       this.hayCache.delete(id);
     } catch (e) {
+      if (!this.#isCurrent(profile, generation)) return;
       this.books = prev;
       throw e;
     }
@@ -291,36 +421,51 @@ class Library {
    *  optimistic preview — the server normalizes the image, and the returned
    *  updatedAt is what busts the cover cache. */
   async replaceCover(id: string, file: File): Promise<void> {
+    const profile = this.#profile;
+    if (profile === null) return;
+    const generation = this.#generation;
     const updated = await uploadCover(id, file);
+    if (!this.#isCurrent(profile, generation)) return;
     this.books = this.books.map((b) => (b.id === id ? updated : b));
   }
 
   async remove(id: string): Promise<void> {
+    const profile = this.#profile;
+    if (profile === null) return;
+    const generation = this.#generation;
     try {
       await deleteBook(id);
+      if (!this.#isCurrent(profile, generation)) return;
       this.books = this.books.filter((b) => b.id !== id);
       this.hayCache.delete(id);
     } catch (e) {
+      if (!this.#isCurrent(profile, generation)) return;
       toast.show(msg(e, "Could not remove book"));
     }
   }
 
   /** Re-scans the ./Library folder for files added outside the app. */
   async rescan(): Promise<void> {
+    const profile = this.#profile;
+    if (profile === null) return;
+    const generation = this.#generation;
     if (this.rescanning) return;
     this.rescanning = true;
     try {
       const { imported } = await rescanLibrary();
-      if (imported > 0) await this.load();
+      if (!this.#isCurrent(profile, generation)) return;
+      if (imported > 0) await this.refresh();
+      if (!this.#isCurrent(profile, generation)) return;
       toast.show(
         imported === 0
           ? "No new books found"
           : `Added ${imported} ${imported === 1 ? "book" : "books"}`,
       );
     } catch (e) {
+      if (!this.#isCurrent(profile, generation)) return;
       toast.show(msg(e, "Rescan failed"));
     } finally {
-      this.rescanning = false;
+      if (this.#isCurrent(profile, generation)) this.rescanning = false;
     }
   }
 }

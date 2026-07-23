@@ -6,6 +6,7 @@
   import { settings } from "~/lib/settings.svelte";
   import { applyTheme } from "~/lib/theme";
   import { customThemes } from "~/lib/customThemes.svelte";
+  import { library } from "~/lib/library.svelte";
   import Login from "~/routes/Login.svelte";
   import Library from "~/routes/Library.svelte";
   import Read from "~/routes/Read.svelte";
@@ -23,13 +24,13 @@
   });
 
   // Keep profile-owned singleton state aligned with the active session. A
-  // profile change clears the old custom-theme registry immediately, and the
-  // store generation-guards the async replacement so a late response from the
-  // previous profile cannot publish into the new one. Closing global overlays
-  // on sign-out/session loss also keeps stale library commands and focus traps
-  // off the login screen.
+  // profile change clears old library/custom-theme data immediately, and each
+  // store generation-guards async work so a late response cannot publish into
+  // the new profile. Closing global overlays on sign-out/session loss also
+  // keeps stale commands and focus traps off the login screen.
   $effect(() => {
     const profile = session.profile;
+    library.activate(profile);
     if (profile === null) ui.closeOverlays();
     void customThemes.activate(profile).then(() => {
       // Whichever profile-owned request finishes last (settings or custom
