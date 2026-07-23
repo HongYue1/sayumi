@@ -9,7 +9,7 @@
       {
         title: "Global",
         items: [
-          { keys: ["Ctrl", "K"], desc: "Open command palette" },
+          { keys: ["Ctrl / ⌘", "K"], desc: "Open command palette" },
           { keys: ["?"], desc: "Show this help" },
           { keys: ["Esc"], desc: "Close overlay / panel" },
         ],
@@ -17,8 +17,8 @@
       {
         title: "Reader",
         items: [
-          { keys: ["←"], desc: "Previous page / chapter" },
-          { keys: ["→"], desc: "Next page / chapter" },
+          { keys: ["←"], desc: "Navigate left" },
+          { keys: ["→"], desc: "Navigate right" },
           { keys: ["T"], desc: "Table of contents" },
           { keys: ["S"], desc: "Settings" },
           { keys: ["F"], desc: "Search in book" },
@@ -69,7 +69,7 @@
       <div class="groups">
         {#each groups as g (g.title)}
           <section>
-            <p class="eyebrow">{g.title}</p>
+            <h3 class="eyebrow">{g.title}</h3>
             <dl>
               {#each g.items as it (it.desc)}
                 <div class="row">
@@ -100,6 +100,8 @@
   }
   .sheet {
     width: min(34rem, 100%);
+    max-height: calc(100dvh - var(--sp-6) - var(--sp-6));
+    overflow-y: auto;
     background: var(--bg);
     border: 1px solid var(--hairline-strong);
     border-radius: var(--radius-lg);
