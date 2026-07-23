@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 )
@@ -17,15 +18,28 @@ const maxJSONBodySize = 64 << 10 // 64 KB
 // Returns true on success; on false the handler must return immediately.
 func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodySize)
-	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
-		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-			writeError(w, http.StatusRequestEntityTooLarge, "too_large", "request body too large")
-			return false
-		}
-		writeError(w, http.StatusBadRequest, "invalid_body", "invalid JSON body")
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(dst); err != nil {
+		writeJSONDecodeError(w, err)
+		return false
+	}
+	// A JSON request is exactly one value. Decode once more so trailing
+	// non-whitespace data (including a second valid value) cannot be silently
+	// ignored. The same bounded reader remains in place, so oversized trailing
+	// data still maps to 413 rather than a generic syntax error.
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeJSONDecodeError(w, err)
 		return false
 	}
 	return true
+}
+
+func writeJSONDecodeError(w http.ResponseWriter, err error) {
+	if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "request body too large")
+		return
+	}
+	writeError(w, http.StatusBadRequest, "invalid_body", "invalid JSON body")
 }
 
 type apiError struct {
