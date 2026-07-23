@@ -74,6 +74,69 @@ func writeMinimalEPUB(t *testing.T, path, title string) {
 	}
 }
 
+func writeCoverEPUB(t *testing.T, path, title string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	}()
+	zw := zip.NewWriter(f)
+	mh := &zip.FileHeader{Name: "mimetype", Method: zip.Store}
+	w, err := zw.CreateHeader(mh)
+	if err != nil {
+		t.Fatalf("mimetype: %v", err)
+	}
+	if _, err := w.Write([]byte("application/epub+zip")); err != nil {
+		t.Fatalf("mimetype write: %v", err)
+	}
+	write := func(name string, body []byte) {
+		t.Helper()
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+		if _, err := w.Write(body); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	write("META-INF/container.xml", []byte(`<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>`))
+	opf := `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="uid">urn:test:` + title + `</dc:identifier>
+    <dc:title>` + title + `</dc:title>
+    <dc:creator>Tester</dc:creator>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="cover" href="cover.png" media-type="image/png" properties="cover-image"/>
+    <item id="ch" href="ch.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="ch"/>
+  </spine>
+</package>`
+	write("OEBPS/content.opf", []byte(opf))
+	write("OEBPS/ch.xhtml", []byte(`<?xml version="1.0"?><html><body><p>`+title+`</p></body></html>`))
+	write("OEBPS/cover.png", encodePNG(t, 12, 18))
+	if err := zw.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
+	}
+}
+
 func openTestDB(t *testing.T, lib string) *storage.DB {
 	t.Helper()
 	db, err := storage.Open(lib)
@@ -214,6 +277,66 @@ func TestScanNowImportAndDedup(t *testing.T) {
 	absCopy, _ := filepath.Abs(copyPath)
 	if paths[0].FilePath != absCopy {
 		t.Fatalf("path not reconciled: got %q want %q", paths[0].FilePath, absCopy)
+	}
+}
+
+func TestScanNowWithChangesReportsBackfilledCover(t *testing.T) {
+	lib := t.TempDir()
+	db := openTestDB(t, lib)
+	s := NewScanner(lib, db)
+	ctx := context.Background()
+
+	path := filepath.Join(lib, "backfill.epub")
+	writeCoverEPUB(t, path, "Backfill")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat epub: %v", err)
+	}
+	const id = "backfill-book"
+	canonicalID, err := db.InsertBookContext(ctx, storage.BookRecord{
+		BookSummary: storage.BookSummary{
+			ID:           id,
+			Title:        "Backfill",
+			Author:       "Tester",
+			FilePath:     path,
+			FileHash:     "backfill-hash",
+			FileSize:     info.Size(),
+			ChapterCount: 1,
+		},
+		SpineJSON: "[]",
+		TocJSON:   "[]",
+	})
+	if err != nil {
+		t.Fatalf("insert existing book: %v", err)
+	}
+	if canonicalID != id {
+		t.Fatalf("canonical ID = %q, want %q", canonicalID, id)
+	}
+
+	result, err := s.ScanNowWithChanges(ctx)
+	if err != nil {
+		t.Fatalf("scan with backfill: %v", err)
+	}
+	if len(result.ImportedIDs) != 0 {
+		t.Fatalf("imported IDs = %v, want none", result.ImportedIDs)
+	}
+	if len(result.RefreshedIDs) != 1 || result.RefreshedIDs[0] != id {
+		t.Fatalf("refreshed IDs = %v, want [%s]", result.RefreshedIDs, id)
+	}
+	summary, found, err := db.GetBookSummaryContext(ctx, id)
+	if err != nil {
+		t.Fatalf("load backfilled summary: %v", err)
+	}
+	if !found || !summary.HasCover || summary.CoverPath == "" {
+		t.Fatalf("backfilled summary = %+v, found = %v", summary, found)
+	}
+
+	result, err = s.ScanNowWithChanges(ctx)
+	if err != nil {
+		t.Fatalf("second scan: %v", err)
+	}
+	if len(result.RefreshedIDs) != 0 {
+		t.Fatalf("second scan refreshed IDs = %v, want none", result.RefreshedIDs)
 	}
 }
 

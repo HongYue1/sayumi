@@ -21,16 +21,24 @@ func rescanLibraryHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		importedIDs, scanErr := pd.Scanner.ScanNow(r.Context())
+		scanResult, scanErr := pd.Scanner.ScanNowWithChanges(r.Context())
 
 		// Warm the cache for everything imported, even if the scan was canceled
-		// partway (scanErr != nil with a non-empty importedIDs). Those rows are
+		// partway (scanErr != nil with non-empty ImportedIDs). Those rows are
 		// committed, and the next scan's dedup snapshot would treat them as known
 		// and never re-report them — so without this they stay out of the cache
-		// until a profile reopen. Use a cancel-free context for the reloads since
+		// until a profile reopen. Also refresh existing books whose cover backfill
+		// changed their summary. Use a cancel-free context for the reloads since
 		// r.Context() may already be done on the cancellation path.
 		reloadCtx := context.WithoutCancel(r.Context())
-		for _, id := range importedIDs {
+		warmBook := func(id string) {
+			// Keep the DB snapshot and cache publication atomic against edit and
+			// delete writers. Otherwise a delete can be followed by a stale Add,
+			// resurrecting a cache-only ghost, or an edit can be overwritten by the
+			// older summary loaded here.
+			pd.bookReplaceMu.RLock()
+			defer pd.bookReplaceMu.RUnlock()
+
 			// Only summary fields are needed to warm the cache: BookCache.Add stores
 			// the summary and invalidates any spine, which GetSpine reloads lazily
 			// when the book is first opened. Reading the heavy spine_json / toc_json
@@ -40,13 +48,19 @@ func rescanLibraryHandler(_ *Dependencies) http.HandlerFunc {
 			if err != nil {
 				// The book was imported into the DB but could not be reloaded for
 				// the cache; skip it (a future restart will pick it up).
-				slog.Warn("rescan: reload imported book failed", "book", id, "err", err)
-				continue
+				slog.Warn("rescan: reload changed book failed", "book", id, "err", err)
+				return
 			}
 			if !found {
-				continue
+				return
 			}
 			pd.Books.Add(storage.BookRecord{BookSummary: summary})
+		}
+		for _, id := range scanResult.ImportedIDs {
+			warmBook(id)
+		}
+		for _, id := range scanResult.RefreshedIDs {
+			warmBook(id)
 		}
 
 		if scanErr != nil {
@@ -55,7 +69,7 @@ func rescanLibraryHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		writeJSON(w, http.StatusOK, map[string]int{"imported": len(importedIDs)})
+		writeJSON(w, http.StatusOK, map[string]int{"imported": len(scanResult.ImportedIDs)})
 	}
 }
 

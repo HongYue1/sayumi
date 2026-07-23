@@ -32,9 +32,17 @@ type Scanner struct {
 // scanCall represents a single in-flight library scan. Concurrent ScanNow
 // callers share one scanCall instead of each launching a redundant walk.
 type scanCall struct {
-	done chan struct{}
-	ids  []string
-	err  error
+	done   chan struct{}
+	result ScanResult
+	err    error
+}
+
+// ScanResult separates newly imported books from existing books whose summary
+// changed during cover backfill. API callers use both sets to refresh their
+// cache while reporting only the true import count.
+type ScanResult struct {
+	ImportedIDs  []string
+	RefreshedIDs []string
 }
 
 func NewScanner(libraryPath string, db *storage.DB) *Scanner {
@@ -55,45 +63,57 @@ func NewScanner(libraryPath string, db *storage.DB) *Scanner {
 // leader's scan is canceled mid-walk, waiters receive that error too; scans are
 // safe to retry.
 func (s *Scanner) ScanNow(ctx context.Context) ([]string, error) {
+	result, err := s.scanNow(ctx)
+	return result.ImportedIDs, err
+}
+
+// ScanNowWithChanges runs or joins a library scan and returns every book whose
+// summary may need refreshing in an already-built cache.
+func (s *Scanner) ScanNowWithChanges(ctx context.Context) (ScanResult, error) {
+	return s.scanNow(ctx)
+}
+
+func (s *Scanner) scanNow(ctx context.Context) (ScanResult, error) {
 	s.mu.Lock()
 	if call := s.current; call != nil {
 		s.mu.Unlock()
 		select {
 		case <-call.done:
-			return call.ids, call.err
+			return call.result, call.err
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return ScanResult{}, ctx.Err()
 		}
 	}
 	call := &scanCall{done: make(chan struct{})}
 	s.current = call
 	s.mu.Unlock()
 
-	call.ids, call.err = s.scan(ctx)
+	call.result, call.err = s.scan(ctx)
 
 	s.mu.Lock()
 	s.current = nil
 	s.mu.Unlock()
 	close(call.done)
 
-	return call.ids, call.err
+	return call.result, call.err
 }
 
 // scan performs the actual library walk and import. It is only ever invoked by
-// ScanNow, which serializes and coalesces concurrent callers. It returns the
-// IDs of books imported during this scan so callers can update their in-memory
-// caches (this function does not touch the in-memory cache). It respects ctx
-// cancellation so slow scans don't block profile opens indefinitely.
-func (s *Scanner) scan(ctx context.Context) ([]string, error) {
+// scanNow, which serializes and coalesces concurrent callers. It reports newly
+// imported books and existing books changed by cover backfill so callers can
+// update their in-memory caches (this function does not touch the cache). It
+// respects ctx cancellation so slow scans don't block profile opens
+// indefinitely.
+func (s *Scanner) scan(ctx context.Context) (ScanResult, error) {
 	slog.Info("scanning library", "path", s.libraryPath)
 
 	paths, err := s.collectEPUBPaths(ctx)
 	if err != nil {
-		return nil, err
+		return ScanResult{}, err
 	}
 	if len(paths) == 0 {
 		slog.Info("scan complete", "imported", 0)
-		return nil, nil
+		return ScanResult{}, nil
 	}
 
 	// Load the existing path->id map and the ignored-path set once so each
@@ -104,7 +124,7 @@ func (s *Scanner) scan(ctx context.Context) ([]string, error) {
 	// GetBookIDByHashContext is still a live query inside importFile.
 	snap, err := s.loadDedupSnapshot(ctx)
 	if err != nil {
-		return nil, err
+		return ScanResult{}, err
 	}
 
 	// Hashing, EPUB parsing, and cover decode/resize/encode dominate a
@@ -168,7 +188,7 @@ func (s *Scanner) scan(ctx context.Context) ([]string, error) {
 		// scan's dedup snapshot would otherwise treat these rows as known and never
 		// re-report them, leaving the books absent from the cache until a reopen.
 		slog.Info("scan canceled", "imported", len(importedIDs), "err", err)
-		return importedIDs, err
+		return ScanResult{ImportedIDs: importedIDs}, err
 	}
 
 	// Retry covers that were never resolved -- e.g. a previous scan was canceled
@@ -176,10 +196,10 @@ func (s *Scanner) scan(ctx context.Context) ([]string, error) {
 	// fully-completed walk (cancellation returned above), so it never competes with
 	// the import pass for the cover-decode semaphore; steady state its driving
 	// query returns nothing and it is a no-op.
-	s.backfillMissingCovers(ctx, workers)
+	refreshedIDs := s.backfillMissingCovers(ctx, workers)
 
 	slog.Info("scan complete", "imported", len(importedIDs))
-	return importedIDs, nil
+	return ScanResult{ImportedIDs: importedIDs, RefreshedIDs: refreshedIDs}, nil
 }
 
 // collectEPUBPaths walks the library directory and returns the paths of all
@@ -394,7 +414,7 @@ func (s *Scanner) importFile(ctx context.Context, filePath string, knownHash str
 	// records the outcome (cover stored, or marked cover-checked when there is no
 	// renderable cover) so a skipped cover is never recorded as a real one, and a
 	// transient failure is left for a later scan's backfill to retry.
-	s.resolveBookCover(ctx, id, meta.Title, meta.CoverPath, &zr.Reader)
+	_ = s.resolveBookCover(ctx, id, meta.Title, meta.CoverPath, &zr.Reader)
 
 	slog.Info("imported book", "title", meta.Title, "author", meta.Author, "chapters", len(meta.Spine))
 	return id, true, nil
@@ -407,18 +427,20 @@ func (s *Scanner) importFile(ctx context.Context, filePath string, knownHash str
 // undecodable -- it marks the book cover-checked so the backfill won't revisit
 // it. A transient failure (ctx cancellation) is left unchecked so a later scan
 // retries, mirroring the import loop's cancellation handling.
-func (s *Scanner) resolveBookCover(ctx context.Context, id, title, coverPathInZip string, zr *zip.Reader) {
+func (s *Scanner) resolveBookCover(ctx context.Context, id, title, coverPathInZip string, zr *zip.Reader) bool {
 	if coverPathInZip == "" {
 		// EPUB declares no cover image; there is nothing to extract now or later.
 		s.markCoverChecked(ctx, id)
-		return
+		return false
 	}
 	switch coverErr := extractCover(ctx, s.libraryPath, id, zr, coverPathInZip); {
 	case coverErr == nil:
 		coverRelPath := filepath.Join(".sayumi", "covers", id+".jpg")
 		if updateErr := s.db.UpdateBookCoverContext(ctx, id, coverRelPath); updateErr != nil {
 			slog.Warn("update cover path failed", "book", id, "err", updateErr)
+			return false
 		}
+		return true
 	case errors.Is(coverErr, errCoverSkipped):
 		// Valid cover, but deliberately not rendered (oversized/too many pixels).
 		// Record it as resolved so we don't re-decode it on every scan.
@@ -432,6 +454,7 @@ func (s *Scanner) resolveBookCover(ctx context.Context, id, title, coverPathInZi
 		slog.Warn("cover extraction failed", "title", title, "err", coverErr)
 		s.markCoverChecked(ctx, id)
 	}
+	return false
 }
 
 // markCoverChecked flags a book as cover-resolved so the backfill skips it. It
@@ -449,17 +472,18 @@ func (s *Scanner) markCoverChecked(ctx context.Context, id string) {
 // pass's bounded fan-out and the shared cover-decode semaphore. Each book is
 // revisited only until resolved once (resolveBookCover marks it), so steady
 // state this drains immediately. Runs only after a completed walk, so it never
-// competes with the import pass.
-func (s *Scanner) backfillMissingCovers(ctx context.Context, workers int) {
+// competes with the import pass. The returned IDs are only books whose cover
+// summary was successfully updated in the database.
+func (s *Scanner) backfillMissingCovers(ctx context.Context, workers int) []string {
 	pending, err := s.db.ListBooksMissingCoversContext(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
 			slog.Warn("load books missing covers failed", "err", err)
 		}
-		return
+		return nil
 	}
 	if len(pending) == 0 {
-		return
+		return nil
 	}
 	slog.Info("backfilling covers", "count", len(pending))
 
@@ -470,12 +494,20 @@ func (s *Scanner) backfillMissingCovers(ctx context.Context, workers int) {
 		workers = len(pending)
 	}
 
-	var wg sync.WaitGroup
+	var (
+		mu           sync.Mutex
+		refreshedIDs = make([]string, 0, len(pending))
+		wg           sync.WaitGroup
+	)
 	bookCh := make(chan storage.BookPath)
 	for range workers {
 		wg.Go(func() {
 			for bp := range bookCh {
-				s.backfillCover(ctx, bp)
+				if s.backfillCover(ctx, bp) {
+					mu.Lock()
+					refreshedIDs = append(refreshedIDs, bp.ID)
+					mu.Unlock()
+				}
 			}
 		})
 	}
@@ -490,15 +522,16 @@ func (s *Scanner) backfillMissingCovers(ctx context.Context, workers int) {
 	}
 	close(bookCh)
 	wg.Wait()
+	return refreshedIDs
 }
 
 // backfillCover resolves one book's cover by reopening its EPUB. A book whose
 // file cannot be opened or parsed is treated as unparseable and marked resolved
 // (an unreadable file will not fix itself, and leaving it unchecked would reopen
 // it on every scan); transient cancellation is left unchecked to retry later.
-func (s *Scanner) backfillCover(ctx context.Context, bp storage.BookPath) {
+func (s *Scanner) backfillCover(ctx context.Context, bp storage.BookPath) bool {
 	if ctx.Err() != nil {
-		return
+		return false
 	}
 	zr, err := zip.OpenReader(bp.FilePath)
 	if err != nil {
@@ -506,7 +539,7 @@ func (s *Scanner) backfillCover(ctx context.Context, bp storage.BookPath) {
 			slog.Warn("backfill cover: open epub failed", "book", bp.ID, "path", bp.FilePath, "err", err)
 			s.markCoverChecked(ctx, bp.ID)
 		}
-		return
+		return false
 	}
 	defer func() { _ = zr.Close() }()
 
@@ -516,9 +549,9 @@ func (s *Scanner) backfillCover(ctx context.Context, bp storage.BookPath) {
 			slog.Warn("backfill cover: parse epub failed", "book", bp.ID, "err", err)
 			s.markCoverChecked(ctx, bp.ID)
 		}
-		return
+		return false
 	}
-	s.resolveBookCover(ctx, bp.ID, meta.Title, meta.CoverPath, &zr.Reader)
+	return s.resolveBookCover(ctx, bp.ID, meta.Title, meta.CoverPath, &zr.Reader)
 }
 
 // CheckDuplicate reports whether filePath is already in the library by content hash.
