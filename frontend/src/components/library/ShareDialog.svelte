@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import {
     ApiError,
     getDownloadUrl,
@@ -27,18 +28,27 @@
   let url = $state<string | null>(null);
   let error = $state<string | null>(null);
   let copied = $state(false);
+  let uploadController: AbortController | null = null;
+  let copiedResetTimer: ReturnType<typeof setTimeout> | null = null;
 
   async function upload(): Promise<void> {
+    if (busy) return;
+    const controller = new AbortController();
+    uploadController = controller;
     busy = true;
     error = null;
     try {
-      const { downloadPage } = await uploadToGofile(book.id);
+      const { downloadPage } = await uploadToGofile(book.id, controller.signal);
       url = downloadPage;
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       error =
         err instanceof ApiError ? err.message : "Upload to gofile failed.";
     } finally {
-      busy = false;
+      if (uploadController === controller) {
+        uploadController = null;
+        busy = false;
+      }
     }
   }
 
@@ -47,25 +57,40 @@
     try {
       await navigator.clipboard.writeText(url);
       copied = true;
-      setTimeout(() => (copied = false), 1500);
+      toast.show("Link copied");
+      if (copiedResetTimer !== null) clearTimeout(copiedResetTimer);
+      copiedResetTimer = setTimeout(() => {
+        copied = false;
+        copiedResetTimer = null;
+      }, 1500);
     } catch {
       toast.show("Could not copy link");
     }
   }
+
+  function close(): void {
+    uploadController?.abort();
+    onclose();
+  }
+
+  onDestroy(() => {
+    uploadController?.abort();
+    if (copiedResetTimer !== null) clearTimeout(copiedResetTimer);
+  });
 
   function onKeydown(e: KeyboardEvent): void {
     if (e.key === "Escape") {
       e.preventDefault();
       // Consume so the reader/library window key handlers don't also act on it.
       e.stopImmediatePropagation();
-      if (!busy) onclose();
+      close();
     }
   }
 </script>
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="overlay" role="presentation" onclick={() => !busy && onclose()}>
+<div class="overlay" role="presentation" onclick={close}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     class="sheet"
@@ -73,6 +98,7 @@
     tabindex="-1"
     aria-modal="true"
     aria-label="Share book"
+    aria-busy={busy}
     onclick={(e) => e.stopPropagation()}
     {@attach focusTrap}
   >
@@ -80,9 +106,8 @@
       <h2 title={book.title}>Share “{book.title}”</h2>
       <button
         class="close"
-        aria-label="Close"
-        onclick={onclose}
-        disabled={busy}
+        aria-label={busy ? "Cancel upload and close" : "Close"}
+        onclick={close}
       >
         <Icon icon={X} size={18} />
       </button>
@@ -119,8 +144,8 @@
           <button
             type="button"
             class="icon-btn"
-            aria-label="Copy link"
-            title="Copy link"
+            aria-label={copied ? "Link copied" : "Copy link"}
+            title={copied ? "Link copied" : "Copy link"}
             onclick={copyLink}
           >
             <Icon icon={copied ? Check : Copy} size={15} />
@@ -147,7 +172,7 @@
   }
   .sheet {
     width: min(28rem, 100%);
-    max-height: calc(100vh - var(--sp-12));
+    max-height: calc(100dvh - var(--sp-12));
     overflow-y: auto;
     background: var(--bg);
     border: 1px solid var(--hairline-strong);
@@ -155,12 +180,16 @@
     animation: app-sheet-in var(--dur) var(--ease-out);
   }
   header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--sp-3);
     padding: var(--sp-3) var(--sp-4);
     border-bottom: 1px solid var(--hairline);
+    background: var(--bg);
   }
   h2 {
     margin: 0;
@@ -189,16 +218,12 @@
       color var(--dur) var(--ease-out),
       transform var(--dur-fast) var(--ease-out);
   }
-  .close:active:not(:disabled) {
+  .close:active {
     transform: scale(0.94);
   }
-  .close:hover:not(:disabled) {
+  .close:hover {
     background: var(--surface-hover);
     color: var(--fg);
-  }
-  .close:disabled {
-    opacity: 0.5;
-    cursor: default;
   }
   .body {
     display: flex;
@@ -256,8 +281,12 @@
   }
   .error {
     margin: 0;
-    color: var(--danger);
+    padding: var(--sp-2) var(--sp-3);
+    border-radius: var(--radius-sm);
+    background: var(--danger-surface);
+    color: var(--danger-surface-fg);
     font-size: var(--text-sm);
+    overflow-wrap: anywhere;
   }
   .btn {
     display: inline-flex;
