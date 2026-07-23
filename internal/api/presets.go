@@ -26,6 +26,11 @@ type createPresetBody struct {
 	Settings settingsJSON `json:"settings"`
 }
 
+func normalizePresetName(name string) (string, bool) {
+	name = strings.TrimSpace(name)
+	return name, name != "" && !exceedsRuneLimit(name, maxPresetNameLen)
+}
+
 func presetToResponse(p storage.PresetRecord) presetResponse {
 	return presetResponse{
 		ID:        p.ID,
@@ -70,8 +75,9 @@ func createPresetHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		body.Name = strings.TrimSpace(body.Name)
-		if body.Name == "" || len(body.Name) > maxPresetNameLen {
+		var validName bool
+		body.Name, validName = normalizePresetName(body.Name)
+		if !validName {
 			writeError(w, http.StatusBadRequest, "invalid_body", "name must be 1-60 characters")
 			return
 		}
