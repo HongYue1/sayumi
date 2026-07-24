@@ -119,8 +119,10 @@ export class Library {
         list.sort((a, b) => (b.addedAt ?? "").localeCompare(a.addedAt ?? ""));
         break;
       case "read":
-        list.sort((a, b) =>
-          (b.lastReadAt ?? "").localeCompare(a.lastReadAt ?? ""),
+        list.sort(
+          (a, b) =>
+            (b.lastReadAt ?? "").localeCompare(a.lastReadAt ?? "") ||
+            byTitle(a, b),
         );
         break;
       case "progress":
@@ -171,6 +173,48 @@ export class Library {
 
   #isCurrent(profile: string, generation: number): boolean {
     return this.#profile === profile && this.#generation === generation;
+  }
+
+  /**
+   * Returns a profile-generation-bound publisher for the reader route. The
+   * captured generation prevents a late save from an old reader instance from
+   * mutating a profile that was switched away from and later reactivated.
+   */
+  createReadingProgressPublisher(
+    profile: string | null,
+    bookId: string,
+  ): (chapter: number, percent: number, readAt?: string) => void {
+    const generation = this.#generation;
+    return (chapter, percent, readAt = new Date().toISOString()) => {
+      if (
+        profile === null ||
+        !this.#isCurrent(profile, generation) ||
+        !Number.isSafeInteger(chapter) ||
+        chapter < 0 ||
+        !Number.isFinite(percent)
+      ) {
+        return;
+      }
+
+      let changed = false;
+      const next = this.books.map((book) => {
+        if (
+          book.id !== bookId ||
+          book.chapterCount <= 0 ||
+          chapter >= book.chapterCount
+        ) {
+          return book;
+        }
+        changed = true;
+        const chapterPercent = Math.max(0, Math.min(1, percent));
+        const progress = Math.max(
+          0,
+          Math.min(1, (chapter + chapterPercent) / book.chapterCount),
+        );
+        return { ...book, progress, lastReadAt: readAt };
+      });
+      if (changed) this.books = next;
+    };
   }
 
   #loadFlairs(profile: string, generation: number): void {

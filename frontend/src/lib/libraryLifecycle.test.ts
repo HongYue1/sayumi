@@ -112,4 +112,32 @@ describe("library profile lifecycle", () => {
     expect(store.books.map((item) => item.id)).toEqual(["b"]);
     expect(mocks.toast).not.toHaveBeenCalled();
   });
+
+  it("publishes reader progress into the active profile immediately", () => {
+    const store = new Library();
+    store.activate("profile-a");
+    store.books = [{ ...book("a", "Book A"), chapterCount: 4 }];
+    const publish = store.createReadingProgressPublisher("profile-a", "a");
+
+    publish(1, 0.5, "2024-06-01T12:00:00.000Z");
+
+    expect(store.books[0]).toMatchObject({
+      progress: 0.375,
+      lastReadAt: "2024-06-01T12:00:00.000Z",
+    });
+  });
+
+  it("drops a reader update after the profile generation changes", () => {
+    const store = new Library();
+    store.activate("profile-a");
+    store.books = [{ ...book("a", "Old A"), chapterCount: 4 }];
+    const stalePublish = store.createReadingProgressPublisher("profile-a", "a");
+
+    store.activate("profile-b");
+    store.activate("profile-a");
+    store.books = [{ ...book("a", "New A"), chapterCount: 4 }];
+    stalePublish(3, 1, "2024-06-01T12:00:00.000Z");
+
+    expect(store.books[0]).toMatchObject({ progress: 0 });
+  });
 });

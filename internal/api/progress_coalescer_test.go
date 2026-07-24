@@ -93,6 +93,28 @@ func TestProgressCoalescerReadThrough(t *testing.T) {
 	if _, ok := c.get("missing", "default"); ok {
 		t.Fatal("expected miss for unknown key")
 	}
+	if rec.UpdatedAt == "" {
+		t.Fatal("expected staged progress to carry a read timestamp")
+	}
+}
+
+func TestProgressCoalescerReadThroughAll(t *testing.T) {
+	fake := &fakeProgressSaver{}
+	c := newProgressCoalescer(fake, time.Hour, 1000)
+	t.Cleanup(c.stop)
+
+	c.stage(storage.ProgressRecord{BookID: "b1", UserID: "default", Chapter: 1})
+	c.stage(storage.ProgressRecord{BookID: "b2", UserID: "default", Chapter: 2})
+	c.stage(storage.ProgressRecord{BookID: "b3", UserID: "other", Chapter: 3})
+
+	pending := c.getAll("default")
+	if len(pending) != 2 || pending["b1"].Chapter != 1 || pending["b2"].Chapter != 2 {
+		t.Fatalf("unexpected pending snapshot: %+v", pending)
+	}
+	delete(pending, "b1")
+	if _, ok := c.get("b1", "default"); !ok {
+		t.Fatal("mutating the snapshot must not mutate the coalescer")
+	}
 }
 
 // The periodic ticker flushes without an explicit stop.

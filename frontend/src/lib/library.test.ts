@@ -86,6 +86,16 @@ describe("library.visible (filter + sort)", () => {
     expect(library.visible.map((b) => b.id)).toEqual(["2", "1", "3"]);
   });
 
+  it("sorts recently read descending with a title tie-break", () => {
+    library.books = [
+      book({ id: "1", title: "C" }),
+      book({ id: "2", title: "B", lastReadAt: "2024-06-01" }),
+      book({ id: "3", title: "A", lastReadAt: "2024-06-01" }),
+    ];
+    library.sort = "read";
+    expect(library.visible.map((b) => b.id)).toEqual(["3", "2", "1"]);
+  });
+
   it("refreshes the haystack cache when a book's title changes (same id)", () => {
     library.books = [book({ id: "1", title: "Dune" })];
     library.debouncedQuery = "dune";

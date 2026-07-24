@@ -22,6 +22,8 @@
     type SearchResult,
   } from "~/api/client";
   import { settings, type IframeSettings } from "~/lib/settings.svelte";
+  import { library } from "~/lib/library.svelte";
+  import { session } from "~/lib/session.svelte";
   import { toast } from "~/lib/toast.svelte";
   import { fontRegistry } from "~/lib/fontRegistry.svelte";
   import { buildAllFontFaces } from "~/lib/readerFontFaces";
@@ -88,6 +90,13 @@
   // server calls), so users can tune reading settings against rich sample text.
   // svelte-ignore state_referenced_locally
   const isSpecimen = bookId === SPECIMEN_BOOK_ID;
+  // Bind reader-to-library updates to the profile generation that opened this
+  // route. A delayed save from an old reader must never touch a later profile.
+  // svelte-ignore state_referenced_locally
+  const publishLibraryProgress = library.createReadingProgressPublisher(
+    session.profile,
+    bookId,
+  );
 
   // Reactive (rendered) state.
   let book = $state<BookDetail | null>(null);
@@ -390,16 +399,11 @@
       // visibilitychange (command-palette navigation, browser back, or a
       // {#key bookId} remount) unmount the reader without flushing, dropping up
       // to one save-interval of progress. Beacon the latest position on the way
-      // out, fire-and-forget like the page-hide path, and skip it when nothing
-      // changed since the last persisted save.
-      if (
-        bookLoaded &&
-        !isSpecimen &&
-        !isProgressDuplicate(
-          { chapter: saveData.chapter, percent: saveData.percent },
-          { chapter: lastPersistedChapter, percent: lastPersistedPercent },
-        )
-      ) {
+      // out, fire-and-forget like the page-hide path. Send even an unchanged
+      // position: leaving the reader is itself a last-read event, and the
+      // backend coalescer collapses duplicate positions before the WAL write.
+      if (bookLoaded && !isSpecimen) {
+        publishLibraryProgress(saveData.chapter, saveData.percent);
         beaconProgress(bookId, { ...saveData });
       }
       cancelProgressSave();
@@ -646,6 +650,7 @@
     const payload = { ...saveData };
     return saveProgress(bookId, payload)
       .then(() => {
+        publishLibraryProgress(payload.chapter, payload.percent);
         lastPersistedChapter = payload.chapter;
         lastPersistedPercent = payload.percent;
         try {
@@ -684,6 +689,7 @@
       } catch {
         // ignore
       }
+      publishLibraryProgress(saveData.chapter, saveData.percent);
       beaconProgress(bookId, { ...saveData });
     } else {
       scheduleProgressSave();

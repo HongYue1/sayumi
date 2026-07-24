@@ -112,6 +112,11 @@ func listBooksHandler(_ *Dependencies) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, "db_error", "failed to load progress")
 			return
 		}
+		// Overlay staged positions so the library API is read-after-write
+		// consistent during the coalescer's short durability window.
+		for bookID, progress := range pd.Progress.getAll(userID) {
+			allProgress[bookID] = progress
+		}
 
 		bookFlairs, err := pd.DB.GetAllBookFlairsContext(r.Context(), userID)
 		if err != nil {
@@ -161,16 +166,21 @@ func getBookHandler(_ *Dependencies) http.HandlerFunc {
 		var progress float64
 		var lastReadAt string
 
-		prog, err := pd.DB.GetProgressContext(r.Context(), book.ID, userID)
-		switch {
-		case err == nil:
+		if prog, ok := pd.Progress.get(book.ID, userID); ok {
 			progress = calcProgress(prog.Chapter, prog.Percent, book.ChapterCount)
 			lastReadAt = prog.UpdatedAt
-		case errors.Is(err, storage.ErrNotFound):
-		default:
-			slog.Error("load book progress failed", "book", book.ID, "user", userID, "err", err)
-			writeError(w, http.StatusInternalServerError, "db_error", "failed to load progress")
-			return
+		} else {
+			prog, err := pd.DB.GetProgressContext(r.Context(), book.ID, userID)
+			switch {
+			case err == nil:
+				progress = calcProgress(prog.Chapter, prog.Percent, book.ChapterCount)
+				lastReadAt = prog.UpdatedAt
+			case errors.Is(err, storage.ErrNotFound):
+			default:
+				slog.Error("load book progress failed", "book", book.ID, "user", userID, "err", err)
+				writeError(w, http.StatusInternalServerError, "db_error", "failed to load progress")
+				return
+			}
 		}
 
 		// The detail payload is dominated by the immutable spine + toc JSON (tens

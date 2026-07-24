@@ -80,6 +80,9 @@ func newProgressCoalescer(db progressSaver, interval time.Duration, maxPending i
 // stage records the latest position for a (book, user), overwriting any
 // not-yet-flushed value. It performs no I/O and is safe for concurrent use.
 func (c *progressCoalescer) stage(rec storage.ProgressRecord) {
+	if rec.UpdatedAt == "" {
+		rec.UpdatedAt = time.Now().UTC().Format(time.DateTime)
+	}
 	key := progressKey{bookID: rec.BookID, userID: rec.UserID}
 
 	c.mu.Lock()
@@ -104,6 +107,21 @@ func (c *progressCoalescer) get(bookID, userID string) (storage.ProgressRecord, 
 	defer c.mu.Unlock()
 	rec, ok := c.pending[progressKey{bookID: bookID, userID: userID}]
 	return rec, ok
+}
+
+// getAll returns a snapshot of one user's pending positions keyed by book ID.
+// The copy keeps callers from observing or mutating the coalescer's live map.
+func (c *progressCoalescer) getAll(userID string) map[string]storage.ProgressRecord {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	result := make(map[string]storage.ProgressRecord)
+	for key, rec := range c.pending {
+		if key.userID == userID {
+			result[key.bookID] = rec
+		}
+	}
+	return result
 }
 
 // stop drains all buffered writes and shuts the flusher goroutine down. It is
