@@ -41,20 +41,10 @@
   // target. frame.ts uses the same target for the same reason.
   const FRAME_TARGET_ORIGIN = "*";
 
-  function createFrameNonce(): string {
-    // randomUUID() is secure-context-only, but Sayumi deliberately supports
-    // plain-HTTP LAN access. getRandomValues() remains available there and gives
-    // the CSP nonce the same 128 bits of cryptographic entropy.
-    const bytes = crypto.getRandomValues(new Uint8Array(16));
-    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
-      "",
-    );
-  }
-
   // srcdoc is built once at mount; the iframe document is static thereafter and
   // theme changes are pushed in via apply-settings, so the initial theme is fine.
   // svelte-ignore state_referenced_locally
-  const srcdoc = buildFrameSrcdoc(createFrameNonce(), initialTheme);
+  const srcdoc = buildFrameSrcdoc(crypto.randomUUID(), initialTheme);
 
   // Non-reactive instance state (not rendered).
   let iframeEl: HTMLIFrameElement | null = null;
@@ -112,7 +102,7 @@
       case "at-boundary":
         return isNum(v.seq) && isBoundary(v.boundary);
       case "link-clicked":
-        return isStr(v.href);
+        return isNum(v.seq) && isStr(v.href);
       case "key":
         return (
           isNum(v.seq) &&
@@ -164,7 +154,7 @@
         if (m.seq === seq) onboundary?.(m.boundary);
         break;
       case "link-clicked":
-        onlinkclicked?.(m.href);
+        if (m.seq === seq) onlinkclicked?.(m.href);
         break;
       case "key":
         if (m.seq === seq)

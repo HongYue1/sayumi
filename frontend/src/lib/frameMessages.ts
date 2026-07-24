@@ -37,24 +37,24 @@ export interface LoadMessage {
 /** Messages sent parent -> frame (posted into the iframe window). */
 export type ParentToFrameMessage =
   | { type: "destroy" }
-  | { type: "set-font-faces"; fontFaces?: string }
+  | { type: "set-font-faces"; fontFaces: string }
   | LoadMessage
   | { type: "apply-settings"; settings: IframeSettings }
   | { type: "scroll-to"; percent: number }
   | { type: "scroll-to-end" }
   | { type: "next-page" }
   | { type: "prev-page" }
-  | { type: "go-to-page"; page?: number }
+  | { type: "go-to-page"; page: number }
   | { type: "go-to-last-page" }
-  | { type: "scroll-to-fragment"; id?: string }
-  | { type: "scroll-to-cfi"; cfi?: string }
+  | { type: "scroll-to-fragment"; id: string }
+  | { type: "scroll-to-cfi"; cfi: string }
   | { type: "get-position" }
   | {
       type: "highlight-search";
-      seq?: number;
-      charOffset?: number;
-      matchLen?: number;
-      query?: unknown;
+      seq: number;
+      charOffset: number;
+      matchLen: number;
+      query: string;
     }
   | { type: "clear-highlights" };
 
@@ -82,7 +82,7 @@ export type FrameToParentMessage =
       cfi?: string | null;
     }
   | { type: "at-boundary"; seq: number; boundary: "start" | "end" }
-  | { type: "link-clicked"; href: string }
+  | { type: "link-clicked"; seq: number; href: string }
   | FrameKeyMessage
   | { type: "click"; seq: number; region: "left" | "center" | "right" }
   | { type: "load-error"; seq: number; error: string };

@@ -1201,7 +1201,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       return;
     }
 
-    sendMessage({ type: "link-clicked", href });
+    sendMessage({ type: "link-clicked", seq: activeSeq, href });
   }
 
   const searchHl = createSearchHighlight({
@@ -1463,8 +1463,10 @@ const PAGED_SCROLL_KEYS = new Set<string>([
 
       case "highlight-search":
         if (
+          !Number.isSafeInteger(msg.seq) ||
           typeof msg.charOffset !== "number" ||
           typeof msg.matchLen !== "number" ||
+          typeof msg.query !== "string" ||
           !Number.isSafeInteger(msg.charOffset) ||
           !Number.isSafeInteger(msg.matchLen) ||
           msg.charOffset < 0 ||
@@ -1476,23 +1478,18 @@ const PAGED_SCROLL_KEYS = new Set<string>([
         // Drop highlights computed for a superseded chapter load. A deferred
         // cross-chapter highlight can arrive after a faster re-navigation has
         // already swapped in a different chapter; without this guard it would
-        // mark the wrong text. Messages without a seq still apply (same-chapter
-        // highlights, where the live seq is authoritative).
-        if (typeof msg.seq === "number" && msg.seq !== activeSeq) break;
+        // mark the wrong text.
+        if (msg.seq !== activeSeq) break;
         if (!contentReady) {
           pendingSearchHighlight = {
             charOffset: msg.charOffset,
             matchLen: msg.matchLen,
-            query: String(msg.query || ""),
-            seq: typeof msg.seq === "number" ? msg.seq : undefined,
+            query: msg.query,
+            seq: msg.seq,
           };
           break;
         }
-        searchHl.highlightSearchMatch(
-          msg.charOffset,
-          msg.matchLen,
-          String(msg.query || ""),
-        );
+        searchHl.highlightSearchMatch(msg.charOffset, msg.matchLen, msg.query);
         break;
 
       case "clear-highlights":
