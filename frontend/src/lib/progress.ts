@@ -24,18 +24,17 @@ export function isProgressDuplicate(
   );
 }
 
-/** Boot-time merge of the server progress and a (possibly newer) local cache
- *  written on the last page-hide beacon. Returns whichever position should be
- *  restored: the cache wins unless the server was loaded AND is strictly ahead. */
+/**
+ * Returns the page-hide cache as the boot position. A successful normal save
+ * removes this cache, so its presence records a later position whose beacon may
+ * not have reached the server. Reading order is not recency: a user can move
+ * backward before page hide, and that newer position must still win.
+ */
 export function chooseBootProgress(
-  server: ProgressData,
+  _server: ProgressData,
   cached: ProgressData,
-  serverLoaded: boolean,
 ): ProgressData {
-  const serverAhead =
-    cached.chapter < server.chapter ||
-    (cached.chapter === server.chapter && cached.percent <= server.percent);
-  return !serverAhead || !serverLoaded ? cached : server;
+  return cached;
 }
 
 /** Below this percent delta a bookmark counts as "at the current position". */

@@ -1,75 +1,127 @@
 import type { SpineEntry, TocEntry } from "~/api/client";
 
-function pathBasename(p: string): string {
-  const i = p.lastIndexOf("/");
-  return i >= 0 ? p.slice(i + 1) : p;
+interface ParsedHref {
+  path: string;
+  fragment: string;
 }
 
-/** Resolves an in-book href (possibly with #fragment) to a spine chapter. */
+function parseHref(href: string): ParsedHref {
+  const hashIdx = href.indexOf("#");
+  const beforeFragment = hashIdx >= 0 ? href.slice(0, hashIdx) : href;
+  const fragment = hashIdx >= 0 ? href.slice(hashIdx + 1) : "";
+  const queryIdx = beforeFragment.indexOf("?");
+  return {
+    path: queryIdx >= 0 ? beforeFragment.slice(0, queryIdx) : beforeFragment,
+    fragment,
+  };
+}
+
+function normalizeArchivePath(path: string): string {
+  const parts: string[] = [];
+  for (const part of path.replaceAll("\\", "/").split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      parts.pop();
+      continue;
+    }
+    parts.push(part);
+  }
+  return parts.join("/");
+}
+
+function pathBasename(path: string): string {
+  const i = path.lastIndexOf("/");
+  return i >= 0 ? path.slice(i + 1) : path;
+}
+
+function resolveRelativePath(path: string, sourcePath: string): string {
+  if (path.startsWith("/")) return normalizeArchivePath(path);
+  const slash = sourcePath.lastIndexOf("/");
+  const directory = slash >= 0 ? sourcePath.slice(0, slash + 1) : "";
+  return normalizeArchivePath(directory + path);
+}
+
+function uniqueMatch(
+  spinePaths: string[],
+  predicate: (path: string) => boolean,
+): number | null {
+  let match = -1;
+  for (let i = 0; i < spinePaths.length; i++) {
+    if (!predicate(spinePaths[i])) continue;
+    if (match >= 0) return null;
+    match = i;
+  }
+  return match >= 0 ? match : null;
+}
+
+function matchSpinePath(path: string, spinePaths: string[]): number | null {
+  const exact = uniqueMatch(spinePaths, (spinePath) => spinePath === path);
+  if (exact !== null) return exact;
+
+  const suffix = uniqueMatch(
+    spinePaths,
+    (spinePath) =>
+      spinePath.endsWith("/" + path) || path.endsWith("/" + spinePath),
+  );
+  if (suffix !== null) return suffix;
+
+  const basename = pathBasename(path);
+  return uniqueMatch(
+    spinePaths,
+    (spinePath) => pathBasename(spinePath) === basename,
+  );
+}
+
+/**
+ * Resolves an in-book href to a spine chapter. Raw iframe links may pass the
+ * source chapter index so relative paths are resolved from that chapter's
+ * archive directory; TOC hrefs remain canonical archive paths.
+ */
 export function resolveHref(
   href: string,
   spine: SpineEntry[],
+  sourceChapter?: number,
 ): { chapterIndex: number; fragment: string } | null {
-  const hashIdx = href.indexOf("#");
-  const hrefBase = hashIdx >= 0 ? href.slice(0, hashIdx) : href;
-  const fragment = hashIdx >= 0 ? href.slice(hashIdx + 1) : "";
+  const parsed = parseHref(href);
+  const spinePaths = spine.map((entry) =>
+    normalizeArchivePath(parseHref(entry.href).path),
+  );
+  let path = normalizeArchivePath(parsed.path);
 
-  // Pass 1: exact or path-suffix match (the reliable signals). Run to
-  // completion before falling back so a stronger match later in the spine
-  // always wins over a weaker basename-only match earlier in it.
-  for (let i = 0; i < spine.length; i++) {
-    const spineBase = spine[i].href.split("#")[0];
-    if (
-      spineBase === hrefBase ||
-      spineBase.endsWith("/" + hrefBase) ||
-      hrefBase.endsWith("/" + spineBase)
-    ) {
-      return { chapterIndex: i, fragment };
-    }
+  if (
+    sourceChapter !== undefined &&
+    Number.isSafeInteger(sourceChapter) &&
+    sourceChapter >= 0 &&
+    sourceChapter < spinePaths.length
+  ) {
+    path = resolveRelativePath(parsed.path, spinePaths[sourceChapter]);
   }
-  // Pass 2: basename equality, only when nothing stronger matched. Handles
-  // links that differ only by directory prefix, but can collide when two
-  // spine files share a basename, so it stays the last resort.
-  for (let i = 0; i < spine.length; i++) {
-    const spineBase = spine[i].href.split("#")[0];
-    if (pathBasename(spineBase) === pathBasename(hrefBase)) {
-      return { chapterIndex: i, fragment };
-    }
-  }
-  return null;
+
+  const chapterIndex = matchSpinePath(path, spinePaths);
+  return chapterIndex === null
+    ? null
+    : { chapterIndex, fragment: parsed.fragment };
 }
 
 /**
  * Precomputes, for each spine chapter index, the TOC entry that should be
- * highlighted while that chapter is open. Runs in O(toc + spine): it builds
- * exact + basename lookups from the spine once, resolves each TOC entry through
- * them (every pass-1 suffix match in resolveHref also shares a basename, so the
- * basename map is a faithful fallback), keeps the first TOC entry per chapter
- * (document order = the chapter-level heading), then fills forward so a chapter
- * with no TOC line of its own inherits the nearest preceding heading. Build
- * this once per book and index it by chapter instead of calling resolveHref for
- * every TOC entry on every open.
+ * highlighted while that chapter is open, then fills forward so chapters
+ * without their own TOC line inherit the nearest preceding heading.
  */
 export function buildTocChapterEntries(
   toc: TocEntry[],
   spine: SpineEntry[],
 ): Array<TocEntry | null> {
-  const byBase = new Map<string, number>();
-  const byBasename = new Map<string, number>();
-  for (let i = 0; i < spine.length; i++) {
-    const base = spine[i].href.split("#")[0];
-    if (!byBase.has(base)) byBase.set(base, i);
-    const bn = pathBasename(base);
-    if (!byBasename.has(bn)) byBasename.set(bn, i);
-  }
-
+  const spinePaths = spine.map((entry) =>
+    normalizeArchivePath(parseHref(entry.href).path),
+  );
   const result: Array<TocEntry | null> = new Array(spine.length).fill(null);
+
   const walk = (entries: TocEntry[]): void => {
     for (const entry of entries) {
-      const hrefBase = entry.href.split("#")[0];
-      const idx =
-        byBase.get(hrefBase) ?? byBasename.get(pathBasename(hrefBase));
-      if (idx !== undefined && result[idx] == null) result[idx] = entry;
+      const path = normalizeArchivePath(parseHref(entry.href).path);
+      const idx = matchSpinePath(path, spinePaths);
+      if (idx !== null && result[idx] == null) result[idx] = entry;
       if (entry.children?.length) walk(entry.children);
     }
   };

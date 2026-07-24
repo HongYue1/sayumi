@@ -45,29 +45,22 @@ describe("isProgressDuplicate", () => {
 });
 
 describe("chooseBootProgress", () => {
-  it("keeps the server position when it is on a later chapter", () => {
-    expect(chooseBootProgress(p(2, 0.1), p(1, 0.9), true)).toMatchObject({
+  it("uses the page-hide cache as the newer position", () => {
+    expect(chooseBootProgress(p(1, 0.1), p(1, 0.5))).toMatchObject({
+      chapter: 1,
+      percent: 0.5,
+    });
+  });
+  it("keeps a newer cached backward navigation over an ahead server", () => {
+    expect(chooseBootProgress(p(5, 0.9), p(2, 0.25))).toMatchObject({
       chapter: 2,
-      percent: 0.1,
+      percent: 0.25,
     });
   });
-  it("prefers the cache when it is further into the same chapter", () => {
-    expect(chooseBootProgress(p(1, 0.1), p(1, 0.5), true)).toMatchObject({
-      chapter: 1,
-      percent: 0.5,
-    });
-  });
-  it("keeps the server on an exact tie (cache not strictly ahead)", () => {
-    expect(chooseBootProgress(p(1, 0.5), p(1, 0.5), true)).toMatchObject({
-      chapter: 1,
-      percent: 0.5,
-    });
-  });
-  it("falls back to the cache when the server never loaded", () => {
-    expect(chooseBootProgress(p(5, 0.9), p(0, 0), false)).toMatchObject({
-      chapter: 0,
-      percent: 0,
-    });
+  it("preserves the cached semantic anchor", () => {
+    expect(
+      chooseBootProgress(p(5, 0.9, "cfi:5"), p(2, 0.25, "cfi:1/3")),
+    ).toMatchObject({ cfi: "cfi:1/3" });
   });
 });
 

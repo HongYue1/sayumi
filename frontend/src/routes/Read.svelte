@@ -432,22 +432,21 @@
     }
 
     let saved: ProgressData = { chapter: 0, percent: 0 };
-    let serverLoaded = false;
     try {
       saved = await getProgress(bookId);
-      serverLoaded = true;
       lastPersistedChapter = saved.chapter;
       lastPersistedPercent = saved.percent;
     } catch {
       // first periodic save will retry
     }
 
-    // Merge a possibly-newer local cache (written on the last page-hide beacon).
+    // A remaining page-hide cache is newer than the last successful normal
+    // save (which removes it), even when the user navigated backward.
     try {
       const raw = localStorage.getItem(progressCacheKey);
       if (raw) {
         const cached: ProgressData = JSON.parse(raw);
-        saved = chooseBootProgress(saved, cached, serverLoaded);
+        saved = chooseBootProgress(saved, cached);
       }
     } catch {
       // ignore malformed cache
@@ -767,7 +766,7 @@
   function handleLinkClicked(href: string): void {
     const b = book;
     if (!b) return;
-    const resolved = resolveHref(href, b.spine);
+    const resolved = resolveHref(href, b.spine, currentChapter);
     if (!resolved) return;
     if (resolved.chapterIndex === currentChapter) {
       if (resolved.fragment) api?.scrollToFragment(resolved.fragment);
