@@ -134,6 +134,10 @@ class Settings {
   );
 
   #loaded = false;
+  #loadGeneration = 0;
+  #loadController: AbortController | undefined;
+  #loadPromise: Promise<void> | undefined;
+  #revision = 0;
   #saveTimer: ReturnType<typeof setTimeout> | undefined;
   #saveController: AbortController | undefined;
   // Last server-accepted settings. A failed PUT sends the whole object, so a
@@ -142,10 +146,26 @@ class Settings {
   #lastSaved: UserSettings = { ...DEFAULT_USER_SETTINGS };
 
   /** Loads server settings once; keeps defaults on failure (non-fatal). */
-  async load(): Promise<void> {
-    if (this.#loaded) return;
+  load(): Promise<void> {
+    if (this.#loaded) return Promise.resolve();
+    if (this.#loadPromise) return this.#loadPromise;
+
+    const generation = this.#loadGeneration;
+    const controller = new AbortController();
+    this.#loadController = controller;
+    const promise = this.#load(generation, controller);
+    this.#loadPromise = promise;
+    return promise;
+  }
+
+  async #load(generation: number, controller: AbortController): Promise<void> {
     try {
-      const loaded = await getSettings();
+      const loaded = await getSettings(controller.signal);
+      // reset() advances the generation before a different profile can load.
+      // Never publish a response that belongs to the previous profile.
+      if (controller.signal.aborted || generation !== this.#loadGeneration) {
+        return;
+      }
       // Merge over defaults so a sparse/new-profile response (missing or empty
       // fields) still yields a complete, valid settings object. Without this a
       // new profile can come back without a fontFamily, leaving the font
@@ -159,9 +179,15 @@ class Settings {
         this.value.fontFamily = DEFAULT_USER_SETTINGS.fontFamily;
       }
       this.#lastSaved = { ...this.value };
+      this.#revision += 1;
       this.#loaded = true;
     } catch {
       // Keep defaults if settings cannot be loaded.
+    } finally {
+      if (this.#loadController === controller) {
+        this.#loadController = undefined;
+        this.#loadPromise = undefined;
+      }
     }
   }
 
@@ -174,12 +200,18 @@ class Settings {
     // font-size / line-height slider drag no longer rebuilds @font-face CSS or
     // re-derives unrelated values each frame.
     Object.assign(this.value, partial);
+    this.#revision += 1;
     this.#scheduleSave();
   }
 
   /** Call on logout so the next login gets fresh settings from the server. */
   reset(): void {
     this.#loaded = false;
+    this.#loadGeneration += 1;
+    this.#loadController?.abort();
+    this.#loadController = undefined;
+    this.#loadPromise = undefined;
+    this.#revision += 1;
     if (this.#saveTimer) {
       clearTimeout(this.#saveTimer);
       this.#saveTimer = undefined;
@@ -210,6 +242,7 @@ class Settings {
       const controller = new AbortController();
       this.#saveController = controller;
       const snapshot = { ...this.value };
+      const revision = this.#revision;
       saveSettings(snapshot, controller.signal)
         .then(() => {
           // Remember the last payload the server accepted.
@@ -220,6 +253,10 @@ class Settings {
             return;
           // Only the latest save drives UI feedback; superseded saves abort.
           if (this.#saveController !== controller) return;
+          // A newer local edit is already queued behind this request. Its value
+          // must survive regardless of how this older snapshot was rejected;
+          // the queued save will surface any error that still applies.
+          if (this.#revision !== revision) return;
           // A 4xx means this payload is invalid and resending it on the next
           // edit would fail again (the full object is PUT every time). Roll back
           // to the last accepted settings so one bad field can't block every
