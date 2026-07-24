@@ -79,20 +79,29 @@
     busy = true;
     error = "";
     const name = newName.trim();
+    let created: { name: string };
     try {
-      await createProfile(name, newPin);
+      created = await createProfile(name, newPin);
     } catch (e2) {
       error = e2 instanceof ApiError ? e2.message : "Could not create profile";
       busy = false;
       return;
     }
+    // Creation is committed independently from the follow-up login. Keep the
+    // local picker in sync now so a failed login can retry the existing profile
+    // instead of submitting create again and getting a name conflict.
+    profiles = [...profiles, { name: created.name, hasPin: newPin !== "" }];
     try {
-      await session.login(name, newPin, remember);
+      await session.login(created.name, newPin, remember);
     } catch (e2) {
       error =
         e2 instanceof ApiError
-          ? e2.message
+          ? `Profile created, but sign-in failed: ${e2.message}`
           : "Profile created, but sign-in failed";
+      mode = "pick";
+      selected = null;
+      newName = "";
+      newPin = "";
       busy = false;
     }
   }

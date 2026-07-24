@@ -4,7 +4,7 @@
   import { router } from "~/lib/router.svelte";
   import { ui } from "~/lib/ui.svelte";
   import { settings } from "~/lib/settings.svelte";
-  import { applyTheme } from "~/lib/theme";
+  import { applyTheme, getCachedThemeId } from "~/lib/theme";
   import { customThemes } from "~/lib/customThemes.svelte";
   import { library } from "~/lib/library.svelte";
   import Login from "~/routes/Login.svelte";
@@ -19,7 +19,7 @@
     // Re-apply the cached theme (already set pre-paint by the index.html
     // bootstrap) so SPA state and data-theme stay in sync; falls back to light
     // for a fresh visitor. The saved server theme is applied once settings load.
-    applyTheme(localStorage.getItem("sayumi:theme") ?? "light");
+    applyTheme(getCachedThemeId());
     session.init();
   });
 

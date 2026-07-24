@@ -5,15 +5,16 @@ import { getTheme } from "~/lib/themes";
 export { getTheme };
 
 /**
- * Picks a readable foreground (near-black or white) for text/icons sitting on
- * the accent color, using the WCAG relative-luminance crossover (~0.179).
- * Keeps accent buttons legible on light accents (e.g. Gruvbox/Ayu) where
- * white-on-accent would fail contrast. Falls back to white for odd hexes.
+ * Picks the higher-contrast pure black or white for text/icons sitting on the
+ * accent color. Accepts both hex forms allowed by the custom-theme API and
+ * falls back to white for malformed colors.
  */
 export function onAccentColor(hex: string): string {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
   if (!m) return "#ffffff";
-  const n = parseInt(m[1], 16);
+  let h = m[1];
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  const n = parseInt(h, 16);
   const toLinear = (c: number): number => {
     const v = c / 255;
     return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
@@ -22,7 +23,18 @@ export function onAccentColor(hex: string): string {
     0.2126 * toLinear((n >> 16) & 0xff) +
     0.7152 * toLinear((n >> 8) & 0xff) +
     0.0722 * toLinear(n & 0xff);
-  return lum > 0.179 ? "#1c1917" : "#ffffff";
+  const blackContrast = (lum + 0.05) / 0.05;
+  const whiteContrast = 1.05 / (lum + 0.05);
+  return blackContrast >= whiteContrast ? "#000000" : "#ffffff";
+}
+
+/** Reads the pre-paint theme cache without letting blocked storage break boot. */
+export function getCachedThemeId(fallback = "light"): string {
+  try {
+    return localStorage.getItem("sayumi:theme") ?? fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 /**
