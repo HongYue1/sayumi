@@ -389,6 +389,12 @@
     // synchronously instead of flashing a blank frame while the dynamic import
     // resolves.
     panelPrewarm = schedulePrewarm(() => {
+      // Preview mode exposes only Settings; keep its three unreachable panel
+      // chunks out of the specimen's idle-time network and compile work.
+      if (isSpecimen) {
+        preloadSettingsPanel();
+        return;
+      }
       preloadTocPanel();
       preloadSettingsPanel();
       preloadSearchPanel();
