@@ -7,9 +7,19 @@ export interface Route {
   params: Record<string, string>;
 }
 
-function matchRoute(path: string): Route {
+export function matchRoute(path: string): Route {
   const m = path.match(/^\/read\/([^/]+)$/);
-  if (m) return { path: "/read/:id", params: { id: decodeURIComponent(m[1]) } };
+  if (m) {
+    try {
+      return {
+        path: "/read/:id",
+        params: { id: decodeURIComponent(m[1]) },
+      };
+    } catch {
+      // A malformed percent escape in a hand-edited or external hash must not
+      // throw during module initialization or a hashchange event.
+    }
+  }
   return { path: "/", params: {} };
 }
 
