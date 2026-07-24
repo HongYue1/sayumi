@@ -2,10 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   requestWithRetry,
   ApiError,
+  getAuthStatus,
   getFonts,
   rescanFonts,
   userFontUrl,
 } from "~/api/client";
+import {
+  advanceSessionEpoch,
+  currentSessionEpoch,
+  subscribeUnauthenticated,
+} from "~/lib/sessionGate";
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -128,6 +134,42 @@ describe("requestWithRetry", () => {
     expect(err).toBeInstanceOf(DOMException);
     expect(err).toMatchObject({ name: "AbortError" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("session authentication generation", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("reports a 401 against the generation that started the request", async () => {
+    let resolveFetch!: (response: Response) => void;
+    const response = new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => response),
+    );
+
+    const startedAt = currentSessionEpoch();
+    const reported: number[] = [];
+    const unsubscribe = subscribeUnauthenticated((epoch) =>
+      reported.push(epoch),
+    );
+    const pending = getAuthStatus();
+
+    advanceSessionEpoch();
+    resolveFetch(
+      jsonResponse({ error: "not logged in", code: "unauthenticated" }, 401),
+    );
+
+    await expect(pending).rejects.toMatchObject({
+      status: 401,
+      code: "unauthenticated",
+    });
+    expect(reported).toEqual([startedAt]);
+    unsubscribe();
   });
 });
 

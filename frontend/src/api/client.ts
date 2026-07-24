@@ -3,7 +3,7 @@ import {
   reportUnreachable,
   isReachable,
 } from "~/lib/reachability";
-import { reportUnauthenticated } from "~/lib/sessionGate";
+import { currentSessionEpoch, reportUnauthenticated } from "~/lib/sessionGate";
 
 const BASE = "/api";
 
@@ -145,6 +145,9 @@ async function request<T>(
   signal?: AbortSignal,
   timeoutMs?: number,
 ): Promise<T> {
+  // Bind authentication failures to the profile generation that launched the
+  // request. A late 401 from an old profile must not sign out a newer login.
+  const sessionEpoch = currentSessionEpoch();
   const options: RequestInit = {
     method,
     headers: buildHeaders(),
@@ -198,7 +201,7 @@ async function request<T>(
     // ("invalid_credentials") and /auth/status returns 200, so neither trips
     // this.
     if (res.status === 401 && parsed.code === "unauthenticated") {
-      reportUnauthenticated();
+      reportUnauthenticated(sessionEpoch);
     }
     throw new ApiError(parsed.message, res.status, parsed.code);
   }

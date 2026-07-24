@@ -1,4 +1,5 @@
 import {
+  ApiError,
   getAuthStatus,
   listProfiles,
   cloneProfile,
@@ -7,7 +8,11 @@ import {
   logout as apiLogout,
 } from "~/api/client";
 import { settings } from "~/lib/settings.svelte";
-import { subscribeUnauthenticated } from "~/lib/sessionGate";
+import {
+  advanceSessionEpoch,
+  currentSessionEpoch,
+  subscribeUnauthenticated,
+} from "~/lib/sessionGate";
 
 // Holds the currently authenticated profile. Replaces the legacy lib/profile.ts
 // module-level state with a Svelte 5 rune. The real session lives server-side in
@@ -22,25 +27,37 @@ class Session {
     // When the API layer detects the server-side session is gone (e.g. a
     // restart dropped a non-remembered session, or it expired), fall back to
     // the login screen. No-op when already signed out.
-    subscribeUnauthenticated(() => this.handleSessionLost());
+    subscribeUnauthenticated((epoch) => this.handleSessionLost(epoch));
   }
 
   get authenticated(): boolean {
     return this.profile !== null;
   }
 
-  /** Clears local session state after the server reports we're unauthenticated. */
-  private handleSessionLost(): void {
+  /** Clears the current profile and invalidates requests from its generation. */
+  private clearLocalSession(): void {
     if (this.profile === null) return;
+    advanceSessionEpoch();
     this.profile = null;
     settings.reset();
+  }
+
+  /** Clears local state only when the 401 belongs to the current login. */
+  private handleSessionLost(epoch: number): void {
+    if (epoch !== currentSessionEpoch()) return;
+    this.clearLocalSession();
   }
 
   /** Checks the existing cookie session on app start. */
   async init(): Promise<void> {
     try {
       const status = await getAuthStatus();
-      this.profile = status.authenticated ? status.profile : null;
+      if (status.authenticated) {
+        advanceSessionEpoch();
+        this.profile = status.profile;
+      } else {
+        this.profile = null;
+      }
     } catch {
       this.profile = null;
     } finally {
@@ -50,6 +67,7 @@ class Session {
 
   async login(name: string, pin: string, remember: boolean): Promise<void> {
     const res = await apiLogin(name, pin, remember);
+    advanceSessionEpoch();
     this.profile = res.profile;
   }
 
@@ -57,10 +75,9 @@ class Session {
     try {
       await apiLogout();
     } finally {
-      this.profile = null;
       // Drop the previous profile's settings so the next login refetches its
       // own from the server instead of inheriting this session's values.
-      settings.reset();
+      this.clearLocalSession();
     }
   }
 
@@ -81,9 +98,26 @@ class Session {
    * throws and leaves the session intact for the caller to surface.
    */
   async deleteCurrent(pin: string): Promise<void> {
-    await deleteProfile(pin);
-    this.profile = null;
-    settings.reset();
+    try {
+      await deleteProfile(pin);
+    } catch (error) {
+      // Wrong-PIN failures leave the server session intact. Other failures can
+      // happen after the backend has already revoked every profile session, so
+      // reconcile before preserving the local mirror and rethrow the original
+      // operation error either way.
+      if (!(
+        error instanceof ApiError && error.code === "invalid_credentials"
+      )) {
+        try {
+          const status = await getAuthStatus();
+          if (!status.authenticated) this.clearLocalSession();
+        } catch {
+          // The status probe is best-effort; never mask the deletion failure.
+        }
+      }
+      throw error;
+    }
+    this.clearLocalSession();
   }
 
   /**
