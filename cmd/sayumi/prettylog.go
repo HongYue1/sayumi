@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // prettyHandler is a slog.Handler that writes compact, color-coded lines to w.
@@ -67,7 +68,7 @@ func (h *prettyHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	merged := make(map[string]string, len(h.preAttrs)+len(attrs))
 	maps.Copy(merged, h.preAttrs)
 	for _, a := range attrs {
-		merged[h.groupPrefix+a.Key] = a.Value.String()
+		merged[h.groupPrefix+a.Key] = logValueString(a.Value)
 	}
 	return &prettyHandler{mu: h.mu, w: h.w, level: h.level, preAttrs: merged, groupPrefix: h.groupPrefix}
 }
@@ -86,14 +87,25 @@ func (h *prettyHandler) WithGroup(name string) slog.Handler {
 }
 
 func (h *prettyHandler) Handle(_ context.Context, r slog.Record) error {
+	isRequest := r.Message == "request"
 	all := make(map[string]string, len(h.preAttrs)+r.NumAttrs())
 	// Pre-attrs are already fully-qualified; copy them directly.
 	maps.Copy(all, h.preAttrs)
 	// Record attrs are keyed relative to the current group prefix.
-	r.Attrs(func(a slog.Attr) bool {
-		all[h.groupPrefix+a.Key] = a.Value.String()
-		return true
-	})
+	if isRequest {
+		r.Attrs(func(a slog.Attr) bool {
+			all[h.groupPrefix+a.Key] = a.Value.String()
+			return true
+		})
+		if path, ok := all["path"]; ok {
+			all["path"] = escapeLogText(path)
+		}
+	} else {
+		r.Attrs(func(a slog.Attr) bool {
+			all[h.groupPrefix+a.Key] = logValueString(a.Value)
+			return true
+		})
+	}
 
 	var sb strings.Builder
 
@@ -105,10 +117,10 @@ func (h *prettyHandler) Handle(_ context.Context, r slog.Record) error {
 	sb.WriteString(levelTag(r.Level))
 	sb.WriteString("  ")
 
-	if r.Message == "request" {
+	if isRequest {
 		h.writeRequest(&sb, all)
 	} else {
-		h.writeGeneric(&sb, r.Message, all)
+		h.writeGeneric(&sb, escapeLogText(r.Message), all)
 	}
 
 	sb.WriteByte('\n')
@@ -179,7 +191,7 @@ func (h *prettyHandler) writeGeneric(sb *strings.Builder, msg string, attrs map[
 	for _, k := range extraKeys {
 		sb.WriteString("  ")
 		sb.WriteString(ansiDim)
-		sb.WriteString(k)
+		sb.WriteString(escapeLogText(k))
 		sb.WriteString("=")
 		sb.WriteString(ansiReset)
 		sb.WriteString(attrs[k])
@@ -237,4 +249,100 @@ func fmtDuration(s string) string {
 		}
 	}
 	return s
+}
+
+// logValueString escapes only value kinds that can carry caller-controlled
+// text. Numeric, boolean, time, and duration kinds use slog's fixed encodings
+// and can bypass the scan.
+func logValueString(value slog.Value) string {
+	text := value.String()
+	if value.Kind() == slog.KindString || value.Kind() == slog.KindAny {
+		return escapeLogText(text)
+	}
+	return text
+}
+
+// escapeLogText preserves ordinary Unicode while making terminal controls and
+// physical line separators visible. The handler's own ANSI sequences are added
+// after this boundary, so callers cannot inject terminal commands or forge
+// additional log lines through messages, keys, or values.
+func escapeLogText(s string) string {
+	if !needsLogEscape(s) {
+		return s
+	}
+
+	const hex = "0123456789abcdef"
+
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c < utf8.RuneSelf {
+			i++
+			switch c {
+			case '\n':
+				b.WriteString(`\n`)
+			case '\r':
+				b.WriteString(`\r`)
+			case '\t':
+				b.WriteString(`\t`)
+			case '\b':
+				b.WriteString(`\b`)
+			case '\f':
+				b.WriteString(`\f`)
+			default:
+				if c < ' ' || c == 0x7f {
+					b.WriteString(`\x`)
+					b.WriteByte(hex[c>>4])
+					b.WriteByte(hex[c&0x0f])
+				} else {
+					b.WriteByte(c)
+				}
+			}
+			continue
+		}
+
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			b.WriteString(`\x`)
+			b.WriteByte(hex[c>>4])
+			b.WriteByte(hex[c&0x0f])
+			i++
+			continue
+		}
+		switch {
+		case r >= 0x80 && r <= 0x9f:
+			b.WriteString(`\x`)
+			b.WriteByte(hex[byte(r)>>4])
+			b.WriteByte(hex[byte(r)&0x0f])
+		case r == '\u2028':
+			b.WriteString(`\u2028`)
+		case r == '\u2029':
+			b.WriteString(`\u2029`)
+		default:
+			b.WriteString(s[i : i+size])
+		}
+		i += size
+	}
+	return b.String()
+}
+
+func needsLogEscape(s string) bool {
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c < utf8.RuneSelf {
+			if c < ' ' || c == 0x7f {
+				return true
+			}
+			i++
+			continue
+		}
+
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if (r == utf8.RuneError && size == 1) || r >= 0x80 && r <= 0x9f || r == '\u2028' || r == '\u2029' {
+			return true
+		}
+		i += size
+	}
+	return false
 }
