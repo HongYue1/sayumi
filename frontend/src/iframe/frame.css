@@ -16,6 +16,10 @@ html.theme-light {
   --text-primary: #1c1917;
   --text-secondary: #57534e;
   --text-muted: #a8a29e;
+  /* Small content-bearing labels need normal-text contrast. This indirection
+     follows each theme's primary foreground unless a built-in needs a local
+     correction; custom themes inherit their resolved --text-primary. */
+  --text-small: var(--text-primary);
   --accent: #2563eb;
   --border: #e7e5e4;
 }
@@ -156,6 +160,9 @@ html.theme-solarized-light {
   --text-primary: #657b83;
   --text-secondary: #586e75;
   --text-muted: #93a1a1;
+  /* Solarized Light's primary foreground is intentionally soft (4.13:1 on the
+     reading surface), so use its darker secondary for small labels. */
+  --text-small: #586e75;
   --accent: #268bd2;
   --border: #ddd7c5;
 }
@@ -388,11 +395,27 @@ a:hover {
 }
 
 img,
-svg {
+svg,
+video {
   max-width: 100%;
   height: auto;
+}
+
+video {
+  max-height: 100dvh;
+  object-fit: contain;
+}
+
+audio {
+  max-width: 100%;
+}
+
+/* Keep inline EPUB glyphs/icons in the text flow. Only media that is explicitly
+   standalone in the chapter structure is centered as a block. */
+figure > :is(img, svg, video),
+#content-inner > :is(img, svg, video) {
   display: block;
-  margin: 0 auto;
+  margin-inline: auto;
 }
 
 figure {
@@ -402,7 +425,7 @@ figure {
 
 figcaption {
   font-size: 0.85em;
-  color: var(--text-muted);
+  color: var(--text-small);
   margin-top: 0.5em;
   font-style: italic;
 }
@@ -477,9 +500,6 @@ mark.search-highlight-active {
   padding: 5px 14px;
   border-radius: 999px;
   white-space: nowrap;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
 }
 
 /* A small directional caret makes the pull affordance read at a glance: up
@@ -500,7 +520,7 @@ mark.search-highlight-active {
 /* At the very start/end of the book there's nowhere to go, so the pill reads
    as a muted, arrow-less end-stop rather than an actionable chapter jump. */
 .boundary-indicator.edge .boundary-label {
-  color: var(--text-muted);
+  color: var(--text-small);
   background: color-mix(in srgb, var(--text-muted) 8%, var(--bg-primary));
   border-color: var(--border);
 }
