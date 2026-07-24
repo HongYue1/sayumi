@@ -15,6 +15,30 @@ describe("generateCFI / resolveCFI", () => {
     expect(resolveCFI(cfi!, document)).toBe(target);
   });
 
+  it("resolves the same path after the chapter body is reconstructed", () => {
+    const chapter = `<article><section><p id="t">x</p></section></article>`;
+    setBody(chapter);
+    const original = document.getElementById("t")!;
+    const cfi = generateCFI(original, document);
+
+    setBody(chapter);
+    const replacement = document.getElementById("t")!;
+
+    expect(replacement).not.toBe(original);
+    expect(resolveCFI(cfi!, document)).toBe(replacement);
+  });
+
+  it("ignores text and comment nodes when indexing element siblings", () => {
+    setBody(
+      `<div>lead<!-- first --><p>one</p>between<!-- second --><p id="t">two</p></div>`,
+    );
+    const target = document.getElementById("t")!;
+    const cfi = generateCFI(target, document);
+
+    expect(cfi).toBe("cfi:1/2");
+    expect(resolveCFI(cfi!, document)).toBe(target);
+  });
+
   it("returns null when generating for body itself", () => {
     setBody(`<p>a</p>`);
     expect(generateCFI(document.body, document)).toBeNull();
