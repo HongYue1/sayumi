@@ -22,4 +22,24 @@ describe("buildAllFontFaces", () => {
       "format('truetype')",
     );
   });
+
+  it("uses the escaped directory name for the CSS family", () => {
+    const family: UserFontFamily = {
+      id: "user:O'Brien",
+      label: "O'Brien",
+      category: "serif",
+      files: ["Regular.woff2"],
+      variable: false,
+      detected: {
+        regular: "Regular.woff2",
+        italic: "",
+        bold: "",
+        boldItalic: "",
+      },
+    };
+
+    expect(buildAllFontFaces([family], undefined)).toContain(
+      String.raw`font-family: 'O\'Brien';`,
+    );
+  });
 });

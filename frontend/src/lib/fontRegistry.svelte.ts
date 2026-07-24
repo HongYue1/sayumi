@@ -17,10 +17,28 @@ export function userFamilyDir(id: string): string {
   return id.slice(USER_FONT_PREFIX.length);
 }
 
+/** A quoted CSS string for the family name encoded in a user-family id. */
+export function userFamilyCSSName(id: string): string {
+  let escaped = "";
+  for (const char of userFamilyDir(id)) {
+    const codePoint = char.codePointAt(0) ?? 0;
+    if (char === "'" || char === "\\") {
+      escaped += `\\${char}`;
+    } else if (codePoint === 0) {
+      escaped += "\uFFFD";
+    } else if (codePoint <= 0x1f || codePoint === 0x7f) {
+      escaped += `\\${codePoint.toString(16)} `;
+    } else {
+      escaped += char;
+    }
+  }
+  return `'${escaped}'`;
+}
+
 /** CSS font-family value for a user family (quoted name + category fallback). */
 export function userFamilyCSSValue(fam: UserFontFamily): string {
   const fallback = fam.category === "sans-serif" ? "sans-serif" : "serif";
-  return `'${userFamilyDir(fam.id)}', ${fallback}`;
+  return `${userFamilyCSSName(fam.id)}, ${fallback}`;
 }
 
 class FontRegistry {
@@ -34,35 +52,54 @@ class FontRegistry {
   /** Shared in-flight load so concurrent boot callers don't double-fetch. */
   private loadPromise: Promise<void> | null = null;
 
+  /** Serializes reads and rescans so an older response cannot publish last. */
+  private operationTail: Promise<void> = Promise.resolve();
+
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.operationTail.then(operation, operation);
+    this.operationTail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
   async load(): Promise<void> {
     if (this.loaded) return;
     // Without this, two near-simultaneous boot callers would each fire
     // GET /fonts because `loaded` only flips after the await. Share the first
     // in-flight request; clear it on settle so a failed load still retries.
     if (this.loadPromise) return this.loadPromise;
-    this.loadPromise = (async () => {
+    const request = this.enqueue(async () => {
+      // A rescan queued before this load may already have populated the store.
+      if (this.loaded) return;
       try {
         this.families = await getFonts();
         this.loaded = true;
       } catch {
         // No user fonts is a normal, non-fatal state.
-      } finally {
-        this.loadPromise = null;
       }
-    })();
-    return this.loadPromise;
+    });
+    this.loadPromise = request;
+    try {
+      await request;
+    } finally {
+      if (this.loadPromise === request) this.loadPromise = null;
+    }
   }
 
   /** Returns true on success, false if the rescan failed (previous list kept). */
   async rescan(): Promise<boolean> {
-    try {
-      this.families = await rescanFonts();
-      this.loaded = true;
-      return true;
-    } catch {
-      // Keep the previous list on failure.
-      return false;
-    }
+    return this.enqueue(async () => {
+      try {
+        this.families = await rescanFonts();
+        this.loaded = true;
+        return true;
+      } catch {
+        // Keep the previous list on failure.
+        return false;
+      }
+    });
   }
 
   get(id: string): UserFontFamily | undefined {

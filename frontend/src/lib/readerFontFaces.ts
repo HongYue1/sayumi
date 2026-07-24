@@ -7,7 +7,7 @@ import {
   type FontRoleMap,
   type UserFontFamily,
 } from "~/api/client";
-import { userFamilyDir } from "~/lib/fontRegistry.svelte";
+import { userFamilyCSSName, userFamilyDir } from "~/lib/fontRegistry.svelte";
 
 // Only the two embedded reading fonts. The rest of the catalogue ships as
 // drop-in ./Fonts/ families and is rendered via buildUserFontFaces below.
@@ -53,8 +53,8 @@ export function buildReaderFontFaces(): string {
 }
 
 // Builds @font-face rules for the user families that have at least one role
-// assigned. The CSS family name matches userFamilyCSSValue() (the directory
-// segment of the id). `dir` is the on-disk folder used in the served URL.
+// assigned. The CSS family name matches userFamilyCSSValue() (an escaped CSS
+// string for the directory segment). `dir` is used only in the served URL.
 //
 // Variable families emit ONE 100–900 face per axis: the upright file covers
 // regular + bold (and the weight slider) and the italic file covers italic +
@@ -70,7 +70,7 @@ function buildUserFontFaces(
 
   const face = (family: string, url: string, weight: string, style: string) =>
     `@font-face {
-  font-family: '${family}';
+  font-family: ${family};
   src: url('${url}') format('${formatHint(url)}');
   font-weight: ${weight};
   font-style: ${style};
@@ -80,6 +80,7 @@ function buildUserFontFaces(
   const out: string[] = [];
   for (const fam of families) {
     const dir = userFamilyDir(fam.id);
+    const family = userFamilyCSSName(fam.id);
     const map = roles?.[fam.id] ?? {};
     // Fall back to the backend's detected roles when the user hasn't chosen.
     const regular = map.regular ?? fam.detected.regular;
@@ -93,18 +94,19 @@ function buildUserFontFaces(
       // likewise the italic file for italic + bold-italic. No separate 700
       // face means the browser never synthesizes a faux bold.
       if (regular)
-        out.push(face(dir, userFontUrl(dir, regular), "100 900", "normal"));
+        out.push(face(family, userFontUrl(dir, regular), "100 900", "normal"));
       if (italic)
-        out.push(face(dir, userFontUrl(dir, italic), "100 900", "italic"));
+        out.push(face(family, userFontUrl(dir, italic), "100 900", "italic"));
       continue;
     }
 
     if (regular)
-      out.push(face(dir, userFontUrl(dir, regular), "400", "normal"));
-    if (bold) out.push(face(dir, userFontUrl(dir, bold), "700", "normal"));
-    if (italic) out.push(face(dir, userFontUrl(dir, italic), "400", "italic"));
+      out.push(face(family, userFontUrl(dir, regular), "400", "normal"));
+    if (bold) out.push(face(family, userFontUrl(dir, bold), "700", "normal"));
+    if (italic)
+      out.push(face(family, userFontUrl(dir, italic), "400", "italic"));
     if (boldItalic)
-      out.push(face(dir, userFontUrl(dir, boldItalic), "700", "italic"));
+      out.push(face(family, userFontUrl(dir, boldItalic), "700", "italic"));
   }
   return out.join("\n");
 }
