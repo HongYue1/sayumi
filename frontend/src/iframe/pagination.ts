@@ -88,6 +88,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
   let _pageIndicator: HTMLElement | null = null;
   let pageIndicatorText = "";
   let reduceMotionQuery: MediaQueryList | null = null;
+  let fontRelayoutToken = 0;
 
   function ensurePageIndicator(): HTMLElement {
     if (!_pageIndicator) {
@@ -141,6 +142,14 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     maxPageScrollLeft = getMaxPageScrollLeft();
   }
 
+  // currentPage and maxPageScrollLeft stay logical and positive in reading
+  // order. Browsers expose RTL scroll containers with zero at the right edge
+  // and negative scrollLeft values toward the left, so translate only at the
+  // DOM boundary instead of spreading sign handling through page math.
+  function toDOMScrollLeft(logicalOffset: number): number {
+    return isRTL ? -logicalOffset : logicalOffset;
+  }
+
   function calculateTotalPages(): number {
     const content = deps.getContentEl();
     if (!content) return 1;
@@ -173,7 +182,11 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     const content = deps.getContentEl();
     if (!content) return;
 
-    const target = Math.max(0, Math.min(page * pageStride, maxPageScrollLeft));
+    const logicalTarget = Math.max(
+      0,
+      Math.min(page * pageStride, maxPageScrollLeft),
+    );
+    const target = toDOMScrollLeft(logicalTarget);
 
     if (pageTurnFinishTimer !== null) {
       clearTimeout(pageTurnFinishTimer);
@@ -355,7 +368,12 @@ export function createPagination(deps: PaginationDeps): PaginationController {
 
     const contentRect = content.getBoundingClientRect();
     const rect = el.getBoundingClientRect();
-    const x = rect.left - contentRect.left + content.scrollLeft;
+    // RTL columns advance left from scrollLeft=0, using negative DOM offsets.
+    // Measure from the right edge and convert that physical position back into
+    // the same positive logical coordinate used by currentPage/pageStride.
+    const x = isRTL
+      ? contentRect.right - rect.right - content.scrollLeft
+      : rect.left - contentRect.left + content.scrollLeft;
     if (!Number.isFinite(x)) return 0;
     return Math.max(0, Math.min(totalPages - 1, Math.floor(x / stride)));
   }
@@ -402,8 +420,10 @@ export function createPagination(deps: PaginationDeps): PaginationController {
   }
 
   function scheduleFinalFontRelayout(seqAtStart: number): void {
+    const token = ++fontRelayoutToken;
     document.fonts.ready.then(() => {
       if (
+        token !== fontRelayoutToken ||
         deps.isDestroyed() ||
         deps.getActiveSeq() !== seqAtStart ||
         !deps.isPagedMode() ||
@@ -414,6 +434,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
           if (
+            token !== fontRelayoutToken ||
             deps.isDestroyed() ||
             deps.getActiveSeq() !== seqAtStart ||
             !deps.isPagedMode() ||
@@ -425,6 +446,15 @@ export function createPagination(deps: PaginationDeps): PaginationController {
         }),
       );
     });
+  }
+
+  // Settings relayouts run after the CSS writes have settled, but a newly
+  // selected EPUB/user font may still be loading. Recalculate immediately for
+  // responsive feedback, then once more after the latest font set settles.
+  // The final pass calls the internal relayout directly so it cannot recurse.
+  function relayoutAfterSettings(): void {
+    relayoutPagedContentPreservingPosition();
+    scheduleFinalFontRelayout(deps.getActiveSeq());
   }
 
   function revealPagedShell(seqAtStart: number): void {
@@ -546,6 +576,10 @@ export function createPagination(deps: PaginationDeps): PaginationController {
   }
 
   function teardownPagedResizeObserver(): void {
+    // Invalidate a pending fonts.ready correction when leaving paged mode or
+    // replacing/disposing the chapter. A later paged activation schedules its
+    // own correction against the current sequence.
+    fontRelayoutToken++;
     if (pagedResizeObserver) {
       pagedResizeObserver.disconnect();
       pagedResizeObserver = null;
@@ -603,7 +637,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     getElementPageIndex,
     scrollToFragmentPaged,
     goToElementPaged,
-    relayout: relayoutPagedContentPreservingPosition,
+    relayout: relayoutAfterSettings,
     restorePagedPosition,
     reportPagePosition,
     setPageTurning,
