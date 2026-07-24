@@ -259,7 +259,7 @@
       <span
         class="flair-badge"
         style:background={flair.color}
-        style:color={flairTextColor()}
+        style:color={flairTextColor(flair.color)}
       >
         {flair.label}
       </span>

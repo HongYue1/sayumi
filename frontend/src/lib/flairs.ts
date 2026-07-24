@@ -37,7 +37,27 @@ export function findFlair(
   );
 }
 
-/** Readable text color for a flair badge. Palette hues read best with dark text. */
-export function flairTextColor(): string {
-  return "rgba(0,0,0,0.78)";
+/** Chooses the higher-contrast opaque text color for a hex badge background. */
+export function flairTextColor(background: string): "#000" | "#fff" {
+  const match = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(background);
+  if (!match) return "#000";
+
+  const hex =
+    match[1].length === 3
+      ? [...match[1]].map((digit) => digit + digit).join("")
+      : match[1];
+  const linearChannel = (offset: number): number => {
+    const value = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;
+    return value <= 0.04045
+      ? value / 12.92
+      : Math.pow((value + 0.055) / 1.055, 2.4);
+  };
+  const luminance =
+    0.2126 * linearChannel(0) +
+    0.7152 * linearChannel(2) +
+    0.0722 * linearChannel(4);
+  const blackContrast = (luminance + 0.05) / 0.05;
+  const whiteContrast = 1.05 / (luminance + 0.05);
+
+  return blackContrast >= whiteContrast ? "#000" : "#fff";
 }
