@@ -548,71 +548,132 @@ func closeReadCloserOnDone(ctx context.Context, closer io.Closer) {
 	_ = closer.Close()
 }
 
-type statusWriter struct {
+type responseTracker struct {
 	http.ResponseWriter
-	status int
-	wrote  bool
-	bytes  int
+	wrote bool
 }
 
-func (sw *statusWriter) markWritten(status int) {
-	if sw.wrote {
+func (w *responseTracker) markWritten() {
+	if w.wrote {
 		return
 	}
-	sw.status = status
-	sw.wrote = true
+	w.wrote = true
 }
 
-func (sw *statusWriter) WriteHeader(code int) {
-	sw.markWritten(code)
-	sw.ResponseWriter.WriteHeader(code)
+func (w *responseTracker) WriteHeader(code int) {
+	w.markWritten()
+	w.ResponseWriter.WriteHeader(code)
 }
 
-func (sw *statusWriter) Write(b []byte) (int, error) {
-	sw.markWritten(http.StatusOK)
-	n, err := sw.ResponseWriter.Write(b)
-	sw.bytes += n
-	return n, err
+func (w *responseTracker) Write(p []byte) (int, error) {
+	w.markWritten()
+	return w.ResponseWriter.Write(p)
 }
 
-func (sw *statusWriter) ReadFrom(r io.Reader) (int64, error) {
-	sw.markWritten(http.StatusOK)
-	if rf, ok := sw.ResponseWriter.(io.ReaderFrom); ok {
-		n, err := rf.ReadFrom(r)
-		sw.bytes += int(n)
-		return n, err
+func (w *responseTracker) ReadFrom(r io.Reader) (int64, error) {
+	w.markWritten()
+	if rf, ok := w.ResponseWriter.(io.ReaderFrom); ok {
+		return rf.ReadFrom(r)
 	}
-	n, err := io.Copy(sw.ResponseWriter, r)
-	sw.bytes += int(n)
-	return n, err
+	return io.Copy(w.ResponseWriter, r)
 }
 
-func (sw *statusWriter) Flush() {
-	sw.markWritten(http.StatusOK)
-	if flusher, ok := sw.ResponseWriter.(http.Flusher); ok {
+func (w *responseTracker) Flush() {
+	w.markWritten()
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
 	}
 }
 
-func (sw *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	hijacker, ok := sw.ResponseWriter.(http.Hijacker)
+func (w *responseTracker) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := w.ResponseWriter.(http.Hijacker)
 	if !ok {
 		return nil, nil, errors.New("response writer does not support hijacking")
 	}
 	return hijacker.Hijack()
 }
 
-func (sw *statusWriter) Unwrap() http.ResponseWriter { return sw.ResponseWriter }
+func (w *responseTracker) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-// instrumentMiddleware recovers panics and access-logs every request through a
-// single statusWriter. The request is logged at Debug level (so it only appears
-// under --debug and never pollutes the terminal UI). Recovering and logging in
-// one deferred closure means a panicking handler still gets a 500 written and a
-// log line with the final status, without a second wrapper allocation.
+type statusWriter struct {
+	responseTracker
+	status int
+	bytes  int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	if !w.wrote {
+		w.status = code
+	}
+	w.responseTracker.WriteHeader(code)
+}
+
+func (w *statusWriter) Write(p []byte) (int, error) {
+	if !w.wrote {
+		w.status = http.StatusOK
+	}
+	n, err := w.responseTracker.Write(p)
+	w.bytes += n
+	return n, err
+}
+
+func (w *statusWriter) ReadFrom(r io.Reader) (int64, error) {
+	if !w.wrote {
+		w.status = http.StatusOK
+	}
+	w.markWritten()
+	if rf, ok := w.ResponseWriter.(io.ReaderFrom); ok {
+		n, err := rf.ReadFrom(r)
+		w.bytes += int(n)
+		return n, err
+	}
+	n, err := io.Copy(w.ResponseWriter, r)
+	w.bytes += int(n)
+	return n, err
+}
+
+func (w *statusWriter) Flush() {
+	if !w.wrote {
+		w.status = http.StatusOK
+	}
+	w.responseTracker.Flush()
+}
+
+// instrumentMiddleware specializes once at construction time. Normal runs use
+// only the response state needed for panic recovery; debug runs additionally
+// collect status, size, and duration for the access log. This keeps diagnostics
+// off the release hot path without weakening recovery or optional interfaces.
 func instrumentMiddleware(next http.Handler) http.Handler {
+	if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+		return debugInstrumentMiddleware(next)
+	}
+	return recoveryMiddleware(next)
+}
+
+func recoveryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writer := &responseTracker{ResponseWriter: w}
+
+		defer func() {
+			if rec := recover(); rec != nil {
+				slog.Error("panic recovered", "panic", rec, "stack", string(debug.Stack()))
+				if !writer.wrote {
+					writeInternalServerError(writer, r)
+				}
+			}
+		}()
+
+		next.ServeHTTP(writer, r)
+	})
+}
+
+func debugInstrumentMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		writer := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		writer := &statusWriter{
+			responseTracker: responseTracker{ResponseWriter: w},
+			status:          http.StatusOK,
+		}
 
 		defer func() {
 			if rec := recover(); rec != nil {
@@ -622,19 +683,14 @@ func instrumentMiddleware(next http.Handler) http.Handler {
 				}
 			}
 
-			// The access log is Debug-only (never emitted without --debug). Guard the
-			// whole call so a normal run doesn't pay humanizeBytes' Sprintf allocation
-			// plus the variadic any-boxing on every request just to discard the line.
-			if slog.Default().Enabled(r.Context(), slog.LevelDebug) {
-				slog.Log(
-					r.Context(), slog.LevelDebug, "request",
-					"method", r.Method,
-					"path", r.URL.Path,
-					"status", writer.status,
-					"size", humanizeBytes(writer.bytes),
-					"duration", time.Since(start),
-				)
-			}
+			slog.Log(
+				r.Context(), slog.LevelDebug, "request",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", writer.status,
+				"size", humanizeBytes(writer.bytes),
+				"duration", time.Since(start),
+			)
 		}()
 
 		next.ServeHTTP(writer, r)

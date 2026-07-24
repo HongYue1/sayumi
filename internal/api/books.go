@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"maps"
 	"mime"
 	"net/http"
 	"os"
@@ -114,9 +115,7 @@ func listBooksHandler(_ *Dependencies) http.HandlerFunc {
 		}
 		// Overlay staged positions so the library API is read-after-write
 		// consistent during the coalescer's short durability window.
-		for bookID, progress := range pd.Progress.getAll(userID) {
-			allProgress[bookID] = progress
-		}
+		maps.Copy(allProgress, pd.Progress.getAll(userID))
 
 		bookFlairs, err := pd.DB.GetAllBookFlairsContext(r.Context(), userID)
 		if err != nil {
