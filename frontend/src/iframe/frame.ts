@@ -37,7 +37,17 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   "use strict";
 
   const BLOCK_TAGS = new Set([
-    "P",
+    "ADDRESS",
+    "ARTICLE",
+    "ASIDE",
+    "BLOCKQUOTE",
+    "CAPTION",
+    "DD",
+    "DIV",
+    "DL",
+    "DT",
+    "FIGCAPTION",
+    "FIGURE",
     "H1",
     "H2",
     "H3",
@@ -45,16 +55,30 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     "H5",
     "H6",
     "LI",
-    "BLOCKQUOTE",
-    "DIV",
+    "MAIN",
+    "NAV",
+    "OL",
+    "P",
+    "PRE",
     "SECTION",
-    "ARTICLE",
+    "TABLE",
+    "TBODY",
+    "TD",
+    "TFOOT",
+    "TH",
+    "THEAD",
+    "TR",
+    "UL",
   ]);
 
   const WHEEL_THRESHOLD = 600;
   const CHAPTER_SWAP_OUT_MS = 110;
   const REVEAL_FALLBACK_SCROLL_MS = 400;
   const REVEAL_FALLBACK_PAGED_MS = 550;
+  // The parent preserves nullish/omitted CFIs for backward compatibility. An
+  // empty string is an explicit "use percent" marker: it crosses that bridge as
+  // a real update, while commitLoad rejects it as a restore CFI.
+  const NO_CFI = "";
 
   function prefersReducedMotion(): boolean {
     if (typeof window.matchMedia !== "function") return false;
@@ -209,6 +233,10 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     if (!content.contains(node) || !BLOCK_TAGS.has(node.tagName)) return false;
     const rect = node.getBoundingClientRect();
     const vh = Number.isFinite(window.innerHeight) ? window.innerHeight : 0;
+    // This simplified CFI addresses elements, not an offset within one. A block
+    // as tall as the viewport (or taller) cannot restore the current position
+    // precisely, so omit its anchor and let the explicit no-CFI marker select
+    // the more accurate percent fallback instead of jumping to the block's start.
     return rect.height < vh && rect.bottom > 0 && rect.top < vh;
   }
 
@@ -266,7 +294,16 @@ const PAGED_SCROLL_KEYS = new Set<string>([
 
   function sendMessage(msg: FrameToParentMessage): void {
     if (destroyed) return;
-    window.parent.postMessage(msg, parentOrigin || "*");
+    // Position reports must distinguish "no semantic anchor for this position"
+    // from an older sender that omitted the field. Pagination has no element
+    // anchor, and scroll mode can intentionally fall back to percent for a
+    // viewport-tall block, so publish the explicit marker instead of letting an
+    // older CFI override the newer percent on load.
+    const outbound =
+      msg.type === "position" && msg.cfi === undefined
+        ? { ...msg, cfi: NO_CFI }
+        : msg;
+    window.parent.postMessage(outbound, parentOrigin || "*");
   }
 
   function getScrollableMax(): number {
@@ -910,14 +947,13 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       lastReportedCfi = null;
     }
 
-    const msg: Extract<FrameToParentMessage, { type: "position" }> = {
+    sendMessage({
       type: "position",
       seq: activeSeq,
       chapterIndex: activeChapterIndex,
       percent,
-    };
-    if (cfi !== null) msg.cfi = cfi;
-    sendMessage(msg);
+      cfi: cfi ?? NO_CFI,
+    });
   }
 
   function throttledReportPosition(): void {
