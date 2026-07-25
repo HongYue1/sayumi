@@ -253,7 +253,7 @@ func (s *Scanner) collectEPUBPaths(ctx context.Context) ([]string, error) {
 // maps are read-only after construction and so are safe for concurrent reads
 // across the scan worker pool.
 type dedupSnapshot struct {
-	existingByPath map[string]string   // absolute file path -> book ID
+	existingByPath map[string]string   // path identity key -> book ID
 	ignored        map[string]struct{} // ignored absolute file paths
 }
 
@@ -273,11 +273,15 @@ func (s *Scanner) loadDedupSnapshot(ctx context.Context) (*dedupSnapshot, error)
 		existingByPath: make(map[string]string, len(bookPaths)),
 		ignored:        make(map[string]struct{}, len(ignoredPaths)),
 	}
+	// Keyed by path identity rather than by the exact stored path, so the snapshot
+	// answers the same way as the DB lookups it stands in for (see DB.PathKey).
+	// Both sides derive keys with the same function, so the scan path and the
+	// one-off ImportFile path can never disagree about what is already known.
 	for _, bp := range bookPaths {
-		snap.existingByPath[bp.FilePath] = bp.ID
+		snap.existingByPath[s.db.PathKey(bp.FilePath)] = bp.ID
 	}
 	for _, path := range ignoredPaths {
-		snap.ignored[path] = struct{}{}
+		snap.ignored[s.db.PathKey(path)] = struct{}{}
 	}
 	return snap, nil
 }
@@ -298,10 +302,11 @@ func (s *Scanner) importFile(
 	}
 
 	if snap != nil {
-		if _, ok := snap.ignored[absPath]; ok {
+		pathKey := s.db.PathKey(absPath)
+		if _, ok := snap.ignored[pathKey]; ok {
 			return "", false, nil
 		}
-		if existingID, ok := snap.existingByPath[absPath]; ok {
+		if existingID, ok := snap.existingByPath[pathKey]; ok {
 			return existingID, false, nil
 		}
 	} else {

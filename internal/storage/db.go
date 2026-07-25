@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 
 	_ "modernc.org/sqlite"
@@ -22,6 +24,60 @@ type DB struct {
 	// modernc SQL parser runs about once per connection instead of on every
 	// save. Prepared in Open after migrate; released in Close.
 	saveProgressStmt *sql.Stmt
+
+	// foldPaths records whether the volume holding this library treats paths
+	// case-insensitively. It is probed once in Open rather than derived from
+	// runtime.GOOS, because case sensitivity is a property of the filesystem, not
+	// the operating system: an exFAT/NTFS/SMB mount on Linux folds case, while a
+	// case-sensitive APFS volume on macOS does not. Path identity keys are folded
+	// only when this is true, so a genuinely case-sensitive volume can still hold
+	// Book.epub and book.epub as two distinct books.
+	foldPaths bool
+}
+
+// PathKey returns the identity key for a file path: the value stored in
+// books.file_path_key / ignored_files.file_path_key, and the key the library
+// scanner uses for its in-memory dedup maps. The exact path is stored and
+// returned separately for I/O, display, and rewriting -- only the key is folded,
+// so nothing here changes which bytes are opened on disk.
+func (db *DB) PathKey(path string) string {
+	return pathKey(path, db.foldPaths)
+}
+
+// pathKey is the pure form of PathKey. Separator style and redundant path
+// elements are always normalized; case is folded only on a volume that ignores
+// it. strings.ToLower is used rather than SQLite's NOCASE collation because
+// NOCASE folds ASCII A-Z only, which would silently miss the Arabic, CJK, and
+// accented filenames a book library is expected to hold.
+func pathKey(path string, fold bool) string {
+	key := filepath.ToSlash(filepath.Clean(path))
+	if fold {
+		key = strings.ToLower(key)
+	}
+	return key
+}
+
+// detectPathFolding reports whether dir's filesystem is case-insensitive, using
+// the same autodetection git performs for core.ignorecase: create a file, then
+// ask for it back under a different case. On any I/O failure it falls back to
+// the per-OS default instead of assuming case sensitivity, because assuming
+// sensitivity is the direction that loses data -- it is what lets a deleted
+// book's tombstone be missed and the book resurrected on the next scan.
+func detectPathFolding(dir string) bool {
+	probe, err := os.CreateTemp(dir, ".sayumi-case-probe-*")
+	if err != nil {
+		return runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+	}
+	name := probe.Name()
+	_ = probe.Close()
+	defer func() { _ = os.Remove(name) }()
+
+	flipped := filepath.Join(filepath.Dir(name), strings.ToUpper(filepath.Base(name)))
+	if flipped == name {
+		return false
+	}
+	_, err = os.Lstat(flipped)
+	return err == nil
 }
 
 func Open(libraryPath string) (*DB, error) {
@@ -62,7 +118,9 @@ func Open(libraryPath string) (*DB, error) {
 	// cache) to run again on the next interactive request -- a pure regression
 	// for an always-local DB -- so they stay at their no-expiry default.
 
-	db := &DB{DB: sqlDB}
+	// Probed against the library's own .sayumi directory, before migrate, because
+	// the migration backfill needs to know how to key existing rows.
+	db := &DB{DB: sqlDB, foldPaths: detectPathFolding(sayumiDir)}
 	if err := db.migrate(); err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("migrate database: %w", err)
@@ -136,6 +194,40 @@ func (db *DB) warmPool(n int) {
 	}
 }
 
+// escapeDSNPath renders a filesystem path for use as the filename part of a
+// modernc.org/sqlite DSN, which has the form "<path>?_pragma=...".
+//
+// The driver splits that string at the FIRST '?' and parses everything after it
+// as query parameters. '?' is a legal directory-name character on Linux/macOS
+// and -library accepts an arbitrary path, so a library at "/books?vol2" opened
+// its database at the truncated path "/books" -- outside the library, and
+// shared by any two libraries with the same prefix -- while the leading
+// "_pragma=journal_mode(WAL)" was absorbed into the bogus query key
+// "vol2/.sayumi/sayumi.db?_pragma" and silently dropped, leaving
+// journal_mode=delete under a read pool that is sized for WAL.
+//
+// A path with no '?' is returned unchanged, so the DSN for every ordinary
+// library stays byte-for-byte what it has always been on every platform. That
+// matters most for Windows drive and UNC paths: they cannot contain '?', and
+// SQLite's URI parser would misread them ("//nas/share" parses as a URI
+// authority, which SQLite rejects). Only an ambiguous path switches to the URI
+// form, which this driver opens with SQLITE_OPEN_URI; '%', '?' and '#' are
+// percent-encoded so SQLite decodes exactly the path we were handed.
+func escapeDSNPath(dbPath string) string {
+	if !strings.Contains(dbPath, "?") {
+		return dbPath
+	}
+	esc := filepath.ToSlash(dbPath)
+	esc = strings.ReplaceAll(esc, "%", "%25")
+	esc = strings.ReplaceAll(esc, "?", "%3F")
+	esc = strings.ReplaceAll(esc, "#", "%23")
+	if strings.HasPrefix(esc, "//") {
+		// Keep a leading "//" out of the URI authority position.
+		esc = "/%2F" + esc[2:]
+	}
+	return "file:" + esc
+}
+
 // dataSourceName builds the modernc.org/sqlite DSN for a profile database.
 //
 // modernc.org/sqlite does NOT understand mattn/go-sqlite3 "_param=" DSN keys;
@@ -146,7 +238,7 @@ func (db *DB) warmPool(n int) {
 // also keeps the per-connection pragmas (foreign_keys, busy_timeout) correct
 // should the pool ever be widened past one conn.
 func dataSourceName(dbPath string) string {
-	return dbPath +
+	return escapeDSNPath(dbPath) +
 		"?_pragma=journal_mode(WAL)" +
 		"&_pragma=synchronous(NORMAL)" +
 		"&_pragma=cache_size(-32000)" +
@@ -211,6 +303,111 @@ func (db *DB) migrate() error {
 		"UPDATE books SET cover_checked = 1 WHERE has_cover = 1 AND cover_checked = 0"); err != nil {
 		return fmt.Errorf("reconcile cover_checked: %w", err)
 	}
+
+	// Path identity keys cannot be derived in SQL: LOWER() folds ASCII only and
+	// there is no SQL equivalent of filepath.Clean. Rows written before the column
+	// existed -- and every row of a library that moved between a case-folding and a
+	// case-sensitive volume -- are re-keyed here with the same Go function that
+	// writes keys on insert. Idempotent: once converged it writes nothing.
+	if err := db.backfillPathKeys(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// rekey pairs an exact stored path with the identity key it should carry.
+type rekey struct {
+	path string
+	key  string
+}
+
+// backfillPathKeys brings books.file_path_key and ignored_files.file_path_key in
+// line with the current folding decision. Running on every Open is what makes
+// moving a library between volumes safe: the keys follow the new volume's rules
+// instead of staying frozen at import time.
+func (db *DB) backfillPathKeys() error {
+	const (
+		selectBooks   = "SELECT file_path, file_path_key FROM books"
+		updateBooks   = "UPDATE books SET file_path_key = ? WHERE file_path = ?"
+		selectIgnored = "SELECT file_path, file_path_key FROM ignored_files"
+		updateIgnored = "UPDATE ignored_files SET file_path_key = ? WHERE file_path = ?"
+	)
+	if err := db.rekeyPaths(selectBooks, updateBooks); err != nil {
+		return fmt.Errorf("backfill books path keys: %w", err)
+	}
+	if err := db.rekeyPaths(selectIgnored, updateIgnored); err != nil {
+		return fmt.Errorf("backfill ignored_files path keys: %w", err)
+	}
+	return nil
+}
+
+func (db *DB) rekeyPaths(selectSQL, updateSQL string) error {
+	pending, err := db.pendingRekeys(selectSQL)
+	if err != nil {
+		return err
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+	return db.applyRekeys(updateSQL, pending)
+}
+
+// pendingRekeys reads every stored path and returns only the rows whose key is
+// stale, so a converged library performs no writes and takes no write lock.
+func (db *DB) pendingRekeys(selectSQL string) ([]rekey, error) {
+	rows, err := db.QueryContext(context.Background(), selectSQL)
+	if err != nil {
+		return nil, fmt.Errorf("read paths: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var pending []rekey
+	for rows.Next() {
+		var path, key string
+		if err := rows.Scan(&path, &key); err != nil {
+			return nil, fmt.Errorf("scan path: %w", err)
+		}
+		if want := db.PathKey(path); want != key {
+			pending = append(pending, rekey{path: path, key: want})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate paths: %w", err)
+	}
+	return pending, nil
+}
+
+// applyRekeys writes the stale keys in one transaction. Per-row commits would
+// cost an fsync per book on a large library, and a partially keyed table would
+// leave path lookups silently missing rows until the next Open.
+func (db *DB) applyRekeys(updateSQL string, pending []rekey) error {
+	ctx := context.Background()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	stmt, err := tx.PrepareContext(ctx, updateSQL)
+	if err != nil {
+		return fmt.Errorf("prepare: %w", err)
+	}
+	defer func() { _ = stmt.Close() }()
+
+	for _, r := range pending {
+		if _, err := stmt.ExecContext(ctx, r.key, r.path); err != nil {
+			return fmt.Errorf("key %s: %w", r.path, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	committed = true
 	return nil
 }
 
@@ -239,6 +436,14 @@ var columnMigrations = []columnMigration{
 	// cover backfill only revisits rows where it is 0, so a cover-less or skipped
 	// book is parsed at most once rather than re-parsed on every scan.
 	{table: "books", column: "cover_checked", definition: "INTEGER NOT NULL DEFAULT 0"},
+
+	// Case-folded, separator-normalized copy of file_path. Every path identity
+	// lookup goes through it -- scan dedup, delete tombstones, upload un-ignore --
+	// while file_path keeps the exact bytes needed to open, hard-link, rewrite, and
+	// display the file. Existing rows are keyed by the backfill at the end of
+	// migrate, so the default empty string is never observed by a lookup.
+	{table: "books", column: "file_path_key", definition: "TEXT NOT NULL DEFAULT ''"},
+	{table: "ignored_files", column: "file_path_key", definition: "TEXT NOT NULL DEFAULT ''"},
 }
 
 // tableColumns returns the set of existing column names for a table, read in a
@@ -291,6 +496,9 @@ CREATE TABLE IF NOT EXISTS books (
 	pub_date      TEXT NOT NULL DEFAULT '',
 	isbn          TEXT NOT NULL DEFAULT '',
 	file_path     TEXT NOT NULL UNIQUE,
+	-- Normalized identity form of file_path (see DB.PathKey). Every path lookup
+	-- goes through it; file_path keeps the exact bytes used to open the file.
+	file_path_key TEXT NOT NULL DEFAULT '',
 	file_hash     TEXT NOT NULL DEFAULT '',
 	file_size     INTEGER NOT NULL DEFAULT 0,
 	cover_path    TEXT NOT NULL DEFAULT '',
@@ -363,8 +571,9 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 
 CREATE TABLE IF NOT EXISTS ignored_files (
-	file_path  TEXT PRIMARY KEY,
-	ignored_at TEXT NOT NULL DEFAULT (datetime('now'))
+	file_path     TEXT PRIMARY KEY,
+	file_path_key TEXT NOT NULL DEFAULT '',
+	ignored_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- User-defined (custom) flairs. Built-in flairs live on the client and are not
@@ -432,6 +641,21 @@ CREATE INDEX IF NOT EXISTS idx_books_cover_unchecked ON books(id, file_path)
 -- so that books inserted before hashing completes don't conflict with each other.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_books_file_hash_uniq ON books(file_hash)
   WHERE file_hash != '';
+
+-- Path identity lookups (scan dedup, delete tombstones, upload un-ignore) all go
+-- through file_path_key. Deliberately not UNIQUE: a library imported before this
+-- column existed can already hold two rows whose paths differ only by case, and a
+-- unique index would fail the migration outright instead of letting the operator
+-- resolve the duplicate.
+CREATE INDEX IF NOT EXISTS idx_books_file_path_key ON books(file_path_key);
+CREATE INDEX IF NOT EXISTS idx_ignored_files_path_key ON ignored_files(file_path_key);
+
+-- The library list is the landing view and always sorts by title, so without a
+-- matching index SQLite materializes every row into a temporary B-tree on every
+-- load. Column order and collation must stay identical to the query's
+-- "ORDER BY title COLLATE NOCASE ASC, id ASC" or the planner ignores this index
+-- and silently falls back to that sort.
+CREATE INDEX IF NOT EXISTS idx_books_title_sort ON books(title COLLATE NOCASE, id);
 
 CREATE INDEX IF NOT EXISTS idx_bookmarks_book ON bookmarks(book_id, user_id);
 `

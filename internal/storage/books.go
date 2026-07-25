@@ -37,6 +37,20 @@ type BookRecord struct {
 	TocJSON   string
 }
 
+// listBookSummariesQuery is hoisted into a const so the query-plan guard test
+// EXPLAINs the exact SQL that production runs, instead of a copy that can drift
+// from it. Its ORDER BY must keep matching idx_books_title_sort's column order
+// and collation: change either and SQLite silently reverts to a temp B-tree
+// sort while the index keeps charging its write cost on every insert.
+const listBookSummariesQuery = `
+	SELECT id, title, author, language, publisher, description, pub_date, isbn,
+	       file_path, file_hash, file_size, cover_path, has_cover,
+	       direction, chapter_count,
+	       created_at, updated_at
+	FROM books
+	ORDER BY title COLLATE NOCASE ASC, id ASC
+`
+
 // ListBookSummariesContext returns every book's summary metadata, deliberately
 // omitting the heavy spine_json / toc_json columns. NewBookCache uses this to
 // build the library list: a spine/toc is only needed when a book is actually
@@ -47,14 +61,7 @@ type BookRecord struct {
 // Ordering is title (case-insensitive) then id so equal titles stay stable
 // across list reloads and cache rebuilds.
 func (db *DB) ListBookSummariesContext(ctx context.Context) (out []BookSummary, err error) {
-	rows, err := db.QueryContext(ctx, `
-		SELECT id, title, author, language, publisher, description, pub_date, isbn,
-		       file_path, file_hash, file_size, cover_path, has_cover,
-		       direction, chapter_count,
-		       created_at, updated_at
-		FROM books
-		ORDER BY title COLLATE NOCASE ASC, id ASC
-	`)
+	rows, err := db.QueryContext(ctx, listBookSummariesQuery)
 	if err != nil {
 		return nil, fmt.Errorf("list book summaries: %w", err)
 	}
@@ -64,9 +71,15 @@ func (db *DB) ListBookSummariesContext(ctx context.Context) (out []BookSummary, 
 		}
 	}()
 
+	// One reusable scan-destination slice for the whole result set: Rows.Scan is
+	// variadic, so scanning 17 columns per row otherwise allocates a fresh []any
+	// of 17 words on every iteration. BookSummary is all value types, so appending
+	// the reused struct copies it and no aliasing survives the loop.
+	var summary BookSummary
+	dest := bookSummaryScanDest(&summary)
 	for rows.Next() {
-		summary, scanErr := scanBookSummary(rows)
-		if scanErr != nil {
+		summary = BookSummary{}
+		if scanErr := rows.Scan(dest...); scanErr != nil {
 			return nil, fmt.Errorf("scan book summary: %w", scanErr)
 		}
 		out = append(out, summary)
@@ -184,8 +197,12 @@ func (db *DB) GetBookIDByHashContext(ctx context.Context, hash string) (id, file
 	return id, filePath, true, nil
 }
 
+// BookExistsByPathContext looks a book up by path identity rather than by the
+// exact bytes of the path: the lookup goes through file_path_key, so a library
+// reopened under a different path case on a case-insensitive volume still finds
+// its existing rows instead of re-importing every book.
 func (db *DB) BookExistsByPathContext(ctx context.Context, filePath string) (id string, found bool, err error) {
-	err = db.QueryRowContext(ctx, "SELECT id FROM books WHERE file_path = ?", filePath).Scan(&id)
+	err = db.QueryRowContext(ctx, "SELECT id FROM books WHERE file_path_key = ?", db.PathKey(filePath)).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}
@@ -241,14 +258,14 @@ func (db *DB) insertBookOrIgnore(ctx context.Context, book BookRecord, now strin
 	res, err := db.ExecContext(
 		ctx, `
 		INSERT INTO books (id, title, author, language, publisher, description, pub_date, isbn,
-		                   file_path, file_hash, file_size, cover_path, has_cover,
+		                   file_path, file_path_key, file_hash, file_size, cover_path, has_cover,
 		                   spine_json, toc_json, direction, chapter_count,
 		                   created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(file_hash) WHERE file_hash != '' DO NOTHING
 	`,
 		book.ID, book.Title, book.Author, book.Language, book.Publisher,
-		book.Description, book.PubDate, book.ISBN, book.FilePath, book.FileHash,
+		book.Description, book.PubDate, book.ISBN, book.FilePath, db.PathKey(book.FilePath), book.FileHash,
 		book.FileSize, book.CoverPath, book.HasCover, book.SpineJSON, book.TocJSON,
 		book.Direction, book.ChapterCount, now, now,
 	)
@@ -272,8 +289,8 @@ func (db *DB) UpdateBookFilePathContext(ctx context.Context, id, filePath string
 
 	res, err := db.ExecContext(
 		ctx,
-		"UPDATE books SET file_path = ?, updated_at = datetime('now') WHERE id = ?",
-		filePath, id,
+		"UPDATE books SET file_path = ?, file_path_key = ?, updated_at = datetime('now') WHERE id = ?",
+		filePath, db.PathKey(filePath), id,
 	)
 	if err != nil {
 		return fmt.Errorf("update file path for %s: %w", id, err)
@@ -471,8 +488,8 @@ func (db *DB) DeleteBookContext(ctx context.Context, id string) error {
 	}
 	if _, err := tx.ExecContext(
 		ctx,
-		"INSERT OR IGNORE INTO ignored_files (file_path) VALUES (?)",
-		filePath,
+		"INSERT OR IGNORE INTO ignored_files (file_path, file_path_key) VALUES (?, ?)",
+		filePath, db.PathKey(filePath),
 	); err != nil {
 		return fmt.Errorf("ignore file %s: %w", filePath, err)
 	}
@@ -487,8 +504,8 @@ func (db *DB) IsFileIgnoredContext(ctx context.Context, filePath string) (bool, 
 	var dummy int
 	err := db.QueryRowContext(
 		ctx,
-		"SELECT 1 FROM ignored_files WHERE file_path = ? LIMIT 1",
-		filePath,
+		"SELECT 1 FROM ignored_files WHERE file_path_key = ? LIMIT 1",
+		db.PathKey(filePath),
 	).Scan(&dummy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
@@ -503,7 +520,9 @@ func (db *DB) RemoveIgnoredFileContext(ctx context.Context, filePath string) err
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
 
-	_, err := db.ExecContext(ctx, "DELETE FROM ignored_files WHERE file_path = ?", filePath)
+	// Deleting by key clears every tombstone the volume considers the same file, so
+	// a row recorded as C:\Books\A.epub is cleared by an upload to c:\books\a.epub.
+	_, err := db.ExecContext(ctx, "DELETE FROM ignored_files WHERE file_path_key = ?", db.PathKey(filePath))
 	if err != nil {
 		return fmt.Errorf("remove ignored file: %w", err)
 	}
@@ -553,15 +572,24 @@ func scanBook(s scanner) (BookRecord, error) {
 	return book, err
 }
 
-// scanBookSummary scans the summary columns selected by ListBookSummariesContext
-// (the same column order as scanBook, minus spine_json / toc_json).
-func scanBookSummary(s scanner) (BookSummary, error) {
-	var b BookSummary
-	err := s.Scan(
+// bookSummaryScanDest returns the scan destinations for the summary columns
+// selected by ListBookSummariesContext / GetBookSummaryContext, in column order.
+// It is the single source of that order: both the row-at-a-time helper and the
+// list loop's reused destination slice go through it, so the SELECT column list
+// only ever has to stay in sync with this one function.
+func bookSummaryScanDest(b *BookSummary) []any {
+	return []any{
 		&b.ID, &b.Title, &b.Author, &b.Language, &b.Publisher,
 		&b.Description, &b.PubDate, &b.ISBN, &b.FilePath, &b.FileHash,
 		&b.FileSize, &b.CoverPath, &b.HasCover,
 		&b.Direction, &b.ChapterCount, &b.CreatedAt, &b.UpdatedAt,
-	)
+	}
+}
+
+// scanBookSummary scans the summary columns selected by ListBookSummariesContext
+// (the same column order as scanBook, minus spine_json / toc_json).
+func scanBookSummary(s scanner) (BookSummary, error) {
+	var b BookSummary
+	err := s.Scan(bookSummaryScanDest(&b)...)
 	return b, err
 }

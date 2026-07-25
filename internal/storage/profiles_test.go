@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +27,43 @@ func newTestProfilesDB(t *testing.T) *ProfilesDB {
 		}
 	})
 	return pdb
+}
+
+// TestOpenProfilesDBInLibraryPathWithQuestionMark is the profiles-db half of
+// the DSN escaping guarantee: this database is built from the same
+// "<path>?_pragma=..." form, so an unescaped '?' in the library root put it
+// outside the library (where a second library sharing the prefix would reuse it,
+// silently merging two profile sets) with journal_mode left at delete.
+func TestOpenProfilesDBInLibraryPathWithQuestionMark(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("'?' is not a legal path character on Windows")
+	}
+
+	root := filepath.Join(t.TempDir(), "Lib?2")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir library root: %v", err)
+	}
+	pdb, err := OpenProfilesDB(root)
+	if err != nil {
+		t.Fatalf("open profiles db: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := pdb.Close(); err != nil {
+			t.Errorf("close profiles db: %v", err)
+		}
+	})
+
+	if _, err := os.Stat(filepath.Join(root, ".sayumi", "profiles.db")); err != nil {
+		t.Errorf("profiles.db is not inside the library: %v", err)
+	}
+	var journalMode string
+	if err := pdb.db.QueryRowContext(context.Background(), "PRAGMA journal_mode").Scan(&journalMode); err != nil {
+		t.Fatalf("pragma journal_mode: %v", err)
+	}
+	if !strings.EqualFold(journalMode, "wal") {
+		t.Errorf("journal_mode = %q, want wal", journalMode)
+	}
 }
 
 func TestProfilesCRUD(t *testing.T) {

@@ -29,7 +29,10 @@ func OpenProfilesDB(libraryRoot string) (*ProfilesDB, error) {
 	// See storage.Open for why "_pragma=" is required here: modernc silently
 	// ignores the mattn-style "_param=" DSN keys, so the old form left WAL and
 	// foreign-key enforcement off on this database too.
-	dsn := filepath.Join(dir, "profiles.db") +
+	// escapeDSNPath: a '?' anywhere in the library path would otherwise split the
+	// DSN early, landing this database outside the library and dropping the
+	// leading pragma. See escapeDSNPath in db.go.
+	dsn := escapeDSNPath(filepath.Join(dir, "profiles.db")) +
 		"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

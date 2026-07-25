@@ -32,6 +32,28 @@ func seedBooks(tb testing.TB, db *DB, n int) {
 	}
 }
 
+// seedBooksShuffledTitles inserts n books whose titles are a deterministic
+// permutation of the insert order, so the library-list ORDER BY has real sorting
+// work to do. seedBooks numbers titles in insert order, which lets SQLite sort an
+// already-ordered input and therefore understates what a title index can save.
+// 7919 is prime and coprime with any n used here, so (i*7919)%n is a permutation
+// and every title stays unique.
+func seedBooksShuffledTitles(tb testing.TB, db *DB, n int) {
+	tb.Helper()
+	ctx := context.Background()
+	for i := range n {
+		book := sampleBook(
+			fmt.Sprintf("id%04d", i),
+			fmt.Sprintf("hash-%04d", i),
+			fmt.Sprintf("/lib/book%04d.epub", i),
+		)
+		book.Title = fmt.Sprintf("Title %04d", (i*7919)%n)
+		if _, err := db.InsertBookContext(ctx, book); err != nil {
+			tb.Fatalf("seed book %d: %v", i, err)
+		}
+	}
+}
+
 // seedBooksWithSpines inserts n books each carrying a realistic spine
 // (spineLen entries) so cache-construction benchmarks reflect production-sized
 // JSON rather than the empty "[]" spines of seedBooks.
@@ -72,6 +94,63 @@ func seedBooksWithSpines(tb testing.TB, db *DB, n, spineLen int) {
 // realistic library (books carry full spines). Because spine parsing is now
 // lazy, this should track ListBookSummariesContext cost and NOT the former
 // per-book unmarshal that dominated cold start.
+// BenchmarkOpenExistingLibrary measures startup against a library that already
+// holds rows. Schema creation, additive column migrations, index creation, and
+// the path-key reconcile all run inside Open, so this is what a user waits for
+// before the first request is served. The reconcile reads every stored path,
+// which makes it the part of startup that grows with library size.
+func BenchmarkOpenExistingLibrary(b *testing.B) {
+	dir := b.TempDir()
+	seed, err := Open(dir)
+	if err != nil {
+		b.Fatalf("seed open: %v", err)
+	}
+	seedBooks(b, seed, 200)
+	if err := seed.Close(); err != nil {
+		b.Fatalf("seed close: %v", err)
+	}
+
+	for b.Loop() {
+		db, err := Open(dir)
+		if err != nil {
+			b.Fatalf("open: %v", err)
+		}
+		if err := db.Close(); err != nil {
+			b.Fatalf("close: %v", err)
+		}
+	}
+}
+
+// BenchmarkInsertBook covers the import write path: one row plus every index it
+// maintains. A single import is rare, but the first scan of a large library runs
+// this thousands of times back to back. Paths deliberately contain uppercase so
+// the key derivation does the work it would do on a real library.
+func BenchmarkInsertBook(b *testing.B) {
+	db, err := Open(b.TempDir())
+	if err != nil {
+		b.Fatalf("open: %v", err)
+	}
+	b.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			b.Errorf("close: %v", err)
+		}
+	})
+	ctx := context.Background()
+
+	i := 0
+	for b.Loop() {
+		book := sampleBook(
+			fmt.Sprintf("bench%06d", i),
+			fmt.Sprintf("bench-hash-%06d", i),
+			fmt.Sprintf("/lib/Bench Books/Book%06d.epub", i),
+		)
+		if _, err := db.InsertBookContext(ctx, book); err != nil {
+			b.Fatalf("insert: %v", err)
+		}
+		i++
+	}
+}
+
 func BenchmarkNewBookCache(b *testing.B) {
 	db, err := Open(b.TempDir())
 	if err != nil {
@@ -174,6 +253,23 @@ func runSpineBurst(callers int, fn func() error) error {
 		result = errors.Join(result, err)
 	}
 	return result
+}
+
+func BenchmarkListBookSummariesUnsortedTitles(b *testing.B) {
+	db, err := Open(b.TempDir())
+	if err != nil {
+		b.Fatalf("open: %v", err)
+	}
+	b.Cleanup(func() { _ = db.Close() })
+	seedBooksShuffledTitles(b, db, 200)
+	ctx := context.Background()
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := db.ListBookSummariesContext(ctx); err != nil {
+			b.Fatalf("list book summaries: %v", err)
+		}
+	}
 }
 
 func BenchmarkListBookSummaries(b *testing.B) {

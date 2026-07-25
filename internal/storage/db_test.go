@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -129,6 +130,87 @@ func TestMigrateAddsCoverCheckedAndReconciles(t *testing.T) {
 	}
 	if withoutChecked != 0 {
 		t.Fatalf("no-cover book cover_checked = %d, want 0", withoutChecked)
+	}
+}
+
+// TestOpenLibraryPathWithQuestionMark pins that a library path containing '?'
+// still opens its database inside that library, with WAL on. '?' is a legal
+// directory-name character on Linux/macOS and -library takes an arbitrary path,
+// but the DSN is "<path>?_pragma=..." and the driver splits it at the FIRST
+// '?'. An unescaped path therefore truncates the filename (the database lands
+// outside the library, and any two libraries sharing a prefix collide on one
+// file) and shifts the leading _pragma into a bogus query key, silently leaving
+// journal_mode=delete under a read pool that is sized for WAL.
+func TestOpenLibraryPathWithQuestionMark(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("'?' is not a legal path character on Windows")
+	}
+
+	lib := filepath.Join(t.TempDir(), "Books?vol2")
+	if err := os.MkdirAll(lib, 0o755); err != nil {
+		t.Fatalf("mkdir library: %v", err)
+	}
+
+	db, err := Open(lib)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close: %v", err)
+		}
+	})
+	ctx := context.Background()
+
+	var gotPath string
+	if err := db.QueryRowContext(ctx,
+		"SELECT file FROM pragma_database_list WHERE name = 'main'").Scan(&gotPath); err != nil {
+		t.Fatalf("pragma_database_list: %v", err)
+	}
+	if want := filepath.Join(lib, ".sayumi", "sayumi.db"); gotPath != want {
+		t.Errorf("database file = %q, want %q (library path not escaped into the DSN)", gotPath, want)
+	}
+
+	var journalMode string
+	if err := db.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&journalMode); err != nil {
+		t.Fatalf("pragma journal_mode: %v", err)
+	}
+	if !strings.EqualFold(journalMode, "wal") {
+		t.Errorf("journal_mode = %q, want wal (leading _pragma lost to the unescaped '?')", journalMode)
+	}
+}
+
+func TestEscapeDSNPathOnlyRewritesAmbiguousPaths(t *testing.T) {
+	t.Parallel()
+	// A path that cannot confuse the DSN split must come back byte-for-byte, so
+	// every existing library keeps the DSN it has always had -- including
+	// Windows drive and UNC paths, which cannot contain '?' and which SQLite's
+	// URI parser would mangle ("//nas/..." reads as a URI authority).
+	for _, unchanged := range []string{
+		filepath.Join("lib", ".sayumi", "sayumi.db"),
+		`C:\lib\.sayumi\sayumi.db`,
+		`\\nas\books\.sayumi\sayumi.db`,
+		"/lib/100% books/.sayumi/sayumi.db",
+		"/lib/hash#tag/.sayumi/sayumi.db",
+	} {
+		if got := escapeDSNPath(unchanged); got != unchanged {
+			t.Errorf("escapeDSNPath(%q) = %q, want it unchanged", unchanged, got)
+		}
+	}
+
+	// With the URI form in play, every character SQLite's URI parser reads must
+	// be encoded, or it decodes a different path than the caller asked for.
+	for _, tc := range []struct {
+		in   string
+		want string
+	}{
+		{in: "/lib/Books?vol2/.sayumi/sayumi.db", want: "file:/lib/Books%3Fvol2/.sayumi/sayumi.db"},
+		{in: "/lib/100%?#x/sayumi.db", want: "file:/lib/100%25%3F%23x/sayumi.db"},
+	} {
+		if got := escapeDSNPath(tc.in); got != tc.want {
+			t.Errorf("escapeDSNPath(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }
 
