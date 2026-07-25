@@ -222,15 +222,58 @@ func asciiToLower(s string) string {
 	return string(b)
 }
 
-func (c *BookCache) insertPosition(titleLower string) int {
-	pos, _ := slices.BinarySearchFunc(c.order, titleLower, func(id, target string) int {
-		existing, ok := c.byID[id]
+// compareASCIIFold orders a and b exactly as strings.Compare would after both
+// were folded with asciiToLower, but without allocating: asciiToLower copies the
+// string whenever it holds an uppercase letter, which insertPosition's binary
+// search paid once per comparison (~log2(N) allocations per insert).
+//
+// Folding stays ASCII-only for the same reason asciiToLower's does -- it must
+// match SQLite's NOCASE collation, or the cache orders books differently from
+// the ORDER BY that seeds it. Bytes >= 0x80 are compared unchanged.
+func compareASCIIFold(a, b string) int {
+	n := min(len(a), len(b))
+	for i := range n {
+		x, y := a[i], b[i]
+		if x >= 'A' && x <= 'Z' {
+			x += 32
+		}
+		if y >= 'A' && y <= 'Z' {
+			y += 32
+		}
+		if x != y {
+			if x < y {
+				return -1
+			}
+			return 1
+		}
+	}
+	switch {
+	case len(a) < len(b):
+		return -1
+	case len(a) > len(b):
+		return 1
+	default:
+		return 0
+	}
+}
+
+// insertPosition returns the index in order where a book with this title and ID
+// belongs. Ties on title are broken by ID to match the list query's ORDER BY
+// title COLLATE NOCASE ASC, id ASC: without that second key a live Add lands at
+// the front of a run of equal titles while a cache rebuilt at startup puts it in
+// ID order, so a book changes position across a restart with no edit behind it.
+func (c *BookCache) insertPosition(title, id string) int {
+	pos, _ := slices.BinarySearchFunc(c.order, title, func(existingID, target string) int {
+		existing, ok := c.byID[existingID]
 		if !ok {
 			// Orphaned ID (invariant violation): push to end so it never
 			// blocks a correct insertion position.
 			return 1
 		}
-		return strings.Compare(asciiToLower(existing.Title), target)
+		if cmp := compareASCIIFold(existing.Title, target); cmp != 0 {
+			return cmp
+		}
+		return strings.Compare(existingID, id)
 	})
 	return pos
 }
@@ -246,17 +289,14 @@ func (c *BookCache) Add(b BookRecord) {
 	c.generations[b.ID] = c.nextGeneration
 
 	// Fast path: an existing book whose title is unchanged keeps its sort
-	// position, so skip the O(N) order-slice delete + binary-search reinsert
-	// (each comparison re-lowercases a title) and just refresh the record in
-	// place. This covers duplicate re-uploads and cache re-warms where only
-	// non-title fields (e.g. cover state) change.
+	// position, so skip the O(N) order-slice delete + binary-search reinsert and
+	// just refresh the record in place. This covers duplicate re-uploads and
+	// cache re-warms where only non-title fields (e.g. cover state) change.
 	if existing, exists := c.byID[b.ID]; exists && existing.Title == b.Title {
 		c.byID[b.ID] = b
 		delete(c.spines, b.ID)
 		return
 	}
-
-	titleLower := asciiToLower(b.Title)
 
 	if _, exists := c.byID[b.ID]; exists {
 		// Remove the old position before re-inserting so the sort position
@@ -264,7 +304,7 @@ func (c *BookCache) Add(b BookRecord) {
 		c.order = slices.DeleteFunc(c.order, func(s string) bool { return s == b.ID })
 	}
 
-	pos := c.insertPosition(titleLower)
+	pos := c.insertPosition(b.Title, b.ID)
 	c.order = slices.Insert(c.order, pos, b.ID)
 	c.byID[b.ID] = b
 	// Invalidate any memoized spine; GetSpine re-parses lazily from the

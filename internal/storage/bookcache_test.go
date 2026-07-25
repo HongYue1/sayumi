@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"sayumi/internal/epub"
@@ -196,5 +197,73 @@ func TestBookCacheGetSpineReturnsParseError(t *testing.T) {
 	}
 	if errors.Is(err, context.Canceled) {
 		t.Fatalf("GetSpine error = %v, want parse error", err)
+	}
+}
+
+// TestAddPlacesDuplicateTitlesWhereARestartWould pins Add's insert slot to the
+// list query's ORDER BY title COLLATE NOCASE ASC, id ASC. SQL breaks title ties
+// by ID, and that query seeds order on every rebuild, so a live Add must land
+// where a restart would put it. The API sorts titles with a stable sort, which
+// means cache order is exactly what the user sees for identical titles.
+func TestAddPlacesDuplicateTitlesWhereARestartWould(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	dup := func(id, hash, path string) BookRecord {
+		b := sampleBook(id, hash, path)
+		b.Title = "Dune"
+		return b
+	}
+
+	mustInsertBook(t, db, dup("id2", "hash-2", "/lib/b.epub"))
+	mustInsertBook(t, db, dup("id4", "hash-4", "/lib/d.epub"))
+
+	cache, err := NewBookCache(ctx, db)
+	if err != nil {
+		t.Fatalf("new book cache: %v", err)
+	}
+
+	// id9 sorts after both stored IDs, so it belongs at the end of the run of
+	// equal titles, not at its front.
+	added := dup("id9", "hash-9", "/lib/i.epub")
+	mustInsertBook(t, db, added)
+	cache.Add(added)
+
+	rebuilt, err := NewBookCache(ctx, db)
+	if err != nil {
+		t.Fatalf("rebuild book cache: %v", err)
+	}
+
+	live := cache.ListSummaries()
+	fresh := rebuilt.ListSummaries()
+	if len(live) != len(fresh) {
+		t.Fatalf("live cache holds %d books, rebuilt holds %d", len(live), len(fresh))
+	}
+	for i := range live {
+		if live[i].ID != fresh[i].ID {
+			t.Fatalf("order[%d] = %s after Add, but %s after a restart", i, live[i].ID, fresh[i].ID)
+		}
+	}
+}
+
+// TestCompareASCIIFoldMatchesAsciiToLower keeps the allocation-free comparison
+// semantically identical to folding each side with asciiToLower first. The fold
+// must stay ASCII-only to match SQLite's NOCASE collation: a Unicode-aware
+// comparison would order the cache differently from the database it mirrors.
+func TestCompareASCIIFoldMatchesAsciiToLower(t *testing.T) {
+	words := []string{
+		"", "a", "A", "ab", "aB", "Ab", "AB", "abc", "ABD",
+		"Dune", "dune", "dunes", "Zoo", "[", "{", "@", "_",
+		"\u00c5ngstr\u00f6m", "\u00e5ngstr\u00f6m", "\u00c6on", "\u00e6on", "na\u00efve", "NA\u00cfVE",
+		"book 2", "Book 10", "book\x00b",
+	}
+	for _, a := range words {
+		for _, b := range words {
+			got := compareASCIIFold(a, b)
+			want := strings.Compare(asciiToLower(a), asciiToLower(b))
+			if got != want {
+				t.Errorf("compareASCIIFold(%q, %q) = %d, want %d", a, b, got, want)
+			}
+		}
 	}
 }

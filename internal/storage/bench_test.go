@@ -151,6 +151,46 @@ func BenchmarkInsertBook(b *testing.B) {
 	}
 }
 
+// BenchmarkBookCacheAddRetitle measures the ordered reinsert Add performs when a
+// known book's title changes: the O(N) order-slice delete, the binary search that
+// picks the new slot, and the O(N) insert. Retitling one seeded book keeps the
+// cache size fixed so runs stay comparable, and isolates comparison cost from map
+// growth. Alternating between a first-position and a last-position title keeps
+// every iteration a real title change rather than Add's unchanged-title fast path.
+func BenchmarkBookCacheAddRetitle(b *testing.B) {
+	db, err := Open(b.TempDir())
+	if err != nil {
+		b.Fatalf("open: %v", err)
+	}
+	b.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			b.Errorf("close: %v", err)
+		}
+	})
+	seedBooks(b, db, 2000)
+
+	cache, err := NewBookCache(context.Background(), db)
+	if err != nil {
+		b.Fatalf("new book cache: %v", err)
+	}
+	book, ok := cache.Get("id1000")
+	if !ok {
+		b.Fatal("seeded book id1000 missing from cache")
+	}
+
+	b.ReportAllocs()
+	i := 0
+	for b.Loop() {
+		if i%2 == 0 {
+			book.Title = "Zzz Retitled"
+		} else {
+			book.Title = "Aaa Retitled"
+		}
+		cache.Add(book)
+		i++
+	}
+}
+
 func BenchmarkNewBookCache(b *testing.B) {
 	db, err := Open(b.TempDir())
 	if err != nil {
