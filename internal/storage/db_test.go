@@ -147,7 +147,17 @@ func TestOpenLibraryPathWithQuestionMark(t *testing.T) {
 		t.Skip("'?' is not a legal path character on Windows")
 	}
 
-	lib := filepath.Join(t.TempDir(), "Books?vol2")
+	// Canonicalize the temp root first: SQLite resolves symlinks when it opens
+	// a database (xFullPathname), so pragma_database_list reports the resolved
+	// path. On macOS t.TempDir() lives under /var -> /private/var, which made
+	// the byte-for-byte comparison below fail even though the '?' escaping was
+	// correct. With a symlink-free base, got == want iff the DSN escaping
+	// preserved the full path.
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolve temp dir: %v", err)
+	}
+	lib := filepath.Join(base, "Books?vol2")
 	if err := os.MkdirAll(lib, 0o755); err != nil {
 		t.Fatalf("mkdir library: %v", err)
 	}
