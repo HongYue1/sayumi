@@ -502,7 +502,9 @@
   .bar {
     --control-h: 2.4rem;
     position: sticky;
-    top: 0;
+    /* Stick below the offline banner (0px when it's closed) so the toolbar
+       isn't hidden underneath it while scrolled and offline. */
+    top: var(--offline-banner-h, 0px);
     z-index: 40;
     display: flex;
     align-items: center;
@@ -594,7 +596,7 @@
     outline: none;
   }
   .sort-item.active {
-    color: var(--accent);
+    color: var(--accent-ink);
     font-weight: 640;
     background: var(--accent-soft);
   }
@@ -603,7 +605,7 @@
   }
   .sort-item .check {
     display: inline-flex;
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 
   .upload {
@@ -782,7 +784,7 @@
   .clear-filters {
     border: none;
     background: transparent;
-    color: var(--accent);
+    color: var(--accent-ink);
     font: inherit;
     font-size: var(--text-xs);
     font-weight: 600;

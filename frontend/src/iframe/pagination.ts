@@ -27,6 +27,8 @@ export type PaginationDeps = {
   getActiveChapterIndex: () => number;
   isDestroyed: () => boolean;
   isContentReady: () => boolean;
+  /** True while a chapter's position restore is still pending — position reports are suppressed so they can't clobber saved progress. */
+  isRestorePending?: () => boolean;
   isPagedMode: () => boolean;
   hasNextChapter: () => boolean;
   hasPrevChapter: () => boolean;
@@ -127,7 +129,19 @@ export function createPagination(deps: PaginationDeps): PaginationController {
   function getPageStride(): number {
     const content = deps.getContentEl();
     const width = content?.clientWidth || window.innerWidth || 1;
-    return Number.isFinite(width) ? Math.max(1, width) : 1;
+    // The stride between page origins is the container width PLUS the multicol
+    // column-gap (two-page mode uses a 1px gap): CSS lays column i at
+    // i * (colWidth + gap), so a spread advances by width + gap. Using bare
+    // width drifted 1px per spread — ~40px of bleed/clipping by the end of a
+    // long chapter. getComputedStyle here is fine: this only runs inside
+    // refreshPageMetrics, which already reads layout.
+    let gap = 0;
+    if (content) {
+      const parsed = parseFloat(getComputedStyle(content).columnGap);
+      if (Number.isFinite(parsed)) gap = parsed;
+    }
+    const stride = width + gap;
+    return Number.isFinite(stride) ? Math.max(1, stride) : 1;
   }
 
   function getMaxPageScrollLeft(): number {
@@ -166,6 +180,9 @@ export function createPagination(deps: PaginationDeps): PaginationController {
   }
 
   function reportPagePosition(): void {
+    // A relayout triggered by settings arriving mid-load must not report the
+    // pre-restore page (percent 0) under the new seq; the restore reports.
+    if (deps.isRestorePending?.()) return;
     const percent =
       totalPages > 1 && Number.isFinite(currentPage)
         ? currentPage / (totalPages - 1)

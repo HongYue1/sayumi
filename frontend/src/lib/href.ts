@@ -54,22 +54,50 @@ function uniqueMatch(
   return match >= 0 ? match : null;
 }
 
-function matchSpinePath(path: string, spinePaths: string[]): number | null {
-  const exact = uniqueMatch(spinePaths, (spinePath) => spinePath === path);
-  if (exact !== null) return exact;
+/**
+ * Normalized spine paths plus O(1) lookup maps for the exact and basename
+ * match tiers. A map value of null marks an AMBIGUOUS key (two spine entries
+ * share it) — the same "unique or nothing" outcome uniqueMatch produced by
+ * scanning. Building this once turns TOC resolution from O(toc × spine) into
+ * O(toc + spine) for the common exact-match case; the (rare) suffix tier stays
+ * a linear scan.
+ */
+interface SpineIndex {
+  paths: string[];
+  byPath: Map<string, number | null>;
+  byBasename: Map<string, number | null>;
+}
+
+function buildSpineIndex(spine: SpineEntry[]): SpineIndex {
+  const paths = spine.map((entry) =>
+    normalizeArchivePath(parseHref(entry.href).path),
+  );
+  const byPath = new Map<string, number | null>();
+  const byBasename = new Map<string, number | null>();
+  for (let i = 0; i < paths.length; i++) {
+    const path = paths[i];
+    byPath.set(path, byPath.has(path) ? null : i);
+    const base = pathBasename(path);
+    byBasename.set(base, byBasename.has(base) ? null : i);
+  }
+  return { paths, byPath, byBasename };
+}
+
+function matchSpinePath(path: string, index: SpineIndex): number | null {
+  // Exact tier. An ambiguous exact key (null) falls through to the suffix
+  // tier, exactly like the original uniqueMatch-based scan did.
+  const exact = index.byPath.get(path);
+  if (exact !== undefined && exact !== null) return exact;
 
   const suffix = uniqueMatch(
-    spinePaths,
+    index.paths,
     (spinePath) =>
       spinePath.endsWith("/" + path) || path.endsWith("/" + spinePath),
   );
   if (suffix !== null) return suffix;
 
-  const basename = pathBasename(path);
-  return uniqueMatch(
-    spinePaths,
-    (spinePath) => pathBasename(spinePath) === basename,
-  );
+  const basename = index.byBasename.get(pathBasename(path));
+  return basename === undefined ? null : basename;
 }
 
 /**
@@ -83,21 +111,19 @@ export function resolveHref(
   sourceChapter?: number,
 ): { chapterIndex: number; fragment: string } | null {
   const parsed = parseHref(href);
-  const spinePaths = spine.map((entry) =>
-    normalizeArchivePath(parseHref(entry.href).path),
-  );
+  const index = buildSpineIndex(spine);
   let path = normalizeArchivePath(parsed.path);
 
   if (
     sourceChapter !== undefined &&
     Number.isSafeInteger(sourceChapter) &&
     sourceChapter >= 0 &&
-    sourceChapter < spinePaths.length
+    sourceChapter < index.paths.length
   ) {
-    path = resolveRelativePath(parsed.path, spinePaths[sourceChapter]);
+    path = resolveRelativePath(parsed.path, index.paths[sourceChapter]);
   }
 
-  const chapterIndex = matchSpinePath(path, spinePaths);
+  const chapterIndex = matchSpinePath(path, index);
   return chapterIndex === null
     ? null
     : { chapterIndex, fragment: parsed.fragment };
@@ -112,15 +138,13 @@ export function buildTocChapterEntries(
   toc: TocEntry[],
   spine: SpineEntry[],
 ): Array<TocEntry | null> {
-  const spinePaths = spine.map((entry) =>
-    normalizeArchivePath(parseHref(entry.href).path),
-  );
+  const index = buildSpineIndex(spine);
   const result: Array<TocEntry | null> = new Array(spine.length).fill(null);
 
   const walk = (entries: TocEntry[]): void => {
     for (const entry of entries) {
       const path = normalizeArchivePath(parseHref(entry.href).path);
-      const idx = matchSpinePath(path, spinePaths);
+      const idx = matchSpinePath(path, index);
       if (idx !== null && result[idx] == null) result[idx] = entry;
       if (entry.children?.length) walk(entry.children);
     }

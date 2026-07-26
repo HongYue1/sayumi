@@ -88,7 +88,10 @@
   }
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<!-- Capture phase: the dialog mounts after the page's own window key
+     listeners, so a bubble listener here runs last and can't pre-empt them;
+     capture runs first regardless of registration order. -->
+<svelte:window onkeydowncapture={onKeydown} />
 
 <div class="overlay" role="presentation" onclick={close}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -253,7 +256,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--accent);
+    color: var(--accent-ink);
     font-size: var(--text-xs);
     font-weight: 560;
   }

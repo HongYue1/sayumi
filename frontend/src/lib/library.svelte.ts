@@ -40,6 +40,15 @@ const collator = new Intl.Collator(undefined, {
   sensitivity: "base",
 });
 
+// Descending compare for ISO-8601 timestamps (missing sorts last). Plain
+// codepoint comparison is correct for ISO strings and much cheaper than
+// localeCompare, which applies locale collation rules to every call.
+function compareIsoDesc(a?: string, b?: string): number {
+  const av = a ?? "";
+  const bv = b ?? "";
+  return av === bv ? 0 : av < bv ? 1 : -1;
+}
+
 export class Library {
   books = $state<BookMeta[]>([]);
   loading = $state(false);
@@ -116,13 +125,11 @@ export class Library {
         );
         break;
       case "added":
-        list.sort((a, b) => (b.addedAt ?? "").localeCompare(a.addedAt ?? ""));
+        list.sort((a, b) => compareIsoDesc(a.addedAt, b.addedAt));
         break;
       case "read":
         list.sort(
-          (a, b) =>
-            (b.lastReadAt ?? "").localeCompare(a.lastReadAt ?? "") ||
-            byTitle(a, b),
+          (a, b) => compareIsoDesc(a.lastReadAt, b.lastReadAt) || byTitle(a, b),
         );
         break;
       case "progress":
@@ -176,19 +183,22 @@ export class Library {
   }
 
   /**
-   * Returns a profile-generation-bound publisher for the reader route. The
-   * captured generation prevents a late save from an old reader instance from
-   * mutating a profile that was switched away from and later reactivated.
+   * Returns a profile-bound publisher for the reader route, so a late save
+   * from an old reader instance can never mutate a different profile's list.
+   * Deliberately bound to the profile NAME, not the generation: on a hard
+   * refresh straight into /read, the Read component initializes (capturing
+   * this publisher) before App's $effect runs activate(), which bumps the
+   * generation — a generation captured here would be stale on arrival and the
+   * publisher permanently dead for that whole reading session.
    */
   createReadingProgressPublisher(
     profile: string | null,
     bookId: string,
   ): (chapter: number, percent: number, readAt?: string) => void {
-    const generation = this.#generation;
     return (chapter, percent, readAt = new Date().toISOString()) => {
       if (
         profile === null ||
-        !this.#isCurrent(profile, generation) ||
+        this.#profile !== profile ||
         !Number.isSafeInteger(chapter) ||
         chapter < 0 ||
         !Number.isFinite(percent)
@@ -196,24 +206,17 @@ export class Library {
         return;
       }
 
-      let changed = false;
-      const next = this.books.map((book) => {
-        if (
-          book.id !== bookId ||
-          book.chapterCount <= 0 ||
-          chapter >= book.chapterCount
-        ) {
-          return book;
-        }
-        changed = true;
-        const chapterPercent = Math.max(0, Math.min(1, percent));
-        const progress = Math.max(
-          0,
-          Math.min(1, (chapter + chapterPercent) / book.chapterCount),
-        );
-        return { ...book, progress, lastReadAt: readAt };
-      });
-      if (changed) this.books = next;
+      const book = this.books.find((b) => b.id === bookId);
+      if (!book || book.chapterCount <= 0 || chapter >= book.chapterCount)
+        return;
+      const chapterPercent = Math.max(0, Math.min(1, percent));
+      // In-place mutation (books is a deep $state proxy): no array copy per
+      // report, and concurrent optimistic updates to OTHER books are untouched.
+      book.progress = Math.max(
+        0,
+        Math.min(1, (chapter + chapterPercent) / book.chapterCount),
+      );
+      book.lastReadAt = readAt;
     };
   }
 
@@ -315,12 +318,15 @@ export class Library {
     this.flairFilters = [];
   }
 
-  /** Assigns/clears a book's flair with an optimistic update + rollback. */
+  /** Assigns/clears a book's flair with an optimistic update + rollback. The
+   *  rollback restores only this book's previous flair onto the CURRENT array
+   *  — snapshotting the whole array would also revert unrelated updates that
+   *  landed while the request was in flight. */
   async setFlair(bookId: string, flairId: string | null): Promise<void> {
     const profile = this.#profile;
     if (profile === null) return;
     const generation = this.#generation;
-    const prev = this.books;
+    const prevFlair = this.books.find((b) => b.id === bookId)?.flairId;
     this.books = this.books.map((b) =>
       b.id === bookId ? { ...b, flairId: flairId ?? undefined } : b,
     );
@@ -328,7 +334,9 @@ export class Library {
       await setBookFlair(bookId, flairId);
     } catch (e) {
       if (!this.#isCurrent(profile, generation)) return;
-      this.books = prev;
+      this.books = this.books.map((b) =>
+        b.id === bookId ? { ...b, flairId: prevFlair } : b,
+      );
       toast.show(msg(e, "Could not update flair"));
     }
   }
@@ -356,7 +364,12 @@ export class Library {
     const generation = this.#generation;
     const prevFlairs = this.customFlairs;
     const prevFilters = this.flairFilters;
-    const prevBooks = this.books;
+    // Remember which books carried this flair; rollback re-applies it to those
+    // books on the CURRENT array instead of restoring a stale array snapshot
+    // (which would revert unrelated in-flight updates too).
+    const affected = new Set(
+      this.books.filter((b) => b.flairId === id).map((b) => b.id),
+    );
     // Optimistic: drop the flair, its filter, and any local assignment.
     this.customFlairs = this.customFlairs.filter((f) => f.id !== id);
     this.flairFilters = this.flairFilters.filter((f) => f !== id);
@@ -369,7 +382,9 @@ export class Library {
       if (!this.#isCurrent(profile, generation)) return;
       this.customFlairs = prevFlairs;
       this.flairFilters = prevFilters;
-      this.books = prevBooks;
+      this.books = this.books.map((b) =>
+        affected.has(b.id) ? { ...b, flairId: id } : b,
+      );
       toast.show(msg(e, "Could not delete flair"));
     }
   }
@@ -452,7 +467,10 @@ export class Library {
     const profile = this.#profile;
     if (profile === null) return;
     const generation = this.#generation;
-    const prev = this.books;
+    const target = this.books.find((b) => b.id === id);
+    const prevMeta = target
+      ? { title: target.title, author: target.author }
+      : null;
     this.books = this.books.map((b) => (b.id === id ? { ...b, ...patch } : b));
     try {
       const updated = await updateBookMeta(id, patch);
@@ -463,7 +481,13 @@ export class Library {
       this.hayCache.delete(id);
     } catch (e) {
       if (!this.#isCurrent(profile, generation)) return;
-      this.books = prev;
+      // Restore only this book's previous title/author onto the current array;
+      // a whole-array snapshot would also revert unrelated in-flight updates.
+      if (prevMeta) {
+        this.books = this.books.map((b) =>
+          b.id === id ? { ...b, ...prevMeta } : b,
+        );
+      }
       throw e;
     }
   }

@@ -89,6 +89,16 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   let activeSeq = -1;
   let activeChapterIndex = -1;
   let contentReady = false;
+  // True from commitLoad until the (fonts-gated) initial position restore has
+  // run. While pending, position reports, boundary accumulation, and search
+  // highlights stand down: the DOM still shows the previous chapter's scroll
+  // offset, and reporting it under the NEW seq clobbers saved progress (a
+  // leftover momentum scroll or the 200ms trailing report timer was enough).
+  let restorePending = false;
+  // Non-empty when the chapter declares a vertical writing mode: content flows
+  // along the horizontal axis, so all scroll-mode math must use scrollX /
+  // scrollWidth. "rl" starts at the right edge (scrollX runs 0 → -max).
+  let verticalWriting: "" | "rl" | "lr" = "";
   let loadScrollTarget: "top" | "end" | null = null;
   let pendingFragment: string | null = null;
   let parentOrigin = "";
@@ -168,6 +178,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     getActiveChapterIndex: () => activeChapterIndex,
     isDestroyed: () => destroyed,
     isContentReady: () => contentReady,
+    isRestorePending: () => restorePending,
     isPagedMode: () => isPagedMode,
     hasNextChapter: () => hasNextChapter,
     hasPrevChapter: () => hasPrevChapter,
@@ -307,19 +318,42 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   }
 
   function getScrollableMax(): number {
-    const max = document.documentElement.scrollHeight - window.innerHeight;
+    const root = document.documentElement;
+    const max = verticalWriting
+      ? root.scrollWidth - window.innerWidth
+      : root.scrollHeight - window.innerHeight;
     return Number.isFinite(max) ? Math.max(0, max) : 0;
   }
 
+  // Reading-order scroll offset on the chapter's flow axis, always positive.
+  // vertical-rl roots scroll 0 → -max (Chromium exposes leftward travel as
+  // negative scrollX), so |scrollX| is the distance read in both vertical
+  // directions.
+  function getAxisScrollPos(): number {
+    return verticalWriting ? Math.abs(window.scrollX) : window.scrollY;
+  }
+
+  // Scrolls to a reading-order offset on the flow axis (instant).
+  function axisScrollTo(logicalPos: number): void {
+    if (verticalWriting) {
+      window.scrollTo({
+        left: verticalWriting === "rl" ? -logicalPos : logicalPos,
+        behavior: "instant" as ScrollBehavior,
+      });
+      return;
+    }
+    window.scrollTo({ top: logicalPos, behavior: "instant" as ScrollBehavior });
+  }
+
   function updateBoundaryState(): void {
-    const scrollTop = window.scrollY;
+    const scrollPos = getAxisScrollPos();
     const scrollMax = getScrollableMax();
     if (scrollMax <= 0) {
       atTop = true;
       atBottom = true;
     } else {
-      atTop = scrollTop <= 1;
-      atBottom = scrollTop >= scrollMax - 1;
+      atTop = scrollPos <= 1;
+      atBottom = scrollPos >= scrollMax - 1;
     }
   }
 
@@ -438,13 +472,12 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     const pct = Number.isFinite(percent)
       ? Math.min(1, Math.max(0, percent))
       : 0;
-    window.scrollTo({
-      top: max * pct,
-      behavior: "instant" as ScrollBehavior,
-    });
+    axisScrollTo(max * pct);
   }
 
   function restoreScrollPosition(): void {
+    // From here on the DOM reflects THIS chapter's position; reports may flow.
+    restorePending = false;
     const fragment = pendingFragment;
     const restoreCfi = loadRestoreCfi;
     const restorePercent = loadRestorePercent;
@@ -467,10 +500,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       return;
     }
 
-    window.scrollTo({
-      top: scrollTarget === "end" ? getScrollableMax() : 0,
-      behavior: "instant" as ScrollBehavior,
-    });
+    axisScrollTo(scrollTarget === "end" ? getScrollableMax() : 0);
 
     if (restoreCfi) {
       const el = resolveCFI(restoreCfi, document);
@@ -544,6 +574,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
             loadScrollTarget = null;
             loadRestorePercent = null;
             loadRestoreCfi = null;
+            restorePending = false;
             pagination.restorePagedPosition(
               target,
               pagedRestore,
@@ -856,6 +887,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   }
 
   function scrollToFragmentById(id: string): void {
+    restorePending = false;
     if (isPagedMode) {
       pagination.scrollToFragmentPaged(id);
       boundary.reset();
@@ -884,6 +916,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   // bookmark in the chapter already on screen). Mirrors scrollToFragmentById
   // but resolves the position via the CFI path instead of an element id.
   function scrollToCfiLocal(cfi: string): void {
+    restorePending = false;
     const el = resolveCFI(cfi, document);
     if (!el) return;
 
@@ -917,6 +950,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   function killScrollMomentum(): void {
     window.scrollTo({
       top: window.scrollY,
+      left: window.scrollX,
       behavior: "instant" as ScrollBehavior,
     });
   }
@@ -925,6 +959,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   let scrollThrottlePending = false;
 
   function reportPosition(): void {
+    if (restorePending) return;
     if (isPagedMode) {
       pagination.reportPagePosition();
       return;
@@ -973,13 +1008,13 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   }
 
   function handleScroll(): void {
-    if (destroyed || isPagedMode) return;
+    if (destroyed || isPagedMode || restorePending) return;
     // Scroll events can fire several times per frame during momentum scrolling;
     // coalesce the layout reads + position report into a single rAF tick.
     if (scrollRafHandle !== null) return;
     scrollRafHandle = requestAnimationFrame(() => {
       scrollRafHandle = null;
-      if (destroyed || isPagedMode) return;
+      if (destroyed || isPagedMode || restorePending) return;
       updateBoundaryState();
       throttledReportPosition();
       if (!atTop && !atBottom && boundary.hasActiveDirection())
@@ -988,7 +1023,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   }
 
   function handleWheel(e: WheelEvent): void {
-    if (destroyed || !contentReady) return;
+    if (destroyed || !contentReady || restorePending) return;
     if (isPagedMode) return;
     updateBoundaryState();
     if (atTop && e.deltaY < 0) {
@@ -1015,7 +1050,8 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   }
 
   function handleTouchMove(e: TouchEvent): void {
-    if (destroyed || !touchTracking || e.touches.length !== 1) return;
+    if (destroyed || !touchTracking || restorePending) return;
+    if (e.touches.length !== 1) return;
     touchLastX = e.touches[0].clientX;
     touchLastY = e.touches[0].clientY;
     if (isPagedMode) return;
@@ -1220,9 +1256,22 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     prepareChapterCSS();
 
     contentReady = false;
+    restorePending = true;
     pendingSearchHighlight = null;
     isPagedMode = false;
     pagination.resetForLoad(msg.direction === "rtl");
+
+    // A trailing throttled report (or in-flight rAF) armed on the previous
+    // chapter must not fire under the new seq with the old scroll offset.
+    if (scrollThrottleTimer) {
+      clearTimeout(scrollThrottleTimer);
+      scrollThrottleTimer = null;
+    }
+    scrollThrottlePending = false;
+    if (scrollRafHandle !== null) {
+      cancelAnimationFrame(scrollRafHandle);
+      scrollRafHandle = null;
+    }
 
     const contentEl = getContentEl();
     contentEl.scrollLeft = 0;
@@ -1267,8 +1316,18 @@ const PAGED_SCROLL_KEYS = new Set<string>([
 
     rawContentInnerEl.innerHTML = absolutifyHTML(msg.html || "");
     if (msg.direction) document.documentElement.dir = msg.direction;
-    if (msg.writingMode) {
-      document.documentElement.style.writingMode = msg.writingMode;
+    // Applied unconditionally so a vertical chapter can never leak its writing
+    // mode into a following horizontal one. Vertical modes flip all scroll
+    // math to the horizontal axis via verticalWriting (see getAxisScrollPos).
+    {
+      const wm = typeof msg.writingMode === "string" ? msg.writingMode : "";
+      document.documentElement.style.writingMode =
+        wm && wm !== "horizontal-tb" ? wm : "";
+      verticalWriting = /vertical-rl|tb-rl/.test(wm)
+        ? "rl"
+        : /vertical-lr|tb-lr/.test(wm)
+          ? "lr"
+          : "";
     }
     if (typeof msg.language === "string" && msg.language) {
       // Sanitize to BCP-47-ish chars before reflecting into the DOM lang attr.
@@ -1480,7 +1539,10 @@ const PAGED_SCROLL_KEYS = new Set<string>([
         // already swapped in a different chapter; without this guard it would
         // mark the wrong text.
         if (msg.seq !== activeSeq) break;
-        if (!contentReady) {
+        // Defer while the initial restore is still pending too: running the
+        // highlight scroll first would be undone moments later by the
+        // fonts-gated restore-to-position (drained after the restore).
+        if (!contentReady || restorePending) {
           pendingSearchHighlight = {
             charOffset: msg.charOffset,
             matchLen: msg.matchLen,

@@ -133,6 +133,12 @@
   let queryEl: HTMLInputElement | null = $state(null);
   let scrollTop = $state(0);
   let viewportH = $state(0);
+  // .scroll's padding-top: row i's real offset is i * ROW_H + padTop, so the
+  // scroll-into-view math must include it or rows land clipped by ~one pad.
+  // (The virtualization window itself doesn't need it — OVERSCAN absorbs the
+  // off-by-a-few-pixels in startIndex.) Measured, not hardcoded, so a style
+  // tweak can't silently desync it.
+  let padTop = 0;
   let initialised = false;
   let lastQuery = "";
   let focusedIndex = $state(-1);
@@ -204,7 +210,7 @@
     if (!scrollEl || filteredRows.length === 0) return;
 
     const nextIndex = Math.max(0, Math.min(filteredRows.length - 1, index));
-    const rowTop = nextIndex * ROW_H;
+    const rowTop = nextIndex * ROW_H + padTop;
     const rowBottom = rowTop + ROW_H;
     const visibleTop = scrollEl.scrollTop;
     const visibleBottom = visibleTop + scrollEl.clientHeight;
@@ -255,7 +261,10 @@
   $effect(() => {
     if (!scrollEl) return;
     const ro = new ResizeObserver(() => {
-      if (scrollEl) viewportH = scrollEl.clientHeight;
+      if (scrollEl) {
+        viewportH = scrollEl.clientHeight;
+        padTop = parseFloat(getComputedStyle(scrollEl).paddingTop) || 0;
+      }
     });
     ro.observe(scrollEl);
     return () => ro.disconnect();
@@ -269,8 +278,9 @@
   $effect(() => {
     if (initialised || !scrollEl) return;
     viewportH = scrollEl.clientHeight;
+    padTop = parseFloat(getComputedStyle(scrollEl).paddingTop) || 0;
     if (activeIndex >= 0) {
-      const target = activeIndex * ROW_H - (viewportH - ROW_H) / 2;
+      const target = activeIndex * ROW_H + padTop - (viewportH - ROW_H) / 2;
       scrollEl.scrollTop = Math.max(0, target);
     }
     scrollTop = scrollEl.scrollTop;
@@ -551,7 +561,7 @@
   .entry.current,
   .entry.current.top {
     background: var(--accent-soft);
-    color: var(--accent);
+    color: var(--accent-ink);
     font-weight: 640;
   }
   /* Filter match highlight: height-neutral (background + radius + horizontal

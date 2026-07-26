@@ -420,7 +420,7 @@
   }
   .profile:hover .initial,
   .profile:focus-visible .initial {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 
   .name {

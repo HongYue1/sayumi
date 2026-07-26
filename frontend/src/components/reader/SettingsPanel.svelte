@@ -1115,7 +1115,7 @@
   }
   .segmented button.active {
     background: var(--bg);
-    color: var(--accent);
+    color: var(--accent-ink);
     font-weight: 640;
     box-shadow: var(--shadow-1);
   }
@@ -1334,7 +1334,7 @@
     border: 1px solid var(--accent-line);
     border-radius: var(--radius);
     background: var(--accent-soft);
-    color: var(--accent);
+    color: var(--accent-ink);
     font: inherit;
     font-size: var(--text-sm);
     font-weight: 600;

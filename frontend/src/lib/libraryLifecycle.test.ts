@@ -127,17 +127,37 @@ describe("library profile lifecycle", () => {
     });
   });
 
-  it("drops a reader update after the profile generation changes", () => {
+  it("drops a reader update while a different profile is active", () => {
     const store = new Library();
     store.activate("profile-a");
-    store.books = [{ ...book("a", "Old A"), chapterCount: 4 }];
+    store.books = [{ ...book("a", "Book A"), chapterCount: 4 }];
     const stalePublish = store.createReadingProgressPublisher("profile-a", "a");
 
     store.activate("profile-b");
-    store.activate("profile-a");
-    store.books = [{ ...book("a", "New A"), chapterCount: 4 }];
+    // Same book id existing under profile B proves the guard is the profile
+    // binding, not a lucky book-id miss.
+    store.books = [{ ...book("a", "B's copy"), chapterCount: 4 }];
     stalePublish(3, 1, "2024-06-01T12:00:00.000Z");
 
     expect(store.books[0]).toMatchObject({ progress: 0 });
+  });
+
+  it("publishes when created before activate (hard refresh into /read)", () => {
+    // On a hard refresh straight into the reader, Read initializes (creating
+    // the publisher) BEFORE App's effect runs activate(), which bumps the
+    // internal generation. The publisher is bound to the profile NAME exactly
+    // so this ordering still works — a generation captured at creation would
+    // be stale on arrival and the publisher dead for the whole session.
+    const store = new Library();
+    const publish = store.createReadingProgressPublisher("profile-a", "a");
+    store.activate("profile-a");
+    store.books = [{ ...book("a", "Book A"), chapterCount: 4 }];
+
+    publish(1, 0.5, "2024-06-01T12:00:00.000Z");
+
+    expect(store.books[0]).toMatchObject({
+      progress: 0.375,
+      lastReadAt: "2024-06-01T12:00:00.000Z",
+    });
   });
 });

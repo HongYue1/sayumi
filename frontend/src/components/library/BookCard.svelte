@@ -754,7 +754,7 @@
   }
   .menu-item .check {
     display: inline-flex;
-    color: var(--accent);
+    color: var(--accent-ink);
   }
   .menu-item .menu-ico {
     display: inline-flex;
@@ -796,7 +796,7 @@
   }
   .card:hover .title,
   .card:has(.open-overlay:focus-visible) .title {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
   .byline {
     display: flex;
@@ -820,6 +820,6 @@
     margin-left: auto;
     font-size: 0.7rem;
     font-weight: 600;
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 </style>

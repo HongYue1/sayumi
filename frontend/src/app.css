@@ -97,6 +97,11 @@
   --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
   --accent-soft-strong: color-mix(in srgb, var(--accent) 22%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 55%, transparent);
+  /* Accent as TEXT on the page background. applyTheme overrides this with the
+     accent nudged toward black/white until it reads at 4.5:1 — several official
+     palettes (ayu light, solarized, rosé pine dawn) tune their accent for fills
+     only. Fills/rings keep --accent; colored labels/links use this. */
+  --accent-ink: var(--accent);
 
   /* Danger / error. --danger mixes a red toward the active --fg so error
      text keeps ~AA contrast on every theme (same trick as --muted). The
@@ -425,7 +430,7 @@ select optgroup {
 }
 .icon-btn[aria-expanded="true"],
 .icon-btn.active {
-  color: var(--accent);
+  color: var(--accent-ink);
   background: var(--accent-soft);
 }
 

@@ -77,6 +77,11 @@
   const PROGRESS_FLUSH_THROTTLE_MS = 5_000;
   const PROGRESS_SAVE_INTERVAL_MS = 15_000;
   const BOUNDARY_COOLDOWN_MS = 400;
+  // Extra boundary quiet period right after a chapter swap lands. The 400ms
+  // cooldown starts when the boundary FIRES, but the new chapter renders later
+  // (fetch + fonts-gated reveal), so leftover wheel momentum at a boundary
+  // could otherwise chain-skip a second chapter the reader never saw.
+  const POST_SWAP_BOUNDARY_GRACE_MS = 650;
   const CHAPTER_LOAD_RETRY_ATTEMPTS = 3;
   // Each cached chapter retains full decoded HTML + CSS, so this is the largest
   // retained-memory knob in the reader. Active navigation only needs the
@@ -86,8 +91,10 @@
   const MAX_CHAPTER_CACHE = 4;
   // bookId is read once at mount; App.svelte wraps Read in {#key params.id} so a
   // different book remounts this component rather than mutating bookId in place.
+  // Scoped to the profile: two profiles reading the same book id must not
+  // resume from (or clobber) each other's locally cached position.
   // svelte-ignore state_referenced_locally
-  const progressCacheKey = `sayumi:progress:${bookId}`;
+  const progressCacheKey = `sayumi:progress:${session.profile ?? ""}:${bookId}`;
   // The reader doubles as a live typography preview: a sentinel bookId renders
   // a built-in specimen chapter entirely client-side (no book/progress/bookmark
   // server calls), so users can tune reading settings against rich sample text.
@@ -235,6 +242,7 @@
   let lastPersistedChapter = -1;
   let lastPersistedPercent = -1;
   let lastBoundaryTime = 0;
+  let lastChapterSwapAt = 0;
 
   const CHROME_AUTO_HIDE_MS = 4000;
 
@@ -291,6 +299,18 @@
     if (!moreOpen) return;
     moreOpen = false;
     if (restoreFocus) moreBtn?.focus();
+    // Re-arm the chrome auto-hide that toggleMore paused while the menu was up.
+    resetChromeTimer();
+  }
+  function toggleMore(): void {
+    if (moreOpen) {
+      closeMore();
+      return;
+    }
+    moreOpen = true;
+    // Pin the chrome while the menu is open — the auto-hide timer keeps
+    // running otherwise, and the bar vanishing under an open menu strands it.
+    showChrome(false);
   }
   function pickMore(action: () => void): void {
     // Restore trigger focus before acting so a panel's focus trap snapshots
@@ -447,8 +467,13 @@
   });
 
   // Keep the app chrome (reader bar, panels) in sync with the reading theme.
+  // Gated on settings.loaded: before the server settings arrive, value.theme is
+  // the compile-time default ("light"), and applying it would flash the shell
+  // to light AND overwrite the localStorage palette cache the pre-paint
+  // bootstrap relies on. The cached theme from index.html stays up instead.
   $effect(() => {
-    applyTheme(settings.value.theme);
+    const id = settings.value.theme;
+    if (settings.loaded) applyTheme(id);
   });
 
   function preloadTocPanel(): void {
@@ -553,6 +578,9 @@
     // A remaining page-hide cache is newer than the last successful normal
     // save (which removes it), even when the user navigated backward.
     try {
+      // One-time migration: drop the pre-profile-scoped key so a stale cache
+      // written by another profile can never win chooseBootProgress here.
+      localStorage.removeItem(`sayumi:progress:${bookId}`);
       const raw = localStorage.getItem(progressCacheKey);
       if (raw) {
         const cached: ProgressData = JSON.parse(raw);
@@ -738,6 +766,7 @@
     } finally {
       chapterLoadInProgress = false;
       chapterLoading = false;
+      lastChapterSwapAt = Date.now();
       const nav = pendingNav;
       if (nav) {
         pendingNav = null;
@@ -866,6 +895,7 @@
     const now = Date.now();
     if (now - lastBoundaryTime < BOUNDARY_COOLDOWN_MS || chapterLoadInProgress)
       return;
+    if (now - lastChapterSwapAt < POST_SWAP_BOUNDARY_GRACE_MS) return;
     lastBoundaryTime = now;
     const b = book;
     if (!b) return;
@@ -1055,6 +1085,29 @@
     // while open, so reader shortcuts (Esc → back, arrows, etc.) must stand
     // down — otherwise Esc would close the modal *and* navigate to the library.
     if (ui.palette || ui.shortcuts) return false;
+    // Same stand-down for the ⋯ overflow menu. Its own keydown handler covers
+    // keys while focus is inside it, but focus can also sit on the trigger
+    // button (mouse open) — without this, Escape would navigate back to the
+    // library and letter shortcuts would toggle panels under the open menu.
+    if (moreOpen) {
+      if (e.key === "Escape") {
+        closeMore();
+        return true;
+      }
+      return [
+        "t",
+        "T",
+        "s",
+        "S",
+        "f",
+        "F",
+        "b",
+        "B",
+        "?",
+        "ArrowLeft",
+        "ArrowRight",
+      ].includes(e.key);
+    }
     // The specimen has no TOC, search, or bookmarks; ignore those shortcuts so
     // they can't open panels whose buttons are hidden in preview mode.
     if (
@@ -1113,9 +1166,29 @@
     return false;
   }
 
+  // True when the focused element consumes ordinary keystrokes, so reader
+  // shortcuts must stand down. Deliberately NOT a blanket tagName check:
+  // checkbox/button-flavored inputs don't type or use arrows, and swallowing
+  // there left Escape/letters dead after clicking a settings toggle. Radio and
+  // range DO consume arrows natively (group nav / slider), so they stay
+  // guarded along with all text-entry types.
+  function isKeyboardConsumer(el: Element | null): boolean {
+    if (!el) return false;
+    if (el instanceof HTMLElement && el.isContentEditable) return true;
+    const tag = el.tagName;
+    if (tag === "TEXTAREA" || tag === "SELECT") return true;
+    if (tag !== "INPUT") return false;
+    const type = (el as HTMLInputElement).type;
+    return !["checkbox", "button", "submit", "reset", "file"].includes(type);
+  }
+
   function handleWindowKey(e: KeyboardEvent): void {
-    const tag = (document.activeElement as HTMLElement | null)?.tagName ?? "";
-    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    // App.svelte's window handler owns Ctrl/Cmd+K on this path; handling it
+    // here too double-toggled the palette (open, then instantly closed).
+    // handleKeyAction keeps its palette branch for iframe-forwarded keys,
+    // which App.svelte never sees.
+    if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) return;
+    if (isKeyboardConsumer(document.activeElement)) return;
     // Cancel the default for keys we handle so a letter shortcut (f/s/t/b)
     // isn't also typed into a panel input that opens and grabs focus during
     // this same keystroke.
@@ -1233,8 +1306,7 @@
             aria-haspopup="menu"
             aria-expanded={moreOpen}
             aria-label="More tools"
-            onclick={() => (moreOpen = !moreOpen)}
-            ><Icon icon={Ellipsis} /></button
+            onclick={toggleMore}><Icon icon={Ellipsis} /></button
           >
           {#if moreOpen}
             <div
@@ -1594,7 +1666,7 @@
   }
   .icon.active,
   .icon[aria-pressed="true"] {
-    color: var(--accent);
+    color: var(--accent-ink);
     background: var(--accent-soft);
   }
   .title {

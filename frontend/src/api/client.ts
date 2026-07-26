@@ -113,6 +113,11 @@ async function parseSuccessResponse<T>(res: Response): Promise<T> {
   try {
     return (await res.json()) as T;
   } catch (error) {
+    // An abort during body streaming is a cancellation, not a malformed body.
+    // Wrapping it as ApiError would defeat callers' AbortError checks (e.g.
+    // the reader treats aborted chapter fetches as "superseded", not errors).
+    if (error instanceof DOMException && error.name === "AbortError")
+      throw error;
     throw new ApiError(
       "Invalid server response",
       res.status,

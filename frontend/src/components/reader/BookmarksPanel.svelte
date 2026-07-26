@@ -79,7 +79,10 @@
 
   // Keep edit-mode keys local: Esc cancels (and is stopped from bubbling to the
   // reader's own Esc handler), Enter in the single-line label field saves. The
-  // note textarea keeps Enter for newlines.
+  // note textarea keeps Enter for newlines. Attached to the .edit WRAPPER so it
+  // also covers the Save/Cancel buttons — with it only on the fields, Escape
+  // while a button had focus bubbled to the reader's window handler, which
+  // closed the whole panel and dropped the draft.
   function onEditKey(e: KeyboardEvent, id: string): void {
     if (e.isComposing) return;
     if (e.key === "Escape") {
@@ -116,7 +119,8 @@
         {#each sorted as bm (bm.id)}
           <li class="bm">
             {#if editingId === bm.id}
-              <div class="edit">
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="edit" onkeydown={(e) => onEditKey(e, bm.id)}>
                 <input
                   class="field"
                   bind:value={editLabel}
@@ -127,7 +131,6 @@
                     : undefined}
                   maxlength={MAX_BOOKMARK_TEXT_BYTES}
                   oninput={() => (editError = "")}
-                  onkeydown={(e) => onEditKey(e, bm.id)}
                   {@attach (el) => (el as HTMLInputElement).focus()}
                 />
                 <textarea
@@ -140,8 +143,7 @@
                     ? `bookmark-edit-error-${bm.id}`
                     : undefined}
                   maxlength={MAX_BOOKMARK_TEXT_BYTES}
-                  oninput={() => (editError = "")}
-                  onkeydown={(e) => onEditKey(e, bm.id)}></textarea>
+                  oninput={() => (editError = "")}></textarea>
                 {#if editError}
                   <p
                     class="edit-error"

@@ -133,6 +133,11 @@ class Settings {
     toIframeSettings(this.value, customThemes.list),
   );
 
+  /** True once server settings have been merged in (reactive). Consumers that
+   *  must not act on the compile-time defaults — e.g. the reader's applyTheme
+   *  effect, which would flash and cache the default theme — gate on this. */
+  loaded = $state(false);
+
   #loaded = false;
   #loadGeneration = 0;
   #loadController: AbortController | undefined;
@@ -185,6 +190,10 @@ class Settings {
       // Keep defaults if settings cannot be loaded.
     } finally {
       if (this.#loadController === controller) {
+        // Settled for this profile (success, or failure keeping defaults):
+        // `value` is now the best truth this session will get, so gated
+        // consumers may act on it. Not set on abort/supersede (logout race).
+        this.loaded = true;
         this.#loadController = undefined;
         this.#loadPromise = undefined;
       }
@@ -207,6 +216,7 @@ class Settings {
   /** Call on logout so the next login gets fresh settings from the server. */
   reset(): void {
     this.#loaded = false;
+    this.loaded = false;
     this.#loadGeneration += 1;
     this.#loadController?.abort();
     this.#loadController = undefined;
@@ -245,6 +255,11 @@ class Settings {
       const revision = this.#revision;
       saveSettings(snapshot, controller.signal)
         .then(() => {
+          // A reset() (logout) may have aborted this request between the
+          // server accepting it and this callback running; #lastSaved was
+          // already re-pointed at the defaults for the next profile and must
+          // not be clobbered with the previous profile's payload.
+          if (this.#saveController !== controller) return;
           // Remember the last payload the server accepted.
           this.#lastSaved = snapshot;
         })

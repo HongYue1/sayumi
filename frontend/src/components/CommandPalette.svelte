@@ -167,6 +167,16 @@
         break;
     }
   }
+  // Escape must close the palette even when focus is NOT on the input (e.g.
+  // after Tab moved it inside the dialog, or a click landed on the frame).
+  // The input's own handler consumes Escape first; this is the dialog-level
+  // fallback for everything else.
+  function onDialogKeydown(e: KeyboardEvent): void {
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    close();
+  }
 </script>
 
 {#if ui.palette}
@@ -179,6 +189,7 @@
       aria-modal="true"
       aria-label="Command palette"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={onDialogKeydown}
       {@attach focusTrap}
     >
       <div class="cmd-search">

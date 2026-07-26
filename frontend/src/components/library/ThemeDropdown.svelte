@@ -18,6 +18,13 @@
   );
   const lightThemes = THEMES.filter((t) => t.group === "light");
   const darkThemes = THEMES.filter((t) => t.group === "dark");
+  // When the active theme is a CUSTOM one, no built-in swatch is active — and
+  // with every item at tabindex -1 the menu would be a keyboard dead-end (no
+  // initial focus, arrows/Home/End find activeElement outside the menu). Fall
+  // back to treating the first light swatch as the roving-focus entry point.
+  const hasBuiltInActive = $derived(
+    THEMES.some((t) => t.id === settings.value.theme),
+  );
 
   function toggle(): void {
     open = !open;
@@ -136,20 +143,22 @@
     >
       <p class="group eyebrow" id="theme-grp-light">Light</p>
       <div class="swatches" role="group" aria-labelledby="theme-grp-light">
-        {#each lightThemes as t (t.id)}
+        {#each lightThemes as t, i (t.id)}
           {@const active = settings.value.theme === t.id}
+          {@const focusEntry = active || (i === 0 && !hasBuiltInActive)}
           <button
             class="pick"
             class:active
             role="menuitemradio"
             aria-checked={active}
-            tabindex={active ? 0 : -1}
+            tabindex={focusEntry ? 0 : -1}
             title={t.label}
             aria-label={t.label}
             onclick={() => choose(t.id)}
             {@attach (el) => {
-              // Focus the currently-selected theme on open (menuitemradio model).
-              if (active) (el as HTMLButtonElement).focus();
+              // Focus the currently-selected theme on open (menuitemradio
+              // model), or the first swatch when a custom theme is active.
+              if (focusEntry) (el as HTMLButtonElement).focus();
             }}
           >
             <span class="preview" style:background={t.bg} style:color={t.fg}>

@@ -332,6 +332,38 @@ export function themeGroupFor(bg: string): ThemeGroup {
   return luminance(bg) > 0.4 ? "light" : "dark";
 }
 
+/** WCAG contrast ratio between two hex colors (1..21). */
+function contrastRatio(a: string, b: string): number {
+  const la = luminance(a);
+  const lb = luminance(b);
+  const [hi, lo] = la > lb ? [la, lb] : [lb, la];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/**
+ * The accent, darkened/lightened just enough to read as TEXT on the theme's
+ * background (WCAG AA, 4.5:1). Official palettes tune their accent for fills
+ * and focus rings, and several (ayu light, solarized, rosé pine dawn) sit well
+ * under text contrast on their own paper. Fills keep using --accent; ink-like
+ * uses (active labels, links, checkmarks) use this. Binary-searches the
+ * smallest mix toward black/white so the hue shifts as little as possible; if
+ * even the endpoint can't reach 4.5:1 it returns the endpoint (best effort).
+ */
+export function readableAccent(accent: string, bg: string): string {
+  if (!parseHex(accent) || !parseHex(bg)) return accent;
+  if (contrastRatio(accent, bg) >= 4.5) return accent;
+  const toward = luminance(bg) > 0.4 ? "#000000" : "#ffffff";
+  if (contrastRatio(toward, bg) < 4.5) return toward;
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 12; i++) {
+    const mid = (lo + hi) / 2;
+    if (contrastRatio(mixHex(accent, toward, mid), bg) >= 4.5) hi = mid;
+    else lo = mid;
+  }
+  return mixHex(accent, toward, hi);
+}
+
 /** Derived elevated surface for themes without an official one (custom themes,
  *  officially-flat schemes): a 6% wash of the ink into the paper. */
 export function deriveSurface(bg: string, fg: string): string {

@@ -53,6 +53,7 @@
           s.setProperty("--accent", v.accent);
           s.setProperty("--accent-fg", v.accentFg);
           if (v.elevated) s.setProperty("--elevated", v.elevated);
+          if (v.accentInk) s.setProperty("--accent-ink", v.accentInk);
           s.colorScheme = v.scheme;
           if (v.id) document.documentElement.dataset.theme = v.id;
         } catch (e) {}

@@ -198,7 +198,12 @@
   }
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<!-- Capture phase: this dialog mounts AFTER the reader route, so its bubble
+     listener would run last — Read's Escape action (close panel / navigate
+     back) would have already fired before stopImmediatePropagation could act.
+     Capture runs before every bubble-phase window listener regardless of
+     registration order. -->
+<svelte:window onkeydowncapture={onKeydown} />
 
 <div class="overlay" role="presentation" onclick={close}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
