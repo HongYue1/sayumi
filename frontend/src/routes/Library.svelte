@@ -511,18 +511,13 @@
     margin-inline: calc(var(--pagex) * -1);
     padding: var(--sp-2) var(--pagex);
     margin-bottom: var(--sp-3);
-    /* Tonal separation instead of a rule: the band is the theme's own ink
-       washed into translucent paper (≈6% fg), so the header reads as its own
-       sheet of stock on every palette — light themes get a shade darker,
-       dark themes a breath lighter. A soft shadow settles the edge without
-       reintroducing a hard line. */
-    background: color-mix(
-      in srgb,
-      var(--fg) 6%,
-      color-mix(in srgb, var(--bg) 86%, transparent)
-    );
-    -webkit-backdrop-filter: blur(12px);
-    backdrop-filter: blur(12px);
+    /* Tonal separation instead of a rule: --elevated is each scheme's
+       OFFICIAL bar/panel surface (Rosé Pine surface, Catppuccin mantle,
+       Nord nord1, Tokyo Night bg_dark, Solarized base02/base2, …), set per
+       theme by applyTheme; custom and officially-flat themes fall back to a
+       derived wash. Opaque — the band is its own sheet of stock, so no
+       backdrop blur is needed — with a soft shadow settling the edge. */
+    background: var(--elevated);
     box-shadow: var(--shadow-1);
     animation: app-rise-in var(--dur-slower) var(--ease-out) both;
   }

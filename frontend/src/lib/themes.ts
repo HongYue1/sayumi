@@ -7,6 +7,15 @@ export interface ThemeDef {
   bg: string;
   fg: string;
   accent: string;
+  /**
+   * The scheme's OFFICIAL elevated/secondary surface (the color its own
+   * ecosystem uses for bars, sidebars, panels) — e.g. Rosé Pine `surface`,
+   * Catppuccin `mantle`, Nord `nord1`, Solarized `base02`/`base2`, Tokyo
+   * Night `bg_dark`, Atom One Dark's sidebar. Omitted where the scheme is
+   * officially flat (Night Owl paints every pane #011627); those fall back
+   * to a derived wash via themeSurface().
+   */
+  surface?: string;
 }
 
 export const THEMES: ThemeDef[] = [
@@ -18,6 +27,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#ffffff",
     fg: "#1c1917",
     accent: "#2563eb",
+    surface: "#f5f5f4",
   },
   {
     id: "sepia",
@@ -26,6 +36,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#faf6ef",
     fg: "#3d2e1e",
     accent: "#8b6914",
+    surface: "#ede8df",
   },
   {
     id: "catppuccin-latte",
@@ -34,6 +45,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#eff1f5",
     fg: "#4c4f69",
     accent: "#8839ef",
+    surface: "#e6e9ef",
   },
   {
     id: "gruvbox-light",
@@ -42,6 +54,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#fbf1c7",
     fg: "#3c3836",
     accent: "#af3a03",
+    surface: "#f2e5bc",
   },
   {
     id: "ayu-light",
@@ -50,6 +63,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#fcfcfc",
     fg: "#5c6166",
     accent: "#ff9940",
+    surface: "#f3f4f5",
   },
   {
     id: "rose-pine-dawn",
@@ -58,6 +72,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#faf4ed",
     fg: "#575279",
     accent: "#907aa9",
+    surface: "#fffaf3",
   },
   {
     id: "solarized-light",
@@ -66,6 +81,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#fdf6e3",
     fg: "#657b83",
     accent: "#268bd2",
+    surface: "#eee8d5",
   },
   {
     id: "everforest-light",
@@ -74,6 +90,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#fdf6e3",
     fg: "#5c6a72",
     accent: "#8da101",
+    surface: "#f4f0d9",
   },
   {
     id: "flexoki-light",
@@ -82,6 +99,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#fffcf0",
     fg: "#100f0f",
     accent: "#205ea6",
+    surface: "#f2f0e5",
   },
   {
     id: "night-owl-light",
@@ -100,6 +118,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#1c1917",
     fg: "#fafaf9",
     accent: "#60a5fa",
+    surface: "#292524",
   },
   {
     id: "rose-pine",
@@ -108,6 +127,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#191724",
     fg: "#e0def4",
     accent: "#c4a7e7",
+    surface: "#1f1d2e",
   },
   {
     id: "nord",
@@ -116,6 +136,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#2e3440",
     fg: "#d8dee9",
     accent: "#88c0d0",
+    surface: "#3b4252",
   },
   {
     id: "dracula",
@@ -124,6 +145,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#282a36",
     fg: "#f8f8f2",
     accent: "#bd93f9",
+    surface: "#21222c",
   },
   {
     id: "catppuccin",
@@ -132,6 +154,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#1e1e2e",
     fg: "#cdd6f4",
     accent: "#cba6f7",
+    surface: "#181825",
   },
   {
     id: "gruvbox",
@@ -140,6 +163,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#282828",
     fg: "#ebdbb2",
     accent: "#fe8019",
+    surface: "#32302f",
   },
   {
     id: "ayu-dark",
@@ -148,6 +172,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#0b0e14",
     fg: "#bfbdb6",
     accent: "#e6b450",
+    surface: "#0d1017",
   },
   {
     id: "solarized-dark",
@@ -156,6 +181,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#002b36",
     fg: "#839496",
     accent: "#268bd2",
+    surface: "#073642",
   },
   {
     id: "tokyo-night",
@@ -164,6 +190,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#1a1b26",
     fg: "#c0caf5",
     accent: "#7aa2f7",
+    surface: "#16161e",
   },
   {
     id: "tokyo-storm",
@@ -172,6 +199,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#24283b",
     fg: "#c0caf5",
     accent: "#7aa2f7",
+    surface: "#1f2335",
   },
   {
     id: "everforest-dark",
@@ -180,6 +208,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#2d353b",
     fg: "#d3c6aa",
     accent: "#a7c080",
+    surface: "#343f44",
   },
   {
     id: "one-dark",
@@ -188,6 +217,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#282c34",
     fg: "#abb2bf",
     accent: "#61afef",
+    surface: "#21252b",
   },
   {
     id: "kanagawa",
@@ -196,6 +226,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#1f1f28",
     fg: "#dcd7ba",
     accent: "#7e9cd8",
+    surface: "#16161d",
   },
   {
     id: "flexoki-dark",
@@ -204,6 +235,7 @@ export const THEMES: ThemeDef[] = [
     bg: "#100f0f",
     fg: "#cecdc3",
     accent: "#4385be",
+    surface: "#1c1b1a",
   },
   {
     id: "night-owl",
@@ -298,6 +330,18 @@ export function autoAccent(bg: string, fg: string): string {
  *  custom theme slots into the matching (day/night) row. */
 export function themeGroupFor(bg: string): ThemeGroup {
   return luminance(bg) > 0.4 ? "light" : "dark";
+}
+
+/** Derived elevated surface for themes without an official one (custom themes,
+ *  officially-flat schemes): a 6% wash of the ink into the paper. */
+export function deriveSurface(bg: string, fg: string): string {
+  return mixHex(bg, fg, 0.06);
+}
+
+/** A theme's elevated surface: the official color when the scheme defines
+ *  one, else the derived wash. Always a concrete hex. */
+export function themeSurface(t: ThemeDef): string {
+  return t.surface ?? deriveSurface(t.bg, t.fg);
 }
 
 /**

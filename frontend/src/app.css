@@ -88,6 +88,11 @@
   /* Opaque raised paper for popovers/dialogs — a breath lighter than the page
      in dark themes, a breath warmer in light ones. */
   --raised: color-mix(in srgb, var(--fg) 3%, var(--bg));
+  /* Elevated surface (library command bar). applyTheme overrides this with
+     each scheme's OFFICIAL bar/panel color (Rosé Pine surface, Catppuccin
+     mantle, Nord nord1, Tokyo Night bg_dark, …); this is only the first-paint
+     fallback and the derived wash for custom/flat themes. */
+  --elevated: color-mix(in srgb, var(--fg) 6%, var(--bg));
   /* Accent washes for selected states and tints. */
   --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
   --accent-soft-strong: color-mix(in srgb, var(--accent) 22%, transparent);

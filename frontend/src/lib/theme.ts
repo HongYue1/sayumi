@@ -1,6 +1,6 @@
 // getTheme now lives in lib/themes (single Map-backed source of truth). It's
 // re-exported here so existing importers using "~/lib/theme" keep working.
-import { getTheme } from "~/lib/themes";
+import { getTheme, themeSurface, deriveSurface } from "~/lib/themes";
 
 export { getTheme };
 
@@ -74,6 +74,11 @@ function applyCachedTheme(id: string): boolean {
   root.style.setProperty("--fg", v.fg);
   root.style.setProperty("--accent", v.accent);
   root.style.setProperty("--accent-fg", v.accentFg);
+  // Older caches predate the elevated-surface token; derive it then.
+  root.style.setProperty(
+    "--elevated",
+    typeof v.elevated === "string" ? v.elevated : deriveSurface(v.bg, v.fg),
+  );
   root.style.colorScheme = v.scheme;
   root.dataset.theme = id;
   return true;
@@ -94,11 +99,13 @@ export function applyTheme(id: string): void {
   if (t.id !== id && applyCachedTheme(id)) return;
   const accentFg = onAccentColor(t.accent);
   const scheme = t.group === "dark" ? "dark" : "light";
+  const elevated = themeSurface(t);
   const root = document.documentElement;
   root.style.setProperty("--bg", t.bg);
   root.style.setProperty("--fg", t.fg);
   root.style.setProperty("--accent", t.accent);
   root.style.setProperty("--accent-fg", accentFg);
+  root.style.setProperty("--elevated", elevated);
   root.style.colorScheme = scheme;
   root.dataset.theme = t.id;
   // Cache the resolved tokens so the inline <head> bootstrap in index.html can
@@ -114,6 +121,7 @@ export function applyTheme(id: string): void {
         fg: t.fg,
         accent: t.accent,
         accentFg,
+        elevated,
         scheme,
       }),
     );
