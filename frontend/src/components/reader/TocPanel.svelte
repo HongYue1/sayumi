@@ -71,6 +71,17 @@
     return rows.filter((r) => r.entry.title.toLowerCase().includes(q));
   });
 
+  // Rows covered by the progress rail's fill: the leading run of read rows
+  // plus the current one (order is preserved by filtering, so they always
+  // form a prefix). Drawn as ONE continuous element behind the list — a
+  // per-row segment would bend around each row's rounded corners.
+  const railFillRows = $derived.by(() => {
+    const idx = filteredRows.findIndex(
+      (r) => !isRead(r.entry) && r.entry !== activeEntry,
+    );
+    return idx === -1 ? filteredRows.length : idx;
+  });
+
   // Highlight the matched substring (first occurrence) so a filtered list is
   // scannable. Returns null when there's no active query so unfiltered rows
   // render as plain text. The highlight is a height-neutral inline <mark>
@@ -335,6 +346,14 @@
         style="--toc-row-h: {ROW_H}px"
       >
         <div class="sizer" style:height={`${totalHeight}px`}>
+          <!-- Progress rail: hairline track the full height of the contents,
+               accent fill down through the current chapter. -->
+          <div class="rail" aria-hidden="true"></div>
+          <div
+            class="rail-fill"
+            aria-hidden="true"
+            style:height={`${railFillRows * ROW_H}px`}
+          ></div>
           <ul class="window" style:transform={`translateY(${offsetY}px)`}>
             {#each windowRows as row, i (row.entry.href + row.entry.title + "@" + (startIndex + i))}
               {@const hl = highlight(row.entry.title)}
@@ -449,6 +468,24 @@
     position: relative;
     width: 100%;
   }
+  /* The progress rail: one continuous track + fill, behind the rows. */
+  .rail {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--hairline);
+  }
+  .rail-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 2px;
+    border-radius: 1px;
+    background: color-mix(in srgb, var(--accent) 55%, transparent);
+  }
   ul {
     list-style: none;
     margin: 0;
@@ -484,27 +521,24 @@
   }
   /* Hierarchy: top-level entries read as headings (full ink, medium weight),
      nested entries recede (muted) so a Part > Chapter TOC has visible depth.
-     Every row carries a segment of the left rail (inset shadow — never a
-     border, so the fixed row height the virtual-scroll math depends on can't
-     drift): hairline for unread, accent wash for read. Stacked rows form a
-     continuous progress rail down the contents — the TOC doubles as a map of
-     how far into the book you are. */
+     Rows sit to the right of the progress rail; read chapters recede to
+     faint ink, so the list itself shows how far into the book you are. */
   .entry {
     position: relative;
+    margin-left: 10px;
+    width: calc(100% - 10px);
     color: var(--muted);
     font-weight: 440;
-    box-shadow: inset 2px 0 0 var(--hairline);
   }
   .entry.top {
     color: var(--fg);
     font-weight: 560;
   }
-  /* Read chapters recede and fill their rail segment. */
+  /* Read chapters recede. */
   .entry.read,
   .entry.read.top {
     color: var(--faint);
     font-weight: 440;
-    box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
   }
   .entry:hover {
     background: var(--surface-hover);
@@ -513,13 +547,12 @@
   .entry:active {
     transform: scale(0.99);
   }
-  /* Current chapter: accent text + tinted row + a full-strength rail notch. */
+  /* Current chapter: tinted row + accent text (the rail fill ends here). */
   .entry.current,
   .entry.current.top {
     background: var(--accent-soft);
     color: var(--accent);
     font-weight: 640;
-    box-shadow: inset 3px 0 0 var(--accent);
   }
   /* Filter match highlight: height-neutral (background + radius + horizontal
      padding only, never vertical padding or a border) so the fixed row height

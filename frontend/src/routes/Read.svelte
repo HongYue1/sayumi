@@ -1508,10 +1508,11 @@
     <div class="fill" style:--progress-scale={chapterPercent}></div>
   </div>
 
-  <!-- Book-level position at a glance; the title eyebrow auto-hides with the
-       chrome, so this chip is the whereabouts cue while it's visible. -->
+  <!-- Book-level position at a glance. Shown only while the chrome is hidden:
+       with the bar up, the title eyebrow already reports the chapter, so the
+       chip takes over as the whereabouts cue once the chrome tucks away. -->
   {#if book && !isSpecimen}
-    <div class="pos tnum" class:hidden={!chromeVisible} aria-hidden="true">
+    <div class="pos tnum" class:hidden={chromeVisible} aria-hidden="true">
       Ch {currentChapter + 1}/{book.chapterCount} · {Math.round(
         chapterPercent * 100,
       )}%
