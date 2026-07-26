@@ -67,6 +67,10 @@ linters:
             - modernc.org/sqlite
     misspell:
       locale: US
+      # Calibre is the e-book manager's own spelling, not a typo for "caliber";
+      # it comes up whenever a comment explains an OPF quirk we handle.
+      ignore-rules:
+        - Calibre
     sloglint:
       no-mixed-args: true # never mix key-value pairs and slog.Attr in one call
       key-naming-case: snake # keys like "db_open", "book_cache" stay consistent

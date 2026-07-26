@@ -22,9 +22,6 @@ const (
 	// maxCoverUploadBytes bounds the cover upload body. It matches
 	// library.maxCoverBytes (the decode-time guard) so the two limits agree.
 	maxCoverUploadBytes = 20 << 20 // 20 MB
-	// maxBookMetaBody bounds the PATCH JSON body. Title + author are short text
-	// fields, so a generous-but-finite cap stops an unbounded read.
-	maxBookMetaBody = 64 << 10 // 64 KB
 	// bookEditCommitTimeout bounds the DB/cache commit that follows a completed
 	// file swap. It runs on a context detached from the request because the new
 	// bytes are already on disk: abandoning the row update because the client
