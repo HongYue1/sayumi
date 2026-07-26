@@ -511,10 +511,19 @@
     margin-inline: calc(var(--pagex) * -1);
     padding: var(--sp-2) var(--pagex);
     margin-bottom: var(--sp-3);
-    background: color-mix(in srgb, var(--bg) 84%, transparent);
+    /* Tonal separation instead of a rule: the band is the theme's own ink
+       washed into translucent paper (≈6% fg), so the header reads as its own
+       sheet of stock on every palette — light themes get a shade darker,
+       dark themes a breath lighter. A soft shadow settles the edge without
+       reintroducing a hard line. */
+    background: color-mix(
+      in srgb,
+      var(--fg) 6%,
+      color-mix(in srgb, var(--bg) 86%, transparent)
+    );
     -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
-    border-bottom: 1px solid var(--hairline);
+    box-shadow: var(--shadow-1);
     animation: app-rise-in var(--dur-slower) var(--ease-out) both;
   }
   .lockup {
