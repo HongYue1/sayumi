@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
+  import { fly, fade } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
   import {
     isProgressDuplicate,
     chooseBootProgress,
@@ -64,6 +66,7 @@
     Settings,
     List,
     CircleHelp,
+    Ellipsis,
   } from "@lucide/svelte";
 
   interface Props {
@@ -182,6 +185,26 @@
   // already inherits the nearest preceding heading for chapters with no TOC line
   // of their own (fill-forward in buildTocChapterEntries).
   const chapterLabel = $derived(activeTocEntry?.title ?? "");
+  // First spine index each TOC entry covers (tocChapterEntries fills forward,
+  // so the first occurrence is the entry's own start). Drives the TOC's
+  // read-rail: an entry whose start lies before the current chapter is read.
+  const entryStartChapter = $derived.by(() => {
+    if (!tocChapterEntries) return null;
+    const starts = new Map<
+      NonNullable<(typeof tocChapterEntries)[number]>,
+      number
+    >();
+    tocChapterEntries.forEach((entry, i) => {
+      if (entry && !starts.has(entry)) starts.set(entry, i);
+    });
+    return starts;
+  });
+  // Resolves a chapter index to its TOC heading, so bookmarks can show real
+  // chapter names instead of "Chapter N". Plain function prop; the map is
+  // built once per book.
+  function chapterTitleFor(chapter: number): string | null {
+    return tocChapterEntries?.[chapter]?.title ?? null;
+  }
 
   // Non-reactive instance state.
   let api: ChapterFrameAPI | null = null;
@@ -215,6 +238,15 @@
 
   const CHROME_AUTO_HIDE_MS = 4000;
 
+  // Panel enter/exit run through Svelte transitions (CSS keyframes can't
+  // animate {#if} teardown). JS-driven motion bypasses the global
+  // prefers-reduced-motion kill switch in app.css, so honor it here.
+  const prefersReducedMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const PANEL_MS = prefersReducedMotion ? 0 : 280;
+  const FADE_MS = prefersReducedMotion ? 0 : 160;
+
   function cancelPendingHighlight(): void {
     pendingHighlight = null;
     if (highlightTimer) {
@@ -247,6 +279,78 @@
   }
   function showToast(msg: string): void {
     toast.show(msg);
+  }
+
+  // ---- toolbar overflow ("⋯") menu — narrow viewports collapse the less-used
+  // tools into it so the bar never outgrows a phone screen. -----------------
+  let moreOpen = $state(false);
+  let moreBtn = $state<HTMLButtonElement | null>(null);
+  let moreMenuEl = $state<HTMLElement | null>(null);
+
+  function closeMore(restoreFocus = true): void {
+    if (!moreOpen) return;
+    moreOpen = false;
+    if (restoreFocus) moreBtn?.focus();
+  }
+  function pickMore(action: () => void): void {
+    // Restore trigger focus before acting so a panel's focus trap snapshots
+    // the trigger (mirrors ProfileMenu.pick()).
+    closeMore(true);
+    action();
+  }
+  function onMoreOutside(e: PointerEvent): void {
+    const t = e.target as Node;
+    if (moreMenuEl?.contains(t) || moreBtn?.contains(t)) return;
+    closeMore(false);
+  }
+  function onMoreKeydown(e: KeyboardEvent): void {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      closeMore();
+      return;
+    }
+    if (
+      e.key !== "ArrowDown" &&
+      e.key !== "ArrowUp" &&
+      e.key !== "Home" &&
+      e.key !== "End" &&
+      e.key !== "Tab"
+    ) {
+      return;
+    }
+    // Roving focus, matching the app's other menus.
+    const menu = e.currentTarget as HTMLElement;
+    const items = Array.from(menu.querySelectorAll<HTMLButtonElement>(".mrow"));
+    if (items.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const cur = items.indexOf(document.activeElement as HTMLButtonElement);
+    let next: number;
+    switch (e.key) {
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = items.length - 1;
+        break;
+      case "Tab":
+        next = e.shiftKey
+          ? cur < 0
+            ? items.length - 1
+            : (cur - 1 + items.length) % items.length
+          : cur < 0
+            ? 0
+            : (cur + 1) % items.length;
+        break;
+      case "ArrowDown":
+        next = cur < 0 ? 0 : (cur + 1) % items.length;
+        break;
+      default:
+        next =
+          cur < 0 ? items.length - 1 : (cur - 1 + items.length) % items.length;
+    }
+    items[next].focus();
   }
 
   // ---- chrome auto-hide ----------------------------------------------------
@@ -460,6 +564,15 @@
 
     lastBootProgress = saved;
     await openBook(saved);
+
+    // Restoring a position is otherwise silent — say where the book resumed
+    // so mid-book openings don't feel arbitrary. Only for a real position.
+    if (bookLoaded && book && (saved.chapter > 0 || saved.percent > 0.02)) {
+      const ch = Math.max(0, Math.min(saved.chapter, book.chapterCount - 1));
+      showToast(
+        `Resumed at Ch ${ch + 1} · ${Math.round(saved.percent * 100)}%`,
+      );
+    }
 
     // Bookmarks are non-blocking for reader startup.
     getBookmarks(bookId)
@@ -1038,6 +1151,7 @@
 <svelte:window
   onkeydown={handleWindowKey}
   onpointermove={handlePointerActivity}
+  onpointerdown={moreOpen ? onMoreOutside : undefined}
 />
 <svelte:document onvisibilitychange={handleVisibility} />
 
@@ -1075,14 +1189,14 @@
           /></button
         >
         <button
-          class="icon"
+          class="icon fold"
           onclick={() => togglePanel("bookmarks")}
           aria-label="Bookmarks"
           aria-pressed={activePanel === "bookmarks"}
           ><Icon icon={BookMarked} /></button
         >
         <button
-          class="icon"
+          class="icon fold"
           onclick={() => togglePanel("search")}
           aria-label="Search in book"
           aria-pressed={activePanel === "search"}><Icon icon={Search} /></button
@@ -1090,6 +1204,7 @@
       {/if}
       <button
         class="icon"
+        class:fold={!isSpecimen}
         onclick={() => togglePanel("settings")}
         aria-label="Settings"
         aria-pressed={activePanel === "settings"}
@@ -1105,9 +1220,68 @@
       {/if}
       <button
         class="icon"
+        class:fold={!isSpecimen}
         onclick={() => ui.openShortcuts()}
         aria-label="Keyboard shortcuts"><Icon icon={CircleHelp} /></button
       >
+      {#if !isSpecimen}
+        <!-- Narrow viewports: the folded tools live here instead. -->
+        <div class="more-dd">
+          <button
+            bind:this={moreBtn}
+            class="icon more"
+            aria-haspopup="menu"
+            aria-expanded={moreOpen}
+            aria-label="More tools"
+            onclick={() => (moreOpen = !moreOpen)}
+            ><Icon icon={Ellipsis} /></button
+          >
+          {#if moreOpen}
+            <div
+              bind:this={moreMenuEl}
+              class="more-menu paper"
+              role="menu"
+              tabindex="-1"
+              aria-label="More tools"
+              onkeydown={onMoreKeydown}
+            >
+              <button
+                class="mrow"
+                role="menuitem"
+                tabindex="0"
+                {@attach (el) => (el as HTMLButtonElement).focus()}
+                onclick={() => pickMore(() => togglePanel("search"))}
+              >
+                <Icon icon={Search} size={16} />Search in book
+              </button>
+              <button
+                class="mrow"
+                role="menuitem"
+                tabindex="-1"
+                onclick={() => pickMore(() => togglePanel("bookmarks"))}
+              >
+                <Icon icon={BookMarked} size={16} />Bookmarks
+              </button>
+              <button
+                class="mrow"
+                role="menuitem"
+                tabindex="-1"
+                onclick={() => pickMore(() => togglePanel("settings"))}
+              >
+                <Icon icon={Settings} size={16} />Settings
+              </button>
+              <button
+                class="mrow"
+                role="menuitem"
+                tabindex="-1"
+                onclick={() => pickMore(() => ui.openShortcuts())}
+              >
+                <Icon icon={CircleHelp} size={16} />Keyboard shortcuts
+              </button>
+            </div>
+          {/if}
+        </div>
+      {/if}
     </div>
   </header>
 
@@ -1155,12 +1329,16 @@
         role="dialog"
         aria-modal="true"
         aria-label="Table of contents"
+        transition:fly={{ x: -24, duration: PANEL_MS, easing: cubicOut }}
         {@attach focusTrap}
       >
         {#if TocPanelComp}
           <TocPanelComp
             toc={book.toc}
             activeEntry={activeTocEntry}
+            entryChapter={entryStartChapter}
+            {currentChapter}
+            positionLabel={`Ch ${currentChapter + 1} of ${book.chapterCount}`}
             onnavigate={handleTocNavigate}
             onclose={closePanel}
           />
@@ -1169,6 +1347,9 @@
             <TocPanel
               toc={book.toc}
               activeEntry={activeTocEntry}
+              entryChapter={entryStartChapter}
+              {currentChapter}
+              positionLabel={`Ch ${currentChapter + 1} of ${book.chapterCount}`}
               onnavigate={handleTocNavigate}
               onclose={closePanel}
             />
@@ -1186,6 +1367,7 @@
         class="scrim"
         aria-label="Close panel backdrop"
         tabindex="-1"
+        transition:fade={{ duration: FADE_MS }}
         onclick={closePanel}
       ></button>
     {/if}
@@ -1196,11 +1378,13 @@
         role="dialog"
         aria-modal="true"
         aria-label="Bookmarks"
+        transition:fly={{ x: -24, duration: PANEL_MS, easing: cubicOut }}
         {@attach focusTrap}
       >
         {#if BookmarksPanelComp}
           <BookmarksPanelComp
             {bookmarks}
+            chapterTitle={chapterTitleFor}
             onnavigate={navigateBookmark}
             ondelete={(id) => void removeBookmark(id)}
             onupdate={(id, label, comment) =>
@@ -1211,6 +1395,7 @@
           {#await bookmarksPanel() then { default: BookmarksPanel }}
             <BookmarksPanel
               {bookmarks}
+              chapterTitle={chapterTitleFor}
               onnavigate={navigateBookmark}
               ondelete={(id) => void removeBookmark(id)}
               onupdate={(id, label, comment) =>
@@ -1231,6 +1416,7 @@
         class="scrim"
         aria-label="Close panel backdrop"
         tabindex="-1"
+        transition:fade={{ duration: FADE_MS }}
         onclick={closePanel}
       ></button>
     {/if}
@@ -1241,6 +1427,7 @@
         role="dialog"
         aria-modal="true"
         aria-label="Search in book"
+        transition:fly={{ x: 24, duration: PANEL_MS, easing: cubicOut }}
         {@attach focusTrap}
       >
         {#if SearchPanelComp}
@@ -1272,6 +1459,7 @@
         class="scrim"
         aria-label="Close panel backdrop"
         tabindex="-1"
+        transition:fade={{ duration: FADE_MS }}
         onclick={closePanel}
       ></button>
     {/if}
@@ -1282,6 +1470,7 @@
         role="dialog"
         aria-modal="true"
         aria-label="Settings"
+        transition:fly={{ x: 24, duration: PANEL_MS, easing: cubicOut }}
         {@attach focusTrap}
       >
         {#if SettingsPanelComp}
@@ -1300,7 +1489,7 @@
         {/if}
       </div>
       <button
-        class="scrim"
+        class="scrim quiet"
         aria-label="Close panel backdrop"
         tabindex="-1"
         onclick={closePanel}
@@ -1318,6 +1507,16 @@
   >
     <div class="fill" style:--progress-scale={chapterPercent}></div>
   </div>
+
+  <!-- Book-level position at a glance; the title eyebrow auto-hides with the
+       chrome, so this chip is the whereabouts cue while it's visible. -->
+  {#if book && !isSpecimen}
+    <div class="pos tnum" class:hidden={!chromeVisible} aria-hidden="true">
+      Ch {currentChapter + 1}/{book.chapterCount} · {Math.round(
+        chapterPercent * 100,
+      )}%
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -1495,7 +1694,59 @@
     font-weight: 480;
     color: var(--fg);
   }
-  /* Side panels float as paper sheets over the page. */
+  /* Narrow viewports: fold the secondary tools into the "⋯" menu so the bar
+     never outgrows a phone screen. */
+  .more-dd {
+    position: relative;
+    display: none;
+  }
+  @media (max-width: 640px) {
+    .fold {
+      display: none;
+    }
+    .more-dd {
+      display: inline-flex;
+    }
+  }
+  .more-menu {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    right: 0;
+    z-index: 9;
+    min-width: 13.5rem;
+    padding: var(--sp-2);
+    transform-origin: top right;
+    animation: app-menu-pop-in var(--dur) var(--ease-out) both;
+  }
+  .mrow {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    width: 100%;
+    padding: 0.55rem 0.6rem;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    font-size: var(--text-sm);
+    font-weight: 520;
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .mrow :global(svg) {
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+  .mrow:hover,
+  .mrow:focus-visible {
+    background: var(--surface-hover);
+    outline: none;
+  }
+
+  /* Side panels float as paper sheets over the page. Enter/exit run through
+     Svelte fly/fade transitions (see markup) so closing animates too. */
   .panel {
     position: absolute;
     top: var(--sp-3);
@@ -1510,12 +1761,10 @@
   }
   .panel.left {
     left: var(--sp-3);
-    animation: panel-left-in var(--dur-slow) var(--ease-out) backwards;
   }
   .panel.right {
     right: var(--sp-3);
     width: min(23rem, 92vw);
-    animation: panel-right-in var(--dur-slow) var(--ease-out) backwards;
   }
   .scrim {
     position: absolute;
@@ -1524,27 +1773,11 @@
     background: var(--veil);
     cursor: pointer;
     z-index: 6;
-    animation: app-overlay-in var(--dur) var(--ease-out) backwards;
   }
-  @keyframes panel-left-in {
-    from {
-      opacity: 0;
-      transform: translateX(-1.25rem);
-    }
-    to {
-      opacity: 1;
-      transform: translateX(0);
-    }
-  }
-  @keyframes panel-right-in {
-    from {
-      opacity: 0;
-      transform: translateX(1.25rem);
-    }
-    to {
-      opacity: 1;
-      transform: translateX(0);
-    }
+  /* Settings only: an invisible click-catcher instead of the veil, so the
+     typography controls live-preview against the real, undimmed page. */
+  .scrim.quiet {
+    background: transparent;
   }
   .progress {
     position: absolute;
@@ -1570,6 +1803,32 @@
     transform: scaleX(var(--progress-scale, 0));
     transform-origin: left center;
     transition: transform var(--dur-fast) var(--ease-out);
+  }
+
+  /* Book-level position chip riding above the progress bar's right end. */
+  .pos {
+    position: absolute;
+    right: var(--sp-3);
+    bottom: calc(4px + var(--sp-2));
+    z-index: 5;
+    padding: 0.22rem 0.65rem;
+    border-radius: 999px;
+    border: 1px solid var(--hairline);
+    background: color-mix(in srgb, var(--bg) 84%, transparent);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    color: var(--muted);
+    font-size: 0.68rem;
+    font-weight: 620;
+    letter-spacing: 0.06em;
+    pointer-events: none;
+    transition:
+      opacity var(--dur) var(--ease-out),
+      transform var(--dur) var(--ease-out);
+  }
+  .pos.hidden {
+    opacity: 0;
+    transform: translateY(6px);
   }
 
   /* Progress reflects reading position, not decoration: honor reduced-motion

@@ -7,11 +7,32 @@
   interface Props {
     toc: TocEntry[];
     activeEntry: TocEntry | null;
+    /** First chapter index each entry covers; drives the read-rail. */
+    entryChapter?: Map<TocEntry, number> | null;
+    /** Current chapter index; entries starting before it render as read. */
+    currentChapter?: number;
+    /** "Ch 3 of 12" — shown in the panel header. */
+    positionLabel?: string;
     onnavigate: (href: string) => void;
     onclose: () => void;
   }
 
-  let { toc, activeEntry, onnavigate, onclose }: Props = $props();
+  let {
+    toc,
+    activeEntry,
+    entryChapter = null,
+    currentChapter = -1,
+    positionLabel = "",
+    onnavigate,
+    onclose,
+  }: Props = $props();
+
+  /** True when the entry's own chapter lies behind the reading position. */
+  function isRead(entry: TocEntry): boolean {
+    if (currentChapter < 0 || !entryChapter) return false;
+    const start = entryChapter.get(entry);
+    return start !== undefined && start < currentChapter;
+  }
 
   // Fixed-height virtual list. Only the rows in (or near) the viewport are ever
   // in the DOM, so a 6000-chapter TOC opens instantly instead of laying out and
@@ -267,7 +288,11 @@
 <div class="toc">
   <header>
     <div class="head-text">
-      <p class="eyebrow">Reader</p>
+      <p class="eyebrow">
+        Reader{#if positionLabel}<span class="pos-label tnum">
+            · {positionLabel}</span
+          >{/if}
+      </p>
       <h2 class="display">Contents</h2>
     </div>
     <button
@@ -323,6 +348,7 @@
                   id={rowId(globalIndex)}
                   class="entry"
                   class:current={row.entry === activeEntry}
+                  class:read={isRead(row.entry)}
                   class:top={row.depth === 0}
                   aria-current={row.entry === activeEntry
                     ? "location"
@@ -368,6 +394,10 @@
   }
   .head-text .eyebrow {
     margin: 0;
+  }
+  .pos-label {
+    color: var(--faint);
+    letter-spacing: 0.08em;
   }
   h2 {
     margin: 0;
@@ -453,15 +483,28 @@
       transform var(--dur-fast) var(--ease-out);
   }
   /* Hierarchy: top-level entries read as headings (full ink, medium weight),
-     nested entries recede (muted) so a Part > Chapter TOC has visible depth. */
+     nested entries recede (muted) so a Part > Chapter TOC has visible depth.
+     Every row carries a segment of the left rail (inset shadow — never a
+     border, so the fixed row height the virtual-scroll math depends on can't
+     drift): hairline for unread, accent wash for read. Stacked rows form a
+     continuous progress rail down the contents — the TOC doubles as a map of
+     how far into the book you are. */
   .entry {
     position: relative;
     color: var(--muted);
     font-weight: 440;
+    box-shadow: inset 2px 0 0 var(--hairline);
   }
   .entry.top {
     color: var(--fg);
     font-weight: 560;
+  }
+  /* Read chapters recede and fill their rail segment. */
+  .entry.read,
+  .entry.read.top {
+    color: var(--faint);
+    font-weight: 440;
+    box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
   }
   .entry:hover {
     background: var(--surface-hover);
@@ -470,9 +513,7 @@
   .entry:active {
     transform: scale(0.99);
   }
-  /* Current chapter: accent text + tinted row + a left bookmark bar (inset
-     shadow so it never changes the row height the virtual-scroll math
-     depends on). */
+  /* Current chapter: accent text + tinted row + a full-strength rail notch. */
   .entry.current,
   .entry.current.top {
     background: var(--accent-soft);

@@ -5,12 +5,21 @@
 
   interface Props {
     bookmarks: Bookmark[];
+    /** Resolves a chapter index to its TOC heading (null → fall back). */
+    chapterTitle?: (chapter: number) => string | null;
     onnavigate: (bm: Bookmark) => void;
     ondelete: (id: string) => void;
     onupdate: (id: string, label: string, comment: string) => void;
     onclose: () => void;
   }
-  let { bookmarks, onnavigate, ondelete, onupdate, onclose }: Props = $props();
+  let {
+    bookmarks,
+    chapterTitle = () => null,
+    onnavigate,
+    ondelete,
+    onupdate,
+    onclose,
+  }: Props = $props();
 
   const MAX_BOOKMARK_TEXT_BYTES = 2000;
   const textEncoder = new TextEncoder();
@@ -28,7 +37,8 @@
   );
 
   function bookmarkName(bm: Bookmark): string {
-    return bm.label || `Chapter ${bm.chapter + 1}`;
+    // Prefer the user's label, then the chapter's real TOC heading.
+    return bm.label || chapterTitle(bm.chapter) || `Chapter ${bm.chapter + 1}`;
   }
 
   function startEdit(bm: Bookmark): void {
