@@ -298,7 +298,12 @@ func extractCSS(
 
 var (
 	fontFaceRegex = regexp.MustCompile(`(?is)@font-face\s*\{(?:[^{}]|/\*.*?\*/)*\}`)
-	cssURLRegex   = regexp.MustCompile(`url\(\s*['"]?(?:[^'"\s)]+)['"]?\s*\)`)
+	// The url() function token is ASCII case-insensitive in CSS, so URL(…) and
+	// Url(…) are the same token to a browser: without (?i) they skipped both the
+	// external-reference neutralization and the in-EPUB rewrite entirely. The
+	// quoted alternations additionally cover values containing whitespace, which
+	// a single [^'"\s)]+ body could never match.
+	cssURLRegex = regexp.MustCompile(`(?i)url\(\s*(?:"[^"]*"|'[^']*'|[^'"()\s]*)\s*\)`)
 )
 
 // cssImportStringRegex matches bare @import "path" / @import 'path' rules.
@@ -455,7 +460,11 @@ func rewriteNodeURLsDepth(n *html.Node, chapterDir, resourceBase, resourceToken 
 
 			shouldRewrite := false
 			switch key {
-			case "src", "poster":
+			// "background" is the legacy presentational attribute that Blink and
+			// WebKit still map to background-image on table elements, so leaving
+			// it alone was an un-neutralized remote fetch on the one path the
+			// about:invalid rewriting exists to close.
+			case "src", "poster", "background":
 				shouldRewrite = true
 			case "href":
 				if n.DataAtom != atom.A {

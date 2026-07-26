@@ -281,3 +281,74 @@ func TestProcessChapterWritingModeAndCache(t *testing.T) {
 		t.Fatalf("cache miss or mismatch")
 	}
 }
+
+// The CSS url() function token is ASCII case-insensitive, so URL(…) and Url(…)
+// are the same token to a browser. A case-sensitive pattern matched neither,
+// letting a crafted book fetch a remote URL and beacon that it was opened —
+// the exact leak the about:invalid rewriting exists to close. Quoted values
+// containing whitespace were missed for the same reason.
+func TestRewriteCSSURLsNeutralizesRemoteRegardlessOfCaseOrQuoting(t *testing.T) {
+	t.Parallel()
+
+	const base = "/api/books/b1/resources"
+
+	remote := []string{
+		`a{background:URL(https://evil.example/a.png)}`,
+		`a{background:Url('https://evil.example/a.png')}`,
+		`a{background:url("https://evil.example/a b.png")}`,
+		`@import URL(https://evil.example/x.css);`,
+		`a{background:url(//evil.example/a.png)}`,
+	}
+	for _, css := range remote {
+		got := rewriteCSSURLs(css, "OEBPS", base, "tok")
+		if strings.Contains(got, "evil.example") {
+			t.Errorf("remote host survived: %q -> %q", css, got)
+		}
+		if !strings.Contains(got, "about:invalid") {
+			t.Errorf("remote ref not neutralized: %q -> %q", css, got)
+		}
+	}
+
+	// In-EPUB refs still resolve, including the quoted-with-spaces form that the
+	// previous pattern could not match at all.
+	local := rewriteCSSURLs(`a{background:URL("img/my pic.png")}`, "OEBPS", base, "tok")
+	if !strings.Contains(local, base+"/OEBPS/img/my pic.png") {
+		t.Errorf("local url not rewritten: %q", local)
+	}
+	// data: URIs are inline and must be left intact.
+	data := rewriteCSSURLs(`@font-face{src:url("data:font/woff2;base64,AAA")}`, "OEBPS", base, "tok")
+	if !strings.Contains(data, "data:font/woff2;base64,AAA") {
+		t.Errorf("data URI mangled: %q", data)
+	}
+}
+
+// The legacy presentational background attribute is still mapped to
+// background-image by Blink/WebKit on table elements, so it needs the same
+// remote-reference neutralization as src/poster.
+func TestRewriteNodeURLsNeutralizesBackgroundAttribute(t *testing.T) {
+	t.Parallel()
+
+	const base = "/api/books/b1/resources"
+
+	doc, err := html.Parse(strings.NewReader(`<table background="https://evil.example/px.png"><tr><td background="img/t.png">x</td></tr></table>`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	rewriteNodeURLs(doc, "OEBPS", base, "tok", nil)
+
+	var b strings.Builder
+	if err := html.Render(&b, doc); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	got := b.String()
+
+	if strings.Contains(got, "evil.example") {
+		t.Errorf("remote background survived: %s", got)
+	}
+	if !strings.Contains(got, "about:invalid") {
+		t.Errorf("remote background not neutralized: %s", got)
+	}
+	if !strings.Contains(got, base+"/OEBPS/img/t.png") {
+		t.Errorf("in-EPUB background not rewritten: %s", got)
+	}
+}

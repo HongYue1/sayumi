@@ -79,48 +79,9 @@ func sanitizeNode(n *html.Node, depth int) {
 		next = c.NextSibling
 
 		if c.Type == html.ElementNode {
-			if stripEntirely[c.DataAtom] {
-				n.RemoveChild(c)
+			var removed bool
+			if next, removed = stripDisallowedElement(n, c, next); removed {
 				continue
-			}
-
-			if isNonStylesheetLink(c) {
-				n.RemoveChild(c)
-				continue
-			}
-
-			if stripElement[c.DataAtom] {
-				// Capture the first grandchild before promotion so we can
-				// resume the outer loop from the promoted children rather
-				// than skipping them entirely. Without this, a <script>
-				// inside a <form> would be promoted into the parent but
-				// never visited by any sanitizer pass.
-				firstGC := c.FirstChild
-				for gc := firstGC; gc != nil; {
-					nextGC := gc.NextSibling
-					c.RemoveChild(gc)
-					n.InsertBefore(gc, next)
-					gc = nextGC
-				}
-				n.RemoveChild(c)
-				if firstGC != nil {
-					next = firstGC
-				}
-				continue
-			}
-
-			if c.DataAtom == atom.Meta {
-				removed := false
-				for _, a := range c.Attr {
-					if strings.EqualFold(a.Key, "http-equiv") {
-						n.RemoveChild(c)
-						removed = true
-						break
-					}
-				}
-				if removed {
-					continue
-				}
 			}
 
 			if c.Data == "svg" || c.DataAtom == atom.Svg {
@@ -136,6 +97,59 @@ func sanitizeNode(n *html.Node, depth int) {
 
 		sanitizeNode(c, depth+1)
 	}
+}
+
+// stripDisallowedElement applies the element-level policy to child c of parent
+// n: elements dropped outright, elements unwrapped to their children, and
+// <meta http-equiv>. It returns the node the caller's loop must resume from and
+// whether c was removed.
+//
+// Both walkers call it. sanitizeSVG needs it because <desc>, <title> and
+// <foreignObject> are HTML *integration points*: the parser puts real
+// HTML-namespace <meta http-equiv="refresh">, <iframe>, <form> and <base>
+// elements inside an <svg> subtree, where an SVG-only script/foreignObject
+// blocklist would let them through untouched.
+func stripDisallowedElement(n, c, next *html.Node) (*html.Node, bool) {
+	if stripEntirely[c.DataAtom] {
+		n.RemoveChild(c)
+		return next, true
+	}
+
+	if isNonStylesheetLink(c) {
+		n.RemoveChild(c)
+		return next, true
+	}
+
+	if stripElement[c.DataAtom] {
+		// Capture the first grandchild before promotion so we can
+		// resume the outer loop from the promoted children rather
+		// than skipping them entirely. Without this, a <script>
+		// inside a <form> would be promoted into the parent but
+		// never visited by any sanitizer pass.
+		firstGC := c.FirstChild
+		for gc := firstGC; gc != nil; {
+			nextGC := gc.NextSibling
+			c.RemoveChild(gc)
+			n.InsertBefore(gc, next)
+			gc = nextGC
+		}
+		n.RemoveChild(c)
+		if firstGC != nil {
+			return firstGC, true
+		}
+		return next, true
+	}
+
+	if c.DataAtom == atom.Meta {
+		for _, a := range c.Attr {
+			if strings.EqualFold(a.Key, "http-equiv") {
+				n.RemoveChild(c)
+				return next, true
+			}
+		}
+	}
+
+	return next, false
 }
 
 // removeAllChildren detaches every child of n. The depth-limited sanitizer uses
@@ -228,15 +242,70 @@ func sanitizeSVG(n *html.Node, depth int) {
 	for c := n.FirstChild; c != nil; c = next {
 		next = c.NextSibling
 
-		if c.Type == html.ElementNode {
-			lower := strings.ToLower(c.Data)
-			if lower == "script" || lower == "foreignobject" {
-				n.RemoveChild(c)
-				continue
-			}
-			sanitizeAttributes(c)
-			sanitizeSVG(c, depth+1)
+		if c.Type != html.ElementNode {
+			continue
 		}
+
+		lower := strings.ToLower(c.Data)
+		if lower == "script" || lower == "foreignobject" {
+			n.RemoveChild(c)
+			continue
+		}
+
+		// SMIL can retarget an attribute after sanitization: <animate
+		// attributeName="href" values="javascript:…"> smuggles a script URL
+		// into a link whose href passed the attribute check. Drop the
+		// animation element rather than trying to validate every value in a
+		// semicolon-separated list.
+		if isURLAnimation(c) {
+			n.RemoveChild(c)
+			continue
+		}
+
+		var removed bool
+		if next, removed = stripDisallowedElement(n, c, next); removed {
+			continue
+		}
+
+		sanitizeAttributes(c)
+
+		// <desc>, <title> and <foreignObject> are HTML integration points, so
+		// an HTML-namespace child carries an HTML subtree: hand it to the HTML
+		// walker, which applies the full element policy at every level.
+		if c.Namespace == "" {
+			sanitizeNode(c, depth+1)
+			continue
+		}
+
+		sanitizeSVG(c, depth+1)
 	}
 	sanitizeAttributes(n)
+}
+
+// urlAnimationElements are the SMIL elements that can rewrite an attribute's
+// value while the document is live.
+var urlAnimationElements = map[string]bool{
+	"animate":          true,
+	"set":              true,
+	"animatetransform": true,
+	"animatemotion":    true,
+}
+
+// isURLAnimation reports whether n is a SMIL animation aimed at a URL-bearing
+// attribute, which would let it install a javascript: target that the static
+// attribute checks never see.
+func isURLAnimation(n *html.Node) bool {
+	if !urlAnimationElements[strings.ToLower(n.Data)] {
+		return false
+	}
+	for _, a := range n.Attr {
+		if !strings.EqualFold(a.Key, "attributeName") {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(a.Val)) {
+		case "href", "xlink:href":
+			return true
+		}
+	}
+	return false
 }

@@ -281,3 +281,54 @@ func TestContentTypeByExt(t *testing.T) {
 		}
 	}
 }
+
+// <desc>, <title> and <foreignObject> are HTML integration points: the parser
+// places real HTML-namespace elements inside an <svg> subtree. Before the
+// shared element policy, sanitizeSVG only knew about script/foreignObject, so a
+// meta refresh, iframe, form or base smuggled through an <svg><desc> wrapper
+// survived untouched and the meta refresh navigated the reader frame off to a
+// remote origin on chapter open.
+func TestSanitizeSVGIntegrationPointAppliesHTMLPolicy(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		desc, in, forbidden string
+	}{
+		{"meta refresh", `<svg><desc><meta http-equiv="refresh" content="0;url=https://evil.example/"></desc></svg>`, "http-equiv"},
+		{"iframe", `<svg><desc><iframe srcdoc="<script>x</script>"></iframe></desc></svg>`, "iframe"},
+		{"form", `<svg><desc><form action="https://evil.example/"><input name="a"></form></desc></svg>`, "<form"},
+		{"base", `<svg><desc><base href="https://evil.example/"></desc></svg>`, "<base"},
+		{"nested script", `<svg><title><script>alert(1)</script></title></svg>`, "alert(1)"},
+	}
+	for _, c := range cases {
+		out := strings.ToLower(sanitizeHTML(t, c.in))
+		if strings.Contains(out, strings.ToLower(c.forbidden)) {
+			t.Errorf("%s: %q survived inside an SVG integration point\noutput: %s", c.desc, c.forbidden, out)
+		}
+	}
+}
+
+// SMIL animation rewrites an attribute after the static attribute check has
+// run, so <animate attributeName="href" values="javascript:…"> installs a
+// script URL on a link whose href was itself perfectly benign.
+func TestSanitizeStripsURLAnimation(t *testing.T) {
+	t.Parallel()
+
+	cases := []string{
+		`<svg><a href="#x"><animate attributeName="href" values="javascript:alert(1)"/>t</a></svg>`,
+		`<svg><a><set attributeName="href" to="javascript:alert(1)"/></a></svg>`,
+		`<svg><a><set attributeName="xlink:href" to="javascript:alert(1)"/></a></svg>`,
+	}
+	for _, in := range cases {
+		out := strings.ToLower(sanitizeHTML(t, in))
+		if strings.Contains(out, "javascript:") {
+			t.Errorf("URL animation survived: %s", out)
+		}
+	}
+
+	// A geometry animation carries no URL, so it is left alone.
+	out := sanitizeHTML(t, `<svg><rect><animate attributeName="width" values="0;100"/></rect></svg>`)
+	if !strings.Contains(strings.ToLower(out), "animate") {
+		t.Errorf("non-URL animation should be kept: %s", out)
+	}
+}
