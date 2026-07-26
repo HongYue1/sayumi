@@ -212,8 +212,15 @@
     {@attach focusTrap}
   >
     <header>
-      <h2>{editing ? "Edit theme" : "New theme"}</h2>
-      <button class="close" aria-label={closeLabel} onclick={close}>
+      <div class="head-text">
+        <p class="eyebrow">Theme</p>
+        <h2 class="display">{editing ? "Edit theme" : "New theme"}</h2>
+      </div>
+      <button
+        class="icon-btn press close"
+        aria-label={closeLabel}
+        onclick={close}
+      >
         <Icon icon={X} size={18} />
       </button>
     </header>
@@ -316,7 +323,7 @@
         {#if editing}
           <button
             type="button"
-            class="btn danger-ghost"
+            class="btn-ghost press danger-ghost"
             class:armed={deleteArmed}
             onclick={remove}
             disabled={busy}
@@ -329,14 +336,14 @@
           </button>
         {/if}
         <span class="spacer"></span>
-        <button type="button" class="btn ghost" onclick={close}>
+        <button type="button" class="btn-ghost press" onclick={close}>
           {pendingAction === "delete"
             ? "Cancel delete"
             : pendingAction === "save"
               ? "Cancel save"
               : "Cancel"}
         </button>
-        <button type="submit" class="btn primary" disabled={!canSave}>
+        <button type="submit" class="btn press" disabled={!canSave}>
           {pendingAction === "save"
             ? "Saving…"
             : editing
@@ -356,68 +363,56 @@
     display: grid;
     place-items: center;
     padding: var(--sp-6);
-    background: color-mix(in srgb, #000 38%, transparent);
-    animation: app-overlay-in var(--dur-fast) var(--ease-out);
+    background: var(--veil);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+    animation: app-overlay-in var(--dur) var(--ease-out);
   }
   .sheet {
     width: min(32rem, 100%);
     max-height: calc(100vh - var(--sp-12));
     max-height: calc(100dvh - var(--sp-12));
     overflow-y: auto;
-    background: var(--bg);
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius-lg);
-    animation: app-sheet-in var(--dur) var(--ease-out);
+    background: var(--raised);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-3);
+    animation: app-sheet-in var(--dur-slow) var(--ease-out);
   }
   header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
-    padding: var(--sp-3) var(--sp-4);
+    gap: var(--sp-3);
+    padding: var(--sp-5) var(--sp-5) var(--sp-3);
     border-bottom: 1px solid var(--hairline);
     position: sticky;
     top: 0;
-    background: var(--bg);
+    background: var(--raised);
     z-index: 1;
+  }
+  .head-text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+  }
+  .head-text .eyebrow {
+    margin: 0;
   }
   h2 {
     margin: 0;
-    font-family: var(--font-display);
     font-size: var(--text-xl);
-    font-weight: 500;
-    line-height: 1;
+    font-weight: 540;
+    line-height: var(--lh-tight);
   }
   .close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    padding: 0.3rem;
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition:
-      background var(--dur) var(--ease-out),
-      color var(--dur) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
-  }
-  .close:active:not(:disabled) {
-    transform: scale(0.94);
-  }
-  .close:hover:not(:disabled) {
-    background: var(--surface-hover);
-    color: var(--fg);
-  }
-  .close:disabled {
-    opacity: 0.5;
-    cursor: default;
+    flex-shrink: 0;
   }
   form {
     display: flex;
     flex-direction: column;
     gap: var(--sp-4);
-    padding: var(--sp-4);
+    padding: var(--sp-5);
   }
 
   .preview {
@@ -425,8 +420,10 @@
     align-items: center;
     gap: var(--sp-3);
     padding: var(--sp-4);
-    border-radius: var(--radius);
-    border: 1px solid var(--hairline);
+    border-radius: var(--radius-lg);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--fg) 14%, transparent),
+      var(--shadow-1);
     min-height: 4.5rem;
   }
   .preview-aa {
@@ -437,13 +434,15 @@
   }
   .preview-sample {
     flex: 1;
+    font-family: var(--font-display);
+    font-style: italic;
     font-size: var(--text-sm);
   }
   .preview-accent {
-    padding: 0.25rem 0.6rem;
-    border-radius: var(--radius);
+    padding: 0.25rem 0.7rem;
+    border-radius: 999px;
     font-size: var(--text-xs);
-    font-weight: 600;
+    font-weight: 700;
     white-space: nowrap;
   }
 
@@ -460,27 +459,32 @@
     gap: var(--sp-1);
   }
   .field > span {
-    font-size: var(--text-sm);
-    color: var(--fg);
+    font-size: var(--text-xs);
+    font-weight: 640;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
   }
   .field input[type="text"] {
-    height: 2.4rem;
-    padding: 0 0.7rem;
-    border: 1px solid var(--hairline-strong);
+    height: 2.5rem;
+    padding: 0 0.8rem;
+    border: 1px solid transparent;
     border-radius: var(--radius);
-    background: var(--bg);
+    background: var(--surface);
     color: var(--fg);
     font: inherit;
+    font-size: var(--text-sm);
     transition:
-      border-color var(--dur) var(--ease-out),
-      box-shadow var(--dur) var(--ease-out);
+      background var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
   }
   .field input[type="text"]:hover {
-    border-color: var(--accent);
+    background: var(--surface-hover);
   }
   .field input[type="text"]:focus-visible {
     outline: none;
-    border-color: var(--accent);
+    background: var(--raised);
+    border-color: var(--accent-line);
     box-shadow: var(--focus);
   }
   .field-error {
@@ -500,13 +504,17 @@
     gap: var(--sp-2);
   }
   .color-row input[type="color"] {
-    width: 2.6rem;
-    height: 2.4rem;
-    padding: 2px;
+    width: 2.7rem;
+    height: 2.5rem;
+    padding: 3px;
     border: 1px solid var(--hairline-strong);
     border-radius: var(--radius);
-    background: var(--bg);
+    background: var(--surface);
     cursor: pointer;
+    transition: border-color var(--dur-fast) var(--ease-out);
+  }
+  .color-row input[type="color"]:hover:not(:disabled) {
+    border-color: var(--accent-line);
   }
   .color-row input[type="color"]:disabled,
   .check input:disabled {
@@ -515,8 +523,10 @@
   .color-row code {
     font-family: var(--font-mono, ui-monospace, monospace);
     font-size: var(--text-xs);
+    font-weight: 600;
     color: var(--muted);
     text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
 
   .check {
@@ -524,6 +534,7 @@
     align-items: center;
     gap: var(--sp-2);
     font-size: var(--text-sm);
+    font-weight: 520;
     color: var(--fg);
     cursor: pointer;
   }
@@ -541,67 +552,26 @@
     align-items: center;
     gap: var(--sp-2);
     margin-top: var(--sp-1);
+    padding-top: var(--sp-4);
+    border-top: 1px solid var(--hairline);
   }
   .spacer {
     flex: 1;
   }
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--sp-2);
-    height: 2.4rem;
-    padding: 0 1rem;
-    border: 1px solid transparent;
-    border-radius: var(--radius);
-    font: inherit;
-    font-weight: 600;
-    white-space: nowrap;
-    cursor: pointer;
-    transition:
-      background var(--dur) var(--ease-out),
-      opacity var(--dur) var(--ease-out),
-      border-color var(--dur) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
-  }
-  .btn:active:not(:disabled) {
-    transform: scale(0.97);
-  }
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .btn.ghost {
-    background: transparent;
-    border-color: var(--hairline-strong);
-    color: var(--fg);
-  }
-  .btn.ghost:hover:not(:disabled) {
-    background: var(--surface-hover);
-  }
-  .btn.primary {
-    background: var(--accent);
-    color: var(--accent-fg);
-  }
-  .btn.primary:hover:not(:disabled) {
-    opacity: 0.88;
-  }
-  .btn.danger-ghost {
-    background: transparent;
+  .danger-ghost {
     border-color: transparent;
     color: var(--danger);
-    padding: 0 0.6rem;
   }
-  .btn.danger-ghost:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--danger) 12%, transparent);
+  .danger-ghost:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+    color: var(--danger);
   }
-  .btn.danger-ghost.armed {
+  .danger-ghost.armed,
+  .danger-ghost.armed:hover:not(:disabled) {
     background: var(--danger-surface);
+    border-color: var(--danger-surface);
     color: var(--danger-surface-fg);
-  }
-  .btn.danger-ghost.armed:hover:not(:disabled) {
-    background: var(--danger-surface);
-    color: var(--danger-surface-fg);
-    opacity: 0.88;
   }
 
   @media (max-width: 30rem) {
@@ -621,7 +591,7 @@
     .actions .spacer {
       display: none;
     }
-    .actions .btn {
+    .actions button {
       flex: 1 1 auto;
       justify-content: center;
     }

@@ -106,6 +106,11 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    proxy: { "/api": "http://127.0.0.1:8080" },
+    // /fonts is proxied too so the embedded interface/reading fonts served by
+    // the Go binary resolve in dev instead of falling back to system fonts.
+    proxy: {
+      "/api": "http://127.0.0.1:8080",
+      "/fonts": "http://127.0.0.1:8080",
+    },
   },
 });

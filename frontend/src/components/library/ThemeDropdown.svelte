@@ -128,7 +128,7 @@
   {#if open}
     <div
       bind:this={menuEl}
-      class="menu"
+      class="menu paper"
       role="menu"
       tabindex="-1"
       aria-label="Theme"
@@ -208,24 +208,25 @@
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
-    border: 1px solid var(--hairline-strong);
-    background: var(--bg);
+    border: none;
+    background: transparent;
     border-radius: var(--radius);
-    padding: 0.25rem 0.4rem;
+    padding: 0.3rem 0.45rem;
     cursor: pointer;
     transition:
-      border-color var(--dur) var(--ease-out),
+      background var(--dur-fast) var(--ease-out),
       transform var(--dur-fast) var(--ease-out);
   }
-  .trigger:hover {
-    border-color: var(--accent);
+  .trigger:hover,
+  .trigger.open {
+    background: var(--surface);
   }
   .trigger:active {
-    transform: scale(0.97);
+    transform: scale(0.96);
   }
   .trigger :global(.caret) {
     color: var(--muted);
-    transition: transform var(--dur-fast) var(--ease-out);
+    transition: transform var(--dur) var(--ease-spring);
   }
   .trigger.open :global(.caret) {
     transform: rotate(180deg);
@@ -237,6 +238,8 @@
     width: 1.9rem;
     height: 1.5rem;
     border-radius: var(--radius-sm);
+    box-shadow: inset 0 0 0 1px
+      light-dark(rgb(0 0 0 / 0.1), rgb(255 255 255 / 0.14));
   }
   .swatch .aa {
     font-family: var(--font-display);
@@ -245,8 +248,8 @@
   }
   .swatch .dot {
     position: absolute;
-    right: 2px;
-    bottom: 2px;
+    right: 3px;
+    bottom: 3px;
     width: 0.34rem;
     height: 0.34rem;
     border-radius: 50%;
@@ -254,25 +257,22 @@
 
   .menu {
     position: absolute;
-    top: calc(100% + 0.4rem);
+    top: calc(100% + 0.5rem);
     right: 0;
     z-index: 21;
-    width: 18.5rem;
+    width: 19rem;
     max-height: min(70vh, 28rem);
     overflow-x: hidden;
     overflow-y: auto;
     padding: var(--sp-3);
-    background: var(--bg);
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius);
     transform-origin: top right;
-    animation: app-menu-pop-in var(--dur-fast) var(--ease-out) both;
+    animation: app-menu-pop-in var(--dur) var(--ease-out) both;
   }
   .group {
-    margin: 0.2rem 0 0.35rem;
+    margin: 0.2rem 0 0.45rem;
   }
   .group:not(:first-child) {
-    margin-top: 0.7rem;
+    margin-top: 0.9rem;
   }
   .swatches {
     display: grid;
@@ -285,9 +285,9 @@
     min-width: 0;
     gap: 0.3rem;
     padding: 0.35rem;
-    border: 1px solid var(--hairline);
+    border: 1px solid transparent;
     border-radius: var(--radius);
-    background: var(--bg);
+    background: transparent;
     color: var(--fg);
     font: inherit;
     cursor: pointer;
@@ -297,23 +297,23 @@
       transform var(--dur-fast) var(--ease-out);
   }
   .pick:hover {
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 7%, var(--bg));
+    background: var(--surface);
+    border-color: var(--hairline);
   }
   .pick:active {
     transform: scale(0.97);
   }
   .pick.active {
     border-color: var(--accent);
-    box-shadow: 0 0 0 1px var(--accent);
+    background: var(--accent-soft);
   }
   .preview {
     position: relative;
     display: grid;
     place-items: center;
-    height: 2.2rem;
+    height: 2.3rem;
     border-radius: var(--radius-sm);
-    border: 1px solid color-mix(in srgb, var(--fg) 12%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 14%, transparent);
   }
   .preview .aa {
     font-family: var(--font-display);
@@ -344,6 +344,7 @@
   .name {
     overflow: hidden;
     font-size: var(--text-xs);
+    font-weight: 540;
     text-align: center;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -351,6 +352,6 @@
   }
   .pick.active .name {
     color: var(--fg);
-    font-weight: 500;
+    font-weight: 640;
   }
 </style>

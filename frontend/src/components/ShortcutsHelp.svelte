@@ -57,9 +57,12 @@
       {@attach focusTrap}
     >
       <header>
-        <h2>Keyboard shortcuts</h2>
+        <div class="head-text">
+          <p class="eyebrow">Help</p>
+          <h2 class="display">Keyboard shortcuts</h2>
+        </div>
         <button
-          class="close"
+          class="icon-btn press close"
           aria-label="Close"
           onclick={close}
           {@attach (el) => (el as HTMLButtonElement).focus()}
@@ -74,8 +77,9 @@
               {#each g.items as it (it.desc)}
                 <div class="row">
                   <dt>
-                    {#each it.keys as k (k)}<kbd>{k}</kbd>{/each}
+                    {#each it.keys as k (k)}<kbd class="kbd">{k}</kbd>{/each}
                   </dt>
+                  <span class="leader" aria-hidden="true"></span>
                   <dd>{it.desc}</dd>
                 </div>
               {/each}
@@ -95,59 +99,51 @@
     display: grid;
     place-items: center;
     padding: var(--sp-6);
-    background: color-mix(in srgb, #000 38%, transparent);
-    animation: app-overlay-in var(--dur-fast) var(--ease-out);
+    background: var(--veil);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+    animation: app-overlay-in var(--dur) var(--ease-out);
   }
   .sheet {
     width: min(34rem, 100%);
     max-height: calc(100dvh - var(--sp-6) - var(--sp-6));
     overflow-y: auto;
-    background: var(--bg);
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius-lg);
-    animation: app-sheet-in var(--dur) var(--ease-out);
+    background: var(--raised);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-3);
+    animation: app-sheet-in var(--dur-slow) var(--ease-out);
   }
   header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
-    padding: var(--sp-3) var(--sp-4);
+    gap: var(--sp-3);
+    padding: var(--sp-5) var(--sp-5) var(--sp-3);
     border-bottom: 1px solid var(--hairline);
+  }
+  .head-text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+  }
+  .head-text .eyebrow {
+    margin: 0;
   }
   h2 {
     margin: 0;
-    font-family: var(--font-display);
     font-size: var(--text-xl);
-    font-weight: 500;
-    line-height: 1;
+    font-weight: 540;
+    line-height: var(--lh-tight);
   }
   .close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    padding: 0.3rem;
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition:
-      background var(--dur) var(--ease-out),
-      color var(--dur) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
-  }
-  .close:hover {
-    background: var(--surface-hover);
-    color: var(--fg);
-  }
-  .close:active {
-    transform: scale(0.94);
+    flex-shrink: 0;
   }
   .groups {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: var(--sp-5);
-    padding: var(--sp-4);
+    gap: var(--sp-6);
+    padding: var(--sp-5);
   }
   @media (max-width: 30rem) {
     .groups {
@@ -155,7 +151,7 @@
     }
   }
   .eyebrow {
-    margin: 0 0 var(--sp-2);
+    margin: 0 0 var(--sp-3);
   }
   dl {
     margin: 0;
@@ -163,30 +159,26 @@
   .row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: var(--sp-3);
-    padding: 0.28rem 0;
+    gap: var(--sp-2);
+    padding: 0.3rem 0;
   }
   dt {
     display: flex;
     gap: 0.25rem;
     flex-shrink: 0;
   }
+  /* Printer's dotted leader between the keys and their description. */
+  .leader {
+    flex: 1;
+    border-bottom: 1px dotted var(--hairline-strong);
+    transform: translateY(0.3em);
+    min-width: 1rem;
+  }
   dd {
     margin: 0;
     color: var(--muted);
     font-size: var(--text-sm);
     text-align: right;
-  }
-  kbd {
-    min-width: 1.4rem;
-    padding: 0.1rem 0.4rem;
-    border: 1px solid var(--hairline-strong);
-    border-bottom-width: 2px;
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    font-family: ui-monospace, monospace;
-    font-size: var(--text-xs);
-    text-align: center;
+    flex-shrink: 0;
   }
 </style>

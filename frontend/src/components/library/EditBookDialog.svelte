@@ -164,9 +164,12 @@
     {@attach focusTrap}
   >
     <header>
-      <h2>Edit book</h2>
+      <div class="head-text">
+        <p class="eyebrow">Library</p>
+        <h2 class="display">Edit book</h2>
+      </div>
       <button
-        class="close"
+        class="icon-btn press close"
         aria-label="Close"
         onclick={onclose}
         disabled={busy}
@@ -181,11 +184,11 @@
           {#if currentCover}
             <img src={currentCover} alt="" />
           {:else}
-            <div class="cover-placeholder">{title}</div>
+            <div class="cover-placeholder display">{title}</div>
           {/if}
         </div>
         <div class="cover-actions">
-          <label class="btn ghost file-btn" class:disabled={busy}>
+          <label class="btn-ghost press file-btn" class:disabled={busy}>
             <Icon icon={ImageUp} size={16} />
             {coverFile ? "Change image" : "Replace cover"}
             <input
@@ -215,9 +218,10 @@
         </div>
       </div>
 
-      <label class="field">
-        <span>Title</span>
+      <label class="frow">
+        <span class="lbl">Title</span>
         <input
+          class="field"
           type="text"
           bind:value={title}
           maxlength="512"
@@ -232,9 +236,10 @@
         <p class="note" id="book-title-error" role="alert">{titleError}</p>
       {/if}
 
-      <label class="field">
-        <span>Author</span>
+      <label class="frow">
+        <span class="lbl">Author</span>
         <input
+          class="field"
           type="text"
           bind:value={author}
           maxlength="512"
@@ -257,13 +262,13 @@
       <div class="actions">
         <button
           type="button"
-          class="btn ghost"
+          class="btn-ghost press"
           onclick={onclose}
           disabled={busy}
         >
           Cancel
         </button>
-        <button type="submit" class="btn primary" disabled={!canSubmit}>
+        <button type="submit" class="btn press" disabled={!canSubmit}>
           {busy ? "Saving…" : "Save changes"}
         </button>
       </div>
@@ -279,67 +284,55 @@
     display: grid;
     place-items: center;
     padding: var(--sp-6);
-    background: color-mix(in srgb, #000 38%, transparent);
-    animation: app-overlay-in var(--dur-fast) var(--ease-out);
+    background: var(--veil);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+    animation: app-overlay-in var(--dur) var(--ease-out);
   }
   .sheet {
     width: min(30rem, 100%);
     max-height: calc(100vh - var(--sp-12));
     overflow-y: auto;
-    background: var(--bg);
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius-lg);
-    animation: app-sheet-in var(--dur) var(--ease-out);
+    background: var(--raised);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-3);
+    animation: app-sheet-in var(--dur-slow) var(--ease-out);
   }
   header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
-    padding: var(--sp-3) var(--sp-4);
+    gap: var(--sp-3);
+    padding: var(--sp-5) var(--sp-5) var(--sp-3);
     border-bottom: 1px solid var(--hairline);
     position: sticky;
     top: 0;
-    background: var(--bg);
+    background: var(--raised);
     z-index: 1;
+  }
+  .head-text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+  }
+  .head-text .eyebrow {
+    margin: 0;
   }
   h2 {
     margin: 0;
-    font-family: var(--font-display);
     font-size: var(--text-xl);
-    font-weight: 500;
-    line-height: 1;
+    font-weight: 540;
+    line-height: var(--lh-tight);
   }
   .close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    padding: 0.3rem;
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition:
-      background var(--dur) var(--ease-out),
-      color var(--dur) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
-  }
-  .close:active:not(:disabled) {
-    transform: scale(0.94);
-  }
-  .close:hover:not(:disabled) {
-    background: var(--surface-hover);
-    color: var(--fg);
-  }
-  .close:disabled {
-    opacity: 0.5;
-    cursor: default;
+    flex-shrink: 0;
   }
   form {
     display: flex;
     flex-direction: column;
     gap: var(--sp-4);
-    padding: var(--sp-4);
+    padding: var(--sp-5);
   }
 
   .cover-row {
@@ -351,10 +344,10 @@
     flex-shrink: 0;
     width: 6rem;
     aspect-ratio: 2 / 3;
-    border-radius: var(--radius);
+    border-radius: 3px 7px 7px 3px;
     overflow: hidden;
     background: var(--surface);
-    border: 1px solid var(--hairline);
+    box-shadow: var(--shadow-1);
   }
   .cover-preview img {
     width: 100%;
@@ -369,10 +362,14 @@
     place-items: center;
     padding: var(--sp-2);
     text-align: center;
-    font-family: var(--font-display);
+    font-style: italic;
     font-size: var(--text-xs);
     color: var(--muted);
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    background: linear-gradient(
+      160deg,
+      var(--surface),
+      color-mix(in srgb, var(--accent) 10%, transparent)
+    );
   }
   .cover-actions {
     display: flex;
@@ -420,38 +417,24 @@
     line-height: 1.4;
   }
 
-  .field {
+  .frow {
     display: flex;
     flex-direction: column;
     gap: var(--sp-1);
   }
-  .field > span {
-    font-size: var(--text-sm);
-    color: var(--fg);
+  .lbl {
+    font-size: var(--text-xs);
+    font-weight: 640;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
   }
-  .field input {
-    height: 2.4rem;
-    padding: 0 0.7rem;
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius);
-    background: var(--bg);
-    color: var(--fg);
-    font: inherit;
-    transition:
-      border-color var(--dur) var(--ease-out),
-      box-shadow var(--dur) var(--ease-out);
+  .frow input {
+    height: 2.5rem;
   }
-  .field input:hover {
-    border-color: var(--accent);
-  }
-  .field input:disabled {
+  .frow input:disabled {
     opacity: 0.7;
     cursor: not-allowed;
-  }
-  .field input:focus-visible {
-    outline: none;
-    border-color: var(--accent);
-    box-shadow: var(--focus);
   }
 
   .error {
@@ -470,44 +453,7 @@
     justify-content: flex-end;
     gap: var(--sp-2);
     margin-top: var(--sp-1);
-  }
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--sp-2);
-    height: 2.4rem;
-    padding: 0 1rem;
-    border: 1px solid transparent;
-    border-radius: var(--radius);
-    font: inherit;
-    font-weight: 600;
-    cursor: pointer;
-    transition:
-      background var(--dur) var(--ease-out),
-      opacity var(--dur) var(--ease-out),
-      border-color var(--dur) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
-  }
-  .btn:active:not(:disabled) {
-    transform: scale(0.97);
-  }
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .btn.ghost {
-    background: transparent;
-    border-color: var(--hairline-strong);
-    color: var(--fg);
-  }
-  .btn.ghost:hover:not(:disabled) {
-    background: var(--surface-hover);
-  }
-  .btn.primary {
-    background: var(--accent);
-    color: var(--accent-fg);
-  }
-  .btn.primary:hover:not(:disabled) {
-    opacity: 0.88;
+    padding-top: var(--sp-4);
+    border-top: 1px solid var(--hairline);
   }
 </style>

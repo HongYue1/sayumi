@@ -173,7 +173,7 @@
   <div class="overlay" role="presentation" onclick={close}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
-      class="palette"
+      class="palette paper"
       role="dialog"
       tabindex="-1"
       aria-modal="true"
@@ -225,6 +225,11 @@
           <li class="cmd-empty" role="presentation">No matches</li>
         {/each}
       </ul>
+      <footer class="cmd-foot" aria-hidden="true">
+        <span><kbd class="kbd">↑</kbd><kbd class="kbd">↓</kbd> navigate</span>
+        <span><kbd class="kbd">↵</kbd> open</span>
+        <span><kbd class="kbd">esc</kbd> close</span>
+      </footer>
     </div>
   </div>
 {/if}
@@ -238,25 +243,26 @@
     justify-content: center;
     align-items: flex-start;
     padding: 12vh var(--sp-4) var(--sp-4);
-    background: color-mix(in srgb, #000 38%, transparent);
-    animation: app-overlay-in var(--dur-fast) var(--ease-out);
+    background: var(--veil);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+    animation: app-overlay-in var(--dur) var(--ease-out);
   }
   .palette {
-    width: min(36rem, 100%);
+    width: min(37rem, 100%);
     max-height: 70vh;
     display: flex;
     flex-direction: column;
-    background: var(--bg);
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-3);
     overflow: hidden;
-    animation: app-sheet-in var(--dur) var(--ease-out);
+    animation: app-sheet-in var(--dur-slow) var(--ease-out);
   }
   .cmd-search {
     display: flex;
     align-items: center;
-    gap: var(--sp-2);
-    padding: 0 var(--sp-4);
+    gap: var(--sp-3);
+    padding: 0 var(--sp-5);
     border-bottom: 1px solid var(--hairline);
   }
   .cmd-search :global(.cmd-search-icon) {
@@ -271,7 +277,8 @@
     color: var(--fg);
     font: inherit;
     font-size: var(--text-lg);
-    padding: 0.9rem 0;
+    font-weight: 480;
+    padding: 1rem 0;
   }
   .cmd-input:focus-visible {
     outline: none;
@@ -280,12 +287,12 @@
     box-shadow: none;
   }
   .cmd-input::placeholder {
-    color: var(--muted);
+    color: var(--faint);
   }
   .cmd-list {
     list-style: none;
     margin: 0;
-    padding: 0.35rem;
+    padding: var(--sp-2);
     overflow-y: auto;
   }
   .cmd {
@@ -294,18 +301,24 @@
     justify-content: space-between;
     gap: 1rem;
     width: 100%;
-    padding: 0.55rem 0.7rem;
+    padding: 0.58rem 0.75rem;
     border: none;
     border-radius: var(--radius);
     background: transparent;
     color: var(--fg);
     font: inherit;
+    font-weight: 520;
     text-align: left;
     cursor: pointer;
-    transition: background var(--dur-fast) var(--ease-out);
+    /* Bookmark bar that appears on the active row. */
+    box-shadow: inset 0 0 0 0 var(--accent);
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      box-shadow var(--dur-fast) var(--ease-out);
   }
   .cmd.active {
-    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    background: var(--accent-soft);
+    box-shadow: inset 3px 0 0 0 var(--accent);
   }
   .cmd-label {
     overflow: hidden;
@@ -314,14 +327,33 @@
   }
   .cmd-hint {
     flex-shrink: 0;
-    font-size: var(--text-xs);
-    letter-spacing: 0.06em;
+    font-size: 0.68rem;
+    font-weight: 640;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
+    color: var(--faint);
+  }
+  .cmd.active .cmd-hint {
     color: var(--muted);
   }
   .cmd-empty {
-    padding: 0.8rem 0.7rem;
+    padding: 1rem 0.75rem;
     color: var(--muted);
     font-size: var(--text-sm);
+    font-style: italic;
+    font-family: var(--font-display);
+  }
+  .cmd-foot {
+    display: flex;
+    gap: var(--sp-4);
+    padding: var(--sp-2) var(--sp-5);
+    border-top: 1px solid var(--hairline);
+    color: var(--faint);
+    font-size: var(--text-xs);
+  }
+  .cmd-foot span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
   }
 </style>

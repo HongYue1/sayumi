@@ -442,8 +442,10 @@
     {#if countText}
       <span class="count tnum" aria-hidden="true">{countText}</span>
     {/if}
-    <button class="close" onclick={onclose} aria-label="Close search"
-      ><Icon icon={X} size={18} /></button
+    <button
+      class="icon-btn press close"
+      onclick={onclose}
+      aria-label="Close search"><Icon icon={X} size={18} /></button
     >
   </header>
 
@@ -462,7 +464,7 @@
     {:else if status === "error"}
       <div class="state" role="alert">
         <p>{errorMsg}</p>
-        <button class="ghost-btn" onclick={() => run(lastQuery)}
+        <button class="btn-ghost press" onclick={() => run(lastQuery)}
           >Try again</button
         >
       </div>
@@ -494,7 +496,7 @@
       {/each}
       {#if hasMore}
         <button
-          class="more ghost-btn"
+          class="more btn-ghost press"
           onclick={loadMore}
           aria-disabled={loadingMore}
           >{loadingMore ? "Loading…" : "Load more results"}</button
@@ -512,34 +514,26 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    background: var(--bg);
     color: var(--fg);
   }
   header {
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    padding: var(--sp-2) var(--sp-3);
+    padding: var(--sp-3);
     border-bottom: 1px solid var(--hairline);
     flex: 0 0 auto;
   }
   .field {
     flex: 1;
     min-width: 0;
-    padding: 0.45rem 0.6rem;
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius);
-    background: var(--bg);
-    color: var(--fg);
-    font: inherit;
-    transition: border-color var(--dur) var(--ease-out);
-  }
-  .field:hover {
-    border-color: var(--accent);
   }
   .count {
-    font-size: var(--text-xs);
-    color: var(--muted);
+    font-size: 0.68rem;
+    font-weight: 640;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--faint);
     white-space: nowrap;
   }
   .live-count {
@@ -554,26 +548,9 @@
     border: 0;
   }
   .close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    padding: 0.3rem;
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition:
-      background var(--dur) var(--ease-out),
-      color var(--dur) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
-  }
-  .close:hover {
-    background: var(--surface-hover);
-    color: var(--fg);
-  }
-  .close:active {
-    transform: scale(0.94);
+    flex-shrink: 0;
+    width: 2rem;
+    height: 2rem;
   }
   .list {
     overflow-y: auto;
@@ -581,32 +558,22 @@
   }
   .state {
     color: var(--muted);
-    padding: var(--sp-2);
+    padding: var(--sp-3);
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
     align-items: flex-start;
+    font-family: var(--font-display);
+    font-style: italic;
+  }
+  .state :global(button) {
+    font-family: var(--font-ui);
+    font-style: normal;
   }
   .inline-error {
     color: var(--danger);
-  }
-  .ghost-btn {
-    border: 1px solid var(--hairline-strong);
-    background: transparent;
-    color: var(--fg);
-    font: inherit;
-    padding: 0.4rem 0.8rem;
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition:
-      background var(--dur) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
-  }
-  .ghost-btn:hover {
-    background: var(--surface-hover);
-  }
-  .ghost-btn:active {
-    transform: scale(0.97);
+    font-family: var(--font-ui);
+    font-style: normal;
   }
   .group {
     margin-bottom: 0.6rem;
@@ -617,11 +584,17 @@
   .group-head {
     display: flex;
     justify-content: space-between;
-    font-size: var(--text-xs);
+    font-size: 0.68rem;
+    font-weight: 640;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.12em;
     color: var(--muted);
-    padding: 0.3rem 0.5rem;
+    padding: 0.4rem 0.5rem 0.3rem;
+    border-bottom: 1px solid var(--hairline);
+    margin-bottom: 0.2rem;
+  }
+  .group-count {
+    color: var(--faint);
   }
   .result {
     display: block;
@@ -631,17 +604,21 @@
     background: transparent;
     color: var(--fg);
     font: inherit;
-    padding: 0.45rem 0.5rem;
-    border-radius: var(--radius);
+    padding: 0.45rem 0.55rem;
+    border-radius: var(--radius-sm);
     cursor: pointer;
-    line-height: 1.35;
-    transition: background var(--dur-fast) var(--ease-out);
+    line-height: 1.4;
+    box-shadow: inset 0 0 0 0 var(--accent);
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      box-shadow var(--dur-fast) var(--ease-out);
   }
   .result:hover {
     background: var(--surface-hover);
   }
   .search :global(.result[aria-selected="true"]) {
-    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    background: var(--accent-soft);
+    box-shadow: inset 3px 0 0 0 var(--accent);
   }
   .snippet {
     display: block;
@@ -650,7 +627,7 @@
     overflow-wrap: anywhere;
   }
   .snippet mark {
-    background: color-mix(in srgb, var(--accent) 40%, transparent);
+    background: color-mix(in srgb, var(--accent) 38%, transparent);
     color: inherit;
     border-radius: 2px;
     padding: 0 1px;

@@ -116,182 +116,240 @@
 </script>
 
 <div class="screen">
-  <div class="card">
+  <!-- Embossed press mark behind the composition. -->
+  <span class="watermark display" aria-hidden="true">S</span>
+
+  <div class="frontispiece">
     <header class="head">
-      <h1 class="brand">Sayumi</h1>
+      <span class="fleuron mark" aria-hidden="true">❦</span>
+      <h1 class="brand display">Sayumi</h1>
+      <p class="tagline">a quiet place to read</p>
     </header>
 
-    {#if loading}
-      <!-- Loading skeleton mirroring the profile list. -->
-      <ul class="profiles" aria-hidden="true">
-        {#each [0, 1, 2] as i (i)}
-          <li>
-            <div class="profile skeleton">
-              <span class="avatar sk-avatar"></span>
-              <span class="sk-bar"></span>
-            </div>
-          </li>
-        {/each}
-      </ul>
-      <p class="muted" role="status">Loading profiles…</p>
-    {:else if mode === "pick" && !selected}
-      <p class="muted">Choose a profile to continue</p>
-      <ul class="profiles">
-        {#each profiles as p (p.name)}
-          <li>
-            <button class="profile" onclick={() => pick(p)} disabled={busy}>
-              <span class="avatar" aria-hidden="true"
-                >{p.name.slice(0, 1).toUpperCase()}</span
-              >
-              <span class="name">{p.name}</span>
-              {#if p.hasPin}
-                <span class="lock">
-                  <Icon icon={Lock} size={16} label="PIN protected" />
-                </span>
-              {/if}
-            </button>
-          </li>
-        {/each}
-      </ul>
-      <button
-        class="link"
-        onclick={() => {
-          mode = "create";
-          error = "";
-        }}
-      >
-        <Icon icon={Plus} size={16} />
-        New profile
-      </button>
-    {:else if selected}
-      <form onsubmit={submitPin}>
-        <p class="muted">Enter PIN for <strong>{selected.name}</strong></p>
-        <input
-          class="field"
-          type="password"
-          inputmode="numeric"
-          autocomplete="off"
-          aria-label="PIN"
-          {@attach focusOnMount}
-          bind:value={pin}
-          placeholder="PIN"
-          disabled={busy}
-        />
-        <label class="remember">
-          <input type="checkbox" bind:checked={remember} disabled={busy} />
-          Keep me signed in
-        </label>
-        <button class="primary" type="submit" disabled={busy || pin === ""}>
-          {busy ? "Signing in…" : "Sign in"}
-        </button>
-        <button class="link" type="button" onclick={backToList} disabled={busy}>
-          <Icon icon={ArrowLeft} size={16} />
-          Back
-        </button>
-      </form>
-    {:else}
-      <form onsubmit={submitCreate}>
-        {#if profiles.length === 0}
-          <p class="muted">Welcome — create a profile to start your library.</p>
-        {:else}
-          <p class="muted">Create a profile</p>
-        {/if}
-        <input
-          class="field"
-          type="text"
-          autocomplete="off"
-          aria-label="Profile name"
-          {@attach focusOnMount}
-          bind:value={newName}
-          placeholder="Profile name"
-          disabled={busy}
-        />
-        <input
-          class="field"
-          type="password"
-          inputmode="numeric"
-          autocomplete="off"
-          aria-label="PIN (optional)"
-          bind:value={newPin}
-          placeholder="PIN (optional)"
-          disabled={busy}
-        />
+    <hr class="rule-double" />
+
+    <section class="body">
+      {#if loading}
+        <!-- Loading skeleton mirroring the profile index. -->
+        <ul class="profiles" aria-hidden="true">
+          {#each [0, 1, 2] as i (i)}
+            <li>
+              <div class="profile skeleton">
+                <span class="initial sk-initial"></span>
+                <span class="sk-bar"></span>
+              </div>
+            </li>
+          {/each}
+        </ul>
+        <p class="muted" role="status">Loading profiles…</p>
+      {:else if mode === "pick" && !selected}
+        <p class="muted">Choose a profile to continue</p>
+        <ul class="profiles">
+          {#each profiles as p, i (p.name)}
+            <li style:--i={i}>
+              <button class="profile" onclick={() => pick(p)} disabled={busy}>
+                <span class="initial display" aria-hidden="true"
+                  >{p.name.slice(0, 1).toUpperCase()}</span
+                >
+                <span class="name">{p.name}</span>
+                {#if p.hasPin}
+                  <span class="lock">
+                    <Icon icon={Lock} size={15} label="PIN protected" />
+                  </span>
+                {/if}
+              </button>
+            </li>
+          {/each}
+        </ul>
         <button
-          class="primary"
-          type="submit"
-          disabled={busy || newName.trim() === ""}
+          class="btn-quiet press new"
+          onclick={() => {
+            mode = "create";
+            error = "";
+          }}
         >
-          {busy ? "Creating…" : "Create & sign in"}
+          <Icon icon={Plus} size={16} />
+          New profile
         </button>
-        {#if profiles.length > 0}
+      {:else if selected}
+        <form onsubmit={submitPin}>
+          <p class="muted">
+            Enter PIN for <em class="who display">{selected.name}</em>
+          </p>
+          <input
+            class="field pin"
+            type="password"
+            inputmode="numeric"
+            autocomplete="off"
+            aria-label="PIN"
+            {@attach focusOnMount}
+            bind:value={pin}
+            placeholder="PIN"
+            disabled={busy}
+          />
+          <label class="remember">
+            <input type="checkbox" bind:checked={remember} disabled={busy} />
+            Keep me signed in
+          </label>
           <button
-            class="link"
+            class="btn press primary"
+            type="submit"
+            disabled={busy || pin === ""}
+          >
+            {busy ? "Signing in…" : "Sign in"}
+          </button>
+          <button
+            class="btn-quiet press back"
             type="button"
-            onclick={() => {
-              mode = "pick";
-              error = "";
-            }}
+            onclick={backToList}
             disabled={busy}
           >
             <Icon icon={ArrowLeft} size={16} />
             Back
           </button>
-        {/if}
-      </form>
-    {/if}
+        </form>
+      {:else}
+        <form onsubmit={submitCreate}>
+          {#if profiles.length === 0}
+            <p class="muted">
+              Welcome — create a profile to start your library.
+            </p>
+          {:else}
+            <p class="muted">Create a profile</p>
+          {/if}
+          <input
+            class="field big"
+            type="text"
+            autocomplete="off"
+            aria-label="Profile name"
+            {@attach focusOnMount}
+            bind:value={newName}
+            placeholder="Profile name"
+            disabled={busy}
+          />
+          <input
+            class="field big"
+            type="password"
+            inputmode="numeric"
+            autocomplete="off"
+            aria-label="PIN (optional)"
+            bind:value={newPin}
+            placeholder="PIN (optional)"
+            disabled={busy}
+          />
+          <button
+            class="btn press primary"
+            type="submit"
+            disabled={busy || newName.trim() === ""}
+          >
+            {busy ? "Creating…" : "Create & sign in"}
+          </button>
+          {#if profiles.length > 0}
+            <button
+              class="btn-quiet press back"
+              type="button"
+              onclick={() => {
+                mode = "pick";
+                error = "";
+              }}
+              disabled={busy}
+            >
+              <Icon icon={ArrowLeft} size={16} />
+              Back
+            </button>
+          {/if}
+        </form>
+      {/if}
 
-    {#if error}
-      <p class="error" role="alert">
-        <Icon icon={TriangleAlert} size={16} />
-        <span>{error}</span>
-      </p>
-    {/if}
+      {#if error}
+        <p class="error" role="alert">
+          <Icon icon={TriangleAlert} size={16} />
+          <span>{error}</span>
+        </p>
+      {/if}
+    </section>
   </div>
+
+  <footer class="colophon eyebrow">Local-first · No accounts · Yours</footer>
 </div>
 
 <style>
   .screen {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
     min-height: 100vh;
     padding: var(--sp-6);
+    overflow: hidden;
   }
 
-  .card {
+  /* Giant embossed initial behind everything — pure atmosphere. */
+  .watermark {
+    position: absolute;
+    right: -4rem;
+    bottom: -14rem;
+    font-size: 44rem;
+    font-style: italic;
+    font-weight: 500;
+    line-height: 1;
+    color: var(--fg);
+    opacity: 0.035;
+    pointer-events: none;
+    user-select: none;
+  }
+  @media (max-width: 40rem) {
+    .watermark {
+      font-size: 28rem;
+      right: -6rem;
+      bottom: -9rem;
+    }
+  }
+
+  .frontispiece {
     width: 100%;
-    max-width: 24rem;
+    max-width: 23.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-6);
+  }
+
+  /* Staggered page-load: wordmark, rule, then the body. */
+  .head {
+    text-align: center;
+    animation: app-rise-in var(--dur-slower) var(--ease-out) both;
+  }
+  .rule-double {
+    animation: app-overlay-in var(--dur-slower) var(--ease-out) 120ms both;
+  }
+  .body {
     display: flex;
     flex-direction: column;
     gap: var(--sp-5);
-    padding: var(--sp-8);
-    border: 1px solid var(--hairline);
-    border-radius: var(--radius-lg);
-    background: var(--surface);
-    animation: rise var(--dur-slow) var(--ease-out) both;
-  }
-  @keyframes rise {
-    from {
-      opacity: 0;
-      transform: translateY(10px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+    animation: app-rise-in var(--dur-slower) var(--ease-out) 90ms both;
   }
 
-  /* Wordmark hero. */
-  .head {
-    text-align: center;
+  .mark {
+    display: block;
+    font-size: var(--text-sm);
+    margin-bottom: var(--sp-3);
   }
+
   .brand {
     margin: 0;
-    font-family: var(--font-display);
-    font-size: var(--text-3xl);
-    font-weight: 500;
+    font-size: clamp(3.2rem, 9vw, 4.4rem);
+    font-style: italic;
+    font-weight: 460;
     line-height: var(--lh-tight);
-    letter-spacing: 0.01em;
+  }
+
+  .tagline {
+    margin: var(--sp-2) 0 0;
+    font-family: var(--font-display);
+    font-style: italic;
+    font-size: var(--text-base);
+    color: var(--muted);
+    letter-spacing: 0.02em;
   }
 
   .muted {
@@ -301,64 +359,87 @@
     font-size: var(--text-sm);
   }
 
+  .who {
+    font-style: italic;
+    font-size: var(--text-base);
+    color: var(--fg);
+  }
+
+  /* The profile index — an open list ruled like a printed index, not a box. */
   .profiles {
     list-style: none;
     margin: 0;
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--sp-2);
+  }
+  .profiles li {
+    border-bottom: 1px solid var(--hairline);
+    animation: app-rise-in var(--dur-slow) var(--ease-out) both;
+    animation-delay: calc(140ms + var(--i, 0) * 45ms);
   }
 
   .profile {
     display: flex;
     align-items: center;
-    gap: var(--sp-3);
+    gap: var(--sp-4);
     width: 100%;
-    min-height: 44px;
-    padding: var(--sp-2) var(--sp-3);
-    border: 1px solid var(--hairline);
-    border-radius: var(--radius);
+    min-height: 3.4rem;
+    padding: var(--sp-2) var(--sp-2);
+    border: none;
     background: transparent;
     color: var(--fg);
     font: inherit;
     text-align: left;
     cursor: pointer;
+    border-radius: var(--radius-sm);
+    /* Bookmark that slides in from the left edge on hover. */
+    box-shadow: inset 0 0 0 0 var(--accent);
     transition:
-      border-color var(--dur) var(--ease-out),
       background var(--dur) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
+      box-shadow var(--dur) var(--ease-out),
+      transform var(--dur) var(--ease-out);
   }
-  .profile:hover:not(:disabled) {
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 7%, transparent);
+  .profile:hover:not(:disabled),
+  .profile:focus-visible {
+    background: var(--surface);
+    box-shadow: inset 3px 0 0 0 var(--accent);
+    transform: translateX(4px);
+  }
+  .profile:focus-visible {
+    box-shadow:
+      inset 3px 0 0 0 var(--accent),
+      var(--focus);
   }
   .profile:active:not(:disabled) {
-    transform: scale(0.99);
+    transform: translateX(4px) scale(0.99);
   }
   .profile:disabled {
     opacity: 0.55;
     cursor: not-allowed;
   }
 
-  .avatar {
+  /* Drop-cap initial in the display face — the "library card" letter. */
+  .initial {
     flex: none;
-    display: grid;
-    place-items: center;
-    width: 2.1rem;
-    height: 2.1rem;
-    border-radius: 50%;
-    background: color-mix(in srgb, var(--accent) 18%, transparent);
-    color: var(--fg);
-    font-family: var(--font-display);
-    font-size: var(--text-lg);
-    font-weight: 600;
+    width: 2.2rem;
+    text-align: center;
+    font-size: 1.7rem;
+    font-weight: 560;
+    line-height: 1;
+    color: var(--faint);
+    transition: color var(--dur) var(--ease-out);
+  }
+  .profile:hover .initial,
+  .profile:focus-visible .initial {
+    color: var(--accent);
   }
 
   .name {
     flex: 1;
     min-width: 0;
-    text-align: left;
+    font-size: var(--text-base);
+    font-weight: 540;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -368,7 +449,7 @@
     flex: none;
     display: inline-flex;
     align-items: center;
-    color: var(--muted);
+    color: var(--faint);
   }
 
   /* Skeleton placeholders shown while profiles load. */
@@ -376,16 +457,20 @@
     pointer-events: none;
     cursor: default;
   }
-  .sk-avatar {
+  .sk-initial {
+    flex: none;
+    width: 2.2rem;
+    height: 1.6rem;
+    border-radius: var(--radius-sm);
     background: var(--surface-hover);
   }
   .sk-bar {
     height: 0.8rem;
     width: 55%;
-    border-radius: var(--radius);
+    border-radius: var(--radius-sm);
     background: var(--surface-hover);
   }
-  .sk-avatar,
+  .sk-initial,
   .sk-bar {
     animation: pulse 1.2s var(--ease) infinite;
   }
@@ -405,85 +490,43 @@
     gap: var(--sp-3);
   }
 
-  .field {
-    width: 100%;
-    min-height: 44px;
-    padding: var(--sp-2) var(--sp-3);
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius);
-    background: var(--bg);
-    color: var(--fg);
-    font: inherit;
-    /* ≥ 16px keeps iOS Safari from zooming the viewport on focus. */
+  /* Larger fields on this screen; ≥16px also keeps iOS Safari from zooming. */
+  .field.big,
+  .field.pin {
+    min-height: 3rem;
     font-size: var(--text-base);
-    transition: border-color var(--dur) var(--ease-out);
   }
-  .field::placeholder {
-    color: var(--muted);
+  .field.pin {
+    text-align: center;
+    letter-spacing: 0.4em;
+    font-weight: 600;
   }
-  .field:focus-visible {
-    /* Ring comes from the global :focus-visible rule; just tint the border. */
-    border-color: var(--accent);
+  .field.pin::placeholder {
+    letter-spacing: 0.08em;
+    font-weight: 480;
   }
 
   .remember {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: var(--sp-2);
     color: var(--muted);
     font-size: var(--text-sm);
   }
+  .remember input {
+    accent-color: var(--accent);
+  }
 
   .primary {
-    min-height: 44px;
-    padding: var(--sp-2) var(--sp-4);
-    border: none;
-    border-radius: var(--radius);
-    background: var(--accent);
-    color: var(--accent-fg);
-    font: inherit;
-    font-weight: 700;
-    cursor: pointer;
-    transition:
-      opacity var(--dur) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
-  }
-  .primary:hover:not(:disabled) {
-    opacity: 0.88;
-  }
-  .primary:active:not(:disabled) {
-    transform: scale(0.97);
-  }
-  .primary:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
+    min-height: 3rem;
+    font-size: var(--text-base);
+    font-weight: 640;
   }
 
-  .link {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--sp-1);
+  .back,
+  .new {
     align-self: center;
-    min-height: 44px;
-    padding: var(--sp-1) var(--sp-3);
-    border: none;
-    border-radius: var(--radius);
-    background: transparent;
-    color: var(--muted);
-    font: inherit;
-    cursor: pointer;
-    transition: color var(--dur) var(--ease-out);
-  }
-  .link:hover:not(:disabled) {
-    color: var(--fg);
-  }
-  .link:active:not(:disabled) {
-    transform: scale(0.97);
-  }
-  .link:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
   }
 
   .error {
@@ -499,5 +542,16 @@
   }
   .error :global(svg) {
     flex: none;
+  }
+
+  /* Colophon line pinned to the foot of the frontispiece. */
+  .colophon {
+    position: absolute;
+    bottom: var(--sp-6);
+    left: 0;
+    right: 0;
+    text-align: center;
+    color: var(--faint);
+    animation: app-overlay-in var(--dur-slower) var(--ease-out) 300ms both;
   }
 </style>

@@ -103,9 +103,12 @@
     {@attach focusTrap}
   >
     <header>
-      <h2 title={book.title}>Share “{book.title}”</h2>
+      <div class="head-text">
+        <p class="eyebrow">Share</p>
+        <h2 class="display" title={book.title}>“{book.title}”</h2>
+      </div>
       <button
-        class="close"
+        class="icon-btn press close"
         aria-label={busy ? "Cancel upload and close" : "Close"}
         onclick={close}
       >
@@ -116,7 +119,7 @@
     <div class="body">
       <p class="lead">Download the original .epub to this device.</p>
       <a
-        class="btn secondary download-btn"
+        class="btn-ghost press download-btn"
         href={downloadUrl}
         download={downloadName}
       >
@@ -133,7 +136,7 @@
         Anonymous upload — anyone with the link can download the file.
       </p>
 
-      <button class="btn primary upload-btn" onclick={upload} disabled={busy}>
+      <button class="btn press upload-btn" onclick={upload} disabled={busy}>
         <Icon icon={UploadCloud} size={16} />
         {busy ? "Uploading…" : url ? "Upload again" : "Upload to gofile"}
       </button>
@@ -143,7 +146,7 @@
           <a href={url} target="_blank" rel="noopener noreferrer">{url}</a>
           <button
             type="button"
-            class="icon-btn"
+            class="icon-btn press copy-btn"
             aria-label={copied ? "Link copied" : "Copy link"}
             title={copied ? "Link copied" : "Copy link"}
             onclick={copyLink}
@@ -167,29 +170,41 @@
     display: grid;
     place-items: center;
     padding: var(--sp-6);
-    background: color-mix(in srgb, #000 38%, transparent);
-    animation: app-overlay-in var(--dur-fast) var(--ease-out);
+    background: var(--veil);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+    animation: app-overlay-in var(--dur) var(--ease-out);
   }
   .sheet {
     width: min(28rem, 100%);
     max-height: calc(100dvh - var(--sp-12));
     overflow-y: auto;
-    background: var(--bg);
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius-lg);
-    animation: app-sheet-in var(--dur) var(--ease-out);
+    background: var(--raised);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-3);
+    animation: app-sheet-in var(--dur-slow) var(--ease-out);
   }
   header {
     position: sticky;
     top: 0;
     z-index: 1;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
     gap: var(--sp-3);
-    padding: var(--sp-3) var(--sp-4);
+    padding: var(--sp-5) var(--sp-5) var(--sp-3);
     border-bottom: 1px solid var(--hairline);
-    background: var(--bg);
+    background: var(--raised);
+  }
+  .head-text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+    min-width: 0;
+  }
+  .head-text .eyebrow {
+    margin: 0;
   }
   h2 {
     margin: 0;
@@ -197,39 +212,19 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-family: var(--font-display);
-    font-size: var(--text-xl);
-    font-weight: 500;
-    line-height: 1.2;
+    font-size: var(--text-lg);
+    font-style: italic;
+    font-weight: 520;
+    line-height: var(--lh-snug);
   }
   .close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
     flex-shrink: 0;
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    padding: 0.3rem;
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition:
-      background var(--dur) var(--ease-out),
-      color var(--dur) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
-  }
-  .close:active {
-    transform: scale(0.94);
-  }
-  .close:hover {
-    background: var(--surface-hover);
-    color: var(--fg);
   }
   .body {
     display: flex;
     flex-direction: column;
     gap: var(--sp-3);
-    padding: var(--sp-4);
+    padding: var(--sp-5);
   }
   .lead {
     margin: 0;
@@ -247,9 +242,10 @@
     align-items: center;
     gap: var(--sp-2);
     padding: var(--sp-2);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius);
     background: var(--surface);
     border: 1px solid var(--hairline);
+    animation: app-sheet-in var(--dur-slow) var(--ease-out);
   }
   .result a {
     flex: 1;
@@ -259,84 +255,32 @@
     white-space: nowrap;
     color: var(--accent);
     font-size: var(--text-xs);
+    font-weight: 560;
   }
-  .icon-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    padding: 0.3rem;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    transition:
-      background var(--dur) var(--ease-out),
-      color var(--dur) var(--ease-out);
-  }
-  .icon-btn:hover {
-    background: var(--surface-hover);
-    color: var(--fg);
+  .copy-btn {
+    width: 1.9rem;
+    height: 1.9rem;
   }
   .error {
     margin: 0;
     padding: var(--sp-2) var(--sp-3);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius);
     background: var(--danger-surface);
     color: var(--danger-surface-fg);
     font-size: var(--text-sm);
     overflow-wrap: anywhere;
   }
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--sp-2);
-    height: 2.4rem;
-    padding: 0 1rem;
-    border: 1px solid transparent;
-    border-radius: var(--radius);
-    font: inherit;
-    font-weight: 600;
-    cursor: pointer;
-    transition:
-      background var(--dur) var(--ease-out),
-      opacity var(--dur) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
-  }
-  .btn:active:not(:disabled) {
-    transform: scale(0.97);
-  }
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .btn.primary {
-    background: var(--accent);
-    color: var(--accent-fg);
-  }
-  .btn.primary:hover:not(:disabled) {
-    opacity: 0.88;
-  }
+  .download-btn,
   .upload-btn {
     align-self: flex-start;
-  }
-  .btn.secondary {
-    align-self: flex-start;
-    background: var(--surface);
-    color: var(--fg);
-    border-color: var(--hairline-strong);
     text-decoration: none;
-  }
-  .btn.secondary:hover:not(:disabled) {
-    background: var(--surface-hover);
   }
   .divider {
     align-self: stretch;
     width: 100%;
-    margin: var(--sp-1) 0;
+    margin: var(--sp-2) 0;
     border: none;
     border-top: 1px solid var(--hairline);
+    position: relative;
   }
 </style>

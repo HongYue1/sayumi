@@ -85,16 +85,21 @@
 
 <div class="bookmarks">
   <header>
-    <h2>Bookmarks</h2>
-    <button class="close" onclick={onclose} aria-label="Close bookmarks"
-      ><Icon icon={X} size={18} /></button
+    <div class="head-text">
+      <p class="eyebrow">Reader</p>
+      <h2 class="display">Bookmarks</h2>
+    </div>
+    <button
+      class="icon-btn press close"
+      onclick={onclose}
+      aria-label="Close bookmarks"><Icon icon={X} size={18} /></button
     >
   </header>
 
   <div class="list">
     {#if sorted.length === 0}
       <p class="empty">
-        No bookmarks yet. Press <kbd>B</kbd> while reading to add one.
+        No bookmarks yet. Press <kbd class="kbd">B</kbd> while reading to add one.
       </p>
     {:else}
       <ul class="bm-list">
@@ -137,15 +142,18 @@
                   </p>
                 {/if}
                 <div class="actions">
-                  <button class="primary" onclick={() => saveEdit(bm.id)}
-                    >Save</button
+                  <button
+                    class="btn press small"
+                    onclick={() => saveEdit(bm.id)}>Save</button
                   >
-                  <button class="ghost-btn" onclick={() => finishEdit(bm.id)}
-                    >Cancel</button
+                  <button
+                    class="btn-ghost press small"
+                    onclick={() => finishEdit(bm.id)}>Cancel</button
                   >
                 </div>
               </div>
             {:else}
+              <span class="ribbon" aria-hidden="true"></span>
               <button
                 class="open"
                 onclick={() => onnavigate(bm)}
@@ -160,7 +168,7 @@
               </button>
               <div class="actions">
                 <button
-                  class="icon-btn"
+                  class="row-btn press"
                   onclick={() => startEdit(bm)}
                   aria-label={`Edit bookmark: ${bookmarkName(bm)}`}
                   {@attach (node) =>
@@ -168,7 +176,7 @@
                   ><Icon icon={Pencil} size={15} /></button
                 >
                 <button
-                  class="icon-btn danger"
+                  class="row-btn press danger"
                   onclick={() => ondelete(bm.id)}
                   aria-label={`Delete bookmark: ${bookmarkName(bm)}`}
                   ><Icon icon={Trash2} size={15} /></button
@@ -187,45 +195,33 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    background: var(--bg);
     color: var(--fg);
   }
   header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
-    padding: var(--sp-3) var(--sp-4);
+    gap: var(--sp-3);
+    padding: var(--sp-4) var(--sp-4) var(--sp-3);
     border-bottom: 1px solid var(--hairline);
     flex: 0 0 auto;
   }
+  .head-text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+  }
+  .head-text .eyebrow {
+    margin: 0;
+  }
   h2 {
     margin: 0;
-    font-family: var(--font-display);
     font-size: var(--text-xl);
-    font-weight: 500;
-    line-height: 1;
+    font-weight: 540;
+    line-height: var(--lh-tight);
   }
   .close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    padding: 0.3rem;
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition:
-      background var(--dur) var(--ease-out),
-      color var(--dur) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
-  }
-  .close:hover {
-    background: var(--surface-hover);
-    color: var(--fg);
-  }
-  .close:active {
-    transform: scale(0.94);
+    flex-shrink: 0;
   }
   .list {
     overflow-y: auto;
@@ -239,22 +235,30 @@
   .empty {
     color: var(--muted);
     padding: var(--sp-2);
-  }
-  kbd {
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius-sm);
-    padding: 0 0.3rem;
-    font-size: 0.85em;
+    font-family: var(--font-display);
+    font-style: italic;
   }
   .bm {
+    position: relative;
     display: flex;
     gap: var(--sp-2);
     align-items: flex-start;
-    padding: var(--sp-2) 0;
+    padding: var(--sp-2) 0 var(--sp-2) var(--sp-3);
     border-bottom: 1px solid var(--hairline);
   }
   .bm:last-child {
     border-bottom: none;
+  }
+  /* A small accent ribbon hanging into each row — the bookmark itself. */
+  .ribbon {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 7px;
+    height: 1.35rem;
+    background: var(--accent);
+    opacity: 0.85;
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 50% calc(100% - 4px), 0 100%);
   }
   .edit {
     flex: 1;
@@ -274,21 +278,23 @@
     display: flex;
     flex-direction: column;
     gap: 0.15rem;
-    padding: 0.3rem;
-    border-radius: var(--radius);
+    padding: 0.35rem 0.45rem;
+    border-radius: var(--radius-sm);
     transition: background var(--dur-fast) var(--ease-out);
   }
   .open:hover {
     background: var(--surface-hover);
   }
   .bm-label {
-    font-weight: 500;
+    font-weight: 560;
     font-size: var(--text-sm);
     overflow-wrap: anywhere;
   }
   .bm-meta {
     font-size: var(--text-xs);
-    color: var(--muted);
+    font-weight: 560;
+    letter-spacing: 0.04em;
+    color: var(--faint);
   }
   .bm-comment {
     font-size: var(--text-sm);
@@ -303,6 +309,11 @@
   }
   .edit .actions {
     margin-top: 0.2rem;
+    gap: var(--sp-2);
+  }
+  .small {
+    font-size: var(--text-xs);
+    padding: 0.35rem 0.8rem;
   }
   .edit-error {
     margin: 0 0 var(--sp-2);
@@ -314,61 +325,10 @@
     overflow-wrap: anywhere;
   }
   .field {
-    width: 100%;
-    padding: 0.4rem 0.5rem;
     margin-bottom: 0.35rem;
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius);
-    background: var(--bg);
-    color: var(--fg);
-    font: inherit;
-    font-size: var(--text-sm);
     resize: vertical;
-    transition: border-color var(--dur) var(--ease-out);
   }
-  .field:hover {
-    border-color: var(--accent);
-  }
-  .primary {
-    border: none;
-    background: var(--accent);
-    color: var(--accent-fg);
-    font: inherit;
-    font-size: var(--text-sm);
-    font-weight: 700;
-    padding: 0.35rem 0.8rem;
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition:
-      opacity var(--dur) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
-  }
-  .primary:hover {
-    opacity: 0.88;
-  }
-  .primary:active {
-    transform: scale(0.97);
-  }
-  .ghost-btn {
-    border: 1px solid var(--hairline-strong);
-    background: transparent;
-    color: var(--fg);
-    font: inherit;
-    font-size: var(--text-sm);
-    padding: 0.35rem 0.8rem;
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition:
-      background var(--dur) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
-  }
-  .ghost-btn:hover {
-    background: var(--surface-hover);
-  }
-  .ghost-btn:active {
-    transform: scale(0.97);
-  }
-  .icon-btn {
+  .row-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -376,21 +336,18 @@
     background: transparent;
     color: var(--muted);
     cursor: pointer;
-    padding: 0.3rem;
-    border-radius: var(--radius);
+    padding: 0.35rem;
+    border-radius: var(--radius-sm);
     transition:
       background var(--dur-fast) var(--ease-out),
-      color var(--dur-fast) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
+      color var(--dur-fast) var(--ease-out);
   }
-  .icon-btn:hover {
+  .row-btn:hover {
     background: var(--surface-hover);
     color: var(--fg);
   }
-  .icon-btn:active {
-    transform: scale(0.95);
-  }
-  .icon-btn.danger:hover {
+  .row-btn.danger:hover {
     color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
   }
 </style>

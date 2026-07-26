@@ -13,8 +13,8 @@ func TestSanitizeFontRequestPath(t *testing.T) {
 	t.Parallel()
 
 	okCases := map[string]string{
-		"/Satoshi-Variable.woff2": "Satoshi-Variable.woff2",
-		"Satoshi-Variable.woff2":  "Satoshi-Variable.woff2",
+		"/Fraunces-VariableFont.woff2": "Fraunces-VariableFont.woff2",
+		"Fraunces-VariableFont.woff2":  "Fraunces-VariableFont.woff2",
 	}
 	for in, want := range okCases {
 		got, ok := sanitizeFontRequestPath(in)
@@ -64,7 +64,7 @@ func TestEtagMatches(t *testing.T) {
 func TestHandlerEmbeddedFont(t *testing.T) {
 	t.Parallel()
 
-	const name = "Satoshi-Variable.woff2"
+	const name = "Fraunces-VariableFont.woff2"
 	data, ok := fontData[name]
 	if !ok || len(data) == 0 {
 		t.Fatalf("embedded font %q missing from fontData", name)

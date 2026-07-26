@@ -266,9 +266,14 @@
 
 <div class="toc">
   <header>
-    <h2>Contents</h2>
-    <button class="close" onclick={onclose} aria-label="Close table of contents"
-      ><Icon icon={X} size={18} /></button
+    <div class="head-text">
+      <p class="eyebrow">Reader</p>
+      <h2 class="display">Contents</h2>
+    </div>
+    <button
+      class="icon-btn press close"
+      onclick={onclose}
+      aria-label="Close table of contents"><Icon icon={X} size={18} /></button
     >
   </header>
   {#if rows.length === 0}
@@ -349,40 +354,29 @@
   }
   header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
-    padding: var(--sp-3) var(--sp-4);
+    gap: var(--sp-3);
+    padding: var(--sp-4) var(--sp-4) var(--sp-3);
     border-bottom: 1px solid var(--hairline);
     flex: 0 0 auto;
   }
+  .head-text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+  }
+  .head-text .eyebrow {
+    margin: 0;
+  }
   h2 {
     margin: 0;
-    font-family: var(--font-display);
     font-size: var(--text-xl);
-    font-weight: 500;
-    line-height: 1;
+    font-weight: 540;
+    line-height: var(--lh-tight);
   }
   .close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    padding: 0.3rem;
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition:
-      background var(--dur) var(--ease-out),
-      color var(--dur) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
-  }
-  .close:hover {
-    background: var(--surface-hover);
-    color: var(--fg);
-  }
-  .close:active {
-    transform: scale(0.94);
+    flex-shrink: 0;
   }
   .filter {
     display: flex;
@@ -395,20 +389,6 @@
   .field {
     flex: 1;
     min-width: 0;
-    padding: 0.45rem 0.6rem;
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius);
-    background: var(--bg);
-    color: var(--fg);
-    font: inherit;
-    font-size: var(--text-sm);
-    transition: border-color var(--dur) var(--ease-out);
-  }
-  .field:hover {
-    border-color: var(--accent);
-  }
-  .field::placeholder {
-    color: var(--muted);
   }
   .clear {
     display: inline-flex;
@@ -463,7 +443,7 @@
     font: inherit;
     font-size: var(--text-sm);
     padding: 0 var(--sp-2);
-    border-radius: var(--radius);
+    border-radius: var(--radius-sm);
     cursor: pointer;
     white-space: nowrap;
     overflow: hidden;
@@ -477,11 +457,11 @@
   .entry {
     position: relative;
     color: var(--muted);
-    font-weight: 400;
+    font-weight: 440;
   }
   .entry.top {
     color: var(--fg);
-    font-weight: 500;
+    font-weight: 560;
   }
   .entry:hover {
     background: var(--surface-hover);
@@ -490,14 +470,15 @@
   .entry:active {
     transform: scale(0.99);
   }
-  /* Current chapter: accent text + tinted row + a left accent bar (inset shadow
-     so it never changes the row height the virtual-scroll math depends on). */
+  /* Current chapter: accent text + tinted row + a left bookmark bar (inset
+     shadow so it never changes the row height the virtual-scroll math
+     depends on). */
   .entry.current,
   .entry.current.top {
-    background: var(--surface-hover);
+    background: var(--accent-soft);
     color: var(--accent);
-    font-weight: 600;
-    box-shadow: inset 2px 0 0 var(--accent);
+    font-weight: 640;
+    box-shadow: inset 3px 0 0 var(--accent);
   }
   /* Filter match highlight: height-neutral (background + radius + horizontal
      padding only, never vertical padding or a border) so the fixed row height
@@ -511,5 +492,7 @@
   .empty {
     padding: var(--sp-4);
     color: var(--muted);
+    font-family: var(--font-display);
+    font-style: italic;
   }
 </style>

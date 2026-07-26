@@ -121,7 +121,7 @@
   {#if open}
     <div
       bind:this={menuEl}
-      class="menu"
+      class="menu paper"
       role="menu"
       tabindex="-1"
       aria-label="Profile"
@@ -172,22 +172,21 @@
     gap: var(--sp-2);
     min-width: 0;
     max-width: min(14rem, 26vw);
-    padding: 0.3rem 0.5rem;
-    border: 1px solid var(--hairline-strong);
+    padding: 0.35rem 0.6rem;
+    border: none;
     border-radius: var(--radius);
-    background: var(--bg);
+    background: transparent;
     color: var(--fg);
     font: inherit;
     font-size: var(--text-sm);
     cursor: pointer;
     transition:
-      border-color var(--dur) var(--ease-out),
-      background var(--dur) var(--ease-out),
+      background var(--dur-fast) var(--ease-out),
       transform var(--dur-fast) var(--ease-out);
   }
-  .trigger:hover {
-    border-color: var(--accent);
-    background: var(--surface-hover);
+  .trigger:hover,
+  .trigger.open {
+    background: var(--surface);
   }
   .trigger:active {
     transform: scale(0.97);
@@ -197,7 +196,7 @@
     flex-shrink: 0;
   }
   .who {
-    font-weight: 500;
+    font-weight: 580;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -205,7 +204,7 @@
   .trigger :global(.caret) {
     color: var(--muted);
     flex-shrink: 0;
-    transition: transform var(--dur-fast) var(--ease-out);
+    transition: transform var(--dur) var(--ease-spring);
   }
   .trigger.open :global(.caret) {
     transform: rotate(180deg);
@@ -213,16 +212,13 @@
 
   .menu {
     position: absolute;
-    top: calc(100% + 0.4rem);
+    top: calc(100% + 0.5rem);
     right: 0;
     z-index: 21;
-    min-width: 12rem;
-    padding: var(--sp-1);
-    background: var(--bg);
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius);
+    min-width: 12.5rem;
+    padding: var(--sp-2);
     transform-origin: top right;
-    animation: app-menu-pop-in var(--dur-fast) var(--ease-out) both;
+    animation: app-menu-pop-in var(--dur) var(--ease-out) both;
   }
   .item {
     display: flex;
@@ -236,10 +232,15 @@
     color: var(--fg);
     font: inherit;
     font-size: var(--text-sm);
+    font-weight: 520;
     text-align: left;
     white-space: nowrap;
     cursor: pointer;
     transition: background var(--dur-fast) var(--ease-out);
+  }
+  .item :global(svg) {
+    color: var(--muted);
+    flex-shrink: 0;
   }
   .item:hover,
   .item:focus-visible {
@@ -254,9 +255,13 @@
     background: var(--danger-surface);
     color: var(--danger-surface-fg);
   }
+  .item.danger:hover :global(svg),
+  .item.danger:focus-visible :global(svg) {
+    color: var(--danger-surface-fg);
+  }
   .sep {
     height: 1px;
-    margin: var(--sp-1) 0;
+    margin: var(--sp-1) var(--sp-1);
     background: var(--hairline);
   }
 

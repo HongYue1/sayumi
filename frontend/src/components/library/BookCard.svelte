@@ -30,7 +30,7 @@
   // delay only drives the mount animation. Capped so large libraries don't
   // accumulate long delays.
   // svelte-ignore state_referenced_locally
-  const enterDelay = Math.min(index, 16) * 28;
+  const enterDelay = Math.min(index, 16) * 32;
 
   // Remember the exact URL that failed rather than permanently suppressing the
   // cover for this book id. Metadata/cover edits advance updatedAt while the
@@ -224,49 +224,57 @@
     aria-label={`Open ${book.title}`}
     onclick={() => onopen(book.id)}
   ></button>
-  <div class="cover">
-    {#if showCover}
-      <img
-        src={coverUrl}
-        alt=""
-        loading={index < 8 ? "eager" : "lazy"}
-        fetchpriority={index === 0 ? "high" : undefined}
-        decoding="async"
-        onerror={() => (failedCoverUrl = coverUrl)}
-      />
-    {:else}
-      <div class="placeholder">
-        <span>{book.title}</span>
-      </div>
-    {/if}
 
-    {#if pct > 0}
-      <div
-        class="progress"
-        role="progressbar"
-        aria-label={`Reading progress for ${book.title}`}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={pct}
-        aria-valuetext={`${pct}% read`}
-        title={`${pct}% read`}
-      >
-        <div class="bar" style:width={`${pct}%`}></div>
-      </div>
-    {/if}
+  <!-- The volume: cover art treated as a physical book — spine shading on the
+       left, a soft ink shadow beneath, and a lift on hover. -->
+  <div class="volume">
+    <div class="cover">
+      {#if showCover}
+        <img
+          src={coverUrl}
+          alt=""
+          loading={index < 8 ? "eager" : "lazy"}
+          fetchpriority={index === 0 ? "high" : undefined}
+          decoding="async"
+          onerror={() => (failedCoverUrl = coverUrl)}
+        />
+      {:else}
+        <!-- Publisher's plain jacket for books without cover art. -->
+        <div class="placeholder">
+          <span class="ph-frame" aria-hidden="true"></span>
+          <span class="ph-fleuron" aria-hidden="true">❦</span>
+          <span class="ph-title display">{book.title}</span>
+        </div>
+      {/if}
 
-    {#if flair}
-      <span
-        class="flair-badge"
-        style:background={flair.color}
-        style:color={flairTextColor(flair.color)}
-      >
-        {flair.label}
-      </span>
-    {/if}
+      {#if pct > 0}
+        <div
+          class="progress"
+          role="progressbar"
+          aria-label={`Reading progress for ${book.title}`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={pct}
+          aria-valuetext={`${pct}% read`}
+          title={`${pct}% read`}
+        >
+          <div class="bar" style:width={`${pct}%`}></div>
+        </div>
+      {/if}
+
+      {#if flair}
+        <span
+          class="flair-badge"
+          style:background={flair.color}
+          style:color={flairTextColor(flair.color)}
+        >
+          {flair.label}
+        </span>
+      {/if}
+    </div>
   </div>
 
-  <!-- Corner actions live at card level (NOT inside .cover): the cover's
+  <!-- Corner actions live at card level (NOT inside .volume): the volume's
        hover-lift transform establishes a stacking context, which would trap
        these buttons beneath the z-index:1 open-overlay and swallow their
        clicks + :hover. At card level they stay above the overlay (z-index:3). -->
@@ -293,17 +301,21 @@
     <Icon icon={Tag} size={15} />
   </button>
 
+  <!-- Catalog caption beneath the volume. -->
   <div class="meta">
-    <div class="title" title={book.title}>{book.title}</div>
-    {#if book.author}<div class="author" title={book.author}>
-        {book.author}
-      </div>{/if}
+    <div class="title display" title={book.title}>{book.title}</div>
+    <div class="byline">
+      {#if book.author}<span class="author" title={book.author}
+          >{book.author}</span
+        >{/if}
+      {#if pct > 0}<span class="pct tnum">{pct}%</span>{/if}
+    </div>
   </div>
 
   {#if openMenu === "flair"}
     <div
       bind:this={menuEl}
-      class="flair-menu"
+      class="flair-menu paper"
       class:flip-x={flipX}
       class:flip-y={flipY}
       role="menu"
@@ -342,7 +354,7 @@
   {#if openMenu === "actions"}
     <div
       bind:this={menuEl}
-      class="actions-menu"
+      class="actions-menu paper"
       class:flip-x={flipX}
       class:flip-y={flipY}
       role="menu"
@@ -394,17 +406,8 @@
     display: flex;
     flex-direction: column;
     cursor: pointer;
-    /* One unified card: a full-bleed cover on top + a faint --surface panel
-       behind the meta below, wrapped by a hairline border + --radius. A tight
-       --radius (not --radius-lg) reads more refined, closer to the original.
-       The cover keeps its natural width (no inset/mat); the tile shows only
-       behind the title/author so the two read as a single card. No
-       overflow:hidden here — the flair-menu popover must escape the card box. */
-    border: 1px solid var(--hairline);
-    border-radius: var(--radius);
-    background: var(--surface);
     text-align: left;
-    animation: card-in var(--dur-slow) var(--ease-out) both;
+    animation: card-in var(--dur-slower) var(--ease-out) both;
     animation-delay: var(--enter-delay, 0ms);
     /* Skip layout + paint for off-screen cards so a large library only renders
        what's near the viewport. contain-intrinsic-size keeps the scrollbar
@@ -414,26 +417,29 @@
        deliberately not overflow:hidden so that menu can escape — so the
        :has() rule below drops containment for whichever card has it open. */
     content-visibility: auto;
-    contain-intrinsic-size: auto 320px;
+    contain-intrinsic-size: auto 340px;
   }
 
   /* While a popover (flair or actions) is open, drop containment on that one
      card so the menu can overflow the card box (the menu element exists only
-     while open, so this targets exactly the active card). */
+     while open, so this targets exactly the active card), and raise the card
+     above sibling cards — each card's entrance transform makes it a stacking
+     context, so a later sibling would otherwise paint over a menu that spills
+     into its area (narrow grids on small screens). */
   .card:has(.flair-menu),
   .card:has(.actions-menu) {
     content-visibility: visible;
+    z-index: 25;
   }
 
   /* Transparent full-card hit target for "open". Sits above the cover art but
-     below the corner action buttons (z-index: 3) and the flair menu/scrim. */
+     below the corner action buttons (z-index: 3) and the popover menus. */
   .open-overlay {
     position: absolute;
     inset: 0;
     z-index: 1;
     padding: 0;
     border: none;
-    /* Tokenized to the card radius; this is an invisible full-card hit target. */
     border-radius: var(--radius);
     background: transparent;
     cursor: pointer;
@@ -442,7 +448,7 @@
   @keyframes card-in {
     from {
       opacity: 0;
-      transform: translateY(8px);
+      transform: translateY(16px);
     }
     to {
       opacity: 1;
@@ -450,30 +456,71 @@
     }
   }
 
+  /* The physical volume: transform-only lift, shadow crossfaded on a pseudo
+     element so hover never repaints the cover art. */
+  .volume {
+    position: relative;
+    transition: transform var(--dur-slow) var(--ease-out);
+  }
+  .card:hover .volume,
+  .card:has(.open-overlay:focus-visible) .volume {
+    transform: translateY(-6px) rotate(-0.4deg);
+  }
+
   .cover {
     position: relative;
     aspect-ratio: 2 / 3;
-    /* Full-bleed cover: rounds only its TOP corners to match the card's tighter
-       --radius; its bottom edge meets the meta panel flush so cover + tile read
-       as one card. No own border (the card's border frames everything) and no
-       hover lift (the card is one unit — hover outlines the whole card). */
-    border-radius: var(--radius) var(--radius) 0 0;
+    /* A book's squarer spine edge on the left, softer page edge on the right. */
+    border-radius: 3px 8px 8px 3px;
     overflow: hidden;
-    background: var(--surface);
+    background: var(--raised);
+    box-shadow: var(--shadow-2);
   }
-  .card:hover,
-  .card:has(.open-overlay:focus-visible) {
-    /* Hover/focus draws a 2px --accent outline around the WHOLE card (cover +
-       tile), following --radius-lg. An outline (not a border-width change or a
-       shadow) won't reflow and isn't clipped by the card's rounded corners. */
-    outline: 2px solid var(--accent);
-    outline-offset: 0;
+  /* Hover shadow lives on the volume (under the cover), crossfaded via opacity. */
+  .volume::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 3px 8px 8px 3px;
+    box-shadow: var(--shadow-3);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--dur-slow) var(--ease-out);
+    z-index: -1;
   }
-  /* The real focus target is the overlay button; route its focus ring to the
-     whole-card outline above (keyboard focus == hover) and suppress the
-     default ring on the button itself. */
+  .card:hover .volume::after,
+  .card:has(.open-overlay:focus-visible) .volume::after {
+    opacity: 1;
+  }
+  /* Spine shading + a whisper of gloss along the fore-edge. */
+  .cover::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(
+      to right,
+      rgb(0 0 0 / 0.22),
+      rgb(255 255 255 / 0.08) 3%,
+      transparent 8%,
+      transparent 97%,
+      rgb(0 0 0 / 0.08)
+    );
+    /* Hairline keyline so near-white covers don't dissolve into the page. */
+    box-shadow: inset 0 0 0 1px
+      light-dark(rgb(0 0 0 / 0.08), rgb(255 255 255 / 0.08));
+  }
+
+  /* Keyboard focus draws the ring around the volume itself. */
   .open-overlay:focus-visible {
     outline: none;
+  }
+  .card:has(.open-overlay:focus-visible) .cover {
+    box-shadow:
+      var(--shadow-2),
+      0 0 0 2px var(--bg),
+      0 0 0 4px var(--accent);
   }
 
   .cover img {
@@ -481,28 +528,56 @@
     height: 100%;
     object-fit: cover;
     display: block;
-    /* Slow editorial zoom on hover. Transform-only, clipped by the cover's
-       overflow:hidden, so it composites without repainting the image. */
-    transition: transform var(--dur-slow) var(--ease-out);
-  }
-  .card:hover .cover img,
-  .card:has(.open-overlay:focus-visible) .cover img {
-    transform: scale(1.04);
   }
 
+  /* Publisher's plain jacket: typeset title inside a hairline frame. */
   .placeholder {
+    position: relative;
     width: 100%;
     height: 100%;
     display: grid;
     place-items: center;
-    padding: var(--sp-3);
+    padding: var(--sp-5) var(--sp-4);
     text-align: center;
-    font-family: var(--font-display);
+    background: linear-gradient(
+      160deg,
+      var(--surface),
+      color-mix(in srgb, var(--accent) 10%, transparent)
+    );
+  }
+  .ph-frame {
+    position: absolute;
+    inset: 9px;
+    border: 1px solid var(--hairline-strong);
+    border-radius: 2px;
+    pointer-events: none;
+  }
+  .ph-frame::after {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    border: 1px solid var(--hairline);
+    border-radius: 1px;
+  }
+  .ph-fleuron {
+    position: absolute;
+    top: 16%;
+    left: 0;
+    right: 0;
     font-size: var(--text-sm);
-    font-weight: 500;
+    color: var(--faint);
+  }
+  .ph-title {
+    font-size: var(--text-base);
+    font-style: italic;
+    font-weight: 520;
     line-height: var(--lh-snug);
     color: var(--muted);
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 5;
+    line-clamp: 5;
+    -webkit-box-orient: vertical;
   }
 
   /* Progress as a thin accent rule pinned to the foot of the cover. */
@@ -512,28 +587,29 @@
     right: 0;
     bottom: 0;
     height: 3px;
-    background: color-mix(in srgb, var(--fg) 14%, transparent);
+    background: light-dark(rgb(0 0 0 / 0.18), rgb(255 255 255 / 0.18));
   }
   .bar {
     height: 100%;
     background: var(--accent);
+    border-radius: 0 2px 2px 0;
   }
 
-  /* Shared style for the two corner actions (gear + flair). */
+  /* Shared style for the two corner actions (gear + flair): small ink-glass
+     squares that fade in on hover. */
   .chip-btn {
     position: absolute;
-    /* Cover is full-bleed at the card's top edge, so corner buttons offset by
-       --sp-1 from the card edge to sit just inside the cover's corner (chips
-       are card-level, not inside .cover, per the stacking note in the markup). */
-    top: var(--sp-1);
+    top: var(--sp-2);
     z-index: 3;
     display: grid;
     place-items: center;
-    width: 1.6rem;
-    height: 1.6rem;
+    width: 1.75rem;
+    height: 1.75rem;
     border: none;
-    border-radius: 50%;
-    background: color-mix(in srgb, #000 55%, transparent);
+    border-radius: var(--radius-sm);
+    background: rgb(0 0 0 / 0.5);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
     color: #fff;
     cursor: pointer;
     opacity: 0;
@@ -552,54 +628,49 @@
       opacity: 1;
     }
   }
+  .chip-btn:hover {
+    background: rgb(0 0 0 / 0.72);
+  }
   .chip-btn:active {
-    transform: scale(0.95);
+    transform: scale(0.94);
   }
   /* The gear opens the actions menu (edit / share / delete) at top-right. */
   .actions-btn {
-    right: var(--sp-1);
-  }
-  .actions-btn:hover {
-    background: color-mix(in srgb, #000 72%, transparent);
+    right: var(--sp-2);
   }
   .flair-btn {
-    left: var(--sp-1);
-  }
-  .flair-btn:hover {
-    background: color-mix(in srgb, #000 72%, transparent);
+    left: var(--sp-2);
   }
 
   .flair-badge {
     position: absolute;
-    bottom: var(--sp-1);
-    left: var(--sp-1);
-    max-width: calc(100% - var(--sp-2));
-    padding: 0.1rem 0.4rem;
-    border-radius: var(--radius-sm);
+    bottom: var(--sp-2);
+    left: var(--sp-2);
+    max-width: calc(100% - var(--sp-4));
+    padding: 0.14rem 0.5rem;
+    border-radius: 999px;
     font-size: 0.66rem;
     font-weight: 700;
-    line-height: 1.3;
+    letter-spacing: 0.03em;
+    line-height: 1.4;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
   }
 
   .flair-menu {
     position: absolute;
-    top: 2rem;
-    left: var(--sp-1);
+    top: 2.4rem;
+    left: var(--sp-2);
     z-index: 21;
-    min-width: 10rem;
+    min-width: 10.5rem;
     max-height: min(calc(50dvh - var(--sp-2)), 28rem);
     overflow-x: hidden;
     overflow-y: auto;
-    padding: var(--sp-1);
-    background: var(--bg);
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius);
+    padding: var(--sp-2);
     transform-origin: top left;
-    --menu-pop-y: -2px;
+    --menu-pop-y: -3px;
     animation: app-menu-pop-in var(--dur-fast) var(--ease-out) both;
   }
   /* Edge-aware flips: keep the popover inside the viewport for cards in the
@@ -607,12 +678,12 @@
      its top would have been (just below the trigger) and grows upward. */
   .flair-menu.flip-x {
     left: auto;
-    right: var(--sp-1);
+    right: var(--sp-2);
     transform-origin: top right;
   }
   .flair-menu.flip-y {
     top: auto;
-    bottom: calc(100% - 2rem);
+    bottom: calc(100% - 2.4rem);
     transform-origin: bottom left;
   }
   .flair-menu.flip-x.flip-y {
@@ -624,38 +695,36 @@
      vertical flip near the viewport's bottom edge. */
   .actions-menu {
     position: absolute;
-    top: 2rem;
-    right: var(--sp-1);
+    top: 2.4rem;
+    right: var(--sp-2);
     z-index: 21;
-    min-width: 9rem;
-    padding: var(--sp-1);
-    background: var(--bg);
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius);
+    min-width: 9.5rem;
+    padding: var(--sp-2);
     transform-origin: top right;
-    --menu-pop-y: -2px;
+    --menu-pop-y: -3px;
     animation: app-menu-pop-in var(--dur-fast) var(--ease-out) both;
   }
   .actions-menu.flip-y {
     top: auto;
-    bottom: calc(100% - 2rem);
+    bottom: calc(100% - 2.4rem);
     transform-origin: bottom right;
   }
   .menu-heading {
-    margin: 0.1rem 0.4rem 0.3rem;
+    margin: 0.15rem 0.45rem 0.4rem;
   }
   .menu-item {
     display: flex;
     align-items: center;
     gap: var(--sp-2);
     width: 100%;
-    padding: 0.35rem 0.4rem;
+    padding: 0.42rem 0.5rem;
     border: none;
     border-radius: var(--radius-sm);
     background: transparent;
     color: var(--fg);
     font: inherit;
     font-size: var(--text-sm);
+    font-weight: 520;
     text-align: left;
     cursor: pointer;
     transition:
@@ -669,11 +738,11 @@
     transform: scale(0.98);
   }
   .menu-item.active {
-    font-weight: 600;
+    font-weight: 650;
   }
   .menu-item .dot {
-    width: 0.7rem;
-    height: 0.7rem;
+    width: 0.65rem;
+    height: 0.65rem;
     border-radius: 50%;
     flex-shrink: 0;
   }
@@ -706,19 +775,16 @@
     color: var(--danger-surface-fg);
   }
 
+  /* Catalog caption: open type under the volume, no tile. */
   .meta {
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
-    /* The meta panel is the visible part of the tile; pad the text off the card
-       edges so the title/author sit comfortably on the --surface fill while the
-       cover above stays full-bleed (tile + cover share the full card width). */
-    padding: var(--sp-2) var(--sp-3) var(--sp-3);
+    gap: 0.2rem;
+    padding: var(--sp-3) var(--sp-1) 0;
   }
   .title {
-    font-family: var(--font-display);
-    font-size: var(--text-base);
-    font-weight: 500;
+    font-size: 1.05rem;
+    font-weight: 540;
     line-height: var(--lh-snug);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -732,13 +798,28 @@
   .card:has(.open-overlay:focus-visible) .title {
     color: var(--accent);
   }
+  .byline {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-2);
+  }
   .author {
-    font-size: var(--text-xs);
-    letter-spacing: 0.04em;
+    flex: 1;
+    min-width: 0;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
     text-transform: uppercase;
-    color: var(--muted);
+    color: var(--faint);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .pct {
+    flex: none;
+    margin-left: auto;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--accent);
   }
 </style>

@@ -168,9 +168,14 @@
     {@attach focusTrap}
   >
     <header>
-      <h2>{mode === "clone" ? "Clone profile" : "Delete profile"}</h2>
+      <div class="head-text">
+        <p class="eyebrow">Profile</p>
+        <h2 class="display">
+          {mode === "clone" ? "Clone profile" : "Delete profile"}
+        </h2>
+      </div>
       <button
-        class="close"
+        class="icon-btn press close"
         aria-label="Close"
         onclick={onclose}
         disabled={busy}
@@ -186,9 +191,10 @@
           and flairs are duplicated into a new profile. You stay signed in as
           {profileName}.
         </p>
-        <label class="field">
-          <span>New profile name</span>
+        <label class="frow">
+          <span class="lbl">New profile name</span>
           <input
+            class="field"
             type="text"
             bind:value={newName}
             maxlength="32"
@@ -205,9 +211,10 @@
             {nameError}
           </p>
         {/if}
-        <label class="field">
-          <span>PIN for the copy <em>(optional)</em></span>
+        <label class="frow">
+          <span class="lbl">PIN for the copy <em>(optional)</em></span>
           <input
+            class="field"
             type="password"
             bind:value={newPin}
             inputmode="numeric"
@@ -232,9 +239,11 @@
             books, reading progress, and settings. This can’t be undone.
           </p>
         </div>
-        <label class="field">
-          <span>Type <strong>{profileName}</strong> to confirm</span>
+        <label class="frow">
+          <span class="lbl">Type <strong>{profileName}</strong> to confirm</span
+          >
           <input
+            class="field"
             type="text"
             bind:value={confirmName}
             autocomplete="off"
@@ -245,9 +254,10 @@
           />
         </label>
         {#if hasPin}
-          <label class="field">
-            <span>PIN</span>
+          <label class="frow">
+            <span class="lbl">PIN</span>
             <input
+              class="field"
               type="password"
               bind:value={pin}
               inputmode="numeric"
@@ -270,7 +280,7 @@
           <p class="error" role="alert">{prerequisiteError}</p>
           <button
             type="button"
-            class="btn ghost retry"
+            class="btn-ghost press retry"
             onclick={() => void loadPrerequisite()}
             disabled={busy}
           >
@@ -286,7 +296,7 @@
       <div class="actions">
         <button
           type="button"
-          class="btn ghost"
+          class="btn-ghost press"
           onclick={onclose}
           disabled={busy}
         >
@@ -294,7 +304,7 @@
         </button>
         <button
           type="submit"
-          class={`btn ${mode === "delete" ? "danger" : "primary"}`}
+          class={mode === "delete" ? "btn-del press" : "btn press"}
           disabled={!canSubmit}
         >
           {#if mode === "clone"}
@@ -316,67 +326,55 @@
     display: grid;
     place-items: center;
     padding: var(--sp-6);
-    background: color-mix(in srgb, #000 38%, transparent);
-    animation: app-overlay-in var(--dur-fast) var(--ease-out);
+    background: var(--veil);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+    animation: app-overlay-in var(--dur) var(--ease-out);
   }
   .sheet {
     width: min(26rem, 100%);
     max-height: calc(100dvh - var(--sp-12));
     overflow-y: auto;
-    background: var(--bg);
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius-lg);
-    animation: app-sheet-in var(--dur) var(--ease-out);
+    background: var(--raised);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-3);
+    animation: app-sheet-in var(--dur-slow) var(--ease-out);
   }
   header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
-    padding: var(--sp-3) var(--sp-4);
+    gap: var(--sp-3);
+    padding: var(--sp-5) var(--sp-5) var(--sp-3);
     border-bottom: 1px solid var(--hairline);
     position: sticky;
     top: 0;
     z-index: 1;
-    background: var(--bg);
+    background: var(--raised);
+  }
+  .head-text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+  }
+  .head-text .eyebrow {
+    margin: 0;
   }
   h2 {
     margin: 0;
-    font-family: var(--font-display);
     font-size: var(--text-xl);
-    font-weight: 500;
-    line-height: 1;
+    font-weight: 540;
+    line-height: var(--lh-tight);
   }
   .close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    padding: 0.3rem;
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition:
-      background var(--dur) var(--ease-out),
-      color var(--dur) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
-  }
-  .close:active:not(:disabled) {
-    transform: scale(0.94);
-  }
-  .close:hover:not(:disabled) {
-    background: var(--surface-hover);
-    color: var(--fg);
-  }
-  .close:disabled {
-    opacity: 0.5;
-    cursor: default;
+    flex-shrink: 0;
   }
   form {
     display: flex;
     flex-direction: column;
     gap: var(--sp-4);
-    padding: var(--sp-4);
+    padding: var(--sp-5);
   }
   .lede {
     margin: 0;
@@ -386,14 +384,15 @@
   }
   .lede strong {
     color: var(--fg);
-    font-weight: 600;
+    font-weight: 640;
   }
   .warn {
     display: flex;
     gap: var(--sp-3);
     padding: var(--sp-3);
     border-radius: var(--radius);
-    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
     color: var(--danger);
   }
   .warn p {
@@ -404,45 +403,34 @@
   .warn strong {
     font-weight: 700;
   }
-  .field {
+  .frow {
     display: flex;
     flex-direction: column;
     gap: var(--sp-1);
   }
-  .field > span {
-    font-size: var(--text-sm);
-    color: var(--fg);
-  }
-  .field strong {
-    font-weight: 600;
-  }
-  .field em {
+  .lbl {
+    font-size: var(--text-xs);
+    font-weight: 640;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
     color: var(--muted);
-    font-style: normal;
   }
-  .field input {
-    height: 2.4rem;
-    padding: 0 0.7rem;
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius);
-    background: var(--bg);
+  .lbl strong {
+    font-weight: 800;
     color: var(--fg);
-    font: inherit;
-    transition:
-      border-color var(--dur) var(--ease-out),
-      box-shadow var(--dur) var(--ease-out);
   }
-  .field input:hover {
-    border-color: var(--accent);
+  .lbl em {
+    color: var(--faint);
+    font-style: normal;
+    text-transform: none;
+    letter-spacing: 0.02em;
   }
-  .field input:disabled {
+  .frow input {
+    height: 2.5rem;
+  }
+  .frow input:disabled {
     opacity: 0.7;
     cursor: not-allowed;
-  }
-  .field input:focus-visible {
-    outline: none;
-    border-color: var(--accent);
-    box-shadow: var(--focus);
   }
   .error {
     margin: 0;
@@ -479,48 +467,35 @@
     justify-content: flex-end;
     gap: var(--sp-2);
     margin-top: var(--sp-1);
+    padding-top: var(--sp-4);
+    border-top: 1px solid var(--hairline);
   }
-  .btn {
-    height: 2.4rem;
-    padding: 0 1rem;
-    border: 1px solid transparent;
+  /* Filled destructive action — deliberately the only loud red in the app. */
+  .btn-del {
+    font-family: var(--font-ui);
+    font-size: var(--text-sm);
+    font-weight: 560;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-2);
+    padding: 0.5rem 0.95rem;
+    border: none;
     border-radius: var(--radius);
-    font: inherit;
-    font-weight: 600;
-    cursor: pointer;
-    transition:
-      background var(--dur) var(--ease-out),
-      opacity var(--dur) var(--ease-out),
-      border-color var(--dur) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
-  }
-  .btn:active:not(:disabled) {
-    transform: scale(0.97);
-  }
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .btn.ghost {
-    background: transparent;
-    border-color: var(--hairline-strong);
-    color: var(--fg);
-  }
-  .btn.ghost:hover:not(:disabled) {
-    background: var(--surface-hover);
-  }
-  .btn.primary {
-    background: var(--accent);
-    color: var(--accent-fg);
-  }
-  .btn.primary:hover:not(:disabled) {
-    opacity: 0.88;
-  }
-  .btn.danger {
     background: var(--danger-surface);
     color: var(--danger-surface-fg);
+    cursor: pointer;
+    box-shadow: var(--shadow-1);
+    transition:
+      filter var(--dur-fast) var(--ease-out),
+      box-shadow var(--dur) var(--ease-out);
   }
-  .btn.danger:hover:not(:disabled) {
-    opacity: 0.9;
+  .btn-del:hover:not(:disabled) {
+    filter: brightness(1.08);
+    box-shadow: var(--shadow-2);
+  }
+  .btn-del:disabled {
+    opacity: 0.45;
+    cursor: default;
   }
 </style>

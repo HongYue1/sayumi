@@ -1052,7 +1052,7 @@
       ><Icon icon={ArrowLeft} /></button
     >
     <div class="title">
-      <span class="book"
+      <span class="book display"
         >{book?.title ?? (bookLoadFailed ? "Unavailable" : "…")}</span
       >
       {#if book}
@@ -1130,14 +1130,17 @@
 
       {#if chapterLoading}
         <div class="loading" role="status" aria-live="polite">
+          <span class="loading-mark" aria-hidden="true">❦</span>
           <span class="sr-only">Loading chapter…</span>
         </div>
       {/if}
 
       {#if error}
         <div class="error" role="alert">
+          <p class="error-title display">Something went wrong.</p>
           <p>{error}</p>
           <button
+            class="btn-ghost press"
             onclick={() =>
               bookLoadFailed ? retryOpen() : loadChapter(currentChapter)}
             >Retry</button
@@ -1172,7 +1175,9 @@
           {:catch}
             <div class="error" role="alert">
               <p>Couldn't load this panel.</p>
-              <button onclick={preloadTocPanel}>Retry</button>
+              <button class="btn-ghost press" onclick={preloadTocPanel}
+                >Retry</button
+              >
             </div>
           {/await}
         {/if}
@@ -1215,7 +1220,9 @@
           {:catch}
             <div class="error" role="alert">
               <p>Couldn't load this panel.</p>
-              <button onclick={preloadBookmarksPanel}>Retry</button>
+              <button class="btn-ghost press" onclick={preloadBookmarksPanel}
+                >Retry</button
+              >
             </div>
           {/await}
         {/if}
@@ -1254,7 +1261,9 @@
           {:catch}
             <div class="error" role="alert">
               <p>Couldn't load this panel.</p>
-              <button onclick={preloadSearchPanel}>Retry</button>
+              <button class="btn-ghost press" onclick={preloadSearchPanel}
+                >Retry</button
+              >
             </div>
           {/await}
         {/if}
@@ -1283,7 +1292,9 @@
           {:catch}
             <div class="error" role="alert">
               <p>Couldn't load this panel.</p>
-              <button onclick={preloadSettingsPanel}>Retry</button>
+              <button class="btn-ghost press" onclick={preloadSettingsPanel}
+                >Retry</button
+              >
             </div>
           {/await}
         {/if}
@@ -1316,26 +1327,30 @@
     overflow: hidden;
   }
   /* The chrome (bar + progress) overlays a full-bleed stage so toggling its
-     visibility never resizes the iframe (which would force re-pagination). */
+     visibility never resizes the iframe (which would force re-pagination).
+     The bar floats as an inset glass slip rather than a full-width strip. */
   .bar {
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
+    top: var(--sp-3);
+    left: var(--sp-3);
+    right: var(--sp-3);
     z-index: 5;
     display: flex;
     align-items: center;
     gap: var(--sp-3);
-    padding: 0.55rem 0.9rem;
-    background: color-mix(in srgb, var(--bg) 92%, transparent);
-    backdrop-filter: blur(8px);
-    border-bottom: 1px solid var(--hairline);
+    padding: 0.4rem 0.6rem;
+    background: color-mix(in srgb, var(--bg) 86%, transparent);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-2);
     transition:
-      transform var(--dur) var(--ease-out),
-      opacity var(--dur) var(--ease-out);
+      transform var(--dur-slow) var(--ease-out),
+      opacity var(--dur-slow) var(--ease-out);
   }
   .bar.hidden {
-    transform: translateY(-100%);
+    transform: translateY(calc(-100% - var(--sp-4)));
     opacity: 0;
     pointer-events: none;
     transition:
@@ -1348,12 +1363,12 @@
   .tools {
     display: flex;
     align-items: center;
-    gap: var(--sp-1);
+    gap: 0.1rem;
   }
   .icon {
     border: none;
     background: transparent;
-    color: var(--fg);
+    color: var(--muted);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1371,37 +1386,40 @@
       transform var(--dur-fast) var(--ease-out);
   }
   .icon:hover {
-    background: var(--surface-hover);
+    background: var(--surface);
+    color: var(--fg);
   }
   .icon:active {
     transform: scale(0.94);
   }
-  .icon.active {
+  .icon.active,
+  .icon[aria-pressed="true"] {
     color: var(--accent);
+    background: var(--accent-soft);
   }
   .title {
     flex: 1;
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
+    gap: 0.15rem;
+    padding-left: var(--sp-1);
   }
   .book {
-    font-family: var(--font-display);
-    font-weight: 600;
-    font-size: 1.1rem;
+    font-weight: 560;
+    font-size: 1.08rem;
     line-height: var(--lh-tight);
-    letter-spacing: 0.01em;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .chapter {
-    font-size: var(--text-xs);
+    font-size: 0.68rem;
+    font-weight: 600;
     line-height: var(--lh-snug);
-    letter-spacing: 0.06em;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: var(--muted);
+    color: var(--faint);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1418,9 +1436,31 @@
   .loading {
     position: absolute;
     inset: 0;
+    display: grid;
+    place-items: center;
     background: var(--bg);
-    opacity: 0.6;
+    opacity: 0.65;
     pointer-events: none;
+  }
+  /* The press mark, turning slowly while a chapter loads. */
+  .loading-mark {
+    font-size: var(--text-xl);
+    color: var(--muted);
+    animation: mark-turn 1.6s var(--ease) infinite;
+  }
+  @keyframes mark-turn {
+    0% {
+      transform: rotate(0deg) scale(1);
+      opacity: 0.5;
+    }
+    50% {
+      transform: rotate(180deg) scale(1.15);
+      opacity: 1;
+    }
+    100% {
+      transform: rotate(360deg) scale(1);
+      opacity: 0.5;
+    }
   }
   .sr-only {
     position: absolute;
@@ -1445,47 +1485,51 @@
     text-align: center;
     padding: var(--sp-4);
   }
-  .error button {
-    padding: var(--sp-2) var(--sp-4);
-    border: 1px solid var(--hairline);
-    border-radius: var(--radius);
-    background: transparent;
-    color: var(--fg);
-    font: inherit;
-    cursor: pointer;
+  .error p {
+    margin: 0;
+    color: var(--muted);
   }
+  .error .error-title {
+    font-size: var(--text-xl);
+    font-style: italic;
+    font-weight: 480;
+    color: var(--fg);
+  }
+  /* Side panels float as paper sheets over the page. */
   .panel {
     position: absolute;
-    top: 0;
-    bottom: 0;
-    width: min(20rem, 85vw);
-    background: var(--bg);
+    top: var(--sp-3);
+    bottom: var(--sp-3);
+    width: min(21rem, 86vw);
+    background: var(--raised);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-3);
+    overflow: hidden;
     z-index: 7;
   }
   .panel.left {
-    left: 0;
-    border-right: 1px solid var(--hairline-strong);
-    animation: panel-left-in var(--dur) var(--ease-out) backwards;
+    left: var(--sp-3);
+    animation: panel-left-in var(--dur-slow) var(--ease-out) backwards;
   }
   .panel.right {
-    right: 0;
-    width: min(22rem, 90vw);
-    border-left: 1px solid var(--hairline-strong);
-    animation: panel-right-in var(--dur) var(--ease-out) backwards;
+    right: var(--sp-3);
+    width: min(23rem, 92vw);
+    animation: panel-right-in var(--dur-slow) var(--ease-out) backwards;
   }
   .scrim {
     position: absolute;
     inset: 0;
     border: none;
-    background: color-mix(in srgb, #000 25%, transparent);
+    background: var(--veil);
     cursor: pointer;
     z-index: 6;
-    animation: app-overlay-in var(--dur-fast) var(--ease-out) backwards;
+    animation: app-overlay-in var(--dur) var(--ease-out) backwards;
   }
   @keyframes panel-left-in {
     from {
       opacity: 0;
-      transform: translateX(-0.75rem);
+      transform: translateX(-1.25rem);
     }
     to {
       opacity: 1;
@@ -1495,7 +1539,7 @@
   @keyframes panel-right-in {
     from {
       opacity: 0;
-      transform: translateX(0.75rem);
+      transform: translateX(1.25rem);
     }
     to {
       opacity: 1;
@@ -1509,7 +1553,7 @@
     right: 0;
     z-index: 5;
     height: 3px;
-    background: color-mix(in srgb, var(--fg) 10%, transparent);
+    background: color-mix(in srgb, var(--fg) 9%, transparent);
     transition: opacity var(--dur) var(--ease-out);
   }
   .progress.hidden {

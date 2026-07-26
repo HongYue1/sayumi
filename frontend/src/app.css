@@ -1,12 +1,42 @@
 /* ------------------------------------------------------------------ *
- * Interface typefaces — embedded in the binary (internal/fonts/) and
+ * Sayumi chrome — "the private press".
+ *
+ * Interface typefaces are embedded in the binary (internal/fonts/) and
  * served at /fonts/, so the chrome never depends on the user-writable
- * ./Fonts/ folder. Literata is the literary display face (wordmark,
- * titles, headings); Satoshi is the UI face. Atkinson Hyperlegible Next
- * stays embedded as a high-legibility reading option (see READER_FONTS).
- * Literata and Atkinson are variable (Roman + Italic file each); Satoshi
- * is one upright variable file (no italic — the UI never italicizes).
+ * ./Fonts/ folder. Fraunces is the literary display face (wordmark,
+ * titles, headings) — a warm old-style serif with optical sizing and a
+ * SOFT axis we lean on at large sizes. Hanken Grotesk is the UI face.
+ * Literata and Atkinson Hyperlegible Next stay embedded as reading
+ * options (see READER_FONTS); the chrome itself never uses them.
  * ------------------------------------------------------------------ */
+@font-face {
+  font-family: "Fraunces";
+  src: url("/fonts/Fraunces-VariableFont.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Fraunces";
+  src: url("/fonts/Fraunces-Italic-VariableFont.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Hanken Grotesk";
+  src: url("/fonts/HankenGrotesk-VariableFont.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Hanken Grotesk";
+  src: url("/fonts/HankenGrotesk-Italic-VariableFont.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
 @font-face {
   font-family: "Literata";
   src: url("/fonts/Literata-VariableFont.woff2") format("woff2");
@@ -36,27 +66,32 @@
   font-style: italic;
   font-display: swap;
 }
-@font-face {
-  font-family: "Satoshi";
-  src: url("/fonts/Satoshi-Variable.woff2") format("woff2");
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
 
 :root {
   /* Theme tokens (overridden at runtime by applyTheme); these are the
      light-theme fallbacks for first paint before a theme is applied. */
   --bg: #ffffff;
   --fg: #1c1917;
-  /* Derived from the active theme (applyTheme sets the base theme tokens),
-     so muted text keeps a consistent ~AA contrast across every theme
-     instead of staying a fixed light-theme gray on dark backgrounds. */
-  --muted: color-mix(in srgb, var(--fg) 70%, var(--bg));
   --accent: #2563eb;
   /* Foreground for text/icons on --accent; recomputed per theme by applyTheme
      via WCAG luminance so accent buttons stay legible on light accents. */
   --accent-fg: #ffffff;
+
+  /* Ink washes — every neutral in the chrome is the theme's own ink (--fg)
+     diluted into its paper (--bg), so all 25 themes derive a coherent set. */
+  --muted: color-mix(in srgb, var(--fg) 70%, var(--bg));
+  --faint: color-mix(in srgb, var(--fg) 45%, var(--bg));
+  --hairline: color-mix(in srgb, var(--fg) 14%, transparent);
+  --hairline-strong: color-mix(in srgb, var(--fg) 26%, transparent);
+  --surface: color-mix(in srgb, var(--fg) 4%, transparent);
+  --surface-hover: color-mix(in srgb, var(--fg) 9%, transparent);
+  /* Opaque raised paper for popovers/dialogs — a breath lighter than the page
+     in dark themes, a breath warmer in light ones. */
+  --raised: color-mix(in srgb, var(--fg) 3%, var(--bg));
+  /* Accent washes for selected states and tints. */
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-soft-strong: color-mix(in srgb, var(--accent) 22%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 55%, transparent);
 
   /* Danger / error. --danger mixes a red toward the active --fg so error
      text keeps ~AA contrast on every theme (same trick as --muted). The
@@ -65,16 +100,29 @@
   --danger-surface: #b3261e;
   --danger-surface-fg: #ffffff;
 
-  /* Literary-press typefaces. */
-  --font-display: "Literata", Georgia, "Times New Roman", serif;
-  --font-ui: "Satoshi", ui-sans-serif, system-ui, sans-serif;
+  /* Typefaces. Fraunces carries the literary voice; Hanken Grotesk does the
+     quiet work. --font-display-feel is the house cut of Fraunces: a touch of
+     the SOFT axis so big letters feel letterpress-round, never brittle. */
+  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-ui: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --display-feel: "SOFT" 40, "WONK" 0;
 
-  /* Derived surface tokens — computed from the active theme so every one
-     of the themes (light + dark) gets a coherent set automatically. */
-  --hairline: color-mix(in srgb, var(--fg) 12%, transparent);
-  --hairline-strong: color-mix(in srgb, var(--fg) 22%, transparent);
-  --surface: color-mix(in srgb, var(--fg) 4%, transparent);
-  --surface-hover: color-mix(in srgb, var(--fg) 8%, transparent);
+  /* Scheme-aware physics. color-scheme is kept current by applyTheme, so
+     light-dark() lets shadows, veils and grain tune per side without
+     per-theme CSS. Shadows stay true black (light falls the same way on
+     every paper); dark themes need more of it to register. */
+  --shadow-1: 0 1px 2px light-dark(rgb(0 0 0 / 0.05), rgb(0 0 0 / 0.25));
+  --shadow-2:
+    0 1px 2px light-dark(rgb(0 0 0 / 0.06), rgb(0 0 0 / 0.3)),
+    0 6px 20px -4px light-dark(rgb(0 0 0 / 0.1), rgb(0 0 0 / 0.45));
+  --shadow-3:
+    0 2px 4px light-dark(rgb(0 0 0 / 0.07), rgb(0 0 0 / 0.35)),
+    0 18px 44px -8px light-dark(rgb(0 0 0 / 0.18), rgb(0 0 0 / 0.6));
+  --veil: light-dark(rgb(0 0 0 / 0.28), rgb(0 0 0 / 0.5));
+  /* Grain ink: dark flecks on light paper, light flecks on dark paper. The
+     scheme split lives in the color's alpha because light-dark() is a color
+     function — it can't produce a bare <number> for opacity. */
+  --grain-ink: light-dark(rgb(0 0 0 / 0.62), rgb(255 255 255 / 0.85));
 
   /* Spacing scale (4px base). */
   --sp-1: 0.25rem;
@@ -86,6 +134,7 @@
   --sp-8: 2rem;
   --sp-10: 2.5rem;
   --sp-12: 3rem;
+  --sp-16: 4rem;
 
   /* Type scale (~major third). */
   --text-xs: 0.75rem;
@@ -96,31 +145,30 @@
   --text-2xl: 2rem;
   --text-3xl: 2.6rem;
 
-  /* Radius scale: small controls/chips → default → large surfaces (dialogs). */
-  --radius-sm: 0.35rem;
-  --radius: 0.5rem;
-  --radius-lg: 0.75rem;
-
-  /* No elevation drop shadows by design — surfaces (cards, menus, dialogs,
-     toasts) are separated by a 1px border/outline + the active theme's bg
-     contrast, plus the keyboard focus ring below. Blurred shadows read poorly
-     across this many themes, so depth is expressed with outlines, not blur. */
+  /* Radius scale: chips/controls → cards → sheets. */
+  --radius-sm: 0.45rem;
+  --radius: 0.7rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.35rem;
 
   /* Focus ring — one consistent keyboard ring across every control,
-     applied via the global :focus-visible rule below. Uses theme tokens so
-     it adapts across every theme. */
+     applied via the global :focus-visible rule below. */
   --focus: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
 
-  /* Motion: durations + easing curves (chrome transitions, button feedback). */
-  --dur-fast: 120ms;
+  /* Motion. One family of eases across the chrome: --ease-out for entrances
+     and hovers (long expo tail = "smooth"), --ease-spring for small pops,
+     --ease-in only for exits. Transform/opacity-only animations everywhere. */
+  --dur-fast: 110ms;
   --dur: 180ms;
-  --dur-slow: 260ms;
-  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
-  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --dur-slow: 300ms;
+  --dur-slower: 480ms;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.3, 1.4, 0.5, 1);
+  --ease-in: cubic-bezier(0.5, 0, 0.75, 0.4);
 
   /* Line-height scale (tight headings → loose body). */
-  --lh-tight: 1.15;
+  --lh-tight: 1.1;
   --lh-snug: 1.3;
   --lh-normal: 1.5;
   --lh-loose: 1.7;
@@ -154,22 +202,38 @@ body {
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font-ui);
+  font-size: var(--text-base);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
-/* Themed scrollbars across the chrome (library, side panels, command
-   palette, search results) so scroll areas never fall back to a bright OS
-   scrollbar against a dark theme. Mirrors the in-book reader's bars
-   (iframe/frame.css): neutral by design — a hairline thumb that strengthens
-   to muted on hover, derived from the active theme so all 24 themes adapt.
-   Firefox uses scrollbar-width/-color; WebKit/Blink use the pseudo-elements. */
+/* Paper grain — a fixed film of the theme's own ink, masked through SVG
+   turbulence so every theme's flat background reads as stock instead of
+   pixels. One static composited layer (no blend modes, no repaint on
+   scroll); top-layer dialogs render above it by design. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  pointer-events: none;
+  background: var(--grain-ink);
+  opacity: 0.08;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.35 0.35 0.35 0 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  mask-size: 180px 180px;
+}
+
+/* Text selection carries the accent, like a highlighter through the ink. */
+::selection {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* Themed scrollbars across the chrome so scroll areas never fall back to a
+   bright OS scrollbar against a dark theme. Trackless and quiet: a floating
+   ink thumb that strengthens on hover, derived from the active theme. */
 * {
   scrollbar-width: thin;
-  /* thumb then track: a stronger hairline thumb riding in a border-colored
-     channel (--hairline is the chrome's border token, matching the reader's
-     --border track). */
-  scrollbar-color: var(--hairline-strong) var(--hairline);
+  scrollbar-color: var(--hairline-strong) transparent;
 }
 
 ::-webkit-scrollbar {
@@ -177,10 +241,8 @@ body {
   height: 8px;
 }
 
-/* Border-colored channel behind the thumb (the reader uses --border here);
-   --hairline is this app's equivalent border token. */
 ::-webkit-scrollbar-track {
-  background: var(--hairline);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -192,22 +254,202 @@ body {
   background: var(--muted);
 }
 
+/* ------------------------------------------------------------------ *
+ * Print furniture — the small recurring signatures of the house style.
+ * ------------------------------------------------------------------ */
+
 /* Small-caps section label used across the chrome (e.g. "YOUR LIBRARY"). */
 .eyebrow {
   font-family: var(--font-ui);
   font-size: var(--text-xs);
-  font-weight: 700;
-  letter-spacing: 0.16em;
+  font-weight: 640;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
-/* One consistent keyboard focus ring for every control. Components may add
-   their own focus state styles (e.g. a border tint) but should rely on this
-   for the ring itself instead of redefining an outline. */
+/* Display voice — apply to any heading set in Fraunces. */
+.display {
+  font-family: var(--font-display);
+  font-variation-settings: var(--display-feel);
+  font-optical-sizing: auto;
+  letter-spacing: -0.01em;
+}
+
+/* Printer's double rule: a strong line over a hairline, the house divider. */
+.rule-double {
+  border: 0;
+  margin: 0;
+  height: 4px;
+  border-top: 2px solid var(--fg);
+  border-bottom: 1px solid var(--hairline-strong);
+  background: transparent;
+}
+
+/* Fleuron — the press mark. Sized/tinted by context. */
+.fleuron {
+  color: var(--faint);
+  user-select: none;
+}
+
+/* ------------------------------------------------------------------ *
+ * Shared control primitives. Components lay themselves out with scoped
+ * styles but draw buttons/fields/menus from these so the whole chrome
+ * stays one hand.
+ * ------------------------------------------------------------------ */
+
+/* One consistent keyboard focus ring for every control. */
 :focus-visible {
   outline: none;
   box-shadow: var(--focus);
+}
+
+.btn,
+.btn-ghost,
+.btn-quiet,
+.icon-btn {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 560;
+  letter-spacing: 0.01em;
+  color: var(--fg);
+  background: none;
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  white-space: nowrap;
+  user-select: none;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+.btn:disabled,
+.btn-ghost:disabled,
+.btn-quiet:disabled,
+.icon-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Filled accent button — the one loud thing on any surface. */
+.btn {
+  background: var(--accent);
+  color: var(--accent-fg);
+  padding: 0.5rem 0.95rem;
+  box-shadow: var(--shadow-1);
+}
+.btn:hover {
+  box-shadow: var(--shadow-2);
+  filter: brightness(1.06);
+}
+
+/* Hairline button. */
+.btn-ghost {
+  border: 1px solid var(--hairline-strong);
+  padding: calc(0.5rem - 1px) calc(0.95rem - 1px);
+  background: transparent;
+}
+.btn-ghost:hover {
+  background: var(--surface);
+  border-color: var(--muted);
+}
+
+/* Bare text button. */
+.btn-quiet {
+  color: var(--muted);
+  padding: 0.5rem 0.6rem;
+}
+.btn-quiet:hover {
+  color: var(--fg);
+  background: var(--surface);
+}
+
+/* Square icon control (pass an Icon child). */
+.icon-btn {
+  width: 2.25rem;
+  height: 2.25rem;
+  color: var(--muted);
+}
+.icon-btn:hover {
+  color: var(--fg);
+  background: var(--surface);
+}
+.icon-btn[aria-expanded="true"],
+.icon-btn.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Destructive tint for either button flavor. */
+.btn-danger {
+  color: var(--danger);
+}
+.btn-danger:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
+/* Text input / textarea / select. */
+.field {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 480;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 0.55rem 0.8rem;
+  width: 100%;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+.field::placeholder {
+  color: var(--faint);
+}
+.field:hover {
+  background: var(--surface-hover);
+}
+.field:focus {
+  outline: none;
+  background: var(--bg);
+  border-color: var(--accent-line);
+  box-shadow: var(--focus);
+}
+
+/* Keycap hint. */
+.kbd {
+  font-family: var(--font-ui);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-bottom-width: 2px;
+  border-radius: 0.4rem;
+  padding: 0.1rem 0.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+}
+
+/* Raised paper — popover menus and floating cards. */
+.paper {
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
 }
 
 /* Tactile press feedback for buttons and icon controls
@@ -216,7 +458,7 @@ body {
   transition: transform var(--dur-fast) var(--ease-out);
 }
 .press:active {
-  transform: scale(0.97);
+  transform: scale(0.965);
 }
 
 /* Tabular figures so counters/percentages keep a fixed width as digits change. */
@@ -224,9 +466,10 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Shared entrance primitives for transient overlays and popovers. Keep these
-   transform/opacity-only so individual components can reuse motion without
-   adding layout or paint-heavy animations. */
+/* ------------------------------------------------------------------ *
+ * Shared motion primitives — transform/opacity only, so overlays and
+ * popovers animate without layout or paint cost.
+ * ------------------------------------------------------------------ */
 @keyframes app-overlay-in {
   from {
     opacity: 0;
@@ -239,22 +482,33 @@ body {
 @keyframes app-sheet-in {
   from {
     opacity: 0;
-    transform: translateY(-8px);
+    transform: translateY(10px) scale(0.985);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
 @keyframes app-menu-pop-in {
   from {
     opacity: 0;
-    transform: scale(0.97) translateY(var(--menu-pop-y, -3px));
+    transform: scale(0.96) translateY(var(--menu-pop-y, -4px));
   }
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes app-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 

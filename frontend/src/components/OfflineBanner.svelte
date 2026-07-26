@@ -141,7 +141,10 @@
     background: var(--danger-surface);
     color: var(--danger-surface-fg);
     font-size: var(--text-sm);
-    animation: slide-down var(--dur) var(--ease-out) forwards;
+    font-weight: 560;
+    letter-spacing: 0.01em;
+    box-shadow: var(--shadow-1);
+    animation: slide-down var(--dur-slow) var(--ease-out) forwards;
   }
   @keyframes slide-down {
     from {
@@ -153,21 +156,23 @@
   }
   .retry {
     margin-left: 0.5rem;
-    padding: 2px 0.5rem;
+    padding: 3px 0.7rem;
     font: inherit;
     font-size: var(--text-xs);
-    font-weight: 600;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
     color: #fff;
-    background: rgba(255, 255, 255, 0.2);
-    border: none;
-    border-radius: var(--radius);
+    background: rgb(255 255 255 / 0.18);
+    border: 1px solid rgb(255 255 255 / 0.35);
+    border-radius: 999px;
     cursor: pointer;
     transition:
       background var(--dur-fast) var(--ease-out),
       transform var(--dur-fast) var(--ease-out);
   }
   .retry:hover {
-    background: rgba(255, 255, 255, 0.32);
+    background: rgb(255 255 255 / 0.32);
   }
   .retry:active {
     transform: scale(0.96);

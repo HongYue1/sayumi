@@ -24,8 +24,8 @@
   const dragging = $derived(dragDepth > 0);
 
   // Which profile dialog (if any) is open. Rendered at .library level — never
-  // inside the masthead, whose backdrop-filter would clip a fixed overlay to
-  // the masthead box.
+  // inside the toolbar, whose backdrop-filter would clip a fixed overlay to
+  // the toolbar box.
   let profileDialog = $state<"clone" | "delete" | null>(null);
 
   // The book currently being edited, tracked by id so the open dialog reflects
@@ -109,9 +109,17 @@
   role="region"
   aria-label="Library"
 >
+  <!-- Masthead — the journal front page. Not sticky; the toolbar below pins. -->
   <header class="masthead">
-    <div class="brand-row">
-      <h1 class="brand">Sayumi</h1>
+    <div class="meta-row">
+      <p class="eyebrow count">
+        {#if library.books.length > 0}
+          Your library · <span class="tnum">{library.books.length}</span>
+          {library.books.length === 1 ? "book" : "books"}
+        {:else}
+          A quiet place to read
+        {/if}
+      </p>
       <div class="profile">
         <ThemeDropdown />
         <span class="profile-divider" aria-hidden="true"></span>
@@ -122,116 +130,114 @@
       </div>
     </div>
 
-    <div class="controls">
-      <input
-        class="search"
-        type="search"
-        placeholder="Search title or author…"
-        value={library.query}
-        oninput={(e) => library.setQuery(e.currentTarget.value)}
-        aria-label="Search library"
-      />
+    <h1 class="brand display">
+      Sayumi<span class="brand-mark" aria-hidden="true"> ❦</span>
+    </h1>
 
-      <div class="select-wrap">
-        <Icon icon={ArrowUpDown} size={16} class="select-icon" />
-        <select class="sort" bind:value={library.sort} aria-label="Sort by">
-          {#each SORT_OPTIONS as opt (opt.key)}
-            <option value={opt.key}>{opt.label}</option>
-          {/each}
-        </select>
-      </div>
-
-      <button
-        class="ghost-btn"
-        onclick={() => library.rescan()}
-        disabled={library.rescanning}
-        title="Scan the Library folder for new files"
-      >
-        <Icon
-          icon={RefreshCw}
-          size={16}
-          class={library.rescanning ? "spin" : ""}
-        />
-        {library.rescanning ? "Scanning…" : "Rescan"}
-      </button>
-
-      <button
-        class="upload"
-        onclick={() => fileInput?.click()}
-        disabled={library.uploading}
-      >
-        <Icon icon={Plus} size={16} />
-        {library.uploading ? "Uploading…" : "Add book"}
-      </button>
-      <input
-        bind:this={fileInput}
-        type="file"
-        accept=".epub,application/epub+zip"
-        multiple
-        hidden
-        onchange={onFilePicked}
-      />
-    </div>
+    <hr class="rule-double" />
   </header>
 
-  {#if library.books.length > 0}
-    <div class="browsebar">
-      <p class="eyebrow">
-        Your Library · <span class="tnum">{library.books.length}</span>
-        {library.books.length === 1 ? "book" : "books"}
-      </p>
+  <!-- Pinned toolbar: search / sort / scan / add stay reachable on long shelves. -->
+  <div class="toolbar">
+    <input
+      class="field search"
+      type="search"
+      placeholder="Search title or author…"
+      value={library.query}
+      oninput={(e) => library.setQuery(e.currentTarget.value)}
+      aria-label="Search library"
+    />
 
-      <div class="flairbar">
-        {#each library.allFlairs as f (f.id)}
-          {@const active = library.flairFilters.includes(f.id)}
-          <span class="chip" class:active style:--chip={f.color}>
-            <button
-              class="chip-toggle"
-              aria-pressed={active}
-              onclick={() => library.toggleFlairFilter(f.id)}
-            >
-              {#if active}
-                <span
-                  class="chip-check"
-                  style:color={f.color}
-                  aria-hidden="true"><Icon icon={Check} size={14} /></span
-                >
-              {:else}
-                <span class="dot" style:background={f.color}></span>
-              {/if}
-              {f.label}
-            </button>
-            {#if isCustom(f.id)}
-              <button
-                class="chip-del"
-                title="Delete flair"
-                aria-label={`Delete flair ${f.label}`}
-                onclick={() => library.removeCustomFlair(f.id)}
-                ><Icon icon={X} size={13} /></button
-              >
-            {/if}
-          </span>
+    <div class="select-wrap">
+      <Icon icon={ArrowUpDown} size={15} class="select-icon" />
+      <select class="sort" bind:value={library.sort} aria-label="Sort by">
+        {#each SORT_OPTIONS as opt (opt.key)}
+          <option value={opt.key}>{opt.label}</option>
         {/each}
+      </select>
+    </div>
 
-        <span class="addflair">
-          <input
-            type="text"
-            placeholder="New flair…"
-            maxlength="40"
-            bind:value={newFlair}
-            onkeydown={(e) => e.key === "Enter" && addFlair()}
-            aria-label="New flair name"
-          />
-          <button onclick={addFlair} disabled={!newFlair.trim()}>Add</button>
-        </span>
+    <button
+      class="btn-ghost press rescan"
+      onclick={() => library.rescan()}
+      disabled={library.rescanning}
+      title="Scan the Library folder for new files"
+    >
+      <Icon
+        icon={RefreshCw}
+        size={16}
+        class={library.rescanning ? "spin" : ""}
+      />
+      {library.rescanning ? "Scanning…" : "Rescan"}
+    </button>
 
-        {#if library.flairFilters.length > 0}
+    <button
+      class="btn press upload"
+      onclick={() => fileInput?.click()}
+      disabled={library.uploading}
+    >
+      <Icon icon={Plus} size={16} />
+      {library.uploading ? "Uploading…" : "Add book"}
+    </button>
+    <input
+      bind:this={fileInput}
+      type="file"
+      accept=".epub,application/epub+zip"
+      multiple
+      hidden
+      onchange={onFilePicked}
+    />
+  </div>
+
+  {#if library.books.length > 0}
+    <div class="flairbar">
+      {#each library.allFlairs as f (f.id)}
+        {@const active = library.flairFilters.includes(f.id)}
+        <span class="chip" class:active style:--chip={f.color}>
           <button
-            class="clear-filters"
-            onclick={() => library.clearFlairFilters()}>Clear</button
+            class="chip-toggle"
+            aria-pressed={active}
+            onclick={() => library.toggleFlairFilter(f.id)}
           >
-        {/if}
-      </div>
+            {#if active}
+              <span class="chip-check" style:color={f.color} aria-hidden="true"
+                ><Icon icon={Check} size={13} /></span
+              >
+            {:else}
+              <span class="dot" style:background={f.color}></span>
+            {/if}
+            {f.label}
+          </button>
+          {#if isCustom(f.id)}
+            <button
+              class="chip-del"
+              title="Delete flair"
+              aria-label={`Delete flair ${f.label}`}
+              onclick={() => library.removeCustomFlair(f.id)}
+              ><Icon icon={X} size={13} /></button
+            >
+          {/if}
+        </span>
+      {/each}
+
+      <span class="addflair">
+        <input
+          type="text"
+          placeholder="New flair…"
+          maxlength="40"
+          bind:value={newFlair}
+          onkeydown={(e) => e.key === "Enter" && addFlair()}
+          aria-label="New flair name"
+        />
+        <button onclick={addFlair} disabled={!newFlair.trim()}>Add</button>
+      </span>
+
+      {#if library.flairFilters.length > 0}
+        <button
+          class="clear-filters"
+          onclick={() => library.clearFlairFilters()}>Clear</button
+        >
+      {/if}
     </div>
   {/if}
 
@@ -243,9 +249,11 @@
     <p class="state" role="status">Loading…</p>
   {:else if library.books.length === 0}
     <div class="empty">
-      <p>Your library is empty.</p>
+      <span class="fleuron empty-mark" aria-hidden="true">❦</span>
+      <p class="empty-title display">An empty shelf.</p>
+      <p class="empty-sub">Every library starts with a single book.</p>
       <button
-        class="upload"
+        class="btn press"
         onclick={() => fileInput?.click()}
         disabled={library.uploading}
       >
@@ -258,9 +266,10 @@
     </div>
   {:else if library.visible.length === 0}
     <div class="noresults" role="status">
+      <p class="empty-title display">Nothing on this shelf.</p>
       <p class="state">No books match your search or filters.</p>
       <button
-        class="clear-filters"
+        class="btn-ghost press"
         onclick={() => {
           library.setQuery("");
           library.clearFlairFilters();
@@ -303,8 +312,9 @@
   {#if dragging}
     <div class="dropzone" aria-hidden="true">
       <div class="dropzone-inner">
-        <span class="dropzone-mark"><Icon icon={Plus} size={40} /></span>
-        <p>Drop .epub files to add them</p>
+        <span class="dropzone-mark"><Icon icon={Plus} size={36} /></span>
+        <p class="display">Add to your library</p>
+        <span class="dropzone-sub">Drop .epub files anywhere</span>
       </div>
     </div>
   {/if}
@@ -314,8 +324,8 @@
   .library {
     position: relative;
     min-height: calc(100vh - var(--offline-banner-h, 0px));
-    padding: var(--sp-8) var(--sp-8) var(--sp-12);
-    max-width: 1440px;
+    padding: var(--sp-6) clamp(var(--sp-4), 4vw, var(--sp-10)) var(--sp-16);
+    max-width: 1480px;
     margin: 0 auto;
   }
 
@@ -326,8 +336,9 @@
     display: grid;
     place-items: center;
     padding: var(--sp-6);
-    background: color-mix(in srgb, var(--bg) 78%, transparent);
-    backdrop-filter: blur(2px);
+    background: color-mix(in srgb, var(--bg) 72%, transparent);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
     animation: app-overlay-in var(--dur-fast) var(--ease-out);
   }
   .dropzone-inner {
@@ -335,12 +346,16 @@
     flex-direction: column;
     align-items: center;
     gap: var(--sp-3);
-    width: min(36rem, 90%);
+    width: min(34rem, 90%);
     padding: var(--sp-12) var(--sp-8);
-    border: 2px dashed color-mix(in srgb, var(--accent) 60%, transparent);
-    border-radius: var(--radius-lg);
+    border: 1px dashed var(--accent-line);
+    outline: 1px dashed var(--accent-line);
+    outline-offset: 6px;
+    border-radius: var(--radius-xl);
     color: var(--fg);
     text-align: center;
+    background: var(--accent-soft);
+    animation: app-sheet-in var(--dur-slow) var(--ease-out);
   }
   .dropzone-mark {
     display: inline-flex;
@@ -348,153 +363,49 @@
   }
   .dropzone-inner p {
     margin: 0;
-    font-family: var(--font-display);
-    font-size: var(--text-lg);
+    font-size: var(--text-xl);
+    font-style: italic;
+  }
+  .dropzone-sub {
+    color: var(--muted);
+    font-size: var(--text-sm);
   }
 
   /* ---- masthead ---- */
-  /* Sticky so search/sort/flairs stay reachable while scrolling a long shelf.
-     The translucent fill + backdrop blur only reads once content scrolls
-     underneath; the hairline doubles as the divider when pinned. backdrop-filter
-     is a hover/scroll-time effect (not a load-time cost), so the Lighthouse
-     budget is untouched. */
   .masthead {
-    position: sticky;
-    top: 0;
-    z-index: 30;
-    padding-top: var(--sp-4);
-    padding-bottom: var(--sp-4);
-    margin-bottom: var(--sp-6);
-    background: color-mix(in srgb, var(--bg) 82%, transparent);
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
-    border-bottom: 1px solid var(--hairline);
+    /* The entrance animation's retained transform makes the masthead a
+       stacking context at z:0 — later siblings (toolbar z:30, card contexts)
+       would paint over its dropdown menus (theme/profile). Raise the whole
+       masthead above them; it never visually overlaps the pinned toolbar
+       (it has scrolled away by the time the toolbar sticks). */
+    position: relative;
+    z-index: 40;
+    padding-top: var(--sp-2);
+    animation: app-rise-in var(--dur-slower) var(--ease-out) both;
   }
-  .brand-row {
+  .meta-row {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
     gap: var(--sp-4);
-    margin-bottom: var(--sp-4);
+    min-height: 2.5rem;
+  }
+  .count {
+    margin: 0;
   }
   .brand {
-    margin: 0;
-    font-family: var(--font-display);
-    font-size: var(--text-3xl);
-    font-weight: 500;
+    margin: var(--sp-1) 0 var(--sp-5);
+    font-size: clamp(2.9rem, 6.5vw, 4.2rem);
+    font-style: italic;
+    font-weight: 460;
     line-height: 1;
-    letter-spacing: 0.01em;
   }
-
-  /* A shared control height keeps the search, sort, and buttons on one baseline. */
-  .controls {
-    --control-h: 2.4rem;
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    flex-wrap: wrap;
-  }
-  .search {
-    flex: 1;
-    min-width: 12rem;
-    height: var(--control-h);
-    padding: 0 0.8rem;
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius);
-    background: var(--bg);
-    color: var(--fg);
-    font: inherit;
-    transition: border-color var(--dur) var(--ease-out);
-  }
-  .search::placeholder {
-    color: var(--muted);
-  }
-  .search:hover {
-    border-color: var(--accent);
-  }
-
-  .select-wrap {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-  }
-  .select-wrap :global(.select-icon) {
-    position: absolute;
-    left: 0.6rem;
-    color: var(--muted);
-    pointer-events: none;
-  }
-  .sort {
-    height: var(--control-h);
-    padding: 0 0.6rem 0 2rem;
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius);
-    background: var(--bg);
-    color: var(--fg);
-    font: inherit;
-    cursor: pointer;
-    transition: border-color var(--dur) var(--ease-out);
-  }
-  .sort:hover {
-    border-color: var(--accent);
-  }
-
-  /* Buttons share the control height and gain an icon + label row. */
-  .ghost-btn,
-  .upload {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--sp-2);
-    height: var(--control-h);
-    border-radius: var(--radius);
-    font: inherit;
-    cursor: pointer;
-    transition:
-      background var(--dur) var(--ease-out),
-      opacity var(--dur) var(--ease-out),
-      border-color var(--dur) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
-  }
-  .ghost-btn:active:not(:disabled),
-  .upload:active:not(:disabled) {
-    transform: scale(0.97);
-  }
-  .upload {
-    padding: 0 var(--sp-4);
-    border: none;
-    background: var(--accent);
-    color: var(--accent-fg);
-    font-weight: 700;
-  }
-  .upload:hover:not(:disabled) {
-    opacity: 0.88;
-  }
-  .upload:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-  .ghost-btn {
-    padding: 0 0.8rem;
-    border: 1px solid var(--hairline-strong);
-    background: transparent;
-    color: var(--fg);
-  }
-  .ghost-btn:hover:not(:disabled) {
-    background: var(--surface-hover);
-    border-color: var(--accent);
-  }
-  .ghost-btn:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-  /* Spin the rescan glyph while a scan is in flight. */
-  .ghost-btn :global(.spin) {
-    animation: spin 0.9s linear infinite;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
+  .brand-mark {
+    font-size: 0.4em;
+    font-style: normal;
+    color: var(--faint);
+    vertical-align: 0.5em;
+    letter-spacing: 0;
   }
 
   .profile {
@@ -508,44 +419,121 @@
     height: 1.4rem;
     background: var(--hairline-strong);
   }
-  /* ---- browse bar (label + flairs) ---- */
-  .browsebar {
-    margin-bottom: var(--sp-6);
+
+  /* ---- pinned toolbar ---- */
+  /* Sticky so search/sort stay reachable while scrolling a long shelf. The
+     translucent fill + backdrop blur only reads once covers slide underneath.
+     backdrop-filter is a scroll-time effect, not a load-time cost. */
+  .toolbar {
+    --control-h: 2.5rem;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+    padding: var(--sp-3) 0;
+    margin-bottom: var(--sp-4);
+    background: color-mix(in srgb, var(--bg) 84%, transparent);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--hairline);
+    animation: app-rise-in var(--dur-slower) var(--ease-out) 60ms both;
   }
-  .browsebar .eyebrow {
-    margin: 0 0 var(--sp-3);
+  .search {
+    flex: 1;
+    min-width: 12rem;
+    height: var(--control-h);
   }
+
+  .select-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+  .select-wrap :global(.select-icon) {
+    position: absolute;
+    left: 0.65rem;
+    color: var(--muted);
+    pointer-events: none;
+  }
+  .sort {
+    height: var(--control-h);
+    padding: 0 0.7rem 0 2rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--fg);
+    font: inherit;
+    font-size: var(--text-sm);
+    font-weight: 540;
+    cursor: pointer;
+    appearance: none;
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
+  }
+  .sort:hover {
+    background: var(--surface-hover);
+  }
+  .sort:focus-visible {
+    border-color: var(--accent-line);
+  }
+
+  .rescan,
+  .upload {
+    height: var(--control-h);
+  }
+  /* Spin the rescan glyph while a scan is in flight. */
+  .rescan :global(.spin) {
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /* ---- flair chips ---- */
   .flairbar {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: var(--sp-2);
+    margin-bottom: var(--sp-8);
+    animation: app-rise-in var(--dur-slower) var(--ease-out) 120ms both;
   }
   .chip {
     display: inline-flex;
     align-items: center;
-    border: 1px solid var(--hairline-strong);
+    border: 1px solid var(--hairline);
     border-radius: 999px;
+    background: var(--surface);
     overflow: hidden;
     transition:
       border-color var(--dur) var(--ease-out),
       background var(--dur) var(--ease-out);
   }
+  .chip:hover {
+    border-color: var(--hairline-strong);
+  }
   /* Selected chips read as selected by fill + a check (not colour alone). */
   .chip.active {
-    border-color: var(--chip);
-    background: color-mix(in srgb, var(--chip) 16%, transparent);
+    border-color: color-mix(in srgb, var(--chip) 55%, transparent);
+    background: color-mix(in srgb, var(--chip) 14%, transparent);
   }
   .chip-toggle {
     display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
-    padding: 0.3rem 0.7rem;
+    gap: 0.45rem;
+    padding: 0.32rem 0.75rem;
     border: none;
     background: transparent;
     color: var(--fg);
     font: inherit;
     font-size: var(--text-xs);
+    font-weight: 560;
     letter-spacing: 0.02em;
     cursor: pointer;
     transition: transform var(--dur-fast) var(--ease-out);
@@ -554,8 +542,8 @@
     transform: scale(0.96);
   }
   .chip .dot {
-    width: 0.55rem;
-    height: 0.55rem;
+    width: 0.5rem;
+    height: 0.5rem;
     border-radius: 50%;
     flex-shrink: 0;
   }
@@ -570,7 +558,7 @@
     background: transparent;
     color: var(--muted);
     line-height: 1;
-    padding: 0 0.45rem 0 0.1rem;
+    padding: 0 0.5rem 0 0.1rem;
     cursor: pointer;
     transition: color var(--dur-fast) var(--ease-out);
   }
@@ -584,10 +572,10 @@
   }
   .addflair input {
     width: 8rem;
-    padding: 0.35rem 0.7rem;
-    border: 1px solid var(--hairline-strong);
+    padding: 0.35rem 0.75rem;
+    border: 1px dashed var(--hairline-strong);
     border-radius: 999px;
-    background: var(--bg);
+    background: transparent;
     color: var(--fg);
     font: inherit;
     font-size: var(--text-xs);
@@ -600,24 +588,33 @@
        atomically (no extra cost — one tiny static layer). */
     transform: translateZ(0);
   }
-  .addflair input:hover {
-    border-color: var(--accent);
+  .addflair input::placeholder {
+    color: var(--faint);
+  }
+  .addflair input:hover,
+  .addflair input:focus {
+    border-color: var(--accent-line);
+    border-style: solid;
+    outline: none;
   }
   .addflair button {
     padding: 0.35rem 0.8rem;
-    border: 1px solid var(--hairline-strong);
+    border: none;
     border-radius: 999px;
     background: transparent;
-    color: var(--fg);
+    color: var(--muted);
     font: inherit;
     font-size: var(--text-xs);
+    font-weight: 600;
     cursor: pointer;
     transition:
       background var(--dur) var(--ease-out),
+      color var(--dur) var(--ease-out),
       transform var(--dur-fast) var(--ease-out);
   }
   .addflair button:hover:not(:disabled) {
     background: var(--surface-hover);
+    color: var(--fg);
   }
   .addflair button:active:not(:disabled) {
     transform: scale(0.96);
@@ -632,18 +629,24 @@
     color: var(--accent);
     font: inherit;
     font-size: var(--text-xs);
+    font-weight: 600;
     cursor: pointer;
+    padding: 0.35rem 0.5rem;
+    border-radius: 999px;
+  }
+  .clear-filters:hover {
+    background: var(--accent-soft);
   }
 
   /* ---- grid ---- */
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
-    gap: var(--sp-8) var(--sp-4);
+    grid-template-columns: repeat(auto-fill, minmax(178px, 1fr));
+    gap: var(--sp-10) var(--sp-5);
   }
   @media (max-width: 768px) {
     .grid {
-      grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
       gap: var(--sp-6) var(--sp-3);
     }
   }
@@ -657,50 +660,47 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--sp-2);
+    gap: var(--sp-3);
     margin-top: 12vh;
     text-align: center;
   }
-  .clear-filters {
-    padding: 0.45rem 0.9rem;
-    border: 1px solid var(--hairline-strong);
-    border-radius: var(--radius);
-    background: transparent;
-    color: var(--fg);
-    font: inherit;
-    cursor: pointer;
-    transition: border-color var(--dur) var(--ease-out);
-  }
-  .clear-filters:hover {
-    border-color: var(--accent);
-    color: var(--accent);
+  .noresults .state {
+    margin: 0;
   }
 
   .error {
     color: var(--danger);
   }
 
+  /* ---- empty shelf ---- */
   .empty {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: var(--sp-3);
-    margin-top: 16vh;
+    margin-top: 14vh;
     text-align: center;
+    animation: app-rise-in var(--dur-slower) var(--ease-out) both;
   }
-  .empty p:first-child {
-    font-family: var(--font-display);
-    font-size: var(--text-xl);
+  .empty-mark {
+    font-size: var(--text-lg);
+  }
+  .empty-title {
+    font-size: var(--text-2xl);
+    font-style: italic;
+    font-weight: 480;
     color: var(--fg);
     margin: 0;
   }
-  .empty .upload {
-    padding: 0 1.1rem;
+  .empty-sub {
+    margin: 0;
+    color: var(--muted);
   }
   .empty code {
     font-family: ui-monospace, monospace;
+    font-size: 0.85em;
     background: var(--surface);
-    padding: 0.1rem 0.3rem;
+    padding: 0.1rem 0.35rem;
     border-radius: var(--radius-sm);
   }
 </style>

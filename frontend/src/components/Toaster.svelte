@@ -27,16 +27,20 @@
     gap: var(--sp-2);
     pointer-events: none;
   }
+  /* Inverted ink slip: the theme's own ink as paper, its paper as ink. */
   .toast {
     max-width: min(420px, calc(100vw - 32px));
-    padding: var(--sp-2) var(--sp-4);
-    background: color-mix(in srgb, var(--fg) 88%, var(--bg));
+    padding: 0.55rem 1.1rem;
+    background: color-mix(in srgb, var(--fg) 92%, var(--bg));
     color: var(--bg);
-    border-radius: var(--radius);
+    border-radius: 999px;
     font-size: var(--text-sm);
+    font-weight: 560;
+    letter-spacing: 0.01em;
     text-align: center;
     overflow-wrap: anywhere;
-    animation: toast-in var(--dur) var(--ease-out) forwards;
+    box-shadow: var(--shadow-2);
+    animation: toast-in var(--dur-slow) var(--ease-spring) forwards;
   }
   .toast.exiting {
     animation: toast-out var(--dur-fast) var(--ease-in) forwards;
@@ -44,7 +48,7 @@
   @keyframes toast-in {
     from {
       opacity: 0;
-      transform: translateY(10px) scale(0.94);
+      transform: translateY(12px) scale(0.92);
     }
     to {
       opacity: 1;
@@ -58,7 +62,7 @@
     }
     to {
       opacity: 0;
-      transform: translateY(-6px) scale(0.96);
+      transform: translateY(-8px) scale(0.96);
     }
   }
 </style>
