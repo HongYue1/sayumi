@@ -122,8 +122,7 @@
   <div class="frontispiece">
     <header class="head">
       <span class="fleuron mark" aria-hidden="true">❦</span>
-      <h1 class="brand display">Sayumi</h1>
-      <p class="tagline">a quiet place to read</p>
+      <h1 class="brand wordmark">Sayumi</h1>
     </header>
 
     <hr class="rule-double" />
@@ -337,19 +336,8 @@
 
   .brand {
     margin: 0;
-    font-size: clamp(3.2rem, 9vw, 4.4rem);
-    font-style: italic;
-    font-weight: 460;
+    font-size: clamp(3.4rem, 9vw, 4.6rem);
     line-height: var(--lh-tight);
-  }
-
-  .tagline {
-    margin: var(--sp-2) 0 0;
-    font-family: var(--font-display);
-    font-style: italic;
-    font-size: var(--text-base);
-    color: var(--muted);
-    letter-spacing: 0.02em;
   }
 
   .muted {

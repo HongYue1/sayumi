@@ -228,6 +228,16 @@ body::before {
   background: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
+/* Native <select> popups: color-scheme (set per theme by applyTheme) picks the
+   light/dark UA chrome, and these rules ink the option list itself so the
+   remaining native selects (reader settings) follow the theme instead of
+   falling back to a white OS popup on dark themes. */
+select option,
+select optgroup {
+  background-color: var(--raised);
+  color: var(--fg);
+}
+
 /* Themed scrollbars across the chrome so scroll areas never fall back to a
    bright OS scrollbar against a dark theme. Trackless and quiet: a floating
    ink thumb that strengthens on hover, derived from the active theme. */
@@ -274,6 +284,32 @@ body::before {
   font-variation-settings: var(--display-feel);
   font-optical-sizing: auto;
   letter-spacing: -0.01em;
+}
+
+/* The wordmark cut of Fraunces: fully soft, italic, with the ink shading
+   toward the accent at the tail — one quiet flourish, derived from the
+   active theme so it works across all palettes. */
+.wordmark {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 520;
+  font-variation-settings:
+    "SOFT" 100,
+    "WONK" 0;
+  font-optical-sizing: auto;
+  letter-spacing: -0.02em;
+  background: linear-gradient(
+    115deg,
+    var(--fg) 45%,
+    color-mix(in srgb, var(--fg) 55%, var(--accent))
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  /* Italic ascenders/descenders overhang their box; keep them unclipped. */
+  padding: 0.05em 0.08em;
+  margin: -0.05em -0.08em;
 }
 
 /* Printer's double rule: a strong line over a hairline, the house divider. */

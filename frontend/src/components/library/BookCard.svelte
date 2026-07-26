@@ -417,7 +417,7 @@
        deliberately not overflow:hidden so that menu can escape — so the
        :has() rule below drops containment for whichever card has it open. */
     content-visibility: auto;
-    contain-intrinsic-size: auto 340px;
+    contain-intrinsic-size: auto 320px;
   }
 
   /* While a popover (flair or actions) is open, drop containment on that one
@@ -779,11 +779,11 @@
   .meta {
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
-    padding: var(--sp-3) var(--sp-1) 0;
+    gap: 0.18rem;
+    padding: var(--sp-2) var(--sp-1) 0;
   }
   .title {
-    font-size: 1.05rem;
+    font-size: 0.98rem;
     font-weight: 540;
     line-height: var(--lh-snug);
     overflow: hidden;

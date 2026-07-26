@@ -12,7 +12,14 @@
   import EditBookDialog from "~/components/library/EditBookDialog.svelte";
   import ShareDialog from "~/components/library/ShareDialog.svelte";
   import Icon from "~/lib/Icon.svelte";
-  import { Plus, RefreshCw, ArrowUpDown, Check, X } from "@lucide/svelte";
+  import {
+    Plus,
+    RefreshCw,
+    ArrowUpDown,
+    Check,
+    ChevronDown,
+    X,
+  } from "@lucide/svelte";
 
   import { DEFAULT_FLAIRS } from "~/lib/flairs";
 
@@ -24,8 +31,8 @@
   const dragging = $derived(dragDepth > 0);
 
   // Which profile dialog (if any) is open. Rendered at .library level — never
-  // inside the toolbar, whose backdrop-filter would clip a fixed overlay to
-  // the toolbar box.
+  // inside the command bar, whose backdrop-filter would clip a fixed overlay
+  // to the bar box.
   let profileDialog = $state<"clone" | "delete" | null>(null);
 
   // The book currently being edited, tracked by id so the open dialog reflects
@@ -42,6 +49,86 @@
   const sharingBook = $derived(
     sharingId ? (library.books.find((b) => b.id === sharingId) ?? null) : null,
   );
+
+  // ---- custom sort menu (native <select> popups can't be themed) ----------
+  let sortOpen = $state(false);
+  let sortTrigger = $state<HTMLButtonElement | null>(null);
+  let sortMenuEl = $state<HTMLElement | null>(null);
+  const sortLabel = $derived(
+    SORT_OPTIONS.find((o) => o.key === library.sort)?.label ?? "Sort",
+  );
+
+  function closeSort(restoreFocus = true): void {
+    if (!sortOpen) return;
+    sortOpen = false;
+    if (restoreFocus) sortTrigger?.focus();
+  }
+  function chooseSort(key: (typeof SORT_OPTIONS)[number]["key"]): void {
+    library.sort = key;
+    closeSort();
+  }
+  // Dismiss on outside pointerdown. A fixed scrim can't be used here: the
+  // sticky bar's backdrop-filter establishes a containing block, which would
+  // clip it to the bar box. A window listener is container-proof, matching
+  // ThemeDropdown / ProfileMenu.
+  function onSortOutside(e: PointerEvent): void {
+    const t = e.target as Node;
+    if (sortMenuEl?.contains(t) || sortTrigger?.contains(t)) return;
+    closeSort(false);
+  }
+  function onSortKeydown(e: KeyboardEvent): void {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      closeSort();
+      return;
+    }
+    if (
+      e.key !== "ArrowDown" &&
+      e.key !== "ArrowUp" &&
+      e.key !== "Home" &&
+      e.key !== "End" &&
+      e.key !== "Tab"
+    ) {
+      return;
+    }
+    // Roving focus across the radio items, matching the menu role's keyboard
+    // model used by ThemeDropdown / ProfileMenu / BookCard.
+    const menu = e.currentTarget as HTMLElement;
+    const items = Array.from(
+      menu.querySelectorAll<HTMLButtonElement>(".sort-item"),
+    );
+    if (items.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const cur = items.indexOf(document.activeElement as HTMLButtonElement);
+    let next: number;
+    switch (e.key) {
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = items.length - 1;
+        break;
+      case "Tab":
+        // Contain focus so it can't escape into the page behind the popover.
+        next = e.shiftKey
+          ? cur < 0
+            ? items.length - 1
+            : (cur - 1 + items.length) % items.length
+          : cur < 0
+            ? 0
+            : (cur + 1) % items.length;
+        break;
+      case "ArrowDown":
+        next = cur < 0 ? 0 : (cur + 1) % items.length;
+        break;
+      default:
+        next =
+          cur < 0 ? items.length - 1 : (cur - 1 + items.length) % items.length;
+    }
+    items[next].focus();
+  }
 
   onMount(() => {
     // Activate and load together: child onMount can run before App's profile
@@ -100,6 +187,8 @@
   }
 </script>
 
+<svelte:window onpointerdown={sortOpen ? onSortOutside : undefined} />
+
 <div
   class="library"
   ondragenter={onDragEnter}
@@ -109,36 +198,14 @@
   role="region"
   aria-label="Library"
 >
-  <!-- Masthead — the journal front page. Not sticky; the toolbar below pins. -->
-  <header class="masthead">
-    <div class="meta-row">
-      <p class="eyebrow count">
-        {#if library.books.length > 0}
-          Your library · <span class="tnum">{library.books.length}</span>
-          {library.books.length === 1 ? "book" : "books"}
-        {:else}
-          A quiet place to read
-        {/if}
-      </p>
-      <div class="profile">
-        <ThemeDropdown />
-        <span class="profile-divider" aria-hidden="true"></span>
-        <ProfileMenu
-          onclone={() => (profileDialog = "clone")}
-          ondelete={() => (profileDialog = "delete")}
-        />
-      </div>
-    </div>
-
-    <h1 class="brand display">
-      Sayumi<span class="brand-mark" aria-hidden="true"> ❦</span>
+  <!-- One compact command bar: identity + every library control in a single
+       pinned row, so the shelf owns the screen. -->
+  <header class="bar">
+    <h1 class="lockup">
+      <span class="wordmark">Sayumi</span>
+      <span class="lockup-mark" aria-hidden="true">❦</span>
     </h1>
 
-    <hr class="rule-double" />
-  </header>
-
-  <!-- Pinned toolbar: search / sort / scan / add stay reachable on long shelves. -->
-  <div class="toolbar">
     <input
       class="field search"
       type="search"
@@ -148,27 +215,68 @@
       aria-label="Search library"
     />
 
-    <div class="select-wrap">
-      <Icon icon={ArrowUpDown} size={15} class="select-icon" />
-      <select class="sort" bind:value={library.sort} aria-label="Sort by">
-        {#each SORT_OPTIONS as opt (opt.key)}
-          <option value={opt.key}>{opt.label}</option>
-        {/each}
-      </select>
+    <div class="sort-dd">
+      <button
+        bind:this={sortTrigger}
+        class="btn-ghost press sort-trigger"
+        class:open={sortOpen}
+        aria-haspopup="menu"
+        aria-expanded={sortOpen}
+        aria-label={`Sort by (current: ${sortLabel})`}
+        onclick={() => (sortOpen = !sortOpen)}
+      >
+        <Icon icon={ArrowUpDown} size={15} />
+        <span class="sort-label">{sortLabel}</span>
+        <Icon icon={ChevronDown} size={14} class="caret" />
+      </button>
+      {#if sortOpen}
+        <div
+          bind:this={sortMenuEl}
+          class="sort-menu paper"
+          role="menu"
+          tabindex="-1"
+          aria-label="Sort by"
+          onkeydown={onSortKeydown}
+        >
+          {#each SORT_OPTIONS as opt (opt.key)}
+            {@const active = library.sort === opt.key}
+            <button
+              class="sort-item"
+              class:active
+              role="menuitemradio"
+              aria-checked={active}
+              tabindex={active ? 0 : -1}
+              {@attach (el) => {
+                // Focus the current sort on open (menuitemradio model).
+                if (active) (el as HTMLButtonElement).focus();
+              }}
+              onclick={() => chooseSort(opt.key)}
+            >
+              <span class="sort-item-label">{opt.label}</span>
+              {#if active}<span class="check" aria-hidden="true"
+                  ><Icon icon={Check} size={15} /></span
+                >{/if}
+            </button>
+          {/each}
+        </div>
+      {/if}
     </div>
 
     <button
-      class="btn-ghost press rescan"
+      class="icon-btn press"
+      class:active={library.rescanning}
       onclick={() => library.rescan()}
       disabled={library.rescanning}
+      aria-label={library.rescanning
+        ? "Scanning library folder…"
+        : "Rescan the Library folder for new files"}
       title="Scan the Library folder for new files"
     >
       <Icon
         icon={RefreshCw}
-        size={16}
+        size={17}
         class={library.rescanning ? "spin" : ""}
       />
-      {library.rescanning ? "Scanning…" : "Rescan"}
     </button>
 
     <button
@@ -177,7 +285,9 @@
       disabled={library.uploading}
     >
       <Icon icon={Plus} size={16} />
-      {library.uploading ? "Uploading…" : "Add book"}
+      <span class="upload-label"
+        >{library.uploading ? "Uploading…" : "Add book"}</span
+      >
     </button>
     <input
       bind:this={fileInput}
@@ -187,10 +297,22 @@
       hidden
       onchange={onFilePicked}
     />
-  </div>
+
+    <span class="bar-divider" aria-hidden="true"></span>
+    <ThemeDropdown />
+    <ProfileMenu
+      onclone={() => (profileDialog = "clone")}
+      ondelete={() => (profileDialog = "delete")}
+    />
+  </header>
 
   {#if library.books.length > 0}
     <div class="flairbar">
+      <p class="eyebrow count">
+        <span class="tnum">{library.books.length}</span>
+        {library.books.length === 1 ? "book" : "books"}
+      </p>
+      <span class="flair-divider" aria-hidden="true"></span>
       {#each library.allFlairs as f (f.id)}
         {@const active = library.flairFilters.includes(f.id)}
         <span class="chip" class:active style:--chip={f.color}>
@@ -322,11 +444,12 @@
 
 <style>
   .library {
+    /* Full-bleed layout: the shelf uses the whole viewport, with a fluid
+       gutter that stays modest even on very wide screens. */
+    --pagex: clamp(1rem, 2.5vw, 2.75rem);
     position: relative;
     min-height: calc(100vh - var(--offline-banner-h, 0px));
-    padding: var(--sp-6) clamp(var(--sp-4), 4vw, var(--sp-10)) var(--sp-16);
-    max-width: 1480px;
-    margin: 0 auto;
+    padding: 0 var(--pagex) var(--sp-16);
   }
 
   .dropzone {
@@ -371,127 +494,147 @@
     font-size: var(--text-sm);
   }
 
-  /* ---- masthead ---- */
-  .masthead {
-    /* The entrance animation's retained transform makes the masthead a
-       stacking context at z:0 — later siblings (toolbar z:30, card contexts)
-       would paint over its dropdown menus (theme/profile). Raise the whole
-       masthead above them; it never visually overlaps the pinned toolbar
-       (it has scrolled away by the time the toolbar sticks). */
-    position: relative;
-    z-index: 40;
-    padding-top: var(--sp-2);
-    animation: app-rise-in var(--dur-slower) var(--ease-out) both;
-  }
-  .meta-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--sp-4);
-    min-height: 2.5rem;
-  }
-  .count {
-    margin: 0;
-  }
-  .brand {
-    margin: var(--sp-1) 0 var(--sp-5);
-    font-size: clamp(2.9rem, 6.5vw, 4.2rem);
-    font-style: italic;
-    font-weight: 460;
-    line-height: 1;
-  }
-  .brand-mark {
-    font-size: 0.4em;
-    font-style: normal;
-    color: var(--faint);
-    vertical-align: 0.5em;
-    letter-spacing: 0;
-  }
-
-  .profile {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-3);
-    flex-shrink: 0;
-  }
-  .profile-divider {
-    width: 1px;
-    height: 1.4rem;
-    background: var(--hairline-strong);
-  }
-
-  /* ---- pinned toolbar ---- */
-  /* Sticky so search/sort stay reachable while scrolling a long shelf. The
-     translucent fill + backdrop blur only reads once covers slide underneath.
-     backdrop-filter is a scroll-time effect, not a load-time cost. */
-  .toolbar {
-    --control-h: 2.5rem;
+  /* ---- command bar ---- */
+  /* One pinned row: identity + search + sort + scan + add + theme + profile.
+     Full-bleed glass (negative margins re-span the page gutters) with a
+     hairline base; z-index above the card stacking contexts so its dropdown
+     menus always paint on top. */
+  .bar {
+    --control-h: 2.4rem;
     position: sticky;
     top: 0;
-    z-index: 30;
+    z-index: 40;
     display: flex;
     align-items: center;
     gap: var(--sp-2);
     flex-wrap: wrap;
-    padding: var(--sp-3) 0;
-    margin-bottom: var(--sp-4);
+    margin-inline: calc(var(--pagex) * -1);
+    padding: var(--sp-2) var(--pagex);
+    margin-bottom: var(--sp-3);
     background: color-mix(in srgb, var(--bg) 84%, transparent);
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--hairline);
-    animation: app-rise-in var(--dur-slower) var(--ease-out) 60ms both;
+    animation: app-rise-in var(--dur-slower) var(--ease-out) both;
   }
+  .lockup {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.3rem;
+    margin: 0 var(--sp-2) 0 0;
+    font-size: 1.5rem;
+    line-height: 1;
+    font-weight: 520;
+    white-space: nowrap;
+  }
+  .lockup-mark {
+    font-size: 0.6em;
+    color: var(--accent);
+    opacity: 0.8;
+    align-self: center;
+  }
+
   .search {
-    flex: 1;
-    min-width: 12rem;
+    flex: 1 1 12rem;
+    min-width: 9rem;
+    max-width: 34rem;
     height: var(--control-h);
   }
 
-  .select-wrap {
+  /* Custom themed sort menu. */
+  .sort-dd {
     position: relative;
     display: inline-flex;
-    align-items: center;
   }
-  .select-wrap :global(.select-icon) {
-    position: absolute;
-    left: 0.65rem;
-    color: var(--muted);
-    pointer-events: none;
-  }
-  .sort {
+  .sort-trigger {
     height: var(--control-h);
-    padding: 0 0.7rem 0 2rem;
-    border: 1px solid transparent;
-    border-radius: var(--radius);
-    background: var(--surface);
+    font-weight: 540;
+  }
+  .sort-trigger :global(.caret) {
+    color: var(--muted);
+    transition: transform var(--dur) var(--ease-spring);
+  }
+  .sort-trigger.open :global(.caret) {
+    transform: rotate(180deg);
+  }
+  .sort-menu {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    right: 0;
+    z-index: 21;
+    min-width: 11.5rem;
+    padding: var(--sp-2);
+    transform-origin: top right;
+    animation: app-menu-pop-in var(--dur) var(--ease-out) both;
+  }
+  .sort-item {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    width: 100%;
+    padding: 0.45rem 0.6rem;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
     color: var(--fg);
     font: inherit;
     font-size: var(--text-sm);
-    font-weight: 540;
+    font-weight: 520;
+    text-align: left;
     cursor: pointer;
-    appearance: none;
-    transition:
-      background var(--dur-fast) var(--ease-out),
-      border-color var(--dur-fast) var(--ease-out);
+    transition: background var(--dur-fast) var(--ease-out);
   }
-  .sort:hover {
+  .sort-item:hover,
+  .sort-item:focus-visible {
     background: var(--surface-hover);
+    outline: none;
   }
-  .sort:focus-visible {
-    border-color: var(--accent-line);
+  .sort-item.active {
+    color: var(--accent);
+    font-weight: 640;
+    background: var(--accent-soft);
+  }
+  .sort-item-label {
+    flex: 1;
+  }
+  .sort-item .check {
+    display: inline-flex;
+    color: var(--accent);
   }
 
-  .rescan,
   .upload {
     height: var(--control-h);
   }
   /* Spin the rescan glyph while a scan is in flight. */
-  .rescan :global(.spin) {
+  .bar :global(.spin) {
     animation: spin 0.9s linear infinite;
   }
   @keyframes spin {
     to {
       transform: rotate(360deg);
+    }
+  }
+
+  .bar-divider {
+    width: 1px;
+    height: 1.4rem;
+    background: var(--hairline-strong);
+    margin: 0 var(--sp-1);
+  }
+
+  /* Tight quarters: drop the lockup text and button label before wrapping. */
+  @media (max-width: 860px) {
+    .upload-label {
+      display: none;
+    }
+    .upload {
+      width: var(--control-h);
+      padding: 0;
+    }
+  }
+  @media (max-width: 640px) {
+    .lockup {
+      display: none;
     }
   }
 
@@ -501,8 +644,17 @@
     flex-wrap: wrap;
     align-items: center;
     gap: var(--sp-2);
-    margin-bottom: var(--sp-8);
-    animation: app-rise-in var(--dur-slower) var(--ease-out) 120ms both;
+    padding: var(--sp-1) 0;
+    margin-bottom: var(--sp-5);
+    animation: app-rise-in var(--dur-slower) var(--ease-out) 80ms both;
+  }
+  .count {
+    margin: 0;
+  }
+  .flair-divider {
+    width: 1px;
+    height: 1rem;
+    background: var(--hairline);
   }
   .chip {
     display: inline-flex;
@@ -527,7 +679,7 @@
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
-    padding: 0.32rem 0.75rem;
+    padding: 0.3rem 0.75rem;
     border: none;
     background: transparent;
     color: var(--fg);
@@ -572,7 +724,7 @@
   }
   .addflair input {
     width: 8rem;
-    padding: 0.35rem 0.75rem;
+    padding: 0.32rem 0.75rem;
     border: 1px dashed var(--hairline-strong);
     border-radius: 999px;
     background: transparent;
@@ -598,7 +750,7 @@
     outline: none;
   }
   .addflair button {
-    padding: 0.35rem 0.8rem;
+    padding: 0.32rem 0.8rem;
     border: none;
     border-radius: 999px;
     background: transparent;
@@ -631,7 +783,7 @@
     font-size: var(--text-xs);
     font-weight: 600;
     cursor: pointer;
-    padding: 0.35rem 0.5rem;
+    padding: 0.32rem 0.5rem;
     border-radius: 999px;
   }
   .clear-filters:hover {
@@ -639,10 +791,15 @@
   }
 
   /* ---- grid ---- */
+  /* Fluid columns: scale the volume size with the viewport so wide screens
+     get more books per row instead of wider gutters. */
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(178px, 1fr));
-    gap: var(--sp-10) var(--sp-5);
+    grid-template-columns: repeat(
+      auto-fill,
+      minmax(clamp(148px, 10.5vw, 196px), 1fr)
+    );
+    gap: var(--sp-8) var(--sp-4);
   }
   @media (max-width: 768px) {
     .grid {

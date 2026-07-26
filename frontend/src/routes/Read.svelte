@@ -1552,8 +1552,9 @@
     left: 0;
     right: 0;
     z-index: 5;
-    height: 3px;
-    background: color-mix(in srgb, var(--fg) 9%, transparent);
+    height: 4px;
+    /* The track must read on every paper — a firm ink wash, not a whisper. */
+    background: color-mix(in srgb, var(--fg) 16%, transparent);
     transition: opacity var(--dur) var(--ease-out);
   }
   .progress.hidden {
@@ -1562,16 +1563,10 @@
   .fill {
     width: 100%;
     height: 100%;
-    /* A full-width gradient that scaleX compresses toward the leading edge,
-       giving a subtle "comet tip": brightest at the current reading position
-       and fading into the accent behind it. Only transform animates, so the
-       bar stays GPU-cheap. */
-    background: linear-gradient(
-      to right,
-      color-mix(in srgb, var(--accent) 45%, transparent),
-      var(--accent) 65%,
-      color-mix(in srgb, var(--accent) 80%, white)
-    );
+    /* Solid accent (a faded gradient made the bar near-invisible on light
+       themes); scaleX keeps the animation transform-only and GPU-cheap. */
+    background: var(--accent);
+    border-radius: 0 2px 2px 0;
     transform: scaleX(var(--progress-scale, 0));
     transform-origin: left center;
     transition: transform var(--dur-fast) var(--ease-out);
