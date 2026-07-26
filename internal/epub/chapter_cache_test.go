@@ -101,3 +101,93 @@ func TestProcessChapterSharesStylesheetCache(t *testing.T) {
 		t.Errorf("expected style.css fragment to be evicted after EvictBook")
 	}
 }
+
+// Entry counts alone are not a memory bound: one zip entry may decompress to
+// maxZipEntryBytes, and a crafted EPUB compresses ~1000:1, so a few-megabyte
+// book with many spine entries could pin gigabytes across the count-limited
+// slots after a single search (which walks and caches every chapter's text).
+func TestSizedLRUEvictsOnByteBudget(t *testing.T) {
+	t.Parallel()
+
+	const budget = 1000
+	// Entry count is deliberately generous so only the byte budget can bind.
+	cache := newSizedLRUCache[int, string](100, budget, func(s string) int { return len(s) })
+
+	for i := range 10 {
+		cache.Put(i, strings.Repeat("x", 300))
+	}
+
+	cache.mu.Lock()
+	gotBytes, gotLen := cache.bytes, cache.order.Len()
+	cache.mu.Unlock()
+
+	if gotBytes > budget {
+		t.Errorf("cache holds %d bytes, over the %d budget", gotBytes, budget)
+	}
+	if gotLen > 4 {
+		t.Errorf("cache holds %d entries; 300-byte values under a %d budget should keep ~3", gotLen, budget)
+	}
+	// The most recent write must survive, and the oldest must not.
+	if _, ok := cache.Get(9); !ok {
+		t.Error("most recently written entry was evicted")
+	}
+	if _, ok := cache.Get(0); ok {
+		t.Error("oldest entry survived past the byte budget")
+	}
+}
+
+// A value larger than the whole budget must not be admitted: caching it would
+// evict every other entry and still leave the cache over budget.
+func TestSizedLRURejectsOversizedValue(t *testing.T) {
+	t.Parallel()
+
+	cache := newSizedLRUCache[int, string](100, 1000, func(s string) int { return len(s) })
+	cache.Put(1, "keep me")
+	cache.Put(2, strings.Repeat("y", 5000))
+
+	if _, ok := cache.Get(2); ok {
+		t.Error("value larger than the byte budget was cached")
+	}
+	if _, ok := cache.Get(1); !ok {
+		t.Error("an oversized Put evicted an unrelated entry")
+	}
+
+	cache.mu.Lock()
+	gotBytes := cache.bytes
+	cache.mu.Unlock()
+	if gotBytes != len("keep me") {
+		t.Errorf("byte accounting drifted: got %d, want %d", gotBytes, len("keep me"))
+	}
+}
+
+// Byte accounting must stay correct across overwrite and delete, or the cache
+// slowly starves itself (phantom bytes) or grows unbounded (lost bytes).
+func TestSizedLRUByteAccountingAcrossOverwriteAndDelete(t *testing.T) {
+	t.Parallel()
+
+	cache := newSizedLRUCache[int, string](100, 10000, func(s string) int { return len(s) })
+	cache.Put(1, strings.Repeat("a", 100))
+	cache.Put(1, strings.Repeat("b", 30)) // overwrite, smaller
+	cache.Put(2, strings.Repeat("c", 50))
+
+	assertBytes := func(want int) {
+		t.Helper()
+		cache.mu.Lock()
+		got := cache.bytes
+		cache.mu.Unlock()
+		if got != want {
+			t.Errorf("bytes = %d, want %d", got, want)
+		}
+	}
+	assertBytes(80)
+
+	cache.Delete(1)
+	assertBytes(50)
+
+	cache.DeleteFunc(func(k int) bool { return false })
+	assertBytes(0)
+
+	cache.Put(3, "abc")
+	cache.Clear()
+	assertBytes(0)
+}

@@ -352,3 +352,131 @@ func TestRewriteBookCleansTempOnFailure(t *testing.T) {
 		}
 	}
 }
+
+// parseOPF prefers <dc:creator opf:file-as="…"> over the element's text, and
+// every Calibre-produced creator carries one. Rewriting only the text therefore
+// left this package reading back the PREVIOUS author from the file it had just
+// written — so the edit "took" in the UI and DB while the file, and any other
+// reader or re-import, still showed the old name.
+func TestRewriteBookUpdatesCreatorFileAs(t *testing.T) {
+	t.Parallel()
+
+	const opf = `<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
+    <dc:title>Old Title</dc:title>
+    <dc:creator opf:file-as="Author, Old" opf:role="aut">Old Author</dc:creator>
+  </metadata>
+  <manifest>
+    <item id="ch" href="ch.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="ch"/></spine>
+</package>`
+
+	src := writeMinimalEPUB(t, opf, nil)
+	newAuthor := "New Author"
+	tmp, err := RewriteBook(src, MetadataEdit{Author: &newAuthor})
+	if err != nil {
+		t.Fatalf("RewriteBook: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Remove(tmp) })
+
+	got := string(mustReadEPUBEntry(t, tmp, "OEBPS/content.opf"))
+	if strings.Contains(got, "Author, Old") {
+		t.Errorf("stale opf:file-as survived the author edit:\n%s", got)
+	}
+	if !strings.Contains(got, "New Author") {
+		t.Errorf("new author not written:\n%s", got)
+	}
+	// Unrelated attributes on the same tag must be preserved.
+	if !strings.Contains(got, `opf:role="aut"`) {
+		t.Errorf("opf:role lost from the creator tag:\n%s", got)
+	}
+
+	// The authoritative check: this package must read back what it wrote.
+	meta, _, err := parseOPF([]byte(got), "OEBPS")
+	if err != nil {
+		t.Fatalf("re-parse rewritten OPF: %v", err)
+	}
+	if meta.Author != newAuthor {
+		t.Errorf("re-parsed author = %q, want %q", meta.Author, newAuthor)
+	}
+}
+
+// findCoverPath resolves the manifest href without consulting the archive, so a
+// repacked EPUB that declares a cover entry it does not actually contain made
+// the rewrite loop match nothing and RewriteBook abort — every cover upload
+// 500'd, permanently, with no way to recover. A declared-but-absent entry must
+// fall through to appending a fresh cover.
+func TestRewriteBookAddsCoverWhenDeclaredEntryIsMissing(t *testing.T) {
+	t.Parallel()
+
+	const opf = `<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
+    <dc:title>Ghost Cover</dc:title>
+    <meta name="cover" content="cover-img"/>
+  </metadata>
+  <manifest>
+    <item id="cover-img" href="cover.jpeg" media-type="image/jpeg"/>
+    <item id="ch" href="ch.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="ch"/></spine>
+</package>`
+
+	// Note: no OEBPS/cover.jpeg entry is written.
+	src := writeMinimalEPUB(t, opf, nil)
+	tmp, err := RewriteBook(src, MetadataEdit{CoverJPEG: minimalJPEG})
+	if err != nil {
+		t.Fatalf("RewriteBook with a declared-but-missing cover: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Remove(tmp) })
+
+	var coverEntry string
+	for _, name := range zipEntryNames(t, tmp) {
+		if strings.Contains(name, "cover") && strings.HasSuffix(name, ".jpg") {
+			coverEntry = name
+			break
+		}
+	}
+	if coverEntry == "" {
+		t.Fatalf("no cover entry was added; entries = %v", zipEntryNames(t, tmp))
+	}
+	if got := mustReadEPUBEntry(t, tmp, coverEntry); !bytes.Equal(got, minimalJPEG) {
+		t.Errorf("cover entry %q does not hold the supplied JPEG", coverEntry)
+	}
+}
+
+// RawToken emits a synthetic EndElement for a self-closed <metadata/> at the
+// offset AFTER the whole element, so "insert just before the end tag" landed
+// outside it: the new <dc:title> became a sibling of <metadata> under
+// <package>, producing an invalid OPF that this package reads back as empty.
+func TestRewriteBookRejectsSelfClosedMetadataRatherThanCorruptingIt(t *testing.T) {
+	t.Parallel()
+
+	const opf = `<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="id">
+  <metadata/>
+  <manifest><item id="ch" href="ch.xhtml" media-type="application/xhtml+xml"/></manifest>
+  <spine><itemref idref="ch"/></spine>
+</package>`
+
+	src := writeMinimalEPUB(t, opf, nil)
+	newTitle := "Brand New"
+	tmp, err := RewriteBook(src, MetadataEdit{Title: &newTitle})
+	if err == nil {
+		t.Cleanup(func() { _ = os.Remove(tmp) })
+		// If a future change makes this succeed, the result must at least be a
+		// document whose title actually round-trips.
+		got := mustReadEPUBEntry(t, tmp, "OEBPS/content.opf")
+		meta, _, perr := parseOPF(got, "OEBPS")
+		if perr != nil || meta.Title != newTitle {
+			t.Fatalf("edit produced an OPF that does not round-trip: title=%q err=%v\n%s",
+				meta.Title, perr, got)
+		}
+		return
+	}
+	if !strings.Contains(err.Error(), "metadata") {
+		t.Fatalf("expected a metadata-related refusal, got: %v", err)
+	}
+}

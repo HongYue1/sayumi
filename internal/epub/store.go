@@ -17,11 +17,23 @@ type LRUCache[K comparable, V any] struct {
 	cap   int
 	items map[K]*list.Element
 	order *list.List
+
+	// sizeOf, byteCap and bytes bound the cache by payload size as well as entry
+	// count. Counting entries alone is not a memory bound here: a single chapter
+	// or extracted text can be tens of megabytes (one zip entry may decompress to
+	// maxZipEntryBytes), so a hundred "small" slots can still retain gigabytes.
+	// A crafted book compresses ~1000:1, which makes that reachable from one
+	// search request over a few-megabyte file. sizeOf is nil for caches whose
+	// values are inherently small.
+	sizeOf  func(V) int
+	byteCap int
+	bytes   int
 }
 
 type lruPair[K comparable, V any] struct {
-	key K
-	val V
+	key  K
+	val  V
+	size int
 }
 
 func newLRUCache[K comparable, V any](capacity int) *LRUCache[K, V] {
@@ -30,6 +42,32 @@ func newLRUCache[K comparable, V any](capacity int) *LRUCache[K, V] {
 		items: make(map[K]*list.Element, capacity+4),
 		order: list.New(),
 	}
+}
+
+// newSizedLRUCache bounds the cache by total payload bytes in addition to entry
+// count, evicting from the back until both limits hold.
+func newSizedLRUCache[K comparable, V any](capacity, byteCap int, sizeOf func(V) int) *LRUCache[K, V] {
+	c := newLRUCache[K, V](capacity)
+	c.sizeOf = sizeOf
+	c.byteCap = max(byteCap, 1)
+	return c
+}
+
+// valueSize reports a value's accounted size, or 0 for an unsized cache.
+func (c *LRUCache[K, V]) valueSize(val V) int {
+	if c.sizeOf == nil {
+		return 0
+	}
+	return c.sizeOf(val)
+}
+
+// overBudget reports whether the cache exceeds either limit. Callers must hold
+// c.mu.
+func (c *LRUCache[K, V]) overBudget() bool {
+	if c.order.Len() > c.cap {
+		return true
+	}
+	return c.sizeOf != nil && c.bytes > c.byteCap
 }
 
 func (c *LRUCache[K, V]) Get(key K) (V, bool) {
@@ -45,22 +83,49 @@ func (c *LRUCache[K, V]) Get(key K) (V, bool) {
 }
 
 func (c *LRUCache[K, V]) Put(key K, val V) {
+	size := c.valueSize(val)
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if el, ok := c.items[key]; ok {
-		c.order.MoveToFront(el)
-		el.Value.(*lruPair[K, V]).val = val
+
+	// A single value larger than the whole budget is not cached at all: admitting
+	// it would evict every other entry and still leave the cache over budget.
+	if c.sizeOf != nil && size > c.byteCap {
+		if el, ok := c.items[key]; ok {
+			item := el.Value.(*lruPair[K, V])
+			c.bytes -= item.size
+			c.order.Remove(el)
+			delete(c.items, key)
+		}
 		return
 	}
-	el := c.order.PushFront(&lruPair[K, V]{key, val})
-	c.items[key] = el
-	if c.order.Len() > c.cap {
+
+	if el, ok := c.items[key]; ok {
+		c.order.MoveToFront(el)
+		item := el.Value.(*lruPair[K, V])
+		c.bytes += size - item.size
+		item.val = val
+		item.size = size
+	} else {
+		el := c.order.PushFront(&lruPair[K, V]{key: key, val: val, size: size})
+		c.items[key] = el
+		c.bytes += size
+	}
+
+	for c.overBudget() {
 		back := c.order.Back()
-		if back != nil {
-			item := back.Value.(*lruPair[K, V])
-			c.order.Remove(back)
-			delete(c.items, item.key)
+		if back == nil {
+			break
 		}
+		item := back.Value.(*lruPair[K, V])
+		// Never evict the entry just inserted, or a value bigger than the rest of
+		// the budget would spin here having already been admitted.
+		if item.key == key {
+			break
+		}
+		c.bytes -= item.size
+		c.order.Remove(back)
+		delete(c.items, item.key)
 	}
 }
 
@@ -73,6 +138,7 @@ func (c *LRUCache[K, V]) Delete(key K) (V, bool) {
 		return zero, false
 	}
 	item := el.Value.(*lruPair[K, V])
+	c.bytes -= item.size
 	c.order.Remove(el)
 	delete(c.items, key)
 	return item.val, true
@@ -86,6 +152,7 @@ func (c *LRUCache[K, V]) DeleteFunc(keep func(K) bool) {
 		next = el.Prev()
 		item := el.Value.(*lruPair[K, V])
 		if !keep(item.key) {
+			c.bytes -= item.size
 			c.order.Remove(el)
 			delete(c.items, item.key)
 		}
@@ -101,6 +168,7 @@ func (c *LRUCache[K, V]) Clear() {
 	defer c.mu.Unlock()
 	c.items = make(map[K]*list.Element, c.cap+4)
 	c.order.Init()
+	c.bytes = 0
 }
 
 type zipEntry struct {
@@ -200,6 +268,19 @@ type EPUBStore struct {
 	cssFrags  *LRUCache[cssFragmentKey, cssFragment]
 }
 
+// Byte budgets for the derived content caches, per profile. Entry counts alone
+// bound nothing useful: one zip entry may decompress to maxZipEntryBytes, and a
+// crafted EPUB compresses roughly 1000:1, so a few-megabyte book with many
+// spine entries could pin gigabytes across the count-limited slots after a
+// single search (which walks and caches every chapter's text). These caps keep
+// a hostile book's retained footprint bounded while comfortably holding a real
+// book: a typical chapter renders well under 100 KB.
+const (
+	chapterCacheBytes = 48 << 20 // 48 MB of rendered chapter responses
+	textCacheBytes    = 32 << 20 // 32 MB of extracted chapter text (orig + folded)
+	cssCacheBytes     = 8 << 20  // 8 MB of processed stylesheet fragments
+)
+
 func NewStore(maxSize int) *EPUBStore {
 	if maxSize < 1 {
 		maxSize = 10
@@ -207,9 +288,18 @@ func NewStore(maxSize int) *EPUBStore {
 	return &EPUBStore{
 		lru:       newZipLRU(maxSize),
 		openFiles: make(map[string]*zipEntry),
-		chapters:  newLRUCache[chapterRenderKey, ChapterResponse](maxSize * 10),
-		texts:     newLRUCache[chapterTextKey, textPair](maxSize * 5),
-		cssFrags:  newLRUCache[cssFragmentKey, cssFragment](maxSize * 4),
+		chapters: newSizedLRUCache[chapterRenderKey, ChapterResponse](
+			maxSize*10, chapterCacheBytes,
+			func(r ChapterResponse) int { return len(r.HTML) + len(r.CSS) + len(r.FontFaceCSS) },
+		),
+		texts: newSizedLRUCache[chapterTextKey, textPair](
+			maxSize*5, textCacheBytes,
+			func(p textPair) int { return len(p.orig) + len(p.lower) },
+		),
+		cssFrags: newSizedLRUCache[cssFragmentKey, cssFragment](
+			maxSize*4, cssCacheBytes,
+			func(f cssFragment) int { return len(f.css) + len(f.fontFace) },
+		),
 	}
 }
 

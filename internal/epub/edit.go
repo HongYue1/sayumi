@@ -246,6 +246,16 @@ func rewriteOPF(opfData []byte, opfDir string, edit MetadataEdit, index map[stri
 		repl := escapeXMLText(*edit.Author)
 		switch {
 		case scan.creatorStart >= 0:
+			// parseOPF prefers the creator's file-as attribute over its text, and
+			// every Calibre-produced <dc:creator> carries one — so replacing only
+			// the text left this package reading back the PREVIOUS author from the
+			// file it had just written. Keep the sort key in step with the name.
+			if scan.creatorTagStart >= 0 {
+				tag := opfData[scan.creatorTagStart:scan.creatorTagEnd]
+				if fixed, ok := replaceAttrValue(tag, "file-as", *edit.Author); ok {
+					ops = append(ops, spliceOp{scan.creatorTagStart, scan.creatorTagEnd, fixed})
+				}
+			}
 			ops = append(ops, spliceOp{scan.creatorStart, scan.creatorEnd, repl})
 		case strings.TrimSpace(*edit.Author) == "":
 			// Clearing an author that has no <dc:creator> element: nothing to do.
@@ -260,6 +270,19 @@ func rewriteOPF(opfData []byte, opfDir string, edit MetadataEdit, index map[stri
 
 	if edit.CoverJPEG != nil {
 		coverResolved := findCoverPath(pkg, manifest, opfDir)
+		// findCoverPath resolves the manifest href without checking the archive.
+		// A repacked EPUB whose OPF declares a cover entry that is not actually
+		// present made the rewrite loop match nothing, so RewriteBook aborted with
+		// "cover entry was not written" and every cover upload 500'd forever with
+		// no way out. Treat a declared-but-absent entry as no cover, which falls
+		// through to appending a fresh one.
+		if coverResolved != "" {
+			if _, exists := index[coverResolved]; !exists {
+				if _, existsLower := index[strings.ToLower(coverResolved)]; !existsLower {
+					coverResolved = ""
+				}
+			}
+		}
 		if coverResolved != "" {
 			coverZipName = coverResolved
 			coverIsNew = false
@@ -332,9 +355,12 @@ type opfItemSpan struct {
 type opfScanResult struct {
 	titleStart, titleEnd     int
 	creatorStart, creatorEnd int
-	manifestInsertAt         int
-	metadataInsertAt         int
-	items                    []opfItemSpan
+	// creatorTagStart/End bound the first <dc:creator> START TAG (not its text),
+	// so an opf:file-as attribute on it can be rewritten alongside the text.
+	creatorTagStart, creatorTagEnd int
+	manifestInsertAt               int
+	metadataInsertAt               int
+	items                          []opfItemSpan
 }
 
 // scanOPF walks the raw OPF tokens recording byte offsets we need to splice:
@@ -347,6 +373,7 @@ func scanOPF(data []byte) (opfScanResult, error) {
 	res := opfScanResult{
 		titleStart: -1, titleEnd: -1,
 		creatorStart: -1, creatorEnd: -1,
+		creatorTagStart: -1, creatorTagEnd: -1,
 		manifestInsertAt: -1, metadataInsertAt: -1,
 	}
 	dec := xml.NewDecoder(bytes.NewReader(data))
@@ -356,6 +383,7 @@ func scanOPF(data []byte) (opfScanResult, error) {
 		local      string
 		contentBeg int
 		selfClose  bool
+		tagStart   int
 	}
 	var stack []frame
 
@@ -373,7 +401,7 @@ func scanOPF(data []byte) (opfScanResult, error) {
 		switch t := tok.(type) {
 		case xml.StartElement:
 			selfClose := endOff-startOff >= 2 && data[endOff-1] == '>' && data[endOff-2] == '/'
-			stack = append(stack, frame{local: t.Name.Local, contentBeg: endOff, selfClose: selfClose})
+			stack = append(stack, frame{local: t.Name.Local, contentBeg: endOff, selfClose: selfClose, tagStart: startOff})
 			if t.Name.Local == "item" {
 				href := ""
 				for _, a := range t.Attr {
@@ -387,10 +415,12 @@ func scanOPF(data []byte) (opfScanResult, error) {
 		case xml.EndElement:
 			beg := -1
 			selfClose := false
+			tagStart := -1
 			for i := len(stack) - 1; i >= 0; i-- {
 				if stack[i].local == t.Name.Local {
 					beg = stack[i].contentBeg
 					selfClose = stack[i].selfClose
+					tagStart = stack[i].tagStart
 					stack = stack[:i]
 					break
 				}
@@ -403,13 +433,20 @@ func scanOPF(data []byte) (opfScanResult, error) {
 			case "creator":
 				if res.creatorStart < 0 && beg >= 0 && !selfClose {
 					res.creatorStart, res.creatorEnd = beg, startOff
+					res.creatorTagStart, res.creatorTagEnd = tagStart, beg
 				}
+			// An insertion point is "just before the end tag", which only exists
+			// when the element is not self-closed. RawToken emits a synthetic
+			// EndElement for <metadata/> at the offset AFTER the whole element, so
+			// recording it there splices the new node outside the element: a title
+			// added to a self-closed <metadata/> becomes a sibling under <package>,
+			// which this package's own parser then reads back as empty.
 			case "manifest":
-				if res.manifestInsertAt < 0 {
+				if res.manifestInsertAt < 0 && !selfClose {
 					res.manifestInsertAt = startOff
 				}
 			case "metadata":
-				if res.metadataInsertAt < 0 {
+				if res.metadataInsertAt < 0 && !selfClose {
 					res.metadataInsertAt = startOff
 				}
 			}
