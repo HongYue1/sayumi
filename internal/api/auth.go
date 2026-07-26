@@ -341,6 +341,18 @@ func isUniqueConstraint(err error) bool {
 	}
 }
 
+// isForeignKeyConstraint reports whether err is a foreign-key violation. Unlike
+// a busy/locked database, this can never succeed on retry: the referenced row
+// is gone and is not coming back, so callers must drop the write rather than
+// queue it again.
+func isForeignKeyConstraint(err error) bool {
+	var sqliteErr *modernsqlite.Error
+	if !errors.As(err, &sqliteErr) {
+		return false
+	}
+	return sqliteErr.Code() == sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY
+}
+
 func authMiddleware(deps *Dependencies) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

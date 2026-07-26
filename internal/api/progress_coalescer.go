@@ -162,12 +162,25 @@ func (c *progressCoalescer) flush() {
 
 	// DB writes happen outside the lock so staging never blocks on fsync.
 	for key, rec := range batch {
-		if err := c.saveOne(rec); err != nil {
-			slog.Error("coalesced progress save failed", "book", key.bookID, "user", key.userID, "err", err)
-			// Re-buffer so a transient failure retries on the next tick, but
-			// never clobber a newer value staged in the meantime.
-			c.restage(key, rec)
+		err := c.saveOne(rec)
+		if err == nil {
+			continue
 		}
+		// A foreign-key violation means the book row is gone (deleted, its
+		// progress CASCADE-removed). Retrying can never succeed, so re-buffering
+		// would fail this same write every interval for the life of the profile,
+		// spraying an error line each time. dropBook closes the window for
+		// positions staged before a delete; this closes the two that remain —
+		// a record already swapped into a flush batch, and one staged between
+		// putProgressHandler's existence check and its stage() call.
+		if isForeignKeyConstraint(err) {
+			slog.Debug("dropping progress for deleted book", "book", key.bookID, "user", key.userID)
+			continue
+		}
+		slog.Error("coalesced progress save failed", "book", key.bookID, "user", key.userID, "err", err)
+		// Re-buffer so a transient failure retries on the next tick, but
+		// never clobber a newer value staged in the meantime.
+		c.restage(key, rec)
 	}
 }
 

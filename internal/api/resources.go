@@ -78,6 +78,25 @@ func getResourceHandler(deps *Dependencies) http.HandlerFunc {
 		}
 		defer access.pd.release()
 
+		// Pair the BookCache snapshot with one complete on-disk EPUB generation,
+		// exactly as the chapter/download/gofile readers do. Streaming outside
+		// this gate let an in-place edit swap the file mid-request — serving the
+		// new bytes under the previous hash's year-long immutable ETag — and let
+		// a delete proceed while the zip was still pinned, which on Windows makes
+		// os.Remove fail and strands the EPUB on disk after its row is gone.
+		access.pd.bookReplaceMu.RLock()
+		defer access.pd.bookReplaceMu.RUnlock()
+
+		// Re-read under the gate: the snapshot above may predate a commit that
+		// landed while this request was waiting for the lock.
+		book, stillPresent := access.pd.Books.Get(bookID)
+		if !stillPresent {
+			writeError(w, http.StatusNotFound, "not_found", "book not found")
+			return
+		}
+		access.fileHash = book.FileHash
+		access.filePath = book.FilePath
+
 		if access.fileHash != "" {
 			etag := resourceETag(access.fileHash, resourcePath)
 			w.Header().Set("ETag", etag)

@@ -243,14 +243,28 @@ func (pm *ProfileManager) lockProfiles(ctx context.Context, profileNames ...stri
 	defer stopWake()
 
 	pm.mu.Lock()
-	for _, name := range names {
-		for pm.blocked[name] || pm.opening[name] {
-			if ctx.Err() != nil {
-				pm.mu.Unlock()
-				return func() {}, false
+	// Every name must be observed free in ONE uninterrupted critical section
+	// before any is marked. cond.Wait releases pm.mu, so checking the names in
+	// sequence and never revisiting the earlier ones let a second caller claim a
+	// name this one had already passed: both would then believe they held it
+	// exclusively, and whichever finished first would delete the other's block.
+	// Re-scanning from the start after every wait keeps the claim atomic.
+	for {
+		allFree := true
+		for _, name := range names {
+			if pm.blocked[name] || pm.opening[name] {
+				allFree = false
+				break
 			}
-			pm.cond.Wait()
 		}
+		if allFree {
+			break
+		}
+		if ctx.Err() != nil {
+			pm.mu.Unlock()
+			return func() {}, false
+		}
+		pm.cond.Wait()
 	}
 
 	for _, name := range names {

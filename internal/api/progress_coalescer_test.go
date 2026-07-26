@@ -193,3 +193,61 @@ func TestProgressCoalescerRetriesFailedWrite(t *testing.T) {
 		t.Fatalf("expected 1 save after retry, got %d", got)
 	}
 }
+
+// countingProgressDB wraps a real *storage.DB so the test exercises the actual
+// modernc foreign-key error rather than a stand-in, while still counting how
+// many times the coalescer attempted the write.
+type countingProgressDB struct {
+	*storage.DB
+	mu       sync.Mutex
+	attempts int
+}
+
+func (d *countingProgressDB) SaveProgressContext(ctx context.Context, p storage.ProgressRecord) error {
+	d.mu.Lock()
+	d.attempts++
+	d.mu.Unlock()
+	return d.DB.SaveProgressContext(ctx, p)
+}
+
+func (d *countingProgressDB) count() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.attempts
+}
+
+// A position staged for a book that no longer exists fails progress.book_id on
+// every flush. Re-buffering it cost a failed WAL write plus an error log every
+// flush interval for the life of the profile; the record must be dropped after
+// the first attempt instead. dropBook only covers positions staged before the
+// delete — this covers a record already swapped into a flush batch, and one
+// staged between putProgressHandler's existence check and its stage() call.
+func TestProgressCoalescerDropsForeignKeyFailureInsteadOfRetrying(t *testing.T) {
+	raw, err := storage.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := raw.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
+	db := &countingProgressDB{DB: raw}
+
+	c := newProgressCoalescer(db, 5*time.Millisecond, progressMaxPending)
+	defer c.stop()
+
+	// No book row was ever inserted, so this violates progress.book_id.
+	c.stage(storage.ProgressRecord{BookID: "ghost-book", UserID: "default", Chapter: 1, Percent: 0.5})
+
+	waitFor(t, func() bool { return db.count() >= 1 })
+
+	// Several more intervals must not produce another attempt.
+	time.Sleep(60 * time.Millisecond)
+	if got := db.count(); got != 1 {
+		t.Fatalf("save attempts = %d, want exactly 1 (a permanent failure must not be retried)", got)
+	}
+	if _, ok := c.get("ghost-book", "default"); ok {
+		t.Fatal("record for a deleted book is still pending after its flush")
+	}
+}
