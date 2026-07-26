@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -416,11 +417,11 @@ func scanOPF(data []byte) (opfScanResult, error) {
 			beg := -1
 			selfClose := false
 			tagStart := -1
-			for i := len(stack) - 1; i >= 0; i-- {
-				if stack[i].local == t.Name.Local {
-					beg = stack[i].contentBeg
-					selfClose = stack[i].selfClose
-					tagStart = stack[i].tagStart
+			for i, open := range slices.Backward(stack) {
+				if open.local == t.Name.Local {
+					beg = open.contentBeg
+					selfClose = open.selfClose
+					tagStart = open.tagStart
 					stack = stack[:i]
 					break
 				}

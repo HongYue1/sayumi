@@ -146,8 +146,9 @@ func updateBookHandler(_ *Dependencies) http.HandlerFunc {
 		}
 
 		id := r.PathValue("id")
-		book, ok := pd.Books.Get(id)
-		if !ok {
+		// Existence only: the record itself is re-read under bookEditMu below,
+		// since decoding the body gives a preceding edit time to land.
+		if _, ok := pd.Books.Get(id); !ok {
 			writeError(w, http.StatusNotFound, "not_found", "book not found")
 			return
 		}
@@ -165,7 +166,7 @@ func updateBookHandler(_ *Dependencies) http.HandlerFunc {
 		// overwritten from the stale pre-decode snapshot above.
 		pd.bookEditMu.Lock()
 		defer pd.bookEditMu.Unlock()
-		book, ok = pd.Books.Get(id)
+		book, ok := pd.Books.Get(id)
 		if !ok {
 			writeError(w, http.StatusNotFound, "not_found", "book not found")
 			return
@@ -258,8 +259,10 @@ func uploadCoverHandler(_ *Dependencies) http.HandlerFunc {
 		}
 
 		id := r.PathValue("id")
-		book, ok := pd.Books.Get(id)
-		if !ok {
+		// Existence only: the record itself is re-read under bookEditMu below,
+		// since decoding and re-encoding the image gives a preceding edit time
+		// to land.
+		if _, ok := pd.Books.Get(id); !ok {
 			writeError(w, http.StatusNotFound, "not_found", "book not found")
 			return
 		}
@@ -329,7 +332,7 @@ func uploadCoverHandler(_ *Dependencies) http.HandlerFunc {
 		// generation work, then refresh the book snapshot before preparing it.
 		pd.bookEditMu.Lock()
 		defer pd.bookEditMu.Unlock()
-		book, ok = pd.Books.Get(id)
+		book, ok := pd.Books.Get(id)
 		if !ok {
 			writeError(w, http.StatusNotFound, "not_found", "book not found")
 			return

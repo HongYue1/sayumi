@@ -9,6 +9,7 @@ import (
 	"os"
 	rtpprof "runtime/pprof"
 	"runtime/trace"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -29,8 +30,8 @@ func startProfiling(cpuProfilePath, tracePath string) func() {
 	return func() {
 		// Stop in reverse order so the trace stops before the CPU profile,
 		// mirroring the order in which they were started.
-		for i := len(cleanups) - 1; i >= 0; i-- {
-			cleanups[i]()
+		for _, cleanup := range slices.Backward(cleanups) {
+			cleanup()
 		}
 	}
 }

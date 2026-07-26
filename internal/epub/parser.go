@@ -610,7 +610,7 @@ func resolveReference(basePath, href string) string {
 	}
 
 	refPath, rawQuery, fragment := splitResourceReference(href)
-	resolvedPath := ""
+	var resolvedPath string
 	if strings.TrimSpace(refPath) == "" {
 		resolvedPath = strings.TrimPrefix(path.Clean("/"+strings.TrimPrefix(basePath, "/")), "/")
 	} else {

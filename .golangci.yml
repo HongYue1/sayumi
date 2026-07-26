@@ -1,18 +1,27 @@
 # golangci-lint v2 config (matches installed 2.12.2).
 #
 # Builds on the default "standard" set (errcheck, govet, ineffassign,
-# staticcheck, unused). Formatting is intentionally left to check.sh
-# (gofumpt + goimports) to avoid version skew between the standalone
-# formatters and golangci-lint's bundled copies.
+# staticcheck, unused), then widens the two heavyweights (govet, staticcheck)
+# and adds linters that guard a failure mode this codebase can actually hit.
 #
-# Linters are grouped by intent below. Everything in `enable` is expected to be
-# either already-clean on this codebase or auto-fixable via `make fix`. The
-# commented "opt-in" block at the bottom lists higher-value-but-noisier linters
-# to turn on deliberately, one at a time.
+# Every linter below was verified to report zero issues on the tree at the time
+# it was added — a gate that is noisy gets ignored, and an ignored gate catches
+# nothing. Linters that only fire on constructs this project does not use
+# (sum types, ginkgo, otel, testify, protobuf, zerolog) are deliberately absent
+# rather than enabled-and-silent.
 version: "2"
 
 run:
   timeout: 5m
+
+# Formatting is intentionally NOT run through golangci-lint. `golangci-lint
+# formatters` lists gofumpt/goimports/gci/golines as available and this section
+# leaves all of them disabled on purpose: check.sh runs the standalone gofumpt
+# and `goimports -local sayumi` binaries, and golangci-lint bundles its own
+# copies. Enabling them here would mean two versions of the same formatter
+# disagreeing about the same file depending on which tool ran last.
+formatters:
+  enable: []
 
 linters:
   default: standard
@@ -33,19 +42,54 @@ linters:
     - nilnesserr # return the error you actually checked
     - predeclared # don't shadow builtins (len, cap, error, min, max, ...)
     - noctx # no HTTP/SQL calls without a context.Context
+    - durationcheck # no time.Duration multiplied by a Duration (timeouts, expiry)
+    - errchkjson # unsupported types reaching json.Marshal (every API response)
+    - reassign # package-level vars are not reassigned from elsewhere
+    - recvcheck # a type does not mix pointer and value receivers
+    - wastedassign # no value assigned and then overwritten unread
 
-    # --- logging: you use log/slog throughout ---
-    - sloglint # consistent slog usage
+    # --- untrusted input: book content and filenames are attacker-controlled ---
+    - bidichk # no bidi/unicode override sequences hiding code or log text
+    - asasalint # no []any silently passed as a single variadic any
+
+    # --- HTTP + SQL layers ---
+    - canonicalheader # header keys are canonical ("Content-Type", not "Content-type")
+    - nosprintfhostport # no host:port URLs built with Sprintf (IPv6 breaks them)
+    - musttag # fields of (un)marshaled structs carry their json tag
+    - unqueryvet # no SELECT * — the queryplan tests pin explicit column lists
+
+    # --- logging: log/slog throughout ---
+    - sloglint # consistent slog usage (style)
+    - loggercheck # slog key/value pairs actually pair up (correctness)
+
+    # --- build integrity ---
+    # A typo'd directive is silently ignored by the compiler, and this binary's
+    # whole frontend ships through one //go:embed dist.
+    - gocheckcompilerdirectives
+    - goprintffuncname # printf wrappers end in 'f' so vet can check their formats
+    - gochecknoinits # no hidden init()-order behavior
+    - nolintlint # any //nolint is specific, explained, and still needed
 
     # --- performance ---
     - perfsprint # fmt.Sprintf -> strconv / concat where it's a clear win
     - usestdlibvars # http.StatusOK, time.RFC3339, etc. instead of literals
     - prealloc # pre-size slices grown in a loop
+    - mirror # bytes/strings: avoid a needless []byte<->string round trip
 
     # --- modernization (you're on Go 1.26) ---
     - copyloopvar # drop redundant `x := x` loop copies (Go 1.22+ semantics)
     - intrange # `for i := range n` instead of C-style counting loops
     - fatcontext # no context re-derivation inside loops
+    - modernize # adopt new std/language features as they land
+    - exptostd # golang.org/x/exp helpers that are now in std
+    - usetesting # t.TempDir/t.Setenv/t.Context over the manual equivalents
+
+    # --- API hygiene ---
+    - errname # sentinel errors are ErrFoo, error types are FooError
+    - unparam # no parameters or results that no caller uses
+    - nakedret # no naked returns in long functions (importFile returns 4 values)
+    - dupword # no "the the" in the comments this repo leans on heavily
+    - thelper # test helpers call t.Helper() so failures point at the caller
 
     # --- supply-chain: enforce the no-new-dependencies rule ---
     - depguard # only stdlib + this module + approved external import roots
@@ -65,17 +109,69 @@ linters:
             - golang.org/x/net
             - golang.org/x/sync
             - modernc.org/sqlite
+
+    govet:
+      # The full analyzer set, minus two. This is where nilness (provable nil
+      # derefs), lostcancel (leaked context cancels), unusedwrite, sortslice,
+      # waitgroup and testinggoroutine come from — all silent on this tree.
+      enable-all: true
+      disable:
+        # Field order in this codebase is grouped for readability (embedded
+        # writer first, then state, then the mutex it guards). Packing structs
+        # by alignment would scramble that to save a few bytes per request.
+        - fieldalignment
+        # 91 hits, essentially all `err :=` inside an if/for — the idiom this
+        # codebase (and Go) uses everywhere. Real shadowing bugs here would be
+        # caught by nilness/ineffassign instead.
+        - shadow
+
+    staticcheck:
+      # Everything, including the ST* style checks and QF* quickfixes that
+      # golangci-lint disables by default. Verified clean, so this locks in the
+      # existing doc-comment form (ST1020-22), naming (ST1003) and receiver
+      # consistency (ST1016) rather than letting them drift.
+      #
+      # ST1000 (package comment on every package) is the one exception: it is 47
+      # hits of pure documentation debt, not a defect. Worth doing as its own
+      # change, not as a side effect of a lint config.
+      checks:
+        - all
+        - -ST1000
+
+    gocritic:
+      # The default set plus the whole diagnostic tag (bug-shaped checks:
+      # sloppyReassign, badCond, dupSubExpr, ...). Verified clean.
+      #
+      # The performance and style tags stay off: together they are 84 hits, and
+      # the bulk is hugeParam/rangeValCopy telling this codebase to pass its
+      # small value types (BookRecord, ProgressRecord) by pointer, which would
+      # trade a copy for shared mutable state on the hot read paths.
+      enabled-tags:
+        - diagnostic
+
     misspell:
       locale: US
       # Calibre is the e-book manager's own spelling, not a typo for "caliber";
       # it comes up whenever a comment explains an OPF quirk we handle.
       ignore-rules:
         - Calibre
+
     sloglint:
       no-mixed-args: true # never mix key-value pairs and slog.Attr in one call
       key-naming-case: snake # keys like "db_open", "book_cache" stay consistent
+
     perfsprint:
       strconcat: false # don't push a+b+c rewrites; only flag the clear wins
+
+    nolintlint:
+      require-explanation: true # a //nolint says why, not just what
+      require-specific: true # never a bare //nolint; name the linter
+      allow-unused: false # a directive that no longer suppresses anything is removed
+
+    unparam:
+      # Exported signatures are an API surface; an unused parameter there is a
+      # deliberate contract, not dead weight.
+      check-exported: false
 
   exclusions:
     generated: lax
@@ -88,14 +184,36 @@ linters:
           - bodyclose
           - noctx
           - perfsprint
+      # Test helpers are written for readability at the call site: a fake whose
+      # method mirrors the real signature keeps a result the tests ignore, and a
+      # table-driven helper takes parameters only some cases use.
+      - path: _test\.go
+        linters:
+          - unparam
+
+# Report everything. The defaults (max-same-issues: 3, max-issues-per-linter:
+# 50) silently truncate: while tuning this file, forcetypeassert reported "3"
+# under the defaults and 12 with them lifted. A quality gate that hides its own
+# findings is worse than no gate, and CI has no one to ask for the rest.
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
 
 # ---------------------------------------------------------------------------
-# Opt-in candidates (enable one at a time; each may surface real findings):
+# Evaluated and deliberately left off (re-check before enabling):
 #
-#   - gosec        # security scanner. High value (auth, uploads, path handling)
-#                  # but noisy; pair with a `settings.gosec.excludes` list.
-#   - contextcheck # enforces inherited context. Will flag intentional detached
-#                  # background contexts (e.g. context.WithoutCancel for warm-up)
-#                  # -- annotate those with //nolint:contextcheck.
-#   - unparam      # unused function parameters.
+#   - gosec        # 62 hits, and 53 are G304/G301/G306 — "file path from a
+#                  # variable" and 0755/0644 permissions, which is the job
+#                  # description of a local file-serving app whose paths are
+#                  # already confined by os.Root. Silencing those leaves little.
+#   - contextcheck # 4 hits, all intentional and documented: migrations and the
+#                  # progress coalescer's flush deliberately outlive the request
+#                  # context. Enabling it buys 4 //nolint lines and no signal.
+#   - forcetypeassert # 12 hits, all sync.Pool Get() and the generic LRU's own
+#                  # list element — safe by construction at every site.
+#   - paralleltest # 56 hits. Tests that share a *storage.DB or mutate a package
+#                  # global are sequential on purpose.
+#   - noinlineerr  # 475 hits: it forbids `if err := f(); err != nil`.
+#   - embeddedstructfieldcheck # 8 hits, pure blank-line placement.
+#   - ST1000 (via staticcheck) # 47 package comments; see the note above.
 # ---------------------------------------------------------------------------

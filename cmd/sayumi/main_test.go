@@ -282,6 +282,7 @@ func (w *benchmarkResponseWriter) reset() {
 type middlewareFactory func(http.Handler) http.Handler
 
 func runMiddlewareBenchmark(b *testing.B, level slog.Level, factory middlewareFactory, workload http.Handler) {
+	b.Helper()
 	setTestLogger(b, level)
 	wantDebug := level <= slog.LevelDebug
 	if got := slog.Default().Enabled(context.Background(), slog.LevelDebug); got != wantDebug {

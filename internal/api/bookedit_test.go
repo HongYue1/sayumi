@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-//go:fix inline
-
 func TestApplyBookMetaPatch(t *testing.T) {
 	t.Parallel()
 

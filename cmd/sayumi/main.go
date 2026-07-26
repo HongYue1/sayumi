@@ -80,7 +80,7 @@ func main() {
 		} else {
 			exe, err := os.Executable()
 			if err != nil {
-				fatal("cannot determine executable path: %v", err)
+				fatalf("cannot determine executable path: %v", err)
 			}
 			libRoot = filepath.Join(filepath.Dir(exe), "Library")
 		}
@@ -88,10 +88,10 @@ func main() {
 
 	absLibRoot, err := filepath.Abs(libRoot)
 	if err != nil {
-		fatal("invalid library path %q: %v", libRoot, err)
+		fatalf("invalid library path %q: %v", libRoot, err)
 	}
 	if err := os.MkdirAll(absLibRoot, 0o755); err != nil {
-		fatal("cannot create library directory %q: %v", absLibRoot, err)
+		fatalf("cannot create library directory %q: %v", absLibRoot, err)
 	}
 
 	if debugMode {
@@ -110,7 +110,7 @@ func main() {
 
 	profilesDB, err := storage.OpenProfilesDB(absLibRoot)
 	if err != nil {
-		fatal("cannot open profiles database: %v", err)
+		fatalf("cannot open profiles database: %v", err)
 	}
 	defer func() {
 		if err := profilesDB.Close(); err != nil {
@@ -143,7 +143,7 @@ func main() {
 	}
 
 	if err := manager.start(); err != nil {
-		fatal("%v", err)
+		fatalf("%v", err)
 	}
 	manager.render()
 	// manager.port, not *port: with -port 0 the listener chose the real one.
@@ -381,7 +381,7 @@ func buildHandler(deps *api.Dependencies) http.Handler {
 
 	distFS, err := fs.Sub(frontendDist, "dist")
 	if err != nil {
-		fatal("cannot access embedded frontend: %v", err)
+		fatalf("cannot access embedded frontend: %v", err)
 	}
 	fileServer := http.FileServer(http.FS(distFS))
 
@@ -524,7 +524,7 @@ func openBrowser(url string) {
 	}()
 }
 
-func fatal(format string, args ...any) {
+func fatalf(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "\n  %serror: %s%s\n\n", ansiRed, fmt.Sprintf(format, args...), ansiReset)
 	os.Exit(1)
 }
