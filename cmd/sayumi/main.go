@@ -146,7 +146,8 @@ func main() {
 		fatal("%v", err)
 	}
 	manager.render()
-	openBrowser(fmt.Sprintf("http://localhost:%d", *port))
+	// manager.port, not *port: with -port 0 the listener chose the real one.
+	openBrowser(fmt.Sprintf("http://localhost:%d", manager.port))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -225,6 +226,14 @@ func (sm *serverManager) start() error {
 	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("cannot listen on %s: %w", addr, err)
+	}
+
+	// Adopt the port the OS actually assigned. With -port 0 the server came up
+	// on an ephemeral port while the console banner and the browser we launch
+	// both said "localhost:0", so everything the app told the user to open
+	// refused the connection.
+	if tcpAddr, ok := listener.Addr().(*net.TCPAddr); ok {
+		sm.port = tcpAddr.Port
 	}
 
 	server := &http.Server{

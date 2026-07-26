@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -156,9 +155,11 @@ func updateBookHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
+		// Shared decoder: this was the only JSON endpoint decoding inline, so it
+		// alone mapped an oversize body to 400 instead of 413 and silently
+		// accepted trailing data after the first value.
 		var req updateBookRequest
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBookMetaBody)).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid", "invalid request body")
+		if !decodeJSONBody(w, r, &req) {
 			return
 		}
 

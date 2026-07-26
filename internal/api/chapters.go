@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"sayumi/internal/epub"
 	"sayumi/internal/storage"
@@ -80,14 +81,23 @@ func getChapterHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
+		// Rendering a large chapter and streaming it over a slow link can outlast
+		// the server WriteTimeout, which net/http arms at header-read time.
+		if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+			slog.Debug("clear chapter write deadline unsupported", "err", err)
+		}
+
 		w.Header().Set("Cache-Control", chapterCacheControl)
 
-		if etag := chapterResponseETag(book.FileHash, chapterIndex); etag != "" {
+		// The validator is held back until the response is committed to success:
+		// an ETag on a 500 describes a body this URL will later serve a 200 for,
+		// so a cache holding the error can be given a 304 for it and keep
+		// rendering the error in place of the chapter.
+		etag := chapterResponseETag(book.FileHash, chapterIndex)
+		if etag != "" && ifNoneMatchMatches(r, etag) {
 			w.Header().Set("ETag", etag)
-			if ifNoneMatchMatches(r, etag) {
-				w.WriteHeader(http.StatusNotModified)
-				return
-			}
+			w.WriteHeader(http.StatusNotModified)
+			return
 		}
 
 		spine, ok, err := pd.Books.GetSpine(r.Context(), id)
@@ -134,6 +144,9 @@ func getChapterHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
+		if etag != "" {
+			w.Header().Set("ETag", etag)
+		}
 		writeJSON(w, http.StatusOK, resp)
 	}
 }

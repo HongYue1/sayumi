@@ -8,6 +8,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const resourceTokenParam = "token"
@@ -68,6 +69,14 @@ func getResourceHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
+		// A full-page illustration or an embedded font over a slow link can
+		// outlast the server WriteTimeout, which net/http arms at header-read
+		// time. Without this the body is cut off mid-stream and the client sees a
+		// truncated image under a 200.
+		if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+			slog.Debug("clear resource write deadline unsupported", "err", err)
+		}
+
 		access, ok := authorizeResourceRequest(deps, w, r, bookID)
 		if !ok {
 			return
@@ -97,10 +106,15 @@ func getResourceHandler(deps *Dependencies) http.HandlerFunc {
 		access.fileHash = book.FileHash
 		access.filePath = book.FilePath
 
+		// Compute the validator, but do not put it on the response until we are
+		// committed to a success: an ETag left on a 404/500 describes a body the
+		// same URL will later serve a 200 for, so a cache that stored the error
+		// can be handed a 304 for it afterwards and render the error forever.
+		etag := ""
 		if access.fileHash != "" {
-			etag := resourceETag(access.fileHash, resourcePath)
-			w.Header().Set("ETag", etag)
+			etag = resourceETag(access.fileHash, resourcePath)
 			if ifNoneMatchMatches(r, etag) {
+				w.Header().Set("ETag", etag)
 				w.WriteHeader(http.StatusNotModified)
 				return
 			}
@@ -131,9 +145,21 @@ func getResourceHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
+		if etag != "" {
+			w.Header().Set("ETag", etag)
+		}
 		w.Header().Set("Content-Type", contentType)
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		// "private": this is profile-scoped book content behind a session cookie
+		// or a per-book token, so a shared cache must not keep a copy and hand it
+		// to another client. The ?token=<fileHash> in the URL still busts the
+		// year-long browser cache whenever the book is replaced.
+		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		// A book's own SVG is served as image/svg+xml so <img> and CSS can render
+		// it, but an SVG opened as a top-level document executes its scripts under
+		// the app origin. A response CSP does not affect subresource rendering and
+		// sandboxes exactly that navigation case.
+		w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
 		// Size is -1 from OpenResource (zip declared sizes are untrusted), so we
 		// omit Content-Length and let the transport chunk the body.
 		if resourceReader.Size >= 0 {

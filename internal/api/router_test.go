@@ -125,3 +125,55 @@ func TestListFontsReturnsPrivateAccessToken(t *testing.T) {
 		t.Error("user families encoded as null, want empty array")
 	}
 }
+
+// Sec-Fetch-Site is set by the browser and cannot be forged by the page making
+// the request. Blocking cross-site writes stops a page on any other site from
+// driving the endpoints that need no cookie — and are therefore untouched by
+// the session cookie's SameSite=Lax — such as looping POST /api/auth/create to
+// litter the library root with profile directories, or burning a real profile's
+// login-throttle budget from the victim's own IP to lock them out.
+func TestNewHandlerBlocksCrossSiteWrites(t *testing.T) {
+	t.Parallel()
+
+	staticHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("spa shell"))
+	})
+	handler := NewHandler(&Dependencies{}, http.NotFoundHandler(), staticHandler)
+
+	tests := []struct {
+		name        string
+		method      string
+		path        string
+		secFetch    string
+		wantBlocked bool
+	}{
+		{name: "cross-site write", method: http.MethodPost, path: "/api/auth/create", secFetch: "cross-site", wantBlocked: true},
+		{name: "cross-site login", method: http.MethodPost, path: "/api/auth/login", secFetch: "cross-site", wantBlocked: true},
+		{name: "same-origin write", method: http.MethodPost, path: "/api/auth/create", secFetch: "same-origin"},
+		{name: "user-initiated write", method: http.MethodPost, path: "/api/auth/create", secFetch: "none"},
+		// Non-browser clients send no Sec-Fetch-Site and must keep working.
+		{name: "no header", method: http.MethodPost, path: "/api/auth/create", secFetch: ""},
+		// Reads cannot be read cross-origin without CORS, so they stay allowed.
+		{name: "cross-site read", method: http.MethodGet, path: "/api/health", secFetch: "cross-site"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			if tc.secFetch != "" {
+				req.Header.Set("Sec-Fetch-Site", tc.secFetch)
+			}
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, req)
+
+			blocked := recorder.Code == http.StatusForbidden &&
+				strings.Contains(recorder.Body.String(), "cross_site")
+			if blocked != tc.wantBlocked {
+				t.Fatalf("blocked = %v, want %v (status %d, body %s)",
+					blocked, tc.wantBlocked, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}

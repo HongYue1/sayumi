@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"sayumi/internal/library"
 	"sayumi/internal/storage"
@@ -339,12 +340,14 @@ func getCoverHandler(_ *Dependencies) http.HandlerFunc {
 		// 304 before the coverRoot.Open + Stat syscalls. Matches the
 		// book-detail revalidation policy (bookDetailCacheControl).
 		w.Header().Set("Cache-Control", "private, no-cache")
-		if etag := coverResponseETag(book.FileHash, book.UpdatedAt); etag != "" {
+		// Held back until success: an ETag left on the 404/500 paths below
+		// describes a body this URL will later serve a 200 for, so a cache that
+		// stored the error could be answered 304 for it.
+		etag := coverResponseETag(book.FileHash, book.UpdatedAt)
+		if etag != "" && ifNoneMatchMatches(r, etag) {
 			w.Header().Set("ETag", etag)
-			if ifNoneMatchMatches(r, etag) {
-				w.WriteHeader(http.StatusNotModified)
-				return
-			}
+			w.WriteHeader(http.StatusNotModified)
+			return
 		}
 
 		if pd.coverRoot == nil {
@@ -371,8 +374,17 @@ func getCoverHandler(_ *Dependencies) http.HandlerFunc {
 			contentType = "application/octet-stream"
 		}
 
+		if etag != "" {
+			w.Header().Set("ETag", etag)
+		}
 		w.Header().Set("Content-Type", contentType)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+
+		// A cover on a slow link can outlast the server WriteTimeout, armed at
+		// header-read time; ServeContent streams the file rather than buffering.
+		if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+			slog.Debug("clear cover write deadline unsupported", "err", err)
+		}
 
 		http.ServeContent(w, r, "", fileInfo.ModTime(), file)
 	}

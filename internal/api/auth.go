@@ -378,8 +378,29 @@ var validProfileName = regexp.MustCompile(
 	`^[a-zA-Z0-9]([a-zA-Z0-9 _\-]{0,30}[a-zA-Z0-9])?$`,
 )
 
+// windowsReservedNames are DOS device names that Windows still resolves in any
+// directory. A profile name becomes a directory name verbatim, and on Windows 11
+// os.Mkdir("…\NUL") returns nil while creating nothing — so the profile is
+// reported created, then every login fails because openProfile stats the device
+// and finds it is not a directory. The others create real directories that
+// older Windows builds cannot traverse or delete without \\?\ paths, which
+// would break the portable-folder promise.
+var windowsReservedNames = map[string]bool{
+	"con": true, "prn": true, "aux": true, "nul": true,
+	"com1": true, "com2": true, "com3": true, "com4": true, "com5": true,
+	"com6": true, "com7": true, "com8": true, "com9": true,
+	"lpt1": true, "lpt2": true, "lpt3": true, "lpt4": true, "lpt5": true,
+	"lpt6": true, "lpt7": true, "lpt8": true, "lpt9": true,
+}
+
 func validateProfileName(name string) bool {
 	if strings.ContainsAny(name, `/\:*?"<>|`) || strings.Contains(name, "..") {
+		return false
+	}
+	// Rejected on every platform, not just Windows: a library folder is meant to
+	// move between machines, so a profile that only exists on Linux would break
+	// the moment the folder is opened on Windows.
+	if windowsReservedNames[strings.ToLower(strings.TrimSpace(name))] {
 		return false
 	}
 	return validProfileName.MatchString(name)

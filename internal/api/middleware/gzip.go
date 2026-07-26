@@ -276,7 +276,15 @@ func (g *gzipResponseWriter) finish() {
 	case g.buffering:
 		g.flushPending()
 	case !g.headerSent:
-		g.decide()
+		// The handler returned without writing a body. decide() would commit to
+		// compression for any eligible Content-Type, but no gzip writer was ever
+		// created, so close() emits nothing: the response would advertise
+		// Content-Encoding: gzip with a zero-byte body, which is not a valid
+		// gzip stream (strict decoders fail it outright). An empty body needs no
+		// encoding, so settle it uncompressed.
+		g.decided = true
+		g.compress = false
+		g.writeHeaderOnce()
 	}
 }
 

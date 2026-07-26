@@ -143,3 +143,41 @@ func TestGzipReadFromWithoutContentType(t *testing.T) {
 		t.Errorf("body round-trip mismatch (len got=%d want=%d)", len(got), len(body))
 	}
 }
+
+// A handler that sets a compressible Content-Type and writes no body used to
+// get Content-Encoding: gzip with a zero-byte body — not a valid gzip stream,
+// which strict decoders reject outright. An empty body needs no encoding.
+func TestGzipEmptyCompressibleBodyIsNotDeclaredGzip(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		status int
+	}{
+		{"empty 200", http.StatusOK},
+		{"empty 404", http.StatusNotFound},
+	}
+	for _, tc := range cases {
+		handler := Gzip(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/css; charset=utf-8")
+			w.WriteHeader(tc.status)
+		}))
+
+		req := httptest.NewRequest(http.MethodGet, "/empty.css", nil)
+		req.Header.Set("Accept-Encoding", "gzip")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		res := rec.Result()
+		if got := res.Header.Get("Content-Encoding"); got != "" {
+			t.Errorf("%s: Content-Encoding = %q with a %d-byte body, want none",
+				tc.name, got, rec.Body.Len())
+		}
+		if res.StatusCode != tc.status {
+			t.Errorf("%s: status = %d, want %d", tc.name, res.StatusCode, tc.status)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("%s: body = %d bytes, want 0", tc.name, rec.Body.Len())
+		}
+	}
+}

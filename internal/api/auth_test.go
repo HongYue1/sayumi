@@ -248,3 +248,26 @@ func TestCalcProgress(t *testing.T) {
 		})
 	}
 }
+
+// Profile names become directory names verbatim. Windows resolves DOS device
+// names in every directory, and on Windows 11 os.Mkdir("…\NUL") returns nil
+// while creating nothing — so the profile reported success and then failed
+// every login, because openProfile stats the device and sees a non-directory.
+// Rejected on all platforms: a library folder is meant to move between machines.
+func TestValidateProfileNameRejectsWindowsReservedNames(t *testing.T) {
+	t.Parallel()
+
+	reserved := []string{"NUL", "nul", "Con", "CON", "aux", "PRN", "com1", "COM9", "lpt1", "LPT9"}
+	for _, name := range reserved {
+		if validateProfileName(name) {
+			t.Errorf("reserved device name %q must be rejected", name)
+		}
+	}
+
+	// Names that merely contain a reserved word are still fine.
+	for _, name := range []string{"Conrad", "Nulla", "com10", "my aux", "PRNter"} {
+		if !validateProfileName(name) {
+			t.Errorf("legitimate name %q must be accepted", name)
+		}
+	}
+}

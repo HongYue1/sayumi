@@ -49,7 +49,12 @@ func uploadBookHandler(_ *Dependencies) http.HandlerFunc {
 		}()
 
 		if err := validateEPUB(tmpPath); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid", err.Error())
+			// Log the detail, return a fixed message: validateEPUB wraps
+			// zip.OpenReader, whose *fs.PathError stringifies the absolute
+			// staging path — disclosing the OS account name, library root, and
+			// profile name to any client that can upload.
+			slog.Warn("uploaded file rejected", "err", err)
+			writeError(w, http.StatusBadRequest, "invalid", "file is not a valid EPUB")
 			return
 		}
 
