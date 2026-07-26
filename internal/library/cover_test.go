@@ -126,11 +126,15 @@ func TestWriteCoverImageJPEG(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteCoverImageJPEG: %v", err)
 	}
-	wantRel := filepath.Join(".sayumi", "covers", "id-abc.jpg")
+	// Slash-form, not filepath.Join: this value is persisted in books.cover_path
+	// and the library folder is portable, so an OS-native separator written on
+	// Windows would be a single literal filename once the folder is opened on
+	// macOS or Linux.
+	wantRel := ".sayumi/covers/id-abc.jpg"
 	if rel != wantRel {
 		t.Fatalf("rel = %q, want %q", rel, wantRel)
 	}
-	abs := filepath.Join(lib, rel)
+	abs := filepath.Join(lib, filepath.FromSlash(rel))
 	got, err := os.ReadFile(abs)
 	if err != nil {
 		t.Fatalf("read cover: %v", err)

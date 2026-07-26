@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"sayumi/internal/library"
 	"sayumi/internal/storage"
 )
 
@@ -352,7 +353,7 @@ func getCoverHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		file, err := pd.coverRoot.Open(book.CoverPath)
+		file, err := pd.coverRoot.Open(library.NormalizeCoverPath(book.CoverPath))
 		if err != nil {
 			writeError(w, http.StatusNotFound, "no_cover", "cover file not found")
 			return
@@ -412,7 +413,7 @@ func removeManagedLibraryFile(libPath, targetPath, kind string) {
 		}
 	}()
 
-	if err := libRoot.Remove(targetPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := libRoot.Remove(library.NormalizeCoverPath(targetPath)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		slog.Error("remove managed file failed", "kind", kind, "path", targetPath, "err", err)
 	}
 }

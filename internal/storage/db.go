@@ -304,6 +304,19 @@ func (db *DB) migrate() error {
 		return fmt.Errorf("reconcile cover_checked: %w", err)
 	}
 
+	// cover_path is stored relative to the library root and is looked up through
+	// os.Root, which takes forward slashes on every platform. Builds before this
+	// change wrote it with filepath.Join, so a library created on Windows holds
+	// ".sayumi\covers\<id>.jpg" -- a single literal filename once the (portable)
+	// library folder is opened on macOS or Linux, where every cover then 404s
+	// with no self-heal, because has_cover=1 and cover_checked=1 keep the cover
+	// backfill away. Rewriting the separator here repairs those rows on the
+	// first open. Idempotent: once converged it matches nothing.
+	if _, err := db.ExecContext(context.Background(),
+		`UPDATE books SET cover_path = replace(cover_path, '\', '/') WHERE instr(cover_path, '\') > 0`); err != nil {
+		return fmt.Errorf("normalize cover paths: %w", err)
+	}
+
 	// Path identity keys cannot be derived in SQL: LOWER() folds ASCII only and
 	// there is no SQL equivalent of filepath.Clean. Rows written before the column
 	// existed -- and every row of a library that moved between a case-folding and a

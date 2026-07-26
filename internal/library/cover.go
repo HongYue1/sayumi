@@ -190,7 +190,27 @@ func WriteCoverImageJPEG(libraryPath, bookID string, jpegData []byte) (relPath s
 		return "", fmt.Errorf("rename cover file: %w", renameErr)
 	}
 
-	return filepath.Join(".sayumi", "covers", coverFilename), nil
+	return CoverRelPath(bookID), nil
+}
+
+// CoverRelPath returns a book's cover sidecar path relative to the library
+// root, as it is persisted in books.cover_path.
+//
+// It is deliberately built with forward slashes instead of filepath.Join. The
+// value goes into the database, and a library folder is meant to be portable:
+// a Windows-written ".sayumi\covers\<id>.jpg" is a single literal filename on
+// macOS and Linux, so every cover would 404 after the folder moved, with no
+// self-heal (has_cover=1 plus cover_checked=1 keeps the backfill away). os.Root
+// accepts forward slashes on every platform, so this form works everywhere.
+func CoverRelPath(bookID string) string {
+	return ".sayumi/covers/" + bookID + ".jpg"
+}
+
+// NormalizeCoverPath maps a stored cover_path to the slash form used for
+// lookups, so rows written by an older Windows build still resolve after the
+// library moves to a case- and separator-sensitive filesystem.
+func NormalizeCoverPath(coverPath string) string {
+	return strings.ReplaceAll(coverPath, `\`, "/")
 }
 
 // SaveCoverImage validates, resizes, and writes an uploaded cover image for a

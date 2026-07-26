@@ -137,16 +137,17 @@ func (s *Scanner) scan(ctx context.Context) (ScanResult, error) {
 	workers := min(runtime.GOMAXPROCS(0), len(paths))
 
 	var (
-		mu          sync.Mutex
-		importedIDs = make([]string, 0, len(paths))
-		wg          sync.WaitGroup
+		mu            sync.Mutex
+		importedIDs   = make([]string, 0, len(paths))
+		reconciledIDs []string
+		wg            sync.WaitGroup
 	)
 	pathCh := make(chan string)
 
 	for range workers {
 		wg.Go(func() {
 			for filePath := range pathCh {
-				id, imported, importErr := s.importFile(ctx, filePath, "", snap, true)
+				id, imported, reconciled, importErr := s.importFile(ctx, filePath, "", snap, true)
 				if importErr != nil {
 					// When the scan's ctx is canceled, in-flight imports fail with
 					// context errors as expected teardown — not per-file failures —
@@ -156,9 +157,15 @@ func (s *Scanner) scan(ctx context.Context) (ScanResult, error) {
 					}
 					continue
 				}
-				if imported {
+				switch {
+				case imported:
 					mu.Lock()
 					importedIDs = append(importedIDs, id)
+					mu.Unlock()
+				case reconciled:
+					// The book's file_path changed under an already-built cache.
+					mu.Lock()
+					reconciledIDs = append(reconciledIDs, id)
 					mu.Unlock()
 				}
 			}
@@ -188,7 +195,7 @@ func (s *Scanner) scan(ctx context.Context) (ScanResult, error) {
 		// scan's dedup snapshot would otherwise treat these rows as known and never
 		// re-report them, leaving the books absent from the cache until a reopen.
 		slog.Info("scan canceled", "imported", len(importedIDs), "err", err)
-		return ScanResult{ImportedIDs: importedIDs}, err
+		return ScanResult{ImportedIDs: importedIDs, RefreshedIDs: reconciledIDs}, err
 	}
 
 	// Retry covers that were never resolved -- e.g. a previous scan was canceled
@@ -197,6 +204,14 @@ func (s *Scanner) scan(ctx context.Context) (ScanResult, error) {
 	// the import pass for the cover-decode semaphore; steady state its driving
 	// query returns nothing and it is a no-op.
 	refreshedIDs := s.backfillMissingCovers(ctx, workers)
+
+	// Books whose stored path was reconciled join the cover-backfill set: both
+	// are existing rows whose summary changed underneath a cache that was built
+	// before the scan. Without this, a book moved or renamed inside the library
+	// left the cache holding the OLD path, so opening it 500s on a missing file
+	// and deleting it removes nothing (the DB tombstones the new path while the
+	// unlink targets the stale one) until the profile is reopened.
+	refreshedIDs = append(refreshedIDs, reconciledIDs...)
 
 	slog.Info("scan complete", "imported", len(importedIDs))
 	return ScanResult{ImportedIDs: importedIDs, RefreshedIDs: refreshedIDs}, nil
@@ -295,32 +310,32 @@ func (s *Scanner) importFile(
 	knownHash string,
 	snap *dedupSnapshot,
 	reconcileExistingPath bool,
-) (id string, imported bool, err error) {
+) (id string, imported, reconciled bool, err error) {
 	absPath, err := filepath.Abs(filePath)
 	if err != nil {
-		return "", false, fmt.Errorf("abs path: %w", err)
+		return "", false, false, fmt.Errorf("abs path: %w", err)
 	}
 
 	if snap != nil {
 		pathKey := s.db.PathKey(absPath)
 		if _, ok := snap.ignored[pathKey]; ok {
-			return "", false, nil
+			return "", false, false, nil
 		}
 		if existingID, ok := snap.existingByPath[pathKey]; ok {
-			return existingID, false, nil
+			return existingID, false, false, nil
 		}
 	} else {
 		ignored, err := s.db.IsFileIgnoredContext(ctx, absPath)
 		if err != nil {
-			return "", false, fmt.Errorf("check ignored: %w", err)
+			return "", false, false, fmt.Errorf("check ignored: %w", err)
 		}
 		if ignored {
-			return "", false, nil
+			return "", false, false, nil
 		}
 		if existingID, found, err := s.db.BookExistsByPathContext(ctx, absPath); err != nil {
-			return "", false, fmt.Errorf("check existing by path: %w", err)
+			return "", false, false, fmt.Errorf("check existing by path: %w", err)
 		} else if found {
-			return existingID, false, nil
+			return existingID, false, false, nil
 		}
 	}
 
@@ -332,19 +347,19 @@ func (s *Scanner) importFile(
 
 		fileInfo, err := os.Stat(absPath)
 		if err != nil {
-			return "", false, fmt.Errorf("stat file: %w", err)
+			return "", false, false, fmt.Errorf("stat file: %w", err)
 		}
 		fileSize = fileInfo.Size()
 	} else {
 		hash, fileSize, err = contentHash(ctx, absPath)
 		if err != nil {
-			return "", false, fmt.Errorf("hash file: %w", err)
+			return "", false, false, fmt.Errorf("hash file: %w", err)
 		}
 	}
 
 	existingID, existingPath, found, err := s.db.GetBookIDByHashContext(ctx, hash)
 	if err != nil {
-		return "", false, fmt.Errorf("check existing by hash: %w", err)
+		return "", false, false, fmt.Errorf("check existing by hash: %w", err)
 	}
 	if found {
 		// Reconcile the stored path: if the file has been moved, renamed, or
@@ -355,14 +370,18 @@ func (s *Scanner) importFile(
 			if updateErr := s.db.UpdateBookFilePathContext(ctx, existingID, absPath); updateErr != nil {
 				slog.Warn("reconcile book path after hash match failed",
 					"id", existingID, "old", existingPath, "new", absPath, "err", updateErr)
+			} else {
+				// The row now points at a different file than any cache built
+				// before this scan believes. Report it so the caller re-warms.
+				reconciled = true
 			}
 		}
-		return existingID, false, nil
+		return existingID, false, reconciled, nil
 	}
 
 	zr, err := zip.OpenReader(absPath)
 	if err != nil {
-		return "", false, fmt.Errorf("open zip: %w", err)
+		return "", false, false, fmt.Errorf("open zip: %w", err)
 	}
 	defer func() {
 		if closeErr := zr.Close(); closeErr != nil && err == nil {
@@ -372,19 +391,19 @@ func (s *Scanner) importFile(
 
 	meta, err := epub.Parse(&zr.Reader)
 	if err != nil {
-		return "", false, fmt.Errorf("parse epub: %w", err)
+		return "", false, false, fmt.Errorf("parse epub: %w", err)
 	}
 
 	id = generateID(absPath, hash)
 
 	spineJSON, err := json.Marshal(meta.Spine)
 	if err != nil {
-		return "", false, fmt.Errorf("marshal spine: %w", err)
+		return "", false, false, fmt.Errorf("marshal spine: %w", err)
 	}
 
 	tocJSON, err := json.Marshal(meta.TOC)
 	if err != nil {
-		return "", false, fmt.Errorf("marshal toc: %w", err)
+		return "", false, false, fmt.Errorf("marshal toc: %w", err)
 	}
 
 	record := storage.BookRecord{
@@ -409,7 +428,7 @@ func (s *Scanner) importFile(
 
 	canonicalID, err := s.db.InsertBookContext(ctx, record)
 	if err != nil {
-		return "", false, fmt.Errorf("insert book: %w", err)
+		return "", false, false, fmt.Errorf("insert book: %w", err)
 	}
 	// If a concurrent import of identical content won the race, InsertBookContext
 	// returns that row's ID instead of our proposed one (generateID is
@@ -417,7 +436,7 @@ func (s *Scanner) importFile(
 	// row and its cover, so don't re-report it as newly imported or redo the cover
 	// decode.
 	if canonicalID != id {
-		return canonicalID, false, nil
+		return canonicalID, false, false, nil
 	}
 	id = canonicalID
 
@@ -428,7 +447,7 @@ func (s *Scanner) importFile(
 	_ = s.resolveBookCover(ctx, id, meta.Title, meta.CoverPath, &zr.Reader)
 
 	slog.Info("imported book", "title", meta.Title, "author", meta.Author, "chapters", len(meta.Spine))
-	return id, true, nil
+	return id, true, false, nil
 }
 
 // resolveBookCover extracts a book's cover from its already-open zip and records
@@ -446,8 +465,7 @@ func (s *Scanner) resolveBookCover(ctx context.Context, id, title, coverPathInZi
 	}
 	switch coverErr := extractCover(ctx, s.libraryPath, id, zr, coverPathInZip); {
 	case coverErr == nil:
-		coverRelPath := filepath.Join(".sayumi", "covers", id+".jpg")
-		if updateErr := s.db.UpdateBookCoverContext(ctx, id, coverRelPath); updateErr != nil {
+		if updateErr := s.db.UpdateBookCoverContext(ctx, id, CoverRelPath(id)); updateErr != nil {
 			slog.Warn("update cover path failed", "book", id, "err", updateErr)
 			return false
 		}
@@ -586,7 +604,7 @@ func (s *Scanner) CheckDuplicate(ctx context.Context, filePath string) (existing
 
 // ImportFile imports a single EPUB file into the library, returning its book ID.
 func (s *Scanner) ImportFile(ctx context.Context, filePath string, knownHash string) (string, error) {
-	id, _, err := s.importFile(ctx, filePath, knownHash, nil, true)
+	id, _, _, err := s.importFile(ctx, filePath, knownHash, nil, true)
 	if err != nil {
 		return "", err
 	}
@@ -606,7 +624,7 @@ func (s *Scanner) ImportUploadedFile(
 	filePath string,
 	knownHash string,
 ) (id string, imported bool, err error) {
-	id, imported, err = s.importFile(ctx, filePath, knownHash, nil, false)
+	id, imported, _, err = s.importFile(ctx, filePath, knownHash, nil, false)
 	if err != nil {
 		return "", false, err
 	}

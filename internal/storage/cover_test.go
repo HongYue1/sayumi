@@ -123,3 +123,55 @@ func TestCoverCheckedBackfillQuery(t *testing.T) {
 		t.Errorf("book_skip: HasCover=%v CoverPath=%q, want false and empty after mark-checked", skip.HasCover, skip.CoverPath)
 	}
 }
+
+// A library folder is portable, but builds before the fix wrote cover_path with
+// filepath.Join, so one created on Windows holds ".sayumi\covers\<id>.jpg".
+// That is a single literal filename on macOS/Linux, where every cover then 404s
+// with no self-heal (has_cover=1 plus cover_checked=1 keeps the backfill away).
+// Reopening the library must repair those rows.
+func TestMigrateNormalizesWindowsCoverPaths(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	db, err := Open(dir)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	insertCoverTestBook(t, db, "b1", "/lib/b1.epub", "h1")
+	insertCoverTestBook(t, db, "b2", "/lib/b2.epub", "h2")
+
+	// Simulate rows written by an older Windows build, and one already correct.
+	if _, err := db.ExecContext(ctx,
+		`UPDATE books SET cover_path = '.sayumi\covers\b1.jpg', has_cover = 1 WHERE id = 'b1'`); err != nil {
+		t.Fatalf("seed legacy path: %v", err)
+	}
+	if err := db.UpdateBookCoverContext(ctx, "b2", ".sayumi/covers/b2.jpg"); err != nil {
+		t.Fatalf("seed modern path: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	reopened, err := Open(dir)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := reopened.Close(); err != nil {
+			t.Errorf("close reopened: %v", err)
+		}
+	})
+
+	for _, tc := range []struct{ id, want string }{
+		{"b1", ".sayumi/covers/b1.jpg"},
+		{"b2", ".sayumi/covers/b2.jpg"},
+	} {
+		summary, found, err := reopened.GetBookSummaryContext(ctx, tc.id)
+		if err != nil || !found {
+			t.Fatalf("load %s: found=%v err=%v", tc.id, found, err)
+		}
+		if summary.CoverPath != tc.want {
+			t.Errorf("%s cover_path = %q, want %q", tc.id, summary.CoverPath, tc.want)
+		}
+	}
+}

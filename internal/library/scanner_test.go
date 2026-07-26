@@ -5,6 +5,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -475,5 +477,85 @@ func TestImportUploadedFilePreservesCanonicalDuplicatePath(t *testing.T) {
 	}
 	if summary.FilePath != wantPath {
 		t.Fatalf("canonical path = %q, want %q", summary.FilePath, wantPath)
+	}
+}
+
+// A book moved or renamed inside the library keeps its row (matched by content
+// hash) but gets a new file_path. The reconciled ID must be reported so an
+// already-built cache re-warms: otherwise the cache keeps the OLD path, opening
+// the book 500s on a missing file, and deleting it tombstones the new path
+// while the unlink targets the stale one — leaving the EPUB on disk forever.
+func TestScanNowWithChangesReportsPathReconciledBooks(t *testing.T) {
+	lib := t.TempDir()
+	db := openTestDB(t, lib)
+	s := NewScanner(lib, db)
+	ctx := context.Background()
+
+	src := filepath.Join(lib, "moved.epub")
+	writeCoverEPUB(t, src, "Moved")
+
+	first, err := s.ScanNow(ctx)
+	if err != nil || len(first) != 1 {
+		t.Fatalf("initial scan: ids=%v err=%v", first, err)
+	}
+	id := first[0]
+
+	// Move the file: same bytes, new path.
+	dst := filepath.Join(lib, "moved-elsewhere.epub")
+	if err := os.Rename(src, dst); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+
+	result, err := s.ScanNowWithChanges(ctx)
+	if err != nil {
+		t.Fatalf("rescan: %v", err)
+	}
+	if len(result.ImportedIDs) != 0 {
+		t.Fatalf("a moved book must not re-import: %v", result.ImportedIDs)
+	}
+	if !slices.Contains(result.RefreshedIDs, id) {
+		t.Fatalf("reconciled book %q not reported for cache refresh; RefreshedIDs=%v", id, result.RefreshedIDs)
+	}
+
+	// And the DB really does hold the new path.
+	paths, err := db.ListBookPathsContext(ctx)
+	if err != nil {
+		t.Fatalf("list paths: %v", err)
+	}
+	absDst, _ := filepath.Abs(dst)
+	if len(paths) != 1 || paths[0].FilePath != absDst {
+		t.Fatalf("path not reconciled: %+v want %q", paths, absDst)
+	}
+}
+
+// cover_path is persisted and the library folder is portable, so it must be
+// stored with forward slashes: filepath.Join on Windows produced
+// ".sayumi\covers\<id>.jpg", which is one literal filename on macOS/Linux and
+// makes every cover 404 after the folder moves, with no self-heal.
+func TestCoverPathIsStoredWithForwardSlashes(t *testing.T) {
+	lib := t.TempDir()
+	db := openTestDB(t, lib)
+	s := NewScanner(lib, db)
+	ctx := context.Background()
+
+	writeCoverEPUB(t, filepath.Join(lib, "withcover.epub"), "Covered")
+
+	ids, err := s.ScanNow(ctx)
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("scan: ids=%v err=%v", ids, err)
+	}
+
+	summary, found, err := db.GetBookSummaryContext(ctx, ids[0])
+	if err != nil || !found {
+		t.Fatalf("load summary: found=%v err=%v", found, err)
+	}
+	if summary.CoverPath == "" {
+		t.Skip("no cover extracted for the fixture; nothing to assert")
+	}
+	if strings.Contains(summary.CoverPath, `\`) {
+		t.Fatalf("cover_path must not contain OS separators, got %q", summary.CoverPath)
+	}
+	if want := CoverRelPath(ids[0]); summary.CoverPath != want {
+		t.Fatalf("cover_path = %q, want %q", summary.CoverPath, want)
 	}
 }

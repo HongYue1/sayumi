@@ -26,6 +26,11 @@ const (
 	// maxBookMetaBody bounds the PATCH JSON body. Title + author are short text
 	// fields, so a generous-but-finite cap stops an unbounded read.
 	maxBookMetaBody = 64 << 10 // 64 KB
+	// bookEditCommitTimeout bounds the DB/cache commit that follows a completed
+	// file swap. It runs on a context detached from the request because the new
+	// bytes are already on disk: abandoning the row update because the client
+	// hung up would leave the file and its row describing different generations.
+	bookEditCommitTimeout = 30 * time.Second
 )
 
 // updateBookRequest is the PATCH /api/books/{id} body. Fields are pointers so a
@@ -211,7 +216,16 @@ func updateBookHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		if err := pd.DB.UpdateBookMetadataAndFileContext(r.Context(), id, title, author, prepared.hash, prepared.size); err != nil {
+		// The file on disk is already the new generation, so the row describing
+		// it must be updated even if the client has hung up by now: on
+		// r.Context() a disconnect mid-rewrite (a large EPUB takes seconds)
+		// aborts the write and strands the DB holding the previous title and
+		// file_hash for bytes that no longer match, which nothing reconciles —
+		// the scanner short-circuits on a known path and never re-hashes it.
+		commitCtx, cancelCommit := context.WithTimeout(context.WithoutCancel(r.Context()), bookEditCommitTimeout)
+		defer cancelCommit()
+
+		if err := pd.DB.UpdateBookMetadataAndFileContext(commitCtx, id, title, author, prepared.hash, prepared.size); err != nil {
 			if errors.Is(err, storage.ErrFileHashConflict) {
 				writeError(w, http.StatusConflict, "duplicate", "another copy of this book already exists")
 				return
@@ -221,7 +235,7 @@ func updateBookHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		updated, err := refreshBookCache(r.Context(), pd, id)
+		updated, err := refreshBookCache(commitCtx, pd, id)
 		if err != nil {
 			slog.Error("reload book after metadata update failed", "book", id, "err", err)
 			writeError(w, http.StatusInternalServerError, "db_error", "book updated but failed to reload")
@@ -360,8 +374,16 @@ func uploadCoverHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
+		// Both the sidecar cover and (when embedding) the EPUB itself are already
+		// written, so the row must follow even if the client is gone. Abandoning
+		// the update here leaves updated_at unbumped, which keeps the cover ETag
+		// identical to the one browsers already hold — so every client keeps
+		// 304-ing its way to the previous image indefinitely.
+		commitCtx, cancelCommit := context.WithTimeout(context.WithoutCancel(r.Context()), bookEditCommitTimeout)
+		defer cancelCommit()
+
 		if embedInFile {
-			if err := pd.DB.UpdateBookCoverAndFileContext(r.Context(), id, coverPath, fileHash, fileSize); err != nil {
+			if err := pd.DB.UpdateBookCoverAndFileContext(commitCtx, id, coverPath, fileHash, fileSize); err != nil {
 				if errors.Is(err, storage.ErrFileHashConflict) {
 					writeError(w, http.StatusConflict, "duplicate", "another copy of this book already exists")
 					return
@@ -371,14 +393,14 @@ func uploadCoverHandler(_ *Dependencies) http.HandlerFunc {
 				return
 			}
 		} else {
-			if err := pd.DB.UpdateBookCoverContext(r.Context(), id, coverPath); err != nil {
+			if err := pd.DB.UpdateBookCoverContext(commitCtx, id, coverPath); err != nil {
 				slog.Error("update book cover failed", "book", id, "err", err)
 				writeError(w, http.StatusInternalServerError, "db_error", "failed to update cover")
 				return
 			}
 		}
 
-		updated, err := refreshBookCache(r.Context(), pd, id)
+		updated, err := refreshBookCache(commitCtx, pd, id)
 		if err != nil {
 			slog.Error("reload book after cover update failed", "book", id, "err", err)
 			writeError(w, http.StatusInternalServerError, "db_error", "cover updated but failed to reload")
