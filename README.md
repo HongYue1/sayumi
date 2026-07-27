@@ -5,7 +5,15 @@
 
 Sayumi is a portable, local-first EPUB reader. It ships as a single Go binary with an embedded Svelte 5 web app that opens in your browser. There are no accounts and no required cloud services: your library, reading progress, and settings live in plain folders next to the binary.
 
-<!-- Screenshots: add to docs/screenshots/ and reference here. -->
+## Screenshots
+
+Reading view:
+
+![Sayumi reader](docs/screenshots/Reader.png)
+
+Library view:
+
+![Sayumi library](docs/screenshots/Library.png)
 
 ## Features
 
