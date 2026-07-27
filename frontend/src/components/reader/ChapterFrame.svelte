@@ -236,7 +236,35 @@
       sendToFrame({ type: "set-font-faces", fontFaces: css }),
   };
 
+  // visualViewport resize is the only signal the parent gets for a pinch or a
+  // browser zoom, and the sandboxed frame cannot see it from the inside. Wait
+  // for the gesture to settle, then ask the frame to repaint at the new scale
+  // (see refresh-raster in frameMessages.ts for why it has to).
+  const RASTER_REFRESH_SETTLE_MS = 150;
+  let rasterRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function scheduleRasterRefresh(): void {
+    if (rasterRefreshTimer !== null) clearTimeout(rasterRefreshTimer);
+    rasterRefreshTimer = setTimeout(() => {
+      rasterRefreshTimer = null;
+      sendToFrame({ type: "refresh-raster" });
+    }, RASTER_REFRESH_SETTLE_MS);
+  }
+
   onMount(() => onapi?.(api));
+
+  onMount(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    viewport.addEventListener("resize", scheduleRasterRefresh);
+    return () => {
+      viewport.removeEventListener("resize", scheduleRasterRefresh);
+      if (rasterRefreshTimer !== null) {
+        clearTimeout(rasterRefreshTimer);
+        rasterRefreshTimer = null;
+      }
+    };
+  });
 </script>
 
 <svelte:window onmessage={handleMessage} />

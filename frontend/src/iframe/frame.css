@@ -564,17 +564,24 @@ html.paged body {
   height: 100dvh;
 }
 
+/* Nothing in the reader may leave a compositor promotion on at rest. A layer
+   promoted permanently -- by a 3D transform, backface-visibility, or a standing
+   will-change -- keeps the raster scale it was created at, and trackpad
+   pinch-zoom is a compositor-only scale: the text gets stretched from the stale
+   texture and reads as blurry until something repaints the layer, which is why
+   selecting a word used to snap it back into focus. So the base transforms here
+   stay 2D and promotion is transient only -- .chapter-anim and .page-turning add
+   will-change for the duration of a swap or a turn and then drop it. */
 html.paged #paged-clip {
   overflow: hidden;
   position: relative;
   width: 100%;
   height: 100%;
   opacity: 1;
-  transform: translate3d(0, 0, 0) scale(1);
+  transform: translate(0, 0) scale(1);
   transition:
     opacity 0.18s cubic-bezier(0.2, 0.7, 0.2, 1),
     transform 0.18s cubic-bezier(0.2, 0.7, 0.2, 1);
-  backface-visibility: hidden;
   transform-origin: center center;
 }
 
@@ -598,7 +605,6 @@ html.paged #content {
   overscroll-behavior-x: contain;
   overscroll-behavior-y: none;
   contain: paint;
-  transform: translateZ(0);
 }
 
 html.paged #content::-webkit-scrollbar {
@@ -625,11 +631,10 @@ html.paged-two #paged-clip {
   width: 100%;
   height: 100%;
   opacity: 1;
-  transform: translate3d(0, 0, 0) scale(1);
+  transform: translate(0, 0) scale(1);
   transition:
     opacity 0.18s cubic-bezier(0.2, 0.7, 0.2, 1),
     transform 0.18s cubic-bezier(0.2, 0.7, 0.2, 1);
-  backface-visibility: hidden;
   transform-origin: center center;
 }
 
@@ -653,7 +658,6 @@ html.paged-two #content {
   overscroll-behavior-x: contain;
   overscroll-behavior-y: none;
   contain: paint;
-  transform: translateZ(0);
 }
 
 html.paged-two #content::-webkit-scrollbar {
@@ -674,7 +678,7 @@ html.paged-two table {
 html.chapter-hidden.paged #paged-clip,
 html.chapter-hidden.paged-two #paged-clip {
   opacity: 0;
-  transform: translate3d(0, 10px, 0) scale(0.997);
+  transform: translate(0, 10px) scale(0.997);
   transition-duration: 0.11s;
   transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
 }
@@ -693,6 +697,16 @@ html.page-turning.paged-two #content {
   scroll-snap-type: none !important;
   /* The cross-fade animates opacity from JS; hint a layer for the turn. */
   will-change: opacity;
+}
+
+/* Paint invalidation the parent asks for after a zoom gesture. This document is
+   composited as its own surface, so a compositor-only rescale leaves its text at
+   the raster it was drawn at until something repaints. An imperceptible opacity
+   change is the cheapest dirty-paint that cannot move a paged column or a scroll
+   offset, and #content-inner is the one box no JS fade writes inline. JS drops
+   the class two frames later. */
+html.raster-refresh #content-inner {
+  opacity: 0.999;
 }
 
 * {

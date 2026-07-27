@@ -103,6 +103,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   let pendingFragment: string | null = null;
   let parentOrigin = "";
   let destroyed = false;
+  let rasterRefreshRafHandle: number | null = null;
 
   let readerFontFaces = "";
 
@@ -1379,6 +1380,11 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       scrollRafHandle = null;
     }
     cancelScheduledPagedRelayout();
+    if (rasterRefreshRafHandle !== null) {
+      cancelAnimationFrame(rasterRefreshRafHandle);
+      rasterRefreshRafHandle = null;
+    }
+    document.documentElement.classList.remove("raster-refresh");
 
     window.removeEventListener("message", handleMessage);
     document.removeEventListener("click", handleClick);
@@ -1410,6 +1416,26 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     return false;
   }
 
+  // Zoom is a compositor-only rescale of this frame's whole surface: nothing in
+  // here is invalidated, so the text keeps the raster it was drawn at and reads
+  // blurry (dragging a selection over a word used to be the only way to force a
+  // redraw). Dirty paint for two frames with a class, not an inline style, since
+  // the page-turn and reveal fades already own #content and body opacity.
+  function refreshRaster(): void {
+    if (destroyed) return;
+    const root = document.documentElement;
+    if (rasterRefreshRafHandle !== null) {
+      cancelAnimationFrame(rasterRefreshRafHandle);
+    }
+    root.classList.add("raster-refresh");
+    rasterRefreshRafHandle = requestAnimationFrame(() => {
+      rasterRefreshRafHandle = requestAnimationFrame(() => {
+        rasterRefreshRafHandle = null;
+        root.classList.remove("raster-refresh");
+      });
+    });
+  }
+
   function handleMessage(e: MessageEvent): void {
     const raw: unknown = e.data;
     if (!raw || typeof (raw as Record<string, unknown>).type !== "string")
@@ -1420,6 +1446,10 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     switch (msg.type) {
       case "destroy":
         cleanupFrame();
+        break;
+
+      case "refresh-raster":
+        refreshRaster();
         break;
 
       case "set-font-faces":

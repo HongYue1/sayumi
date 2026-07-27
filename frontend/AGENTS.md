@@ -27,6 +27,14 @@ From this directory: `bun install`, `bun run dev`, `bun run check` (svelte-check
 - **Reduced motion is handled once, globally, in `app.css`** — it zeroes duration _and_
   delay for everything, so per-component blocks are redundant. JS-driven motion is the
   exception: Svelte `fly`/`fade` and imperative `scrollIntoView` must check it themselves.
+- **A zoom gesture never repaints the reader by itself.** Sandboxed without
+  `allow-same-origin`, the iframe has an opaque origin and is composited as its own surface,
+  and a pinch rescales that surface without asking it to redraw — the text stays a stretched
+  bitmap until paint is dirtied inside the frame (selecting a word was the giveaway). The
+  parent watches `visualViewport` and posts `refresh-raster`; keep that path alive.
+- **Never leave a compositor promotion on at rest.** A layer promoted permanently — by a
+  3D transform, `backface-visibility`, or a standing `will-change` — keeps its own raster
+  and blur buffer alive while idle. Promote transiently around the animation, then drop it.
 - **Library sorting uses the shared `Intl.Collator`** so "Book 2" precedes "Book 10". It is
   deliberately not the server's ASCII `NOCASE` order.
 - **Popover menus dismiss via window-level listeners, not a fixed scrim.** Card and

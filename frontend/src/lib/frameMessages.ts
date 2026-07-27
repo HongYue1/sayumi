@@ -56,7 +56,13 @@ export type ParentToFrameMessage =
       matchLen: number;
       query: string;
     }
-  | { type: "clear-highlights" };
+  | { type: "clear-highlights" }
+  // The reader iframe is sandboxed without allow-same-origin, so the browser
+  // gives it an opaque origin and composites it as its own surface. A zoom
+  // gesture rescales that surface on the compositor without asking the frame to
+  // redraw, so its text stays a stretched bitmap. The parent sends this once the
+  // gesture settles, to make the frame repaint at the new scale.
+  | { type: "refresh-raster" };
 
 /** Key event forwarded from inside the frame up to the parent. */
 export interface FrameKeyMessage {
