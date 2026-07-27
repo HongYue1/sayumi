@@ -20,6 +20,10 @@ import (
 	_ "golang.org/x/image/webp"
 )
 
+// Covers are normalized to JPEG at maxCoverWidth x maxCoverHeight, sized for a
+// library grid tile at 2x DPR. JPEG rather than WebP or AVIF because neither has
+// a pure-Go encoder and the binary stays CGO_ENABLED=0 (webp is imported above
+// for decoding only).
 const (
 	maxCoverWidth     = 400
 	maxCoverHeight    = 600

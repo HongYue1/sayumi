@@ -450,6 +450,14 @@ func sanitizeStaticRequestPath(rawPath string) (string, bool) {
 	return cleaned, true
 }
 
+// staticPathExists reports whether urlPath names a real file in the embedded SPA
+// build. This stat and http.FileServer's own are both embed.FS map lookups, and
+// the pair is what lets an unknown extensionless route fall back to the app
+// shell instead of 404ing.
+//
+// A path index built once at startup was tried and rejected: it only sped up
+// misses, while making real asset hits, the app-shell fallback, and handler
+// construction slower.
 func staticPathExists(staticFS fs.FS, urlPath string) (bool, error) {
 	trimmed := strings.TrimPrefix(urlPath, "/")
 	if trimmed == "" {

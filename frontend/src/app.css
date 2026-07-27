@@ -558,6 +558,12 @@ select optgroup {
   }
 }
 
+/* The single reduced-motion switch for the shell. It zeroes duration *and*
+   delay: a delayed animation with a fill mode would otherwise hold content in
+   its hidden start state once duration collapsed. Because this is global,
+   per-component prefers-reduced-motion blocks are redundant. JS-driven motion
+   is not covered -- Svelte transitions, imperative scrolls, and the reader
+   iframe must each check it themselves. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

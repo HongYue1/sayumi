@@ -82,6 +82,12 @@ func rescanLibraryHandler(_ *Dependencies) http.HandlerFunc {
 // to sort would allocate and immediately discard a second N-element slice on
 // the most-hit endpoint. When q matches, a new filtered slice is built and the
 // input is left untouched.
+//
+// This is the third place library titles get ordered, after the list query's
+// ORDER BY (COLLATE NOCASE) and BookCache's ASCII fold. The sort here is
+// stable, so equal titles keep the order the cache produced -- which is why
+// that layer breaks ties on ID. Folding here is Unicode where the other two
+// are ASCII; the difference is deliberate, not an oversight.
 func filterAndSortBooks(books []BookResponse, q, sortField, order string) []BookResponse {
 	if query := strings.ToLower(strings.TrimSpace(q)); query != "" {
 		filtered := make([]BookResponse, 0, len(books))

@@ -102,6 +102,10 @@ func parseEncodingToken(s string) (encoding string, q float64) {
 	return
 }
 
+// addVaryValue appends value to Vary unless it is already listed. Every response
+// this middleware touches must carry Vary: Accept-Encoding, including the ones
+// it leaves uncompressed: without it a shared cache can serve a gzipped body to
+// a client that never asked for one.
 func addVaryValue(header http.Header, value string) {
 	existing := header.Values("Vary")
 	for _, vary := range existing {
