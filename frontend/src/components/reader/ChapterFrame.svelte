@@ -241,12 +241,20 @@
   // for the gesture to settle, then ask the frame to repaint at the new scale
   // (see refresh-raster in frameMessages.ts for why it has to).
   const RASTER_REFRESH_SETTLE_MS = 150;
+  // Pinching past the zoom limit keeps emitting resize at a scale that can no
+  // longer change, so the settle timer would fire a second, pointless repaint
+  // that reads as a flicker. Refresh only when the scale actually moved.
+  const MIN_SCALE_DELTA = 0.01;
   let rasterRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastRefreshedScale = 1;
 
   function scheduleRasterRefresh(): void {
     if (rasterRefreshTimer !== null) clearTimeout(rasterRefreshTimer);
     rasterRefreshTimer = setTimeout(() => {
       rasterRefreshTimer = null;
+      const scale = window.visualViewport?.scale ?? 1;
+      if (Math.abs(scale - lastRefreshedScale) < MIN_SCALE_DELTA) return;
+      lastRefreshedScale = scale;
       sendToFrame({ type: "refresh-raster" });
     }, RASTER_REFRESH_SETTLE_MS);
   }
@@ -256,6 +264,7 @@
   onMount(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
+    lastRefreshedScale = viewport.scale;
     viewport.addEventListener("resize", scheduleRasterRefresh);
     return () => {
       viewport.removeEventListener("resize", scheduleRasterRefresh);

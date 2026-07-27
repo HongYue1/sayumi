@@ -30,8 +30,10 @@ From this directory: `bun install`, `bun run dev`, `bun run check` (svelte-check
 - **A zoom gesture never repaints the reader by itself.** Sandboxed without
   `allow-same-origin`, the iframe has an opaque origin and is composited as its own surface,
   and a pinch rescales that surface without asking it to redraw — the text stays a stretched
-  bitmap until paint is dirtied inside the frame (selecting a word was the giveaway). The
-  parent watches `visualViewport` and posts `refresh-raster`; keep that path alive.
+  bitmap until paint is dirtied inside the frame. Shell UI stays sharp because the parent's
+  own surface re-rasters normally; only the isolated frame is stranded. The parent watches
+  `visualViewport` and posts `refresh-raster`; dirty paint with anything but opacity, since a
+  transparency group costs every glyph its subpixel antialiasing.
 - **Never leave a compositor promotion on at rest.** A layer promoted permanently — by a
   3D transform, `backface-visibility`, or a standing `will-change` — keeps its own raster
   and blur buffer alive while idle. Promote transiently around the animation, then drop it.

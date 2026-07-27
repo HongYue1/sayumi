@@ -700,13 +700,15 @@ html.page-turning.paged-two #content {
 }
 
 /* Paint invalidation the parent asks for after a zoom gesture. This document is
-   composited as its own surface, so a compositor-only rescale leaves its text at
-   the raster it was drawn at until something repaints. An imperceptible opacity
-   change is the cheapest dirty-paint that cannot move a paged column or a scroll
-   offset, and #content-inner is the one box no JS fade writes inline. JS drops
-   the class two frames later. */
+   composited as its own surface, so a compositor-only rescale leaves its text
+   at the raster it was drawn at until something repaints. Not opacity: any
+   value below 1 paints the box as a transparency group, which costs every
+   glyph its subpixel antialiasing and flickers the text weight while it is
+   set. A fully transparent background image dirties the same paint box with no
+   transparency group, no layout, and no scroll movement, and nothing else sets
+   background-image on #content-inner. JS drops the class two frames later. */
 html.raster-refresh #content-inner {
-  opacity: 0.999;
+  background-image: linear-gradient(transparent, transparent);
 }
 
 * {
