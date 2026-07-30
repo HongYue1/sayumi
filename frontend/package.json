@@ -15,7 +15,7 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.2.0",
     "@tsconfig/svelte": "^5.0.8",
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.1.2",
     "esbuild": "^0.28.1",
     "happy-dom": "^20.11.0",
     "prettier": "^3.9.6",
