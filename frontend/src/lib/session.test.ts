@@ -45,6 +45,10 @@ describe("session authentication generation", () => {
   it("ignores a late 401 from the profile before the latest login", async () => {
     const { session } = await import("~/lib/session");
     const gate = await import("~/lib/sessionGate");
+    // vi.resetModules() forks the module registry, so the solid-js instance
+    // driving the freshly imported session store must be imported here too —
+    // a statically imported flush would drive the pre-reset scheduler.
+    const { flush } = await import("solid-js");
     const staleEpoch = gate.currentSessionEpoch();
 
     await session.login("Alice", "", false);
@@ -54,6 +58,9 @@ describe("session authentication generation", () => {
     expect(resetSettings).not.toHaveBeenCalled();
 
     gate.reportUnauthenticated(gate.currentSessionEpoch());
+    // The epoch-matched report clears the profile through a batched signal
+    // write; flush before the synchronous read (Solid 2.0 batches writes).
+    flush();
     expect(session.profile).toBeNull();
     expect(resetSettings).toHaveBeenCalledOnce();
   });
