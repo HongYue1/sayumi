@@ -1,6 +1,12 @@
+// Ported from the Svelte Login.test.ts (which mounted Login.svelte). Drives
+// the Solid component through @solidjs/testing-library; `flush` forces Solid
+// 2.0's batched writes so assertions see committed state -- this file does
+// not call vi.resetModules(), so a statically imported flush drives the same
+// scheduler instance as the component under test.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mount, tick, unmount } from "svelte";
-import Login from "~/routes/Login.svelte";
+import { fireEvent, render } from "@solidjs/testing-library";
+import { flush } from "solid-js";
+import Login from "~/routes/Login";
 
 const api = vi.hoisted(() => ({
   listProfiles: vi.fn(),
@@ -33,8 +39,8 @@ vi.mock("~/lib/session", () => ({
 }));
 
 describe("Login profile creation", () => {
-  let target: HTMLDivElement;
-  let component: ReturnType<typeof mount> | undefined;
+  let container: HTMLElement;
+  let unmount: (() => void) | undefined;
 
   beforeEach(() => {
     api.listProfiles.mockReset().mockResolvedValue([]);
@@ -43,41 +49,35 @@ describe("Login profile creation", () => {
       .mockReset()
       .mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValueOnce(undefined);
-    target = document.createElement("div");
-    document.body.append(target);
-    component = mount(Login, { target });
+    const result = render(Login);
+    container = result.container;
+    unmount = result.unmount;
   });
 
-  afterEach(async () => {
-    if (component) await unmount(component);
-    target.remove();
+  afterEach(() => {
+    unmount?.();
+    container.remove();
   });
 
   it("retries a created profile without submitting creation again", async () => {
     await vi.waitFor(() => {
       expect(
-        target.querySelector<HTMLInputElement>(
+        container.querySelector<HTMLInputElement>(
           'input[aria-label="Profile name"]',
         ),
       ).not.toBeNull();
     });
 
-    const name = target.querySelector<HTMLInputElement>(
+    const name = container.querySelector<HTMLInputElement>(
       'input[aria-label="Profile name"]',
-    );
-    expect(name).not.toBeNull();
-    name!.value = "Reader";
-    name!.dispatchEvent(new Event("input", { bubbles: true }));
-    await tick();
+    )!;
+    fireEvent.input(name, { target: { value: "Reader" } });
+    flush();
 
-    target
-      .querySelector("form")!
-      .dispatchEvent(
-        new SubmitEvent("submit", { bubbles: true, cancelable: true }),
-      );
+    fireEvent.submit(container.querySelector("form")!);
 
     await vi.waitFor(() => {
-      expect(target.textContent).toContain(
+      expect(container.textContent).toContain(
         "Profile created, but sign-in failed",
       );
     });
@@ -85,10 +85,11 @@ describe("Login profile creation", () => {
     expect(api.login).toHaveBeenNthCalledWith(1, "Reader", "", false);
 
     const profile = Array.from(
-      target.querySelectorAll<HTMLButtonElement>("button.profile"),
+      container.querySelectorAll<HTMLButtonElement>("button.login-profile"),
     ).find((button) => button.textContent?.includes("Reader"));
     expect(profile).toBeDefined();
     profile!.click();
+    flush();
 
     await vi.waitFor(() => expect(api.login).toHaveBeenCalledTimes(2));
     expect(api.login).toHaveBeenNthCalledWith(2, "Reader", "", false);
