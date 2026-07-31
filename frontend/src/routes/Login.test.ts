@@ -1,10 +1,12 @@
-// Ported from the Svelte Login.test.ts (which mounted Login.svelte). Drives
-// the Solid component through @solidjs/testing-library; `flush` forces Solid
-// 2.0's batched writes so assertions see committed state -- this file does
-// not call vi.resetModules(), so a statically imported flush drives the same
-// scheduler instance as the component under test.
+// Ported from the Svelte Login.test.ts. Renders the component with
+// @solidjs/web's render directly -- NOT @solidjs/testing-library, whose dist
+// imports the removed "solid-js/web" specifier and dies at suite collection
+// under Solid 2.0. Events are dispatched by hand (as the Svelte version did);
+// `flush` forces Solid 2.0's batched writes so assertions see committed
+// state. This file never calls vi.resetModules(), so a statically imported
+// flush drives the same scheduler instance as the component under test.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render } from "@solidjs/testing-library";
+import { render } from "@solidjs/web";
 import { flush } from "solid-js";
 import Login from "~/routes/Login";
 
@@ -39,8 +41,8 @@ vi.mock("~/lib/session", () => ({
 }));
 
 describe("Login profile creation", () => {
-  let container: HTMLElement;
-  let unmount: (() => void) | undefined;
+  let container: HTMLDivElement;
+  let dispose: (() => void) | undefined;
 
   beforeEach(() => {
     // A fake clock leaked by another suite in this worker (fake timers also
@@ -53,13 +55,13 @@ describe("Login profile creation", () => {
       .mockReset()
       .mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValueOnce(undefined);
-    const result = render(Login);
-    container = result.container;
-    unmount = result.unmount;
+    container = document.createElement("div");
+    document.body.append(container);
+    dispose = render(Login, container);
   });
 
   afterEach(() => {
-    unmount?.();
+    dispose?.();
     container.remove();
   });
 
@@ -75,10 +77,15 @@ describe("Login profile creation", () => {
     const name = container.querySelector<HTMLInputElement>(
       'input[aria-label="Profile name"]',
     )!;
-    fireEvent.input(name, { target: { value: "Reader" } });
+    name.value = "Reader";
+    name.dispatchEvent(new Event("input", { bubbles: true }));
     flush();
 
-    fireEvent.submit(container.querySelector("form")!);
+    container
+      .querySelector("form")!
+      .dispatchEvent(
+        new SubmitEvent("submit", { bubbles: true, cancelable: true }),
+      );
 
     await vi.waitFor(() => {
       expect(container.textContent).toContain(
