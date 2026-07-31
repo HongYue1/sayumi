@@ -5,7 +5,7 @@ import {
   type ModuleNode,
   type Plugin,
 } from "vite";
-import { svelte } from "@sveltejs/vite-plugin-svelte";
+import solid from "vite-plugin-solid";
 import { build as esbuild } from "esbuild";
 import { resolve, dirname, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -89,7 +89,7 @@ function frameScriptPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [svelte(), frameScriptPlugin()],
+  plugins: [solid(), frameScriptPlugin()],
   resolve: {
     alias: { "~": resolve(root, "./src") },
   },
@@ -99,8 +99,11 @@ export default defineConfig({
     emptyOutDir: true,
     target: "es2022",
     reportCompressedSize: false,
-    rollupOptions: {
+    rolldownOptions: {
       // /fonts/* are served by the Go binary at runtime, not bundled by Vite.
+      // Vite 8 bundles with Rolldown, so this block is `rolldownOptions`;
+      // the old `rollupOptions` name is silently ignored, which would
+      // inline the font URLs back into the bundle.
       external: [/^\/fonts\//],
     },
   },

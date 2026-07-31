@@ -10,9 +10,14 @@ step "3. Go imports & formatting"
 if have goimports; then if goimports -w -local sayumi cmd internal; then ok "goimports -w"; else fail "goimports failed"; fi; else skip "goimports (imports not auto-managed)"; fi
 if have gofumpt; then if gofumpt -w cmd internal; then ok "gofumpt -w"; else fail "gofumpt failed"; fi
 elif ! have goimports; then if gofmt -w cmd internal; then ok "gofmt -w (fallback)"; else fail "gofmt failed"; fi; else skip "gofumpt"; fi
-step "4. Frontend formatting"
-if have bun; then if (cd frontend && bun run format); then ok "prettier"; else fail "frontend formatting failed"; fi
-elif have npm; then if (cd frontend && npm run format); then ok "prettier"; else fail "frontend formatting failed"; fi
-else fail "frontend formatting requires bun or npm"; fi
+step "4. Frontend lint --fix & formatting"
+if have bun; then JS=bun; elif have npm; then JS=npm; else JS=""; fi
+if [[ -z "$JS" ]]; then fail "frontend fixes require bun or npm"
+else
+  # oxlint first: its fixes (import order, type-only imports) change token
+  # positions, so prettier has to run after it to re-wrap the result.
+  if (cd frontend && "$JS" run lint:fix); then ok "oxlint --fix"; else fail "oxlint --fix failed or left non-fixable issues"; fi
+  if (cd frontend && "$JS" run format); then ok "prettier"; else fail "frontend formatting failed"; fi
+fi
 step "5. go mod tidy"; if go mod tidy; then ok "tidy"; else fail "go mod tidy failed"; fi
 echo; if [[ $overall -eq 0 ]]; then echo "${green}${bold}✓ fixes applied — now run ./check.sh${reset}"; else echo "${red}${bold}✗ some fixes failed — review diagnostics${reset}"; fi; exit $overall

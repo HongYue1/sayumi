@@ -63,14 +63,16 @@ if have govulncheck; then
 $(printf '%s\n' "$out"|indent)"; fi
 else skip "govulncheck (go install golang.org/x/vuln/cmd/govulncheck@v1.3.0)"; fi
 
-step "8. go test"
+step "8. go test (-race, -shuffle=on)"
 race_flag=""; if [[ "$(go env CGO_ENABLED)" == "1" ]] && { have cc || have gcc || have clang; }; then race_flag="-race"; else warn "race detector skipped (cgo unavailable); running plain go test"; fi
-out="$(go test $race_flag ./... 2>&1)"; status=$?; printf '%s\n' "$out"|sed 's/^/   /'; [[ $status -eq 0 ]] && ok "tests passed" || fail "tests failed"
+out="$(go test $race_flag -shuffle=on ./... 2>&1)"; status=$?; printf '%s\n' "$out"|sed 's/^/   /'; [[ $status -eq 0 ]] && ok "tests passed" || fail "tests failed"
 
-step "9. frontend tests"
+step "9. Frontend lint, types & tests"
 if [[ -z "$JS" ]]; then fail "frontend checks require bun or npm"
 else
-  if out="$(cd frontend && "$JS" run check 2>&1)"; then ok "svelte-check: no type/a11y issues"; else fail "svelte-check failed:
+  if out="$(cd frontend && "$JS" run lint 2>&1)"; then ok "oxlint: no issues"; else fail "oxlint failed:
+$(printf '%s\n' "$out"|indent)"; fi
+  if out="$(cd frontend && "$JS" run check 2>&1)"; then ok "tsc: no type errors"; else fail "tsc failed:
 $(printf '%s\n' "$out"|indent)"; fi
   if out="$(cd frontend && "$JS" run test 2>&1)"; then ok "vitest: tests passed"; else fail "vitest failed:
 $(printf '%s\n' "$out"|indent)"; fi
