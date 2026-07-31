@@ -1219,3 +1219,120 @@ main {
   color: var(--faint);
   animation: app-overlay-in var(--dur-slower) var(--ease-out) 300ms both;
 }
+
+/* ---- Profile menu ------------------------------------------------------- */
+/* Ported out of ProfileMenu.svelte's scoped <style>: Solid has no scoped
+   styles. `.trigger`/`.item`/`.menu` are shared by convention across the
+   library subtree (ThemeDropdown and BookCard have their own scoped copies
+   coming), so these get a .pm- prefix. `.paper` and app-menu-pop-in are the
+   existing global pieces. */
+.profile-menu {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+.pm-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  max-width: min(14rem, 26vw);
+  padding: 0.35rem 0.6rem;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+.pm-trigger:hover,
+.pm-trigger.open {
+  background: var(--surface);
+}
+.pm-trigger:active {
+  transform: scale(0.97);
+}
+.pm-who-icon {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.pm-who {
+  font-weight: 580;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pm-caret {
+  color: var(--muted);
+  flex-shrink: 0;
+  transition: transform var(--dur) var(--ease-spring);
+}
+.pm-trigger.open .pm-caret {
+  transform: rotate(180deg);
+}
+
+.pm-menu {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  z-index: 21;
+  min-width: 12.5rem;
+  padding: var(--sp-2);
+  transform-origin: top right;
+  animation: app-menu-pop-in var(--dur) var(--ease-out) both;
+}
+.pm-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 520;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.pm-item svg {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.pm-item:hover,
+.pm-item:focus-visible {
+  background: var(--surface-hover);
+  outline: none;
+}
+.pm-item.danger {
+  color: var(--fg);
+}
+.pm-item.danger:hover,
+.pm-item.danger:focus-visible {
+  background: var(--danger-surface);
+  color: var(--danger-surface-fg);
+}
+.pm-item.danger:hover svg,
+.pm-item.danger:focus-visible svg {
+  color: var(--danger-surface-fg);
+}
+.pm-sep {
+  height: 1px;
+  border: 0;
+  margin: var(--sp-1) var(--sp-1);
+  background: var(--hairline);
+}
+
+@media (max-width: 360px) {
+  .pm-who-icon {
+    display: none;
+  }
+}
