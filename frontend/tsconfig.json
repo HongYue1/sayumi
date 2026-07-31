@@ -15,7 +15,6 @@
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "types": ["vite/client", "node"],
-    "baseUrl": ".",
     "paths": { "~/*": ["./src/*"] }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts"]
