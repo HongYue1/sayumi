@@ -65,6 +65,10 @@ describe("settings profile lifecycle", () => {
       .mockReturnValueOnce(first)
       .mockResolvedValueOnce({ fontSize: 36, fontFamily: "literata" });
     const { settings } = await import("~/lib/settings");
+    // vi.resetModules() gives each test a fresh module graph, so flush has to
+    // be imported here too: a statically imported one would drive a different
+    // scheduler instance than the store under test.
+    const { flush } = await import("solid-js");
 
     const oldLoad = settings.load();
     const oldSignal = api.getSettings.mock.calls[0][0] as AbortSignal;
@@ -72,10 +76,12 @@ describe("settings profile lifecycle", () => {
     expect(oldSignal.aborted).toBe(true);
 
     await settings.load();
+    flush();
     expect(settings.value.fontSize).toBe(36);
 
     resolveFirst({ fontSize: 18, fontFamily: "literata" });
     await oldLoad;
+    flush();
     expect(settings.value.fontSize).toBe(36);
   });
 });
@@ -92,15 +98,19 @@ describe("settings save ordering", () => {
       .mockResolvedValueOnce(undefined);
     const { ApiError } = await import("~/api/client");
     const { settings } = await import("~/lib/settings");
+    const { flush } = await import("solid-js");
 
     settings.update({ fontSize: 31 });
+    flush();
     await vi.advanceTimersByTimeAsync(500);
     expect(api.saveSettings).toHaveBeenCalledOnce();
 
     settings.update({ fontSize: 32 });
+    flush();
     rejectFirst(new ApiError("invalid settings", 400, "invalid"));
     await Promise.resolve();
     await Promise.resolve();
+    flush();
 
     expect(settings.value.fontSize).toBe(32);
     expect(showToast).not.toHaveBeenCalled();

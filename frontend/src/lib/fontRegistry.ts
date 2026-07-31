@@ -42,7 +42,9 @@ export function userFamilyCSSValue(fam: UserFontFamily): string {
   return `${userFamilyCSSName(fam.id)}, ${fallback}`;
 }
 
-class FontRegistry {
+/** Exported so tests can build an isolated registry; app code uses the
+ *  `fontRegistry` singleton declared below. */
+export class FontRegistry {
   // Signal tuples are held directly rather than destructured so the class keeps
   // one field per piece of state and no guessed helper type names.
   readonly #familiesSignal = createSignal<UserFontFamily[]>([]);

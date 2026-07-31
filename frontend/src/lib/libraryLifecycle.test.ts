@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { flush } from "solid-js";
 import type { BookMeta } from "~/api/client";
 
 const mocks = vi.hoisted(() => ({
@@ -70,12 +71,14 @@ describe("library profile lifecycle", () => {
 
     const profileALoad = store.loadForProfile("profile-a");
     const profileBLoad = store.loadForProfile("profile-b");
-    expect(store.books).toEqual([]);
+    flush();
+    expect([...store.books]).toEqual([]);
 
     second.resolve([book("b", "Profile B")]);
     await profileBLoad;
     first.resolve([book("a", "Profile A")]);
     await profileALoad;
+    flush();
 
     expect(store.books.map((item) => item.id)).toEqual(["b"]);
   });
@@ -99,27 +102,35 @@ describe("library profile lifecycle", () => {
   it("does not let a stale mutation rollback the new profile", async () => {
     const request = deferred<void>();
     mocks.setBookFlair.mockReturnValueOnce(request.promise);
+    mocks.getBooks
+      .mockResolvedValueOnce([book("a", "Profile A")])
+      .mockResolvedValueOnce([book("b", "Profile B")]);
     const store = new Library();
-    store.activate("profile-a");
-    store.books = [book("a", "Profile A")];
+    await store.loadForProfile("profile-a");
+    flush();
 
     const mutation = store.setFlair("a", "reading");
-    store.activate("profile-b");
-    store.books = [book("b", "Profile B")];
+    await store.loadForProfile("profile-b");
+    flush();
     request.reject(new Error("late failure"));
     await mutation;
+    flush();
 
     expect(store.books.map((item) => item.id)).toEqual(["b"]);
     expect(mocks.toast).not.toHaveBeenCalled();
   });
 
-  it("publishes reader progress into the active profile immediately", () => {
+  it("publishes reader progress into the active profile immediately", async () => {
+    mocks.getBooks.mockResolvedValueOnce([
+      { ...book("a", "Book A"), chapterCount: 4 },
+    ]);
     const store = new Library();
-    store.activate("profile-a");
-    store.books = [{ ...book("a", "Book A"), chapterCount: 4 }];
+    await store.loadForProfile("profile-a");
+    flush();
     const publish = store.createReadingProgressPublisher("profile-a", "a");
 
     publish(1, 0.5, "2024-06-01T12:00:00.000Z");
+    flush();
 
     expect(store.books[0]).toMatchObject({
       progress: 0.375,
@@ -127,33 +138,41 @@ describe("library profile lifecycle", () => {
     });
   });
 
-  it("drops a reader update while a different profile is active", () => {
+  it("drops a reader update while a different profile is active", async () => {
+    mocks.getBooks
+      .mockResolvedValueOnce([{ ...book("a", "Book A"), chapterCount: 4 }])
+      // Same book id existing under profile B proves the guard is the
+      // profile binding, not a lucky book-id miss.
+      .mockResolvedValueOnce([{ ...book("a", "B's copy"), chapterCount: 4 }]);
     const store = new Library();
-    store.activate("profile-a");
-    store.books = [{ ...book("a", "Book A"), chapterCount: 4 }];
+    await store.loadForProfile("profile-a");
+    flush();
     const stalePublish = store.createReadingProgressPublisher("profile-a", "a");
 
-    store.activate("profile-b");
-    // Same book id existing under profile B proves the guard is the profile
-    // binding, not a lucky book-id miss.
-    store.books = [{ ...book("a", "B's copy"), chapterCount: 4 }];
+    await store.loadForProfile("profile-b");
+    flush();
     stalePublish(3, 1, "2024-06-01T12:00:00.000Z");
+    flush();
 
     expect(store.books[0]).toMatchObject({ progress: 0 });
   });
 
-  it("publishes when created before activate (hard refresh into /read)", () => {
+  it("publishes when created before activate (hard refresh into /read)", async () => {
     // On a hard refresh straight into the reader, Read initializes (creating
     // the publisher) BEFORE App's effect runs activate(), which bumps the
     // internal generation. The publisher is bound to the profile NAME exactly
     // so this ordering still works — a generation captured at creation would
     // be stale on arrival and the publisher dead for the whole session.
+    mocks.getBooks.mockResolvedValueOnce([
+      { ...book("a", "Book A"), chapterCount: 4 },
+    ]);
     const store = new Library();
     const publish = store.createReadingProgressPublisher("profile-a", "a");
-    store.activate("profile-a");
-    store.books = [{ ...book("a", "Book A"), chapterCount: 4 }];
+    await store.loadForProfile("profile-a");
+    flush();
 
     publish(1, 0.5, "2024-06-01T12:00:00.000Z");
+    flush();
 
     expect(store.books[0]).toMatchObject({
       progress: 0.375,
