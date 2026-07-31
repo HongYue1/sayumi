@@ -6,7 +6,7 @@
 // frame engine (frame.ts) stay in lockstep: adding a message kind that only one
 // side handles becomes a compile error via the exhaustive switches below.
 
-import type { IframeSettings } from "~/lib/settings.svelte";
+import type { IframeSettings } from "~/lib/settings";
 
 export type { IframeSettings };
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { toast } from "~/lib/toast.svelte";
+import { toast } from "~/lib/toast";
 
 // MAX_TOASTS = 4, DEFAULT_DURATION_MS = 2000, EXIT_MS = 200 (private to the store).
 describe("toast store", () => {

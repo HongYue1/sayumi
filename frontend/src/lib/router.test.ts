@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchRoute } from "~/lib/router.svelte";
+import { matchRoute } from "~/lib/router";
 
 describe("matchRoute", () => {
   it("decodes a valid encoded book id", () => {

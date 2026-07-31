@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { library } from "~/lib/library.svelte";
+import { library } from "~/lib/library";
 import type { BookMeta } from "~/api/client";
 
 function book(p: Partial<BookMeta> & { id: string; title: string }): BookMeta {

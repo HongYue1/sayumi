@@ -1,13 +1,20 @@
 import {
+  createMemo,
+  createSignal,
+  createStore,
+  runWithOwner,
+  snapshot,
+} from "solid-js";
+import {
   ApiError,
   getSettings,
   saveSettings,
   type UserSettings,
 } from "~/api/client";
 import { getFontById, getFontFamily } from "~/lib/fonts";
-import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry.svelte";
-import { toast } from "~/lib/toast.svelte";
-import { customThemes } from "~/lib/customThemes.svelte";
+import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry";
+import { toast } from "~/lib/toast";
+import { customThemes } from "~/lib/customThemes";
 import { readerThemeVars, type ThemeDef } from "~/lib/themes";
 
 // Shape the reader iframe expects (see iframe/frame.ts apply-settings handler).
@@ -79,6 +86,18 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   fontRoles: {},
 };
 
+/**
+ * A defaults object with its own nested containers.
+ *
+ * Spreading DEFAULT_USER_SETTINGS copies `fontRoles` by reference, so anything
+ * that later mutates it in place would corrupt the module-level default for the
+ * rest of the session. Stores mutate through drafts, so every path that seeds
+ * state from the defaults goes through this.
+ */
+function freshDefaults(): UserSettings {
+  return { ...DEFAULT_USER_SETTINGS, fontRoles: {} };
+}
+
 /** Resolves a font family id to a CSS font-family value, handling user fonts. */
 function resolveFontFamily(id: string): string {
   if (isUserFamilyId(id)) {
@@ -127,17 +146,25 @@ export function toIframeSettings(
 }
 
 class Settings {
-  value = $state<UserSettings>({ ...DEFAULT_USER_SETTINGS });
+  // A store, not a signal: the Svelte revision deliberately mutated fields in
+  // place on the deep-reactive proxy rather than replacing the object, so that a
+  // font-size drag only wakes the consumers reading fontSize instead of every
+  // settings consumer (isPaged, buildAllFontFaces, the iframe mapping). Store
+  // drafts give exactly that property-level invalidation.
+  readonly #store = createStore<UserSettings>(freshDefaults());
+  readonly #loadedSignal = createSignal(false);
+
   /** Memoised mapping to the reader-iframe settings shape. */
-  iframe = $derived.by<IframeSettings>(() =>
-    toIframeSettings(this.value, customThemes.list),
-  );
+  readonly #iframe: () => IframeSettings;
 
-  /** True once server settings have been merged in (reactive). Consumers that
-   *  must not act on the compile-time defaults — e.g. the reader's applyTheme
-   *  effect, which would flash and cache the default theme — gate on this. */
-  loaded = $state(false);
-
+  /**
+   * Non-reactive mirror of `loaded`, used by load()'s guard.
+   *
+   * This split is inherited from the Svelte revision, and Solid needs it for a
+   * second reason: writes are batched, so a signal read immediately after a
+   * write still returns the pre-write value. Control flow reads this field; the
+   * signal exists only so gated consumers re-render.
+   */
   #loaded = false;
   #loadGeneration = 0;
   #loadController: AbortController | undefined;
@@ -148,7 +175,38 @@ class Settings {
   // Last server-accepted settings. A failed PUT sends the whole object, so a
   // single invalid field would otherwise wedge every later save; on a 4xx we
   // roll back to this snapshot.
-  #lastSaved: UserSettings = { ...DEFAULT_USER_SETTINGS };
+  #lastSaved: UserSettings = freshDefaults();
+
+  constructor() {
+    // Detached on purpose. In Solid 2.0 a root is owned by its parent by
+    // default, and a memo created with no owner warns (NO_OWNER_EFFECT), so
+    // "global lifetime" has to be an explicit opt-in. This singleton lives for
+    // the life of the document and is never disposed.
+    this.#iframe = runWithOwner(null, () =>
+      createMemo(() => toIframeSettings(this.value, customThemes.list)),
+    );
+  }
+
+  /** Current settings. Property reads track individually. */
+  get value(): UserSettings {
+    return this.#store[0];
+  }
+
+  get iframe(): IframeSettings {
+    return this.#iframe();
+  }
+
+  /** True once server settings have been merged in (reactive). Consumers that
+   *  must not act on the compile-time defaults - e.g. the reader's applyTheme
+   *  effect, which would flash and cache the default theme - gate on this. */
+  get loaded(): boolean {
+    return this.#loadedSignal[0]();
+  }
+
+  #setLoaded(value: boolean): void {
+    this.#loaded = value;
+    this.#loadedSignal[1](value);
+  }
 
   /** Loads server settings once; keeps defaults on failure (non-fatal). */
   load(): Promise<void> {
@@ -175,15 +233,22 @@ class Settings {
       // fields) still yields a complete, valid settings object. Without this a
       // new profile can come back without a fontFamily, leaving the font
       // <select> with no matching option (blank instead of the default font).
-      this.value = { ...DEFAULT_USER_SETTINGS, ...loaded };
+      //
+      // The merged object is assembled and validated as a plain local before it
+      // reaches the store. Validating after the write would read the pre-write
+      // value under Solid's batching and check the *previous* profile's font id,
+      // silently defeating the coercion below.
+      const next: UserSettings = { ...freshDefaults(), ...loaded };
       // Coerce an unusable built-in font id (empty or unknown) to the default.
       // User fonts ("user:" prefix) can't be validated until the registry has
       // loaded, so SettingsPanel reconciles those reactively once families load.
-      const fam = this.value.fontFamily;
-      if (!isUserFamilyId(fam) && !getFontById(fam)) {
-        this.value.fontFamily = DEFAULT_USER_SETTINGS.fontFamily;
+      if (!isUserFamilyId(next.fontFamily) && !getFontById(next.fontFamily)) {
+        next.fontFamily = DEFAULT_USER_SETTINGS.fontFamily;
       }
-      this.#lastSaved = { ...this.value };
+      this.#store[1]((s) => {
+        Object.assign(s, next);
+      });
+      this.#lastSaved = { ...next };
       this.#revision += 1;
       this.#loaded = true;
     } catch {
@@ -193,7 +258,7 @@ class Settings {
         // Settled for this profile (success, or failure keeping defaults):
         // `value` is now the best truth this session will get, so gated
         // consumers may act on it. Not set on abort/supersede (logout race).
-        this.loaded = true;
+        this.#setLoaded(true);
         this.#loadController = undefined;
         this.#loadPromise = undefined;
       }
@@ -201,22 +266,19 @@ class Settings {
   }
 
   update(partial: Partial<UserSettings>): void {
-    // Mutate fields in place on the deep-reactive $state proxy instead of
-    // replacing the whole object. A wholesale reassign invalidates *every*
-    // settings.value consumer (isPaged, fontFaceCSS / buildAllFontFaces, the
-    // iframe derived -> apply-settings postMessage) on every change; per-field
-    // assignment only wakes the consumers that read the changed fields, so a
-    // font-size / line-height slider drag no longer rebuilds @font-face CSS or
-    // re-derives unrelated values each frame.
-    Object.assign(this.value, partial);
+    // Per-field draft mutation, not a wholesale replace: a replace invalidates
+    // *every* settings consumer on every change, so a slider drag would rebuild
+    // @font-face CSS and re-derive unrelated values each frame.
+    this.#store[1]((s) => {
+      Object.assign(s, partial);
+    });
     this.#revision += 1;
     this.#scheduleSave();
   }
 
   /** Call on logout so the next login gets fresh settings from the server. */
   reset(): void {
-    this.#loaded = false;
-    this.loaded = false;
+    this.#setLoaded(false);
     this.#loadGeneration += 1;
     this.#loadController?.abort();
     this.#loadController = undefined;
@@ -228,8 +290,11 @@ class Settings {
     }
     this.#saveController?.abort();
     this.#saveController = undefined;
-    this.value = { ...DEFAULT_USER_SETTINGS };
-    this.#lastSaved = { ...DEFAULT_USER_SETTINGS };
+    const defaults = freshDefaults();
+    this.#store[1]((s) => {
+      Object.assign(s, defaults);
+    });
+    this.#lastSaved = freshDefaults();
   }
 
   /**
@@ -239,7 +304,7 @@ class Settings {
    * fresh fontRoles object avoids sharing the module-level default map.
    */
   resetToDefaults(): void {
-    this.update({ ...DEFAULT_USER_SETTINGS, fontRoles: {} });
+    this.update(freshDefaults());
   }
 
   #scheduleSave(): void {
@@ -251,9 +316,11 @@ class Settings {
       this.#saveController?.abort();
       const controller = new AbortController();
       this.#saveController = controller;
-      const snapshot = { ...this.value };
+      // snapshot() is the 2.0 replacement for unwrap(): a plain, non-tracking
+      // value. Spread so the payload can't alias the live store.
+      const payload: UserSettings = { ...snapshot(this.value) };
       const revision = this.#revision;
-      saveSettings(snapshot, controller.signal)
+      saveSettings(payload, controller.signal)
         .then(() => {
           // A reset() (logout) may have aborted this request between the
           // server accepting it and this callback running; #lastSaved was
@@ -261,7 +328,7 @@ class Settings {
           // not be clobbered with the previous profile's payload.
           if (this.#saveController !== controller) return;
           // Remember the last payload the server accepted.
-          this.#lastSaved = snapshot;
+          this.#lastSaved = payload;
         })
         .catch((error: unknown) => {
           if (error instanceof DOMException && error.name === "AbortError")
@@ -282,7 +349,10 @@ class Settings {
             error.status >= 400 &&
             error.status < 500
           ) {
-            Object.assign(this.value, this.#lastSaved);
+            const lastSaved = this.#lastSaved;
+            this.#store[1]((s) => {
+              Object.assign(s, lastSaved);
+            });
           }
           toast.show("Couldn't save settings");
         })

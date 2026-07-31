@@ -7,7 +7,7 @@ import {
   type FontRoleMap,
   type UserFontFamily,
 } from "~/api/client";
-import { userFamilyCSSName, userFamilyDir } from "~/lib/fontRegistry.svelte";
+import { userFamilyCSSName, userFamilyDir } from "~/lib/fontRegistry";
 
 // Only the two embedded reading fonts. The rest of the catalogue ships as
 // drop-in ./Fonts/ families and is rendered via buildUserFontFaces below.

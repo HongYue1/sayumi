@@ -13,7 +13,7 @@ vi.mock("~/api/client", () => ({
   deleteCustomTheme: vi.fn(),
 }));
 
-const { CustomThemes } = await import("~/lib/customThemes.svelte");
+const { CustomThemes } = await import("~/lib/customThemes");
 
 function theme(id: string, name: string): CustomTheme {
   return {

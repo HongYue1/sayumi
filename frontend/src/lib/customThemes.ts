@@ -1,8 +1,9 @@
 // Store for user-created custom themes. Loaded from the backend for the active
 // profile and mirrored into the themes.ts registry (setCustomThemes) so a
-// custom id resolves through getTheme everywhere the built-ins do — the app
+// custom id resolves through getTheme everywhere the built-ins do -- the app
 // chrome and, via settings.iframe -> apply-settings, the reader frame.
 
+import { createSignal } from "solid-js";
 import {
   createCustomTheme,
   deleteCustomTheme,
@@ -12,12 +13,12 @@ import {
   type CustomThemeInput,
 } from "~/api/client";
 import { autoAccent, setCustomThemes, type ThemeDef } from "~/lib/themes";
-import { toast } from "~/lib/toast.svelte";
+import { toast } from "~/lib/toast";
 
 /**
  * Maps a stored custom theme to the shared ThemeDef shape used for rendering.
- * The accent is resolved here (empty -> auto) so every consumer — the shell's
- * applyTheme (onAccentColor needs a real hex) and the reader's derived vars —
+ * The accent is resolved here (empty -> auto) so every consumer -- the shell's
+ * applyTheme (onAccentColor needs a real hex) and the reader's derived vars --
  * always sees a concrete color rather than the "" sentinel that means "auto".
  */
 function toThemeDef(ct: CustomTheme): ThemeDef {
@@ -32,13 +33,21 @@ function toThemeDef(ct: CustomTheme): ThemeDef {
 }
 
 export class CustomThemes {
-  /** Custom themes as ThemeDefs, in server (creation) order. */
-  list = $state<ThemeDef[]>([]);
+  readonly #listSignal = createSignal<ThemeDef[]>([]);
+  readonly #loadedSignal = createSignal(false);
 
-  /** True once a load has succeeded. Reactive so the UI can distinguish "not
-   *  loaded yet" from "loaded, none saved"; a failed load leaves it false so a
-   *  later attempt retries. */
-  loaded = $state(false);
+  /**
+   * Plain mirrors of the reactive state, read by synchronous control flow.
+   *
+   * This is load-bearing, not defensive. Solid 2.0 batches writes, so a signal
+   * read immediately after a write still returns the pre-write value.
+   * activate() clears the loaded flag and then calls load() in the same tick;
+   * if load()'s early-return guard read the accessor it would still see `true`
+   * and skip the fetch, so switching profiles would silently never reload the
+   * custom themes. Guards read these fields; the signals only drive rendering.
+   */
+  #loadedPlain = false;
+  #listPlain: ThemeDef[] = [];
 
   /** Shared in-flight load so concurrent boot callers don't double-fetch. */
   #loadPromise: Promise<void> | null = null;
@@ -48,6 +57,30 @@ export class CustomThemes {
 
   /** Invalidates async work started under a previous profile. */
   #generation = 0;
+
+  /** Custom themes as ThemeDefs, in server (creation) order. */
+  get list(): ThemeDef[] {
+    return this.#listSignal[0]();
+  }
+
+  /** True once a load has succeeded. Reactive so the UI can distinguish "not
+   *  loaded yet" from "loaded, none saved"; a failed load leaves it false so a
+   *  later attempt retries. */
+  get loaded(): boolean {
+    return this.#loadedSignal[0]();
+  }
+
+  #setLoaded(value: boolean): void {
+    this.#loadedPlain = value;
+    this.#loadedSignal[1](value);
+  }
+
+  /** Replaces the list and keeps the themes.ts registry in sync. */
+  #apply(next: ThemeDef[]): void {
+    this.#listPlain = next;
+    this.#listSignal[1](next);
+    setCustomThemes(next);
+  }
 
   /**
    * Switches the store to a profile, clearing profile-owned state before any
@@ -61,7 +94,7 @@ export class CustomThemes {
     this.#profile = profile;
     this.#generation++;
     this.#loadPromise = null;
-    this.loaded = false;
+    this.#setLoaded(false);
     this.#apply([]);
 
     return profile === null ? Promise.resolve() : this.load();
@@ -71,7 +104,7 @@ export class CustomThemes {
   async load(): Promise<void> {
     const profile = this.#profile;
     if (profile === null) return;
-    if (this.loaded) return;
+    if (this.#loadedPlain) return;
     if (this.#loadPromise) return this.#loadPromise;
 
     const generation = this.#generation;
@@ -80,7 +113,7 @@ export class CustomThemes {
         const themes = (await getCustomThemes()).map(toThemeDef);
         if (!this.#isCurrent(profile, generation)) return;
         this.#apply(themes);
-        this.loaded = true;
+        this.#setLoaded(true);
       } catch {
         // Built-ins still work; loaded stays false so a later call retries.
       } finally {
@@ -97,12 +130,6 @@ export class CustomThemes {
     return this.#profile === profile && this.#generation === generation;
   }
 
-  /** Replaces the list and keeps the themes.ts registry in sync. */
-  #apply(next: ThemeDef[]): void {
-    this.list = next;
-    setCustomThemes(next);
-  }
-
   /** Creates a theme; returns the stored ThemeDef, or null on failure. */
   async create(
     input: CustomThemeInput,
@@ -114,7 +141,9 @@ export class CustomThemes {
     try {
       const def = toThemeDef(await createCustomTheme(input, signal));
       if (!this.#isCurrent(profile, generation)) return null;
-      this.#apply([...this.list, def]);
+      // Built from the plain mirror: reading this.list here would return the
+      // pre-write array inside the same batch and drop a concurrent create.
+      this.#apply([...this.#listPlain, def]);
       return def;
     } catch (error) {
       if (
@@ -139,7 +168,7 @@ export class CustomThemes {
     try {
       const def = toThemeDef(await updateCustomTheme(id, input, signal));
       if (!this.#isCurrent(profile, generation)) return null;
-      this.#apply(this.list.map((t) => (t.id === id ? def : t)));
+      this.#apply(this.#listPlain.map((t) => (t.id === id ? def : t)));
       return def;
     } catch (error) {
       if (
@@ -160,7 +189,7 @@ export class CustomThemes {
     try {
       await deleteCustomTheme(id, signal);
       if (!this.#isCurrent(profile, generation)) return false;
-      this.#apply(this.list.filter((t) => t.id !== id));
+      this.#apply(this.#listPlain.filter((t) => t.id !== id));
       return true;
     } catch (error) {
       if (

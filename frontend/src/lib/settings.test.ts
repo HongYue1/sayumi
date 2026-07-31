@@ -27,16 +27,16 @@ vi.mock("~/lib/fonts", () => ({
   getFontFamily: (id: string) => id,
 }));
 
-vi.mock("~/lib/fontRegistry.svelte", () => ({
+vi.mock("~/lib/fontRegistry", () => ({
   fontRegistry: { cssValue: vi.fn(() => undefined) },
   isUserFamilyId: (id: string) => id.startsWith("user:"),
 }));
 
-vi.mock("~/lib/toast.svelte", () => ({
+vi.mock("~/lib/toast", () => ({
   toast: { show: showToast },
 }));
 
-vi.mock("~/lib/customThemes.svelte", () => ({
+vi.mock("~/lib/customThemes", () => ({
   customThemes: { list: [] },
 }));
 
@@ -64,7 +64,7 @@ describe("settings profile lifecycle", () => {
     api.getSettings
       .mockReturnValueOnce(first)
       .mockResolvedValueOnce({ fontSize: 36, fontFamily: "literata" });
-    const { settings } = await import("~/lib/settings.svelte");
+    const { settings } = await import("~/lib/settings");
 
     const oldLoad = settings.load();
     const oldSignal = api.getSettings.mock.calls[0][0] as AbortSignal;
@@ -91,7 +91,7 @@ describe("settings save ordering", () => {
       .mockReturnValueOnce(first)
       .mockResolvedValueOnce(undefined);
     const { ApiError } = await import("~/api/client");
-    const { settings } = await import("~/lib/settings.svelte");
+    const { settings } = await import("~/lib/settings");
 
     settings.update({ fontSize: 31 });
     await vi.advanceTimersByTimeAsync(500);

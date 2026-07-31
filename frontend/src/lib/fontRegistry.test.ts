@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("~/api/client", () => mocks);
 
 const { fontRegistry, userFamilyCSSName, userFamilyCSSValue } =
-  await import("~/lib/fontRegistry.svelte");
+  await import("~/lib/fontRegistry");
 
 function family(id: string): UserFontFamily {
   return {

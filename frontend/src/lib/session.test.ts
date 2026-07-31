@@ -26,7 +26,7 @@ vi.mock("~/api/client", () => {
   return { ApiError, ...api };
 });
 
-vi.mock("~/lib/settings.svelte", () => ({
+vi.mock("~/lib/settings", () => ({
   settings: { reset: resetSettings },
 }));
 
@@ -43,7 +43,7 @@ beforeEach(() => {
 
 describe("session authentication generation", () => {
   it("ignores a late 401 from the profile before the latest login", async () => {
-    const { session } = await import("~/lib/session.svelte");
+    const { session } = await import("~/lib/session");
     const gate = await import("~/lib/sessionGate");
     const staleEpoch = gate.currentSessionEpoch();
 
@@ -61,7 +61,7 @@ describe("session authentication generation", () => {
 
 describe("profile deletion reconciliation", () => {
   it("clears local state when deletion fails after server revocation", async () => {
-    const { session } = await import("~/lib/session.svelte");
+    const { session } = await import("~/lib/session");
     await session.login("Alice", "", false);
     resetSettings.mockClear();
     api.deleteProfile.mockRejectedValue(new Error("delete failed"));
@@ -78,7 +78,7 @@ describe("profile deletion reconciliation", () => {
 
   it("keeps the session on an invalid-credentials deletion failure", async () => {
     const { ApiError } = await import("~/api/client");
-    const { session } = await import("~/lib/session.svelte");
+    const { session } = await import("~/lib/session");
     await session.login("Alice", "", false);
     resetSettings.mockClear();
     api.deleteProfile.mockRejectedValue(

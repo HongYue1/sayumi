@@ -19,10 +19,10 @@ vi.mock("~/api/client", () => ({
   ...mocks,
   ApiError: class ApiError extends Error {},
 }));
-vi.mock("~/lib/toast.svelte", () => ({ toast: { show: mocks.toast } }));
+vi.mock("~/lib/toast", () => ({ toast: { show: mocks.toast } }));
 vi.mock("~/lib/reachability", () => ({ isReachable: () => true }));
 
-const { Library } = await import("~/lib/library.svelte");
+const { Library } = await import("~/lib/library");
 
 function book(id: string, title: string): BookMeta {
   return {

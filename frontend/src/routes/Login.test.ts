@@ -28,7 +28,7 @@ vi.mock("~/api/client", () => {
   };
 });
 
-vi.mock("~/lib/session.svelte", () => ({
+vi.mock("~/lib/session", () => ({
   session: { login: api.login },
 }));
 

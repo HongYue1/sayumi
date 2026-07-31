@@ -1,3 +1,4 @@
+import { createSignal } from "solid-js";
 import {
   ApiError,
   getAuthStatus,
@@ -7,7 +8,7 @@ import {
   login as apiLogin,
   logout as apiLogout,
 } from "~/api/client";
-import { settings } from "~/lib/settings.svelte";
+import { settings } from "~/lib/settings";
 import {
   advanceSessionEpoch,
   currentSessionEpoch,
@@ -15,37 +16,61 @@ import {
 } from "~/lib/sessionGate";
 
 // Holds the currently authenticated profile. Replaces the legacy lib/profile.ts
-// module-level state with a Svelte 5 rune. The real session lives server-side in
-// the `sayumi_session` cookie; this is the client-side mirror.
+// module-level state. The real session lives server-side in the `sayumi_session`
+// cookie; this is the client-side mirror.
 class Session {
-  /** Active profile name, or null when signed out. */
-  profile = $state<string | null>(null);
-  /** True once the initial server status check has completed. */
-  ready = $state(false);
+  readonly #profileSignal = createSignal<string | null>(null);
+  readonly #readySignal = createSignal(false);
+
+  /**
+   * Plain mirror of `profile`, read by synchronous control flow.
+   *
+   * Solid batches writes, so a signal read immediately after a write still
+   * returns the pre-write value. clearLocalSession() guards on "already signed
+   * out" and then writes; if that guard read the accessor, two 401s arriving in
+   * the same tick would both pass it and advance the session epoch and reset
+   * settings twice. The signal exists only so the UI re-renders.
+   */
+  #profilePlain: string | null = null;
 
   constructor() {
     // When the API layer detects the server-side session is gone (e.g. a
     // restart dropped a non-remembered session, or it expired), fall back to
     // the login screen. No-op when already signed out.
-    subscribeUnauthenticated((epoch) => this.handleSessionLost(epoch));
+    subscribeUnauthenticated((epoch) => this.#handleSessionLost(epoch));
+  }
+
+  /** Active profile name, or null when signed out. */
+  get profile(): string | null {
+    return this.#profileSignal[0]();
+  }
+
+  /** True once the initial server status check has completed. */
+  get ready(): boolean {
+    return this.#readySignal[0]();
   }
 
   get authenticated(): boolean {
     return this.profile !== null;
   }
 
+  #setProfile(value: string | null): void {
+    this.#profilePlain = value;
+    this.#profileSignal[1](value);
+  }
+
   /** Clears the current profile and invalidates requests from its generation. */
-  private clearLocalSession(): void {
-    if (this.profile === null) return;
+  #clearLocalSession(): void {
+    if (this.#profilePlain === null) return;
     advanceSessionEpoch();
-    this.profile = null;
+    this.#setProfile(null);
     settings.reset();
   }
 
   /** Clears local state only when the 401 belongs to the current login. */
-  private handleSessionLost(epoch: number): void {
+  #handleSessionLost(epoch: number): void {
     if (epoch !== currentSessionEpoch()) return;
-    this.clearLocalSession();
+    this.#clearLocalSession();
   }
 
   /** Checks the existing cookie session on app start. */
@@ -54,21 +79,21 @@ class Session {
       const status = await getAuthStatus();
       if (status.authenticated) {
         advanceSessionEpoch();
-        this.profile = status.profile;
+        this.#setProfile(status.profile);
       } else {
-        this.profile = null;
+        this.#setProfile(null);
       }
     } catch {
-      this.profile = null;
+      this.#setProfile(null);
     } finally {
-      this.ready = true;
+      this.#readySignal[1](true);
     }
   }
 
   async login(name: string, pin: string, remember: boolean): Promise<void> {
     const res = await apiLogin(name, pin, remember);
     advanceSessionEpoch();
-    this.profile = res.profile;
+    this.#setProfile(res.profile);
   }
 
   async logout(): Promise<void> {
@@ -77,13 +102,13 @@ class Session {
     } finally {
       // Drop the previous profile's settings so the next login refetches its
       // own from the server instead of inheriting this session's values.
-      this.clearLocalSession();
+      this.#clearLocalSession();
     }
   }
 
   /**
    * Clones the current profile into `newName`, optionally setting `pin` on the
-   * copy. The server only duplicates data — it does NOT switch the session, so
+   * copy. The server only duplicates data - it does NOT switch the session, so
    * the user stays signed in as the current profile and local state is left
    * untouched.
    */
@@ -110,14 +135,14 @@ class Session {
       )) {
         try {
           const status = await getAuthStatus();
-          if (!status.authenticated) this.clearLocalSession();
+          if (!status.authenticated) this.#clearLocalSession();
         } catch {
           // The status probe is best-effort; never mask the deletion failure.
         }
       }
       throw error;
     }
-    this.clearLocalSession();
+    this.#clearLocalSession();
   }
 
   /**

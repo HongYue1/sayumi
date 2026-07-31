@@ -1,5 +1,5 @@
 import type { ChapterData } from "~/api/client";
-import type { IframeSettings } from "~/lib/settings.svelte";
+import type { IframeSettings } from "~/lib/settings";
 
 export interface KeyEvent {
   key: string;
