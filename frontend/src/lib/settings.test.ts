@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({
   getSettings: vi.fn(),
@@ -47,6 +47,13 @@ vi.mock("~/lib/themes", () => ({
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
+  vi.useRealTimers();
+});
+
+afterEach(() => {
+  // Fake timers are worker-global: without a restore they leak into whatever
+  // suite runs next in this worker and starve Solid 2.0's microtask flush
+  // (fake timers also fake queueMicrotask). Login.test.ts hit this.
   vi.useRealTimers();
 });
 

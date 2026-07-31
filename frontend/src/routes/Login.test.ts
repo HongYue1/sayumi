@@ -1,12 +1,10 @@
-// Ported from the Svelte Login.test.ts. Renders the component with
-// @solidjs/web's render directly -- NOT @solidjs/testing-library, whose dist
-// imports the removed "solid-js/web" specifier and dies at suite collection
-// under Solid 2.0. Events are dispatched by hand (as the Svelte version did);
-// `flush` forces Solid 2.0's batched writes so assertions see committed
-// state. This file never calls vi.resetModules(), so a statically imported
-// flush drives the same scheduler instance as the component under test.
+// Ported from the Svelte Login.test.ts (which mounted Login.svelte). Drives
+// the Solid component through @solidjs/testing-library; `flush` forces Solid
+// 2.0's batched writes so assertions see committed state -- this file does
+// not call vi.resetModules(), so a statically imported flush drives the same
+// scheduler instance as the component under test.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render } from "@solidjs/web";
+import { fireEvent, render } from "@solidjs/testing-library";
 import { flush } from "solid-js";
 import Login from "~/routes/Login";
 
@@ -41,23 +39,27 @@ vi.mock("~/lib/session", () => ({
 }));
 
 describe("Login profile creation", () => {
-  let container: HTMLDivElement;
-  let dispose: (() => void) | undefined;
+  let container: HTMLElement;
+  let unmount: (() => void) | undefined;
 
   beforeEach(() => {
+    // A fake clock leaked by another suite in this worker (fake timers also
+    // fake queueMicrotask) would starve Solid's batch flush and freeze the
+    // component mid-render. Never trust ambient timer state.
+    vi.useRealTimers();
     api.listProfiles.mockReset().mockResolvedValue([]);
     api.createProfile.mockReset().mockResolvedValue({ name: "Reader" });
     api.login
       .mockReset()
       .mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValueOnce(undefined);
-    container = document.createElement("div");
-    document.body.append(container);
-    dispose = render(Login, container);
+    const result = render(Login);
+    container = result.container;
+    unmount = result.unmount;
   });
 
   afterEach(() => {
-    dispose?.();
+    unmount?.();
     container.remove();
   });
 
@@ -73,15 +75,10 @@ describe("Login profile creation", () => {
     const name = container.querySelector<HTMLInputElement>(
       'input[aria-label="Profile name"]',
     )!;
-    name.value = "Reader";
-    name.dispatchEvent(new Event("input", { bubbles: true }));
+    fireEvent.input(name, { target: { value: "Reader" } });
     flush();
 
-    container
-      .querySelector("form")!
-      .dispatchEvent(
-        new SubmitEvent("submit", { bubbles: true, cancelable: true }),
-      );
+    fireEvent.submit(container.querySelector("form")!);
 
     await vi.waitFor(() => {
       expect(container.textContent).toContain(
