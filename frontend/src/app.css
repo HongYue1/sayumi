@@ -575,3 +575,28 @@ select optgroup {
     transition-delay: 0ms !important;
   }
 }
+
+/* ---- App shell --------------------------------------------------------- */
+/* Ported out of App.svelte's scoped <style>: Solid has no scoped styles. The
+   bare `main` selector is safe -- the shell renders the only <main> in the app
+   (verified: App.svelte was the sole occurrence). */
+main {
+  padding-top: var(--offline-banner-h, 0px);
+}
+.boot {
+  min-height: calc(100vh - var(--offline-banner-h, 0px));
+}
+/* Visually hidden but announced by AT during boot. App.svelte's comment noted
+   that no global utility existed; now one does, so Read's scoped copy becomes
+   redundant when Read is ported. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
