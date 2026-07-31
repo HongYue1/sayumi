@@ -76,7 +76,7 @@ export default function ShortcutsHelp() {
             the a11y click rules stay satisfied without suppressions. */}
         <button
           type="button"
-          class="shortcuts-backdrop"
+          class="backdrop-dismiss"
           aria-label="Close"
           tabindex="-1"
           onClick={close}

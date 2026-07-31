@@ -727,8 +727,9 @@ main {
   place-items: center;
   padding: var(--sp-6);
 }
-/* Full-area dismiss button behind the sheet; UA button styles reset. */
-.shortcuts-backdrop {
+/* Full-area dismiss button behind an overlay sheet; UA button styles reset.
+   Shared by ShortcutsHelp and CommandPalette. */
+.backdrop-dismiss {
   position: fixed;
   inset: 0;
   margin: 0;
@@ -817,4 +818,128 @@ main {
   font-size: var(--text-sm);
   text-align: right;
   flex-shrink: 0;
+}
+
+/* ---- Command palette ---------------------------------------------------- */
+/* Ported out of CommandPalette.svelte's scoped <style>: Solid has no scoped
+   styles. `.overlay`/`.palette` renamed to `.cmd-*` (Svelte-scoping-safe
+   names only); the veil + blur backdrop is the shared .backdrop-dismiss, and
+   `.paper`, `.kbd` are reused from the global design system. */
+.cmd-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12vh var(--sp-4) var(--sp-4);
+}
+.cmd-palette {
+  position: relative;
+  width: min(37rem, 100%);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+  animation: app-sheet-in var(--dur-slow) var(--ease-out);
+}
+.cmd-search {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-5);
+  border-bottom: 1px solid var(--hairline);
+}
+.cmd-search-icon {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.cmd-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-lg);
+  font-weight: 480;
+  padding: 1rem 0;
+}
+.cmd-input:focus-visible {
+  outline: none;
+  /* The palette dialog is the focus container; the input doesn't need its
+     own accent ring (the global :focus-visible box-shadow). */
+  box-shadow: none;
+}
+.cmd-input::placeholder {
+  color: var(--faint);
+}
+.cmd-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--sp-2);
+  overflow-y: auto;
+}
+.cmd {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.58rem 0.75rem;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-weight: 520;
+  text-align: left;
+  cursor: pointer;
+  /* Bookmark bar that appears on the active row. */
+  box-shadow: inset 0 0 0 0 var(--accent);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+.cmd.active {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 0 var(--accent);
+}
+.cmd-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmd-hint {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 640;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.cmd.active .cmd-hint {
+  color: var(--muted);
+}
+.cmd-empty {
+  padding: 1rem 0.75rem;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-style: italic;
+  font-family: var(--font-display);
+}
+.cmd-foot {
+  display: flex;
+  gap: var(--sp-4);
+  padding: var(--sp-2) var(--sp-5);
+  border-top: 1px solid var(--hairline);
+  color: var(--faint);
+  font-size: var(--text-xs);
+}
+.cmd-foot span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
