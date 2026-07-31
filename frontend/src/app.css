@@ -712,3 +712,109 @@ main {
 .offline-banner-retry:active {
   transform: scale(0.96);
 }
+
+/* ---- Shortcuts help ----------------------------------------------------- */
+/* Ported out of ShortcutsHelp.svelte's scoped <style>: Solid has no scoped
+   styles. Everything prefixed `.shortcuts-` -- the bare `.overlay`/`.sheet`
+   names only worked under Svelte scoping, and CommandPalette has its own pair
+   coming. `.eyebrow`, `.icon-btn`, `.kbd`, `.press` and the two keyframes are
+   the existing global design-system pieces and are reused, not duplicated. */
+.shortcuts-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-6);
+}
+/* Full-area dismiss button behind the sheet; UA button styles reset. */
+.shortcuts-backdrop {
+  position: fixed;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--veil);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  cursor: default;
+  animation: app-overlay-in var(--dur) var(--ease-out);
+}
+.shortcuts-sheet {
+  position: relative;
+  width: min(34rem, 100%);
+  max-height: calc(100dvh - var(--sp-6) - var(--sp-6));
+  overflow-y: auto;
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-3);
+  animation: app-sheet-in var(--dur-slow) var(--ease-out);
+}
+.shortcuts-sheet header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-5) var(--sp-5) var(--sp-3);
+  border-bottom: 1px solid var(--hairline);
+}
+.shortcuts-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.shortcuts-head-text .eyebrow {
+  margin: 0;
+}
+.shortcuts-sheet h2 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 540;
+  line-height: var(--lh-tight);
+}
+.shortcuts-close {
+  flex-shrink: 0;
+}
+.shortcuts-groups {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-6);
+  padding: var(--sp-5);
+}
+@media (max-width: 30rem) {
+  .shortcuts-groups {
+    grid-template-columns: 1fr;
+  }
+}
+.shortcuts-groups .eyebrow {
+  margin: 0 0 var(--sp-3);
+}
+.shortcuts-groups dl {
+  margin: 0;
+}
+.shortcuts-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0.3rem 0;
+}
+.shortcuts-row dt {
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+/* Printer's dotted leader between the keys and their description. */
+.shortcuts-leader {
+  flex: 1;
+  border-bottom: 1px dotted var(--hairline-strong);
+  transform: translateY(0.3em);
+  min-width: 1rem;
+}
+.shortcuts-row dd {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  text-align: right;
+  flex-shrink: 0;
+}
