@@ -1,9 +1,10 @@
 {
-  "extends": "@tsconfig/svelte/tsconfig.json",
   "compilerOptions": {
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "jsx": "preserve",
+    "jsxImportSource": "@solidjs/web",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
@@ -13,8 +14,9 @@
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
-    "types": ["svelte", "vite/client", "node"],
+    "types": ["vite/client", "node"],
+    "baseUrl": ".",
     "paths": { "~/*": ["./src/*"] }
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "src/**/*.d.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts"]
 }
