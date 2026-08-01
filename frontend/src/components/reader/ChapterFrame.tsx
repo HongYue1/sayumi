@@ -1,53 +1,96 @@
-<script lang="ts">
-  import { onMount } from "svelte";
-  import { buildFrameSrcdoc } from "~/iframe/buildFrameHtml";
-  import { buildReaderFontFaces } from "~/lib/readerFontFaces";
-  import type { ChapterData } from "~/api/client";
-  import type { IframeSettings } from "~/lib/settings.svelte";
-  import type { ChapterFrameAPI, KeyEvent } from "./frame-types";
-  import type {
-    ParentToFrameMessage,
-    FrameToParentMessage,
-  } from "~/lib/frameMessages";
-  import { createFrameMessageQueue } from "./frameMessageQueue";
+// ChapterFrame: sandboxed srcdoc iframe + postMessage bridge — Solid 2.0 port.
+// (Solid notes: all instance state is non-reactive by design — nothing rendered
+// reads it, so plain `let` bindings replace $state. The Svelte {@attach}
+// teardown becomes a component-level onCleanup: the iframe lives exactly as
+// long as the component.)
+import { onCleanup, onSettled } from "solid-js";
+import { buildFrameSrcdoc } from "~/iframe/buildFrameHtml";
+import { buildReaderFontFaces } from "~/lib/readerFontFaces";
+import type { ChapterFrameAPI, KeyEvent } from "./frame-types";
+import type {
+  FrameToParentMessage,
+  ParentToFrameMessage,
+} from "~/lib/frameMessages";
+import { createFrameMessageQueue } from "./frameMessageQueue";
 
-  interface Props {
-    initialTheme: string;
-    onapi?: (api: ChapterFrameAPI) => void;
-    onready?: () => void;
-    onloaded?: (seq: number) => void;
-    onposition?: (chapterIndex: number, percent: number, cfi?: string) => void;
-    onboundary?: (boundary: "start" | "end") => void;
-    onlinkclicked?: (href: string) => void;
-    onkey?: (e: KeyEvent) => void;
-    onclickregion?: (region: "left" | "center" | "right") => void;
-    onframeerror?: (code: string, message: string) => void;
+// srcdoc iframes report a null origin, so "*" is the only valid postMessage
+// target. frame.ts uses the same target for the same reason.
+const FRAME_TARGET_ORIGIN = "*";
+
+// ---- inbound message validation -----------------------------------------
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null;
+const isNum = (v: unknown): v is number =>
+  typeof v === "number" && Number.isFinite(v);
+const isBool = (v: unknown): v is boolean => typeof v === "boolean";
+const isStr = (v: unknown): v is string => typeof v === "string";
+const isBoundary = (v: unknown): v is "start" | "end" =>
+  v === "start" || v === "end";
+const isRegion = (v: unknown): v is "left" | "center" | "right" =>
+  v === "left" || v === "center" || v === "right";
+
+function isInbound(v: unknown): v is FrameToParentMessage {
+  if (!isRecord(v) || !isStr(v.type)) return false;
+  switch (v.type) {
+    case "ready":
+      return true;
+    case "loaded":
+      return isNum(v.seq);
+    case "position":
+      return (
+        isNum(v.seq) &&
+        isNum(v.chapterIndex) &&
+        isNum(v.percent) &&
+        (v.cfi === undefined || v.cfi === null || isStr(v.cfi))
+      );
+    case "at-boundary":
+      return isNum(v.seq) && isBoundary(v.boundary);
+    case "link-clicked":
+      return isNum(v.seq) && isStr(v.href);
+    case "key":
+      return (
+        isNum(v.seq) &&
+        isStr(v.key) &&
+        isStr(v.code) &&
+        isBool(v.ctrlKey) &&
+        isBool(v.shiftKey) &&
+        isBool(v.altKey) &&
+        isBool(v.metaKey)
+      );
+    case "click":
+      return isNum(v.seq) && isRegion(v.region);
+    case "load-error":
+      return isNum(v.seq) && isStr(v.error);
+    default:
+      return false;
   }
+}
 
-  let {
-    initialTheme,
-    onapi,
-    onready,
-    onloaded,
-    onposition,
-    onboundary,
-    onlinkclicked,
-    onkey,
-    onclickregion,
-    onframeerror,
-  }: Props = $props();
+function acceptedOrigin(origin: string): boolean {
+  return origin === "null" || origin === window.location.origin;
+}
 
-  // srcdoc iframes report a null origin, so "*" is the only valid postMessage
-  // target. frame.ts uses the same target for the same reason.
-  const FRAME_TARGET_ORIGIN = "*";
+interface Props {
+  initialTheme: string;
+  onapi?: (api: ChapterFrameAPI) => void;
+  onready?: () => void;
+  onloaded?: (seq: number) => void;
+  onposition?: (chapterIndex: number, percent: number, cfi?: string) => void;
+  onboundary?: (boundary: "start" | "end") => void;
+  onlinkclicked?: (href: string) => void;
+  onkey?: (e: KeyEvent) => void;
+  onclickregion?: (region: "left" | "center" | "right") => void;
+  onframeerror?: (code: string, message: string) => void;
+}
 
+export default function ChapterFrame(props: Props) {
   // srcdoc is built once at mount; the iframe document is static thereafter and
-  // theme changes are pushed in via apply-settings, so the initial theme is fine.
-  // svelte-ignore state_referenced_locally
-  const srcdoc = buildFrameSrcdoc(crypto.randomUUID(), initialTheme);
+  // theme changes are pushed in via apply-settings, so the initial theme is
+  // fine. Deliberately a plain const: props.initialTheme is read once.
+  const srcdoc = buildFrameSrcdoc(crypto.randomUUID(), props.initialTheme);
 
   // Non-reactive instance state (not rendered).
-  let iframeEl: HTMLIFrameElement | null = null;
+  let iframeEl: HTMLIFrameElement | undefined;
   let seq = 0;
   let ready = false;
   const messageQueue = createFrameMessageQueue();
@@ -73,59 +116,6 @@
     }
   }
 
-  // ---- inbound message validation -----------------------------------------
-  const isRecord = (v: unknown): v is Record<string, unknown> =>
-    typeof v === "object" && v !== null;
-  const isNum = (v: unknown): v is number =>
-    typeof v === "number" && Number.isFinite(v);
-  const isBool = (v: unknown): v is boolean => typeof v === "boolean";
-  const isStr = (v: unknown): v is string => typeof v === "string";
-  const isBoundary = (v: unknown): v is "start" | "end" =>
-    v === "start" || v === "end";
-  const isRegion = (v: unknown): v is "left" | "center" | "right" =>
-    v === "left" || v === "center" || v === "right";
-
-  function isInbound(v: unknown): v is FrameToParentMessage {
-    if (!isRecord(v) || !isStr(v.type)) return false;
-    switch (v.type) {
-      case "ready":
-        return true;
-      case "loaded":
-        return isNum(v.seq);
-      case "position":
-        return (
-          isNum(v.seq) &&
-          isNum(v.chapterIndex) &&
-          isNum(v.percent) &&
-          (v.cfi === undefined || v.cfi === null || isStr(v.cfi))
-        );
-      case "at-boundary":
-        return isNum(v.seq) && isBoundary(v.boundary);
-      case "link-clicked":
-        return isNum(v.seq) && isStr(v.href);
-      case "key":
-        return (
-          isNum(v.seq) &&
-          isStr(v.key) &&
-          isStr(v.code) &&
-          isBool(v.ctrlKey) &&
-          isBool(v.shiftKey) &&
-          isBool(v.altKey) &&
-          isBool(v.metaKey)
-        );
-      case "click":
-        return isNum(v.seq) && isRegion(v.region);
-      case "load-error":
-        return isNum(v.seq) && isStr(v.error);
-      default:
-        return false;
-    }
-  }
-
-  function acceptedOrigin(origin: string): boolean {
-    return origin === "null" || origin === window.location.origin;
-  }
-
   function handleMessage(event: MessageEvent<unknown>): void {
     const target = frameWindow();
     if (!target || event.source !== target) return;
@@ -141,24 +131,24 @@
           fontFaces: buildReaderFontFaces(),
         });
         flushQueue();
-        onready?.();
+        props.onready?.();
         break;
       case "loaded":
-        if (m.seq === seq) onloaded?.(m.seq);
+        if (m.seq === seq) props.onloaded?.(m.seq);
         break;
       case "position":
         if (m.seq === seq)
-          onposition?.(m.chapterIndex, m.percent, m.cfi ?? undefined);
+          props.onposition?.(m.chapterIndex, m.percent, m.cfi ?? undefined);
         break;
       case "at-boundary":
-        if (m.seq === seq) onboundary?.(m.boundary);
+        if (m.seq === seq) props.onboundary?.(m.boundary);
         break;
       case "link-clicked":
-        if (m.seq === seq) onlinkclicked?.(m.href);
+        if (m.seq === seq) props.onlinkclicked?.(m.href);
         break;
       case "key":
         if (m.seq === seq)
-          onkey?.({
+          props.onkey?.({
             key: m.key,
             code: m.code,
             ctrlKey: m.ctrlKey,
@@ -168,12 +158,12 @@
           });
         break;
       case "click":
-        if (m.seq === seq) onclickregion?.(m.region);
+        if (m.seq === seq) props.onclickregion?.(m.region);
         break;
       case "load-error":
         // frame.ts reports chapter render failures as "load-error"; surface
         // them through the same callback so the reader can show its error UI.
-        if (m.seq === seq) onframeerror?.("load-error", m.error);
+        if (m.seq === seq) props.onframeerror?.("load-error", m.error);
         break;
     }
   }
@@ -259,54 +249,51 @@
     }, RASTER_REFRESH_SETTLE_MS);
   }
 
-  onMount(() => onapi?.(api));
+  onSettled(() => props.onapi?.(api));
 
-  onMount(() => {
+  onSettled(() => {
+    // Replaces <svelte:window onmessage={handleMessage} />.
+    window.addEventListener("message", handleMessage);
     const viewport = window.visualViewport;
-    if (!viewport) return;
-    lastRefreshedScale = viewport.scale;
-    viewport.addEventListener("resize", scheduleRasterRefresh);
-    return () => {
-      viewport.removeEventListener("resize", scheduleRasterRefresh);
+    if (viewport) {
+      lastRefreshedScale = viewport.scale;
+      viewport.addEventListener("resize", scheduleRasterRefresh);
+    }
+    onCleanup(() => {
+      window.removeEventListener("message", handleMessage);
+      if (viewport)
+        viewport.removeEventListener("resize", scheduleRasterRefresh);
       if (rasterRefreshTimer !== null) {
         clearTimeout(rasterRefreshTimer);
         rasterRefreshTimer = null;
       }
-    };
+    });
   });
-</script>
 
-<svelte:window onmessage={handleMessage} />
+  // The iframe is the component's root element, so the Svelte {@attach}
+  // teardown becomes a component-level cleanup.
+  onCleanup(() => {
+    const w = iframeEl?.contentWindow;
+    ready = false;
+    messageQueue.clear();
+    if (w) w.postMessage({ type: "destroy" }, FRAME_TARGET_ORIGIN);
+    iframeEl = undefined;
+  });
 
-<!--
-  sandbox: allow-scripts runs frame.ts. allow-popups (+ escape-sandbox) let an
-  in-book link open in a real new tab via window.open() in frame.ts — without
-  them the popup is silently blocked, so a left-click did nothing while a
-  middle-click (the browser's native new-tab path) still worked (bug #8).
--->
-<iframe
-  {@attach (el) => {
-    iframeEl = el as HTMLIFrameElement;
-    return () => {
-      const w = iframeEl?.contentWindow;
-      ready = false;
-      messageQueue.clear();
-      if (w) w.postMessage({ type: "destroy" }, FRAME_TARGET_ORIGIN);
-      iframeEl = null;
-    };
-  }}
-  class="frame"
-  {srcdoc}
-  sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
-  title="Book content"
-></iframe>
-
-<style>
-  .frame {
-    border: none;
-    width: 100%;
-    height: 100%;
-    display: block;
-    background: var(--bg);
-  }
-</style>
+  // sandbox: allow-scripts runs frame.ts. allow-popups (+ escape-sandbox) let
+  // an in-book link open in a real new tab via window.open() in frame.ts —
+  // without them the popup is silently blocked, so a left-click did nothing
+  // while a middle-click (the browser's native new-tab path) still worked
+  // (bug #8).
+  return (
+    <iframe
+      ref={(el) => {
+        iframeEl = el;
+      }}
+      class="cf-frame"
+      srcdoc={srcdoc}
+      sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+      title="Book content"
+    />
+  );
+}
