@@ -158,12 +158,13 @@ export default function BookCard(props: Props) {
   // re-trigger this effect.
   createEffect(() => {
     const menu = openMenu();
-    if (!menu || !menuEl) {
+    const el = menuEl;
+    if (!menu || !el) {
       setFlipX(false);
       setFlipY(false);
       return undefined;
     }
-    const r = menuEl.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
     const margin = 8;
     if (r.right > window.innerWidth - margin) setFlipX(true);
     if (r.bottom > window.innerHeight - margin) setFlipY(true);
