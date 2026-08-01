@@ -554,7 +554,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       if (!destroyed) onReveal();
     }
 
-    document.fonts.ready.then(run);
+    void document.fonts.ready.then(run);
   }
 
   function runInitialLayoutRestore(): void {

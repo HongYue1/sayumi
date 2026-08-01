@@ -1,20 +1,33 @@
 # frontend/AGENTS.md
 
-Svelte 5 + TypeScript + Vite, built with **bun**. The build output goes to
+Solid 2.0 (beta) + TypeScript + Vite, built with **bun**. The build output goes to
 `../cmd/sayumi/dist` and is embedded in the Go binary, so a stale build ships stale UI.
 
 `package.json` is the source of truth for versions — don't restate pins in docs.
 
 ## Commands
 
-From this directory: `bun install`, `bun run dev`, `bun run check` (svelte-check),
-`bun run test` (vitest + happy-dom), `bun run build`, `bun format`.
+From this directory: `bun install`, `bun run dev`, `bun run check` (tsc --noEmit),
+`bun run test` (vitest + happy-dom), `bun run build`, `bun run format`,
+`bun run lint` (oxlint, type-aware).
+
+`dev` and `build` invoke vite's JS entry under bun explicitly
+(`bun node_modules/vite/bin/vite.js …`): the frame-script plugin needs the `Bun`
+global, and vite's node-shebang bin would otherwise spawn real node.
 
 ## Conventions
 
-- Runes only: `$state`, `$derived`, `$effect`. No stores in new code.
-- Reactive modules are named `*.svelte.ts` (e.g. `lib/library.svelte.ts`).
-- Plain CSS with custom properties in `app.css`. No framework, no CSS-in-JS.
+- Signals and memos: `createSignal`, `createMemo`. Effects are compute/apply
+  `createEffect(compute, apply)` pairs — only the compute phase tracks. Lifecycle is
+  `onSettled` / `onCleanup`. No Svelte files or rune modules remain.
+- Components are `.tsx`; stores are plain `.ts` modules built on signals (e.g.
+  `lib/library.ts`).
+- Plain CSS with custom properties in `app.css`. No framework, no CSS-in-JS. Component
+  classes are prefixed (`.bc-`, `.tocp-`, `.rdp-`, …); shared design-system classes
+  (`.field`, `.btn`, `.icon-btn`, `.press`, `.kbd`, `.backdrop-dismiss`) stay global.
+- Icons come from `lib/icons.ts` glyphs via `lib/Icon.tsx`. No lucide dependency.
+- Side panels and other heavy UI split with `clientOnly(loader, { lazy: true })` from
+  `@solidjs/web`; there is no `lazy` in Solid 2.0.
 - Formatting comes from `.prettierrc.json`; don't hand-format around it.
 
 ## Invariants
@@ -25,8 +38,9 @@ From this directory: `bun install`, `bun run dev`, `bun run check` (svelte-check
 - **The reader is a separate document.** `src/iframe/` runs inside a `srcdoc` iframe with
   its own CSP; shell CSS and shell state cannot reach it. Communicate by message only.
 - **Reduced motion is handled once, globally, in `app.css`** — it zeroes duration _and_
-  delay for everything, so per-component blocks are redundant. JS-driven motion is the
-  exception: Svelte `fly`/`fade` and imperative `scrollIntoView` must check it themselves.
+  delay for everything, so per-component blocks are redundant. Imperative motion is the
+  exception: programmatic `scrollIntoView` and timer-driven animation must check it
+  themselves.
 - **A zoom gesture never repaints the reader by itself.** Sandboxed without
   `allow-same-origin`, the iframe has an opaque origin and is composited as its own surface,
   and a pinch rescales that surface without asking it to redraw — the text stays a stretched

@@ -438,7 +438,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
 
   function scheduleFinalFontRelayout(seqAtStart: number): void {
     const token = ++fontRelayoutToken;
-    document.fonts.ready.then(() => {
+    void document.fonts.ready.then(() => {
       if (
         token !== fontRelayoutToken ||
         deps.isDestroyed() ||

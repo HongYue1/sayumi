@@ -21,7 +21,7 @@ import { customThemes } from "~/lib/customThemes";
 import { settings } from "~/lib/settings";
 import { applyTheme, onAccentColor } from "~/lib/theme";
 import { THEMES, autoAccent, themeGroupFor, type ThemeDef } from "~/lib/themes";
-import { type CustomThemeInput } from "~/api/client";
+import type { CustomThemeInput } from "~/api/client";
 import { focusTrap } from "~/lib/focusTrap";
 import Icon from "~/lib/Icon";
 import { X, Trash2 } from "~/lib/icons";

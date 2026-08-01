@@ -44,7 +44,10 @@ export function flairTextColor(background: string): "#000" | "#fff" {
 
   const hex =
     match[1].length === 3
-      ? [...match[1]].map((digit) => digit + digit).join("")
+      ? match[1]
+          .split("")
+          .map((digit) => digit + digit)
+          .join("")
       : match[1];
   const linearChannel = (offset: number): number => {
     const value = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;

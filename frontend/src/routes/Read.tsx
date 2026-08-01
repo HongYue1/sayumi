@@ -1087,9 +1087,13 @@ export default function Read(props: Props) {
     comment: string,
   ): Promise<void> {
     const prev = bookmarks();
-    setBookmarks(
-      bookmarks().map((b) => (b.id === id ? { ...b, label, comment } : b)),
-    );
+    // No map-spread: build the optimistic list with a plain loop (the oxc
+    // no-map-spread convention — see CommandPalette).
+    const optimistic: Bookmark[] = [];
+    for (const b of bookmarks()) {
+      optimistic.push(b.id === id ? { ...b, label, comment } : b);
+    }
+    setBookmarks(optimistic);
     try {
       const updated = await updateBookmark(bookId, id, { label, comment });
       setBookmarks(bookmarks().map((b) => (b.id === id ? updated : b)));
