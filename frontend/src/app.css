@@ -1988,3 +1988,426 @@ main {
   opacity: 0.45;
   cursor: default;
 }
+/* ── BookCard ─────────────────────────────────────────────────────────── */
+
+.bc-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  text-align: left;
+  animation: card-in var(--dur-slower) var(--ease-out) both;
+  animation-delay: var(--enter-delay, 0ms);
+  /* Skip layout + paint for off-screen cards so a large library only renders
+	   what's near the viewport. contain-intrinsic-size keeps the scrollbar
+	   stable before a card's first render; the `auto` keyword then remembers
+	   each card's real measured size. content-visibility implies paint
+	   containment, which would clip a tall flair menu — the card is
+	   deliberately not overflow:hidden so that menu can escape — so the
+	   :has() rule below drops containment for whichever card has it open. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 320px;
+}
+
+/* While a popover (flair or actions) is open, drop containment on that one
+   card so the menu can overflow the card box (the menu element exists only
+   while open, so this targets exactly the active card), and raise the card
+   above sibling cards — each card's entrance transform makes it a stacking
+   context, so a later sibling would otherwise paint over a menu that spills
+   into its area (narrow grids on small screens). */
+.bc-card:has(.bc-flair-menu),
+.bc-card:has(.bc-actions-menu) {
+  content-visibility: visible;
+  z-index: 25;
+}
+
+/* Transparent full-card hit target for "open". Sits above the cover art but
+   below the corner action buttons (z-index: 3) and the popover menus. */
+.bc-open-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  cursor: pointer;
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* The physical volume: transform-only lift, shadow crossfaded on a pseudo
+   element so hover never repaints the cover art. */
+.bc-volume {
+  position: relative;
+  transition: transform var(--dur-slow) var(--ease-out);
+}
+.bc-card:hover .bc-volume,
+.bc-card:has(.bc-open-overlay:focus-visible) .bc-volume {
+  transform: translateY(-6px) rotate(-0.4deg);
+}
+
+.bc-cover {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  /* A book's squarer spine edge on the left, softer page edge on the right. */
+  border-radius: 3px 8px 8px 3px;
+  overflow: hidden;
+  background: var(--raised);
+  box-shadow: var(--shadow-2);
+}
+/* Hover shadow lives on the volume (under the cover), crossfaded via opacity. */
+.bc-volume::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 3px 8px 8px 3px;
+  box-shadow: var(--shadow-3);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-slow) var(--ease-out);
+  z-index: -1;
+}
+.bc-card:hover .bc-volume::after,
+.bc-card:has(.bc-open-overlay:focus-visible) .bc-volume::after {
+  opacity: 1;
+}
+/* Spine shading + a whisper of gloss along the fore-edge. */
+.bc-cover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    to right,
+    rgb(0 0 0 / 0.22),
+    rgb(255 255 255 / 0.08) 3%,
+    transparent 8%,
+    transparent 97%,
+    rgb(0 0 0 / 0.08)
+  );
+  /* Hairline keyline so near-white covers don't dissolve into the page. */
+  box-shadow: inset 0 0 0 1px
+    light-dark(rgb(0 0 0 / 0.08), rgb(255 255 255 / 0.08));
+}
+
+/* Keyboard focus draws the ring around the volume itself. */
+.bc-open-overlay:focus-visible {
+  outline: none;
+}
+.bc-card:has(.bc-open-overlay:focus-visible) .bc-cover {
+  box-shadow:
+    var(--shadow-2),
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--accent);
+}
+
+.bc-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Publisher's plain jacket: typeset title inside a hairline frame. */
+.bc-placeholder {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-5) var(--sp-4);
+  text-align: center;
+  background: linear-gradient(
+    160deg,
+    var(--surface),
+    color-mix(in srgb, var(--accent) 10%, transparent)
+  );
+}
+.bc-ph-frame {
+  position: absolute;
+  inset: 9px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 2px;
+  pointer-events: none;
+}
+.bc-ph-frame::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border: 1px solid var(--hairline);
+  border-radius: 1px;
+}
+.bc-ph-fleuron {
+  position: absolute;
+  top: 16%;
+  left: 0;
+  right: 0;
+  font-size: var(--text-sm);
+  color: var(--faint);
+}
+.bc-ph-title {
+  font-size: var(--text-base);
+  font-style: italic;
+  font-weight: 520;
+  line-height: var(--lh-snug);
+  color: var(--muted);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  line-clamp: 5;
+  -webkit-box-orient: vertical;
+}
+
+/* Progress as a thin accent rule pinned to the foot of the cover. */
+.bc-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: light-dark(rgb(0 0 0 / 0.18), rgb(255 255 255 / 0.18));
+}
+.bc-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 0 2px 2px 0;
+}
+
+/* Shared style for the two corner actions (gear + flair): small ink-glass
+   squares that fade in on hover. */
+.bc-chip-btn {
+  position: absolute;
+  top: var(--sp-2);
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+.bc-card:hover .bc-chip-btn,
+.bc-card:focus-within .bc-chip-btn {
+  opacity: 1;
+}
+/* Coarse pointers cannot discover hover-only controls before tapping them. */
+@media (hover: none), (pointer: coarse) {
+  .bc-chip-btn {
+    opacity: 1;
+  }
+}
+.bc-chip-btn:hover {
+  background: rgb(0 0 0 / 0.72);
+}
+.bc-chip-btn:active {
+  transform: scale(0.94);
+}
+/* The gear opens the actions menu (edit / share / delete) at top-right. */
+.bc-actions-btn {
+  right: var(--sp-2);
+}
+.bc-flair-btn {
+  left: var(--sp-2);
+}
+
+.bc-flair-badge {
+  position: absolute;
+  bottom: var(--sp-2);
+  left: var(--sp-2);
+  max-width: calc(100% - var(--sp-4));
+  padding: 0.14rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
+}
+
+.bc-flair-menu {
+  position: absolute;
+  top: 2.4rem;
+  left: var(--sp-2);
+  z-index: 21;
+  min-width: 10.5rem;
+  max-height: min(calc(50dvh - var(--sp-2)), 28rem);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: var(--sp-2);
+  transform-origin: top left;
+  --menu-pop-y: -3px;
+  animation: app-menu-pop-in var(--dur-fast) var(--ease-out) both;
+}
+/* Edge-aware flips: keep the popover inside the viewport for cards in the
+   last column / near the bottom. flip-y anchors the menu's bottom to where
+   its top would have been (just below the trigger) and grows upward. */
+.bc-flair-menu.flip-x {
+  left: auto;
+  right: var(--sp-2);
+  transform-origin: top right;
+}
+.bc-flair-menu.flip-y {
+  top: auto;
+  bottom: calc(100% - 2.4rem);
+  transform-origin: bottom left;
+}
+.bc-flair-menu.flip-x.flip-y {
+  transform-origin: bottom right;
+}
+
+/* The gear's actions menu mirrors the flair popover's framing but anchors to
+   the top-right (under the gear). It's right-anchored, so it only needs the
+   vertical flip near the viewport's bottom edge. */
+.bc-actions-menu {
+  position: absolute;
+  top: 2.4rem;
+  right: var(--sp-2);
+  z-index: 21;
+  min-width: 9.5rem;
+  padding: var(--sp-2);
+  transform-origin: top right;
+  --menu-pop-y: -3px;
+  animation: app-menu-pop-in var(--dur-fast) var(--ease-out) both;
+}
+.bc-actions-menu.flip-y {
+  top: auto;
+  bottom: calc(100% - 2.4rem);
+  transform-origin: bottom right;
+}
+.bc-menu-heading {
+  margin: 0.15rem 0.45rem 0.4rem;
+}
+.bc-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 0.42rem 0.5rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 520;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+.bc-menu-item:hover {
+  background: var(--surface-hover);
+}
+.bc-menu-item:active {
+  transform: scale(0.98);
+}
+.bc-menu-item.active {
+  font-weight: 650;
+}
+.bc-menu-item .bc-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.bc-menu-item .bc-menu-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bc-menu-item .bc-check {
+  display: inline-flex;
+  color: var(--accent-ink);
+}
+.bc-menu-item .bc-menu-ico {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.bc-menu-item.danger {
+  color: var(--danger);
+}
+.bc-menu-item.danger .bc-menu-ico {
+  color: var(--danger);
+}
+.bc-menu-item.danger:hover {
+  background: var(--danger-surface);
+  color: var(--danger-surface-fg);
+}
+.bc-menu-item.danger:hover .bc-menu-ico {
+  color: var(--danger-surface-fg);
+}
+
+/* Catalog caption: open type under the volume, no tile. */
+.bc-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  padding: var(--sp-2) var(--sp-1) 0;
+}
+.bc-title {
+  font-size: 0.98rem;
+  font-weight: 540;
+  line-height: var(--lh-snug);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  transition: color var(--dur) var(--ease-out);
+}
+.bc-card:hover .bc-title,
+.bc-card:has(.bc-open-overlay:focus-visible) .bc-title {
+  color: var(--accent-ink);
+}
+.bc-byline {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+.bc-author {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bc-pct {
+  flex: none;
+  margin-left: auto;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--accent-ink);
+}
