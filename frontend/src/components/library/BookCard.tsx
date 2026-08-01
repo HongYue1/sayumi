@@ -122,54 +122,65 @@ export default function BookCard(props: Props) {
   // menu, so its keydown never bubbled to the menu's handler). The
   // capture-phase click also swallows the dismissing click (like the old
   // scrim) so it doesn't fall through and open a book.
-  createEffect(() => {
-    const menu = openMenu();
-    if (!menu) return undefined;
-    const trigger = activeTrigger();
-    const onWindowClick = (e: MouseEvent): void => {
-      const t = e.target;
-      if (
-        menuEl?.contains(t as Node | null) ||
-        trigger?.contains(t as Node | null)
-      )
-        return;
-      e.preventDefault();
-      e.stopPropagation();
-      closeMenu(false);
-    };
-    const onWindowKeyDown = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") {
+  // Compute/apply pair: single-argument createEffect is a one-shot in
+  // Solid 2.0 and silently drops the returned cleanup (MISSING_EFFECT_FN),
+  // so these window listeners would never attach on open.
+  createEffect(
+    () => openMenu(),
+    (menu) => {
+      if (!menu) return undefined;
+      const trigger = activeTrigger();
+      const onWindowClick = (e: MouseEvent): void => {
+        const t = e.target;
+        if (
+          menuEl?.contains(t as Node | null) ||
+          trigger?.contains(t as Node | null)
+        )
+          return;
         e.preventDefault();
-        closeMenu();
-      }
-    };
-    window.addEventListener("click", onWindowClick, true);
-    window.addEventListener("keydown", onWindowKeyDown);
-    return () => {
-      window.removeEventListener("click", onWindowClick, true);
-      window.removeEventListener("keydown", onWindowKeyDown);
-    };
-  });
+        e.stopPropagation();
+        closeMenu(false);
+      };
+      const onWindowKeyDown = (e: KeyboardEvent): void => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          closeMenu();
+        }
+      };
+      window.addEventListener("click", onWindowClick, true);
+      window.addEventListener("keydown", onWindowKeyDown);
+      return () => {
+        window.removeEventListener("click", onWindowClick, true);
+        window.removeEventListener("keydown", onWindowKeyDown);
+      };
+    },
+  );
 
   // Measure the open menu once and flip it inward if it spills past the
   // viewport edge; reset on close so the next open re-measures from the
   // default top-left position rather than inheriting a stale flip. Reads
   // openMenu/menuEl only (never flipX/flipY), so applying a flip doesn't
   // re-trigger this effect.
-  createEffect(() => {
-    const menu = openMenu();
-    const el = menuEl;
-    if (!menu || !el) {
-      setFlipX(false);
-      setFlipY(false);
+  // Compute/apply pair (same one-shot hazard as above). The DOM read of
+  // menuEl lives in the apply phase, which runs post-flush — after the
+  // menu's ref has been assigned on open. Compute reads openMenu() only
+  // (never flipX/flipY), so applying a flip doesn't re-trigger this effect.
+  createEffect(
+    () => openMenu(),
+    (menu) => {
+      const el = menuEl;
+      if (!menu || !el) {
+        setFlipX(false);
+        setFlipY(false);
+        return undefined;
+      }
+      const r = el.getBoundingClientRect();
+      const margin = 8;
+      if (r.right > window.innerWidth - margin) setFlipX(true);
+      if (r.bottom > window.innerHeight - margin) setFlipY(true);
       return undefined;
-    }
-    const r = el.getBoundingClientRect();
-    const margin = 8;
-    if (r.right > window.innerWidth - margin) setFlipX(true);
-    if (r.bottom > window.innerHeight - margin) setFlipY(true);
-    return undefined;
-  });
+    },
+  );
 
   // Escape closes the popover and returns focus to its trigger.
   function onMenuKeydown(

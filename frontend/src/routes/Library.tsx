@@ -222,12 +222,18 @@ export default function Library() {
   }
 
   // Replaces <svelte:window onpointerdown={sortOpen ? onSortOutside : undefined}>:
-  // the listener lives only while the menu is open.
-  createEffect(() => {
-    if (!sortOpen()) return undefined;
-    window.addEventListener("pointerdown", onSortOutside);
-    return () => window.removeEventListener("pointerdown", onSortOutside);
-  });
+  // the listener lives only while the menu is open. Compute/apply pair:
+  // single-argument createEffect is a one-shot in Solid 2.0 and silently
+  // drops the returned cleanup (MISSING_EFFECT_FN), so this listener would
+  // never attach on open.
+  createEffect(
+    () => sortOpen(),
+    (open) => {
+      if (!open) return undefined;
+      window.addEventListener("pointerdown", onSortOutside);
+      return () => window.removeEventListener("pointerdown", onSortOutside);
+    },
+  );
 
   return (
     <div
