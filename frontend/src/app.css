@@ -4174,3 +4174,358 @@ main {
 .stp-toggle input {
   accent-color: var(--accent);
 }
+
+/* ── Read (reader route) ────────────────────────────────────────────── */
+
+.rdp {
+  position: relative;
+  height: calc(100vh - var(--offline-banner-h, 0px));
+  overflow: hidden;
+}
+/* The chrome (bar + progress) overlays a full-bleed stage so toggling its
+   visibility never resizes the iframe (which would force re-pagination).
+   The bar floats as an inset glass slip rather than a full-width strip. */
+.rdp-bar {
+  position: absolute;
+  top: var(--sp-3);
+  left: var(--sp-3);
+  right: var(--sp-3);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 0.4rem 0.6rem;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+  transition:
+    transform var(--dur-slow) var(--ease-out),
+    opacity var(--dur-slow) var(--ease-out);
+}
+.rdp-bar.rdp-hidden {
+  transform: translateY(calc(-100% - var(--sp-4)));
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--dur) var(--ease-in),
+    opacity var(--dur) var(--ease-in);
+}
+.rdp-chrome-hidden {
+  cursor: none;
+}
+.rdp-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+}
+.rdp-icon {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0.45rem;
+  /* 44×44 minimum hit area (tap-target audit); the icon glyph stays centered
+     via flex. */
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+.rdp-icon:hover {
+  background: var(--surface);
+  color: var(--fg);
+}
+.rdp-icon:active {
+  transform: scale(0.94);
+}
+.rdp-icon.active,
+.rdp-icon[aria-pressed="true"] {
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+}
+.rdp-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding-left: var(--sp-1);
+}
+.rdp-book {
+  font-weight: 560;
+  font-size: 1.08rem;
+  line-height: var(--lh-tight);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rdp-chapter {
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: var(--lh-snug);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rdp-stage {
+  position: absolute;
+  inset: 0;
+}
+/* display:contents adds no box (zero layout impact) but still propagates
+   `inert` to the iframe + overlays behind an open panel. */
+.rdp-stage-content {
+  display: contents;
+}
+.rdp-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  opacity: 0.65;
+  pointer-events: none;
+}
+/* The press mark, turning slowly while a chapter loads. */
+.rdp-loading-mark {
+  font-size: var(--text-xl);
+  color: var(--muted);
+  animation: mark-turn 1.6s var(--ease) infinite;
+}
+@keyframes mark-turn {
+  0% {
+    transform: rotate(0deg) scale(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: rotate(180deg) scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+    opacity: 0.5;
+  }
+}
+.rdp-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.rdp-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  background: var(--bg);
+  text-align: center;
+  padding: var(--sp-4);
+}
+.rdp-error p {
+  margin: 0;
+  color: var(--muted);
+}
+.rdp-error .rdp-error-title {
+  font-size: var(--text-xl);
+  font-style: italic;
+  font-weight: 480;
+  color: var(--fg);
+}
+
+/* Narrow viewports: fold the secondary tools into the "⋯" menu so the bar
+   never outgrows a phone screen. */
+.rdp-more-dd {
+  position: relative;
+  display: none;
+}
+@media (max-width: 640px) {
+  .rdp-fold {
+    display: none;
+  }
+  .rdp-more-dd {
+    display: inline-flex;
+  }
+}
+.rdp-more-menu {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  z-index: 9;
+  min-width: 13.5rem;
+  padding: var(--sp-2);
+  transform-origin: top right;
+  animation: app-menu-pop-in var(--dur) var(--ease-out) both;
+}
+.rdp-mrow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 0.55rem 0.6rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 520;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.rdp-mrow svg {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.rdp-mrow:hover,
+.rdp-mrow:focus-visible {
+  background: var(--surface-hover);
+  outline: none;
+}
+
+/* Side panels float as paper sheets over the page. Enter animation replaces
+   the Svelte fly transition (x: ∓24px, 280ms, cubicOut ≈ 0.215/0.61/0.355/1);
+   exit animation is dropped — Solid 2.0 has no transition directives and
+   docs29 has no Transition component. */
+.rdp-panel {
+  position: absolute;
+  top: var(--sp-3);
+  bottom: var(--sp-3);
+  width: min(21rem, 86vw);
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+  z-index: 7;
+}
+.rdp-panel.rdp-left {
+  left: var(--sp-3);
+  animation: rdp-panel-in-left 280ms cubic-bezier(0.215, 0.61, 0.355, 1) both;
+}
+.rdp-panel.rdp-right {
+  right: var(--sp-3);
+  width: min(23rem, 92vw);
+  animation: rdp-panel-in-right 280ms cubic-bezier(0.215, 0.61, 0.355, 1) both;
+}
+@keyframes rdp-panel-in-left {
+  from {
+    transform: translateX(-24px);
+    opacity: 0;
+  }
+}
+@keyframes rdp-panel-in-right {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+.rdp-scrim {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: var(--veil);
+  cursor: pointer;
+  z-index: 6;
+  /* Replaces transition:fade={{ duration: 160 }} (fade's default easing is
+     linear). */
+  animation: rdp-fade-in 160ms linear both;
+}
+@keyframes rdp-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+/* Settings only: an invisible click-catcher instead of the veil, so the
+   typography controls live-preview against the real, undimmed page. (No fade
+   on the Svelte original either.) */
+.rdp-scrim.rdp-quiet {
+  background: transparent;
+  animation: none;
+}
+
+.rdp-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  height: 4px;
+  /* The track must read on every paper — a firm ink wash, not a whisper. */
+  background: color-mix(in srgb, var(--fg) 16%, transparent);
+  transition: opacity var(--dur) var(--ease-out);
+}
+.rdp-progress.rdp-hidden {
+  opacity: 0;
+}
+.rdp-fill {
+  width: 100%;
+  height: 100%;
+  /* Solid accent (a faded gradient made the bar near-invisible on light
+     themes); scaleX keeps the animation transform-only and GPU-cheap. */
+  background: var(--accent);
+  border-radius: 0 2px 2px 0;
+  transform: scaleX(var(--progress-scale, 0));
+  transform-origin: left center;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+/* Book-level position chip riding above the progress bar's right end. */
+.rdp-pos {
+  position: absolute;
+  right: var(--sp-3);
+  bottom: calc(4px + var(--sp-2));
+  z-index: 5;
+  padding: 0.22rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 620;
+  letter-spacing: 0.06em;
+  pointer-events: none;
+  transition:
+    opacity var(--dur) var(--ease-out),
+    transform var(--dur) var(--ease-out);
+}
+.rdp-pos.rdp-hidden {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+/* Reduced motion: snap the progress fill instead of easing it, and skip the
+   panel/scrim enter animations (the Svelte version zeroed PANEL_MS/FADE_MS in
+   JS; CSS owns the kill switch now — and it also covers the exits that no
+   longer exist). */
+@media (prefers-reduced-motion: reduce) {
+  .rdp-fill {
+    transition: none;
+  }
+  .rdp-panel,
+  .rdp-scrim {
+    animation: none;
+  }
+}
