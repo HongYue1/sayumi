@@ -57,6 +57,9 @@ global, and vite's node-shebang bin would otherwise spawn real node.
   masthead ancestors establish containing blocks that clip `position: fixed` to their own
   box.
 - **Protect the load-time budget** (~99 Lighthouse). Animate on interaction, not on mount.
+- **Router hash parsing is defensive.** A malformed percent-encoded book ID in
+  `#/read/<id>` is an invalid route and falls back to the library — never a crash
+  or a stuck reader.
 
 ## Testing
 

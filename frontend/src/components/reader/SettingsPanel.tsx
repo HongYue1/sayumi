@@ -13,7 +13,14 @@
 //   - onMount -> onSettled; bind:value -> value + onInput; class:active ->
 //     class={[...]}; style: -> style objects; aria-pressed gets "true"/"false"
 //     strings (EnumeratedPseudoBoolean).
-import { createMemo, createSignal, For, onSettled, Show } from "solid-js";
+import {
+  createMemo,
+  createSignal,
+  For,
+  onCleanup,
+  onSettled,
+  Show,
+} from "solid-js";
 import { settings, DEFAULT_USER_SETTINGS } from "~/lib/settings";
 import { THEMES, getTheme, isBuiltInTheme, type ThemeDef } from "~/lib/themes";
 import { customThemes } from "~/lib/customThemes";
@@ -245,6 +252,7 @@ export default function SettingsPanel(props: Props) {
   // setup on a stray tap.
   const [resetArmed, setResetArmed] = createSignal(false);
   let resetTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(resetTimer));
 
   // Built-ins plus the user's custom themes, split by group. Derived so that
   // creating / editing / deleting a custom theme (customThemes.list is a
@@ -259,7 +267,7 @@ export default function SettingsPanel(props: Props) {
   ]);
 
   // User font families and the currently-selected one (if a user font).
-  const userFamilies = createMemo(() => fontRegistry.families);
+  const userFamilies = () => fontRegistry.families;
   const selectedUserFamily = createMemo(() =>
     isUserFamilyId(s().fontFamily)
       ? fontRegistry.get(s().fontFamily)
