@@ -274,11 +274,14 @@ export default function BookCard(props: Props) {
               </div>
             }
           >
+            {/* Eager window = LCP candidates: covers tie at equal display
+                sizes and the tie goes to whichever paints first, which is not
+                reliably index 0 — mark the whole first screenful. */}
             <img
               src={coverUrl()}
               alt=""
               loading={(props.index ?? 0) < 8 ? "eager" : "lazy"}
-              fetchpriority={(props.index ?? 0) === 0 ? "high" : undefined}
+              fetchpriority={(props.index ?? 0) < 8 ? "high" : undefined}
               decoding="async"
               onError={() => setFailedCoverUrl(coverUrl())}
             />
