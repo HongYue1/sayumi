@@ -3320,3 +3320,250 @@ main {
   width: 100%;
   margin-top: 0.4rem;
 }
+
+/* ── CustomThemeDialog ──────────────────────────────────────────────── */
+
+/* The overlay is a transparent positioning container; the veil (and its
+   click-to-close) is the shared .backdrop-dismiss button, per the app's
+   dialog pattern. */
+.ctd-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-6);
+}
+.ctd-sheet {
+  position: relative; /* stacks above .backdrop-dismiss */
+  width: min(32rem, 100%);
+  max-height: calc(100vh - var(--sp-12));
+  max-height: calc(100dvh - var(--sp-12));
+  overflow-y: auto;
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-3);
+  animation: app-sheet-in var(--dur-slow) var(--ease-out);
+}
+.ctd-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-5) var(--sp-5) var(--sp-3);
+  border-bottom: 1px solid var(--hairline);
+  position: sticky;
+  top: 0;
+  background: var(--raised);
+  z-index: 1;
+}
+.ctd-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.ctd-head-text .eyebrow {
+  margin: 0;
+}
+.ctd-title {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 540;
+  line-height: var(--lh-tight);
+}
+.ctd-close {
+  flex-shrink: 0;
+}
+.ctd-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+}
+
+.ctd-preview {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--fg) 14%, transparent),
+    var(--shadow-1);
+  min-height: 4.5rem;
+}
+.ctd-preview-aa {
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  font-weight: 600;
+  line-height: 1;
+}
+.ctd-preview-sample {
+  flex: 1;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: var(--text-sm);
+}
+.ctd-preview-accent {
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ctd-hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* Label-wrapping field (distinct from the global .field input class). */
+.ctd-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.ctd-field > span {
+  font-size: var(--text-xs);
+  font-weight: 640;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.ctd-field input[type="text"] {
+  height: 2.5rem;
+  padding: 0 0.8rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-sm);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+.ctd-field input[type="text"]:hover {
+  background: var(--surface-hover);
+}
+.ctd-field input[type="text"]:focus-visible {
+  outline: none;
+  background: var(--raised);
+  border-color: var(--accent-line);
+  box-shadow: var(--focus);
+}
+.ctd-field-error {
+  color: var(--danger);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+}
+
+.ctd-colors {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+}
+.ctd-color-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.ctd-color-row input[type="color"] {
+  width: 2.7rem;
+  height: 2.5rem;
+  padding: 3px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.ctd-color-row input[type="color"]:hover:not(:disabled) {
+  border-color: var(--accent-line);
+}
+.ctd-color-row input[type="color"]:disabled,
+.ctd-check input:disabled {
+  cursor: not-allowed;
+}
+.ctd-color-row code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ctd-check {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--text-sm);
+  font-weight: 520;
+  color: var(--fg);
+  cursor: pointer;
+}
+.ctd-check input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+}
+.ctd-check small {
+  color: var(--muted);
+}
+
+.ctd-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--hairline);
+}
+.ctd-spacer {
+  flex: 1;
+}
+.ctd-danger-ghost {
+  border-color: transparent;
+  color: var(--danger);
+}
+.ctd-danger-ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  color: var(--danger);
+}
+.ctd-danger-ghost.armed,
+.ctd-danger-ghost.armed:hover:not(:disabled) {
+  background: var(--danger-surface);
+  border-color: var(--danger-surface);
+  color: var(--danger-surface-fg);
+}
+
+@media (max-width: 30rem) {
+  .ctd-overlay {
+    padding: var(--sp-3);
+  }
+  .ctd-sheet {
+    max-height: calc(100vh - var(--sp-6));
+    max-height: calc(100dvh - var(--sp-6));
+  }
+  .ctd-colors {
+    grid-template-columns: 1fr;
+  }
+  .ctd-actions {
+    flex-wrap: wrap;
+  }
+  .ctd-actions .ctd-spacer {
+    display: none;
+  }
+  .ctd-actions button {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+  .ctd-actions .ctd-danger-ghost {
+    flex-basis: 100%;
+  }
+}

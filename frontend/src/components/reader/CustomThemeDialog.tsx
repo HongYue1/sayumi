@@ -1,0 +1,407 @@
+// CustomThemeDialog: create/edit a custom theme with live preview — Solid 2.0
+// port.
+//
+// Solid 2.0 notes:
+//   - Rendered state is signals; operationController stays a plain let (never
+//     rendered). Seeding-from-props-once is intentional: the dialog is
+//     remounted per open (SettingsPanel gates it with a conditional), so the
+//     initial signal values read props exactly once.
+//   - <svelte:window onkeydowncapture> -> window.addEventListener with
+//     capture: true inside onSettled (this dialog mounts AFTER the reader
+//     route, so capture is what lets stopImmediatePropagation beat Read's
+//     bubble-phase Escape handler regardless of registration order).
+//   - onDestroy -> onCleanup; {@attach focusTrap} -> ref + onCleanup.
+//   - The overlay-click + stopPropagation-on-sheet trick becomes the shared
+//     .backdrop-dismiss button pattern (jsx-a11y rejects the Svelte version),
+//     matching CommandPalette and the library dialogs.
+//   - style: directives -> style objects; bind:value/checked -> value/checked
+//     + onInput/onChange.
+import { createMemo, createSignal, onCleanup, onSettled, Show } from "solid-js";
+import { customThemes } from "~/lib/customThemes";
+import { settings } from "~/lib/settings";
+import { applyTheme, onAccentColor } from "~/lib/theme";
+import { THEMES, autoAccent, themeGroupFor, type ThemeDef } from "~/lib/themes";
+import { type CustomThemeInput } from "~/api/client";
+import { focusTrap } from "~/lib/focusTrap";
+import Icon from "~/lib/Icon";
+import { X, Trash2 } from "~/lib/icons";
+
+interface Props {
+  /** Colors to seed a new theme from (typically the active theme). */
+  base: ThemeDef;
+  /** When provided, edit this existing custom theme instead of creating one. */
+  edit?: ThemeDef | null;
+  onclose: () => void;
+}
+
+// Coerce any color to a 6-digit lowercase #rrggbb, the only form the native
+// color inputs accept. Expands #rgb and falls back for anything unexpected.
+function norm(hex: string, fallback: string): string {
+  const s = hex.trim().replace(/^#/, "");
+  if (/^[0-9a-fA-F]{3}$/.test(s)) {
+    return `#${s[0]}${s[0]}${s[1]}${s[1]}${s[2]}${s[2]}`.toLowerCase();
+  }
+  if (/^[0-9a-fA-F]{6}$/.test(s)) return `#${s.toLowerCase()}`;
+  return fallback;
+}
+
+const MAX_THEME_NAME_CHARS = 60;
+
+export default function CustomThemeDialog(props: Props) {
+  // The dialog is remounted per open, so seeding local editing state from
+  // props once is intentional (the Svelte original documented the same with
+  // state_referenced_locally ignores).
+  const seed = props.edit ?? props.base;
+  const seedBg = norm(seed.bg, "#ffffff");
+  const seedFg = norm(seed.fg, "#111111");
+
+  const [name, setName] = createSignal(props.edit ? props.edit.label : "");
+  const [bg, setBg] = createSignal(seedBg);
+  const [fg, setFg] = createSignal(seedFg);
+  const [accent, setAccent] = createSignal(
+    norm(seed.accent, autoAccent(seedBg, seedFg)),
+  );
+  // Auto by default; when editing, stay auto if the stored accent equals what
+  // auto would derive (the store resolves a blank accent to autoAccent, so
+  // this round-trips the original "auto" choice without the raw record).
+  const [auto, setAuto] = createSignal(
+    !props.edit ||
+      norm(props.edit.accent, "").toLowerCase() === autoAccent(seedBg, seedFg),
+  );
+
+  const [busy, setBusy] = createSignal(false);
+  const [pendingAction, setPendingAction] = createSignal<
+    "save" | "delete" | null
+  >(null);
+  const [deleteArmed, setDeleteArmed] = createSignal(false);
+  const [nameDirty, setNameDirty] = createSignal(false);
+  let operationController: AbortController | null = null;
+
+  const editing = createMemo(() => props.edit != null);
+  const resolvedAccent = createMemo(() =>
+    auto() ? autoAccent(bg(), fg()) : accent(),
+  );
+  const accentText = createMemo(() => onAccentColor(resolvedAccent()));
+  const group = createMemo(() => themeGroupFor(bg()));
+  const trimmedName = createMemo(() => name().trim());
+  const nameError = createMemo(() =>
+    trimmedName().length === 0
+      ? "Enter a theme name."
+      : Array.from(trimmedName()).length > MAX_THEME_NAME_CHARS
+        ? `Theme names can contain at most ${MAX_THEME_NAME_CHARS} characters.`
+        : "",
+  );
+  const visibleNameError = createMemo(() => (nameDirty() ? nameError() : ""));
+  const canSave = createMemo(() => !busy() && nameError() === "");
+  const closeLabel = createMemo(() =>
+    pendingAction() === "delete"
+      ? "Cancel deleting theme"
+      : pendingAction() === "save"
+        ? "Cancel saving theme"
+        : "Close",
+  );
+
+  function beginOperation(action: "save" | "delete"): AbortController {
+    const controller = new AbortController();
+    operationController = controller;
+    setPendingAction(action);
+    setBusy(true);
+    return controller;
+  }
+
+  function finishOperation(controller: AbortController): boolean {
+    if (operationController !== controller || controller.signal.aborted) {
+      return false;
+    }
+    operationController = null;
+    setPendingAction(null);
+    setBusy(false);
+    return true;
+  }
+
+  function close(): void {
+    operationController?.abort();
+    operationController = null;
+    props.onclose();
+  }
+
+  function onKeydown(e: KeyboardEvent): void {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      // Consume so the reader / settings window handlers don't also act on it.
+      e.stopImmediatePropagation();
+      close();
+    }
+  }
+
+  // Capture phase: this dialog mounts AFTER the reader route, so its bubble
+  // listener would run last — Read's Escape action (close panel / navigate
+  // back) would have already fired before stopImmediatePropagation could act.
+  // Capture runs before every bubble-phase window listener regardless of
+  // registration order.
+  onSettled(() => {
+    window.addEventListener("keydown", onKeydown, true);
+    onCleanup(() => window.removeEventListener("keydown", onKeydown, true));
+  });
+
+  onCleanup(() => {
+    operationController?.abort();
+    operationController = null;
+  });
+
+  function toggleAuto(e: Event): void {
+    const next = (e.currentTarget as HTMLInputElement).checked;
+    setAuto(next);
+    // Seed the manual picker from the current auto suggestion so turning the
+    // override on starts from a sensible color rather than a stale one.
+    if (!next) setAccent(autoAccent(bg(), fg()));
+  }
+
+  async function save(e: Event): Promise<void> {
+    e.preventDefault();
+    if (busy()) return;
+    setNameDirty(true);
+    if (nameError()) return;
+    const input: CustomThemeInput = {
+      name: trimmedName(),
+      group: group(),
+      bg: bg(),
+      fg: fg(),
+      accent: auto() ? "" : accent(),
+    };
+    const controller = beginOperation("save");
+    const edit = props.edit;
+    if (edit) {
+      const def = await customThemes.update(edit.id, input, controller.signal);
+      if (controller.signal.aborted) return;
+      if (def) {
+        // Its id is unchanged, so the settings effect won't re-fire; repaint
+        // the app chrome directly when the edited theme is the active one. The
+        // reader frame updates reactively via settings.iframe.
+        if (settings.value.theme === def.id) applyTheme(def.id);
+        operationController = null;
+        props.onclose();
+        return;
+      }
+    } else {
+      const def = await customThemes.create(input, controller.signal);
+      if (controller.signal.aborted) return;
+      if (def) {
+        // Apply the new theme immediately so the user sees their creation.
+        settings.update({ theme: def.id });
+        applyTheme(def.id);
+        operationController = null;
+        props.onclose();
+        return;
+      }
+    }
+    // create/update already surfaced a toast on failure; let the user retry.
+    finishOperation(controller);
+  }
+
+  async function remove(): Promise<void> {
+    const edit = props.edit;
+    if (!edit || busy()) return;
+    if (!deleteArmed()) {
+      setDeleteArmed(true);
+      return;
+    }
+    const controller = beginOperation("delete");
+    const wasActive = settings.value.theme === edit.id;
+    const ok = await customThemes.remove(edit.id, controller.signal);
+    if (controller.signal.aborted) return;
+    if (ok) {
+      if (wasActive) {
+        // Fall back to the first built-in sharing the deleted theme's group.
+        const fallback =
+          THEMES.find((th) => th.group === themeGroupFor(edit.bg))?.id ??
+          THEMES[0].id;
+        settings.update({ theme: fallback });
+        applyTheme(fallback);
+      }
+      operationController = null;
+      props.onclose();
+      return;
+    }
+    finishOperation(controller);
+  }
+
+  return (
+    <div class="ctd-overlay" role="presentation">
+      <button
+        type="button"
+        class="backdrop-dismiss"
+        aria-label="Close"
+        tabindex="-1"
+        onClick={close}
+      />
+      <div
+        class="ctd-sheet"
+        role="dialog"
+        tabindex="-1"
+        aria-modal="true"
+        aria-label={editing() ? "Edit custom theme" : "New custom theme"}
+        ref={(el) => onCleanup(focusTrap(el))}
+      >
+        <header class="ctd-head">
+          <div class="ctd-head-text">
+            <p class="eyebrow">Theme</p>
+            <h2 class="display ctd-title">
+              {editing() ? "Edit theme" : "New theme"}
+            </h2>
+          </div>
+          <button
+            class="icon-btn press ctd-close"
+            aria-label={closeLabel()}
+            onClick={close}
+          >
+            <Icon icon={X} size={18} />
+          </button>
+        </header>
+
+        <form class="ctd-form" onSubmit={(e) => void save(e)}>
+          <div
+            class="ctd-preview"
+            style={{ background: bg(), color: fg() }}
+            aria-hidden="true"
+          >
+            <span class="ctd-preview-aa">Aa</span>
+            <span class="ctd-preview-sample">The quick brown fox jumps.</span>
+            <span
+              class="ctd-preview-accent"
+              style={{ background: resolvedAccent(), color: accentText() }}
+            >
+              Accent
+            </span>
+          </div>
+          <p class="ctd-hint">
+            Appears in your{" "}
+            <strong>{group() === "light" ? "Light" : "Dark"}</strong> themes —
+            set automatically from the background.
+          </p>
+
+          <label class="ctd-field">
+            <span>Name</span>
+            <input
+              type="text"
+              value={name()}
+              maxlength={String(MAX_THEME_NAME_CHARS * 2)}
+              placeholder="My theme"
+              autocomplete="off"
+              disabled={busy()}
+              aria-invalid={visibleNameError() ? "true" : undefined}
+              aria-describedby={
+                visibleNameError() ? "theme-name-error" : undefined
+              }
+              onInput={(e) => {
+                setName(e.currentTarget.value);
+                setNameDirty(true);
+              }}
+              ref={(el) => {
+                el.focus();
+              }}
+            />
+            <Show when={visibleNameError()}>
+              <small id="theme-name-error" class="ctd-field-error" role="alert">
+                {visibleNameError()}
+              </small>
+            </Show>
+          </label>
+
+          <div class="ctd-colors">
+            <label class="ctd-field">
+              <span>Background</span>
+              <div class="ctd-color-row">
+                <input
+                  type="color"
+                  value={bg()}
+                  aria-label="Background color"
+                  disabled={busy()}
+                  onInput={(e) => setBg(e.currentTarget.value)}
+                />
+                <code>{bg()}</code>
+              </div>
+            </label>
+            <label class="ctd-field">
+              <span>Text</span>
+              <div class="ctd-color-row">
+                <input
+                  type="color"
+                  value={fg()}
+                  aria-label="Text color"
+                  disabled={busy()}
+                  onInput={(e) => setFg(e.currentTarget.value)}
+                />
+                <code>{fg()}</code>
+              </div>
+            </label>
+          </div>
+
+          <label class="ctd-check">
+            <input
+              type="checkbox"
+              checked={auto()}
+              onChange={toggleAuto}
+              disabled={busy()}
+            />
+            <span>
+              Auto accent <small>(derive from your colors)</small>
+            </span>
+          </label>
+          <Show when={!auto()}>
+            <label class="ctd-field">
+              <span>Accent</span>
+              <div class="ctd-color-row">
+                <input
+                  type="color"
+                  value={accent()}
+                  aria-label="Accent color"
+                  disabled={busy()}
+                  onInput={(e) => setAccent(e.currentTarget.value)}
+                />
+                <code>{accent()}</code>
+              </div>
+            </label>
+          </Show>
+
+          <div class="ctd-actions">
+            <Show when={editing()}>
+              <button
+                type="button"
+                class={[
+                  "btn-ghost press ctd-danger-ghost",
+                  { armed: deleteArmed() },
+                ]}
+                onClick={() => void remove()}
+                disabled={busy()}
+                aria-label={
+                  deleteArmed()
+                    ? `Confirm deleting ${trimmedName() || "custom theme"}`
+                    : `Delete ${trimmedName() || "custom theme"}`
+                }
+              >
+                <Icon icon={Trash2} size={16} />
+                {deleteArmed() ? "Click again to delete" : "Delete"}
+              </button>
+            </Show>
+            <span class="ctd-spacer" />
+            <button type="button" class="btn-ghost press" onClick={close}>
+              {pendingAction() === "delete"
+                ? "Cancel delete"
+                : pendingAction() === "save"
+                  ? "Cancel save"
+                  : "Cancel"}
+            </button>
+            <button type="submit" class="btn press" disabled={!canSave()}>
+              {pendingAction() === "save"
+                ? "Saving…"
+                : editing()
+                  ? "Save changes"
+                  : "Create theme"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
