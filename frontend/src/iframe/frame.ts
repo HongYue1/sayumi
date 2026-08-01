@@ -945,7 +945,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   function getScrollPercent(): number {
     const max = getScrollableMax();
     if (max <= 0) return 0;
-    return Math.min(1, Math.max(0, window.scrollY / max));
+    return Math.min(1, Math.max(0, getAxisScrollPos() / max));
   }
 
   function killScrollMomentum(): void {
@@ -1174,7 +1174,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     ) {
       if (e.key !== " " || !e.shiftKey) {
         const scrollMax = getScrollableMax();
-        if (scrollMax <= 0 || window.scrollY >= scrollMax - 1) {
+        if (scrollMax <= 0 || getAxisScrollPos() >= scrollMax - 1) {
           if (hasNextChapter) {
             sendMessage({
               type: "at-boundary",
@@ -1499,10 +1499,8 @@ const PAGED_SCROLL_KEYS = new Set<string>([
           const pct = Number.isFinite(msg.percent)
             ? Math.min(1, Math.max(0, msg.percent))
             : 0;
-          window.scrollTo({
-            top: max * pct,
-            behavior: "instant" as ScrollBehavior,
-          });
+          // Axis-aware: in vertical-writing scroll mode the flow axis is X.
+          axisScrollTo(max * pct);
           boundary.reset();
           updateBoundaryState();
         }
@@ -1511,10 +1509,8 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       case "scroll-to-end":
         if (contentReady) {
           const max = getScrollableMax();
-          window.scrollTo({
-            top: max,
-            behavior: "instant" as ScrollBehavior,
-          });
+          // Axis-aware: in vertical-writing scroll mode the flow axis is X.
+          axisScrollTo(max);
           boundary.reset();
           updateBoundaryState();
         }
