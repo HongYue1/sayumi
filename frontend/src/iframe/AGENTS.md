@@ -21,6 +21,12 @@ nonce'd `<script>`. Two consequences:
   "tighten" the asset sources — real EPUBs break. Don't loosen script or connect.
 - **Book content is untrusted.** Sanitizing is fail-closed and depth-bounded, remote URLs
   become `about:invalid`, and local ones route through the book's resources endpoint.
+- **Chapter CSS arrives flat.** The backend splices in-EPUB `@import` targets into the
+  chapter stylesheet (`internal/epub/chapter.go`, `inlineCSSImports`) because this
+  code parses CSS through a constructed `CSSStyleSheet`, and `replaceSync` drops
+  `@import` outright — an import that reaches the frame is lost from every preserve
+  mode and is never color-stripped or font-split. Imports still present here are
+  remote or unresolvable, so dropping them is correct.
 - **CFI logic lives in `lib/cfi.ts` only.** Inlined copies drifted once and mis-resolved
   malformed segments. An unresolvable CFI falls back to percentage.
 - **Every position report carries a CFI or an explicit empty marker.** Omitting it makes

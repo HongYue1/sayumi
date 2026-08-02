@@ -133,6 +133,86 @@ func TestRewriteSrcsetValue(t *testing.T) {
 	}
 }
 
+func TestInlineCSSImports(t *testing.T) {
+	t.Parallel()
+	const base = "/api/books/b1/resources"
+	const token = "tok"
+
+	index := testZipIndex(t, map[string]string{
+		"OEBPS/shared.css": "@import \"deep.css\";\n.shared { color: red; background: url(img/s.png); }",
+		"OEBPS/deep.css":   ".deep { margin: 1px; }",
+		"OEBPS/self.css":   "@import 'self.css';\n.self { padding: 0; }",
+		"OEBPS/fonts.css":  "@font-face { font-family: \"Book\"; src: url(f/b.woff2); }",
+	})
+
+	t.Run("splices nested imports and rewrites their urls", func(t *testing.T) {
+		t.Parallel()
+		got := inlineCSSImports("@import \"shared.css\";\nbody { color: blue; }", "OEBPS", base, token, index, "OEBPS/chapter.css")
+
+		if strings.Contains(got, "@import") {
+			t.Fatalf("import not spliced: %q", got)
+		}
+		for _, want := range []string{".shared", ".deep", "body { color: blue; }"} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("missing %q in %q", want, got)
+			}
+		}
+		// The imported sheet's relative url() resolved against its own dir.
+		if !strings.Contains(got, base+"/OEBPS/img/s.png") {
+			t.Fatalf("imported url not rewritten against its own dir: %q", got)
+		}
+		if !strings.Contains(got, "token="+token) {
+			t.Fatalf("expected token on rewritten url: %q", got)
+		}
+
+		// The caller's own rewrite pass must not touch the spliced URLs again.
+		if second := rewriteCSSURLs(got, "OEBPS", base, token); strings.Count(second, base) != strings.Count(got, base) {
+			t.Fatalf("second rewrite pass was not a no-op:\n %q\n %q", got, second)
+		}
+	})
+
+	t.Run("@font-face survives the splice for separateFontFaces", func(t *testing.T) {
+		t.Parallel()
+		got := inlineCSSImports("@import \"fonts.css\";", "OEBPS", base, token, index, "")
+
+		var cssOut, fontFaceOut strings.Builder
+		separateFontFaces(got, "OEBPS", base, &cssOut, &fontFaceOut, token)
+		if !strings.Contains(fontFaceOut.String(), "@font-face") {
+			t.Fatalf("imported @font-face not separated: %q", fontFaceOut.String())
+		}
+		if !strings.Contains(fontFaceOut.String(), base+"/OEBPS/f/b.woff2") {
+			t.Fatalf("imported font url not rewritten: %q", fontFaceOut.String())
+		}
+	})
+
+	t.Run("conditional and remote imports are left to the neutralizer", func(t *testing.T) {
+		t.Parallel()
+		cases := map[string]string{
+			"media condition":   "@import \"shared.css\" screen;",
+			"layer condition":   "@import url(shared.css) layer(book);",
+			"remote target":     "@import \"https://evil.example/x.css\";",
+			"protocol relative": "@import url(//evil.example/x.css);",
+			"missing target":    "@import \"nope.css\";",
+		}
+		for name, in := range cases {
+			if got := inlineCSSImports(in, "OEBPS", base, token, index, ""); got != in {
+				t.Errorf("%s: expected %q unchanged, got %q", name, in, got)
+			}
+		}
+	})
+
+	t.Run("self import terminates", func(t *testing.T) {
+		t.Parallel()
+		got := inlineCSSImports("@import \"self.css\";", "OEBPS", base, token, index, "")
+		if strings.Contains(got, "@import") {
+			t.Fatalf("cycle left an import behind: %q", got)
+		}
+		if strings.Count(got, ".self") != 1 {
+			t.Fatalf("expected the cycle target spliced exactly once: %q", got)
+		}
+	})
+}
+
 func TestRewriteCSSURLsAndImports(t *testing.T) {
 	t.Parallel()
 	const base = "/api/books/b1/resources"

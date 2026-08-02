@@ -257,7 +257,7 @@ func extractCSS(
 		}
 
 		if child.DataAtom == atom.Style {
-			cssText := nodeText(child)
+			cssText := inlineCSSImports(nodeText(child), chapterDir, resourceBase, resourceToken, index, "")
 			separateFontFaces(cssText, chapterDir, resourceBase, cssOut, fontFaceOut, resourceToken)
 			toRemove = append(toRemove, child)
 			continue
@@ -280,7 +280,9 @@ func extractCSS(
 					slog.Warn("stylesheet not found in epub", "path", cssPath, "err", err)
 				} else {
 					var cssFrag, fontFaceFrag strings.Builder
-					separateFontFaces(string(cssData), path.Dir(cssPath), resourceBase, &cssFrag, &fontFaceFrag, resourceToken)
+					cssDir := path.Dir(cssPath)
+					inlined := inlineCSSImports(string(cssData), cssDir, resourceBase, resourceToken, index, cssPath)
+					separateFontFaces(inlined, cssDir, resourceBase, &cssFrag, &fontFaceFrag, resourceToken)
 					frag := cssFragment{css: cssFrag.String(), fontFace: fontFaceFrag.String()}
 					store.SetCSSFragment(filePath, cssPath, frag)
 					cssOut.WriteString(frag.css)
@@ -311,6 +313,89 @@ var (
 // quote is captured as group 4 and validated for equality with group 2 inside
 // the replacement callback. The url() form is handled by cssURLRegex above.
 var cssImportStringRegex = regexp.MustCompile(`(?i)(@import\s+)(['"])([^'"]+)(['"])`)
+
+// cssImportRuleRegex matches a whole @import statement in either target form,
+// plus whatever condition trails it before the ";". Groups: 1-3 url() target
+// (double-quoted, single-quoted, bare), 4-5 bare-string target, 6 trailing
+// condition (media query, layer(), supports()).
+var cssImportRuleRegex = regexp.MustCompile(`(?is)@import\s+(?:url\(\s*(?:"([^"]*)"|'([^']*)'|([^'"()\s]*))\s*\)|"([^"]*)"|'([^']*)')\s*([^;]*);`)
+
+// maxCSSImportDepth caps @import inlining. Two hops covers every real book (a
+// chapter sheet importing a shared sheet that imports a font sheet); the cap is
+// what stops a crafted book from turning a chain of imports into unbounded work.
+const maxCSSImportDepth = 3
+
+// inlineCSSImports splices the text of in-EPUB @import targets into cssText so
+// the client receives one flat stylesheet. It has to happen here: the reader
+// frame parses chapter CSS through a constructed CSSStyleSheet, and replaceSync
+// drops @import outright, so an imported sheet that survives to the client is
+// simply lost — and the frame cannot color-strip or font-split text it never
+// parsed.
+//
+// Left alone on purpose: imports carrying a media query, layer or supports
+// condition (splicing them in would apply them unconditionally) and external
+// targets (the url()/@import neutralizer downstream owns those). selfPath, when
+// known, seeds the cycle guard so a sheet importing itself terminates.
+func inlineCSSImports(cssText, cssDir, resourceBase, resourceToken string, index map[string]*zip.File, selfPath string) string {
+	seen := make(map[string]bool, 4)
+	if selfPath != "" {
+		seen[selfPath] = true
+	}
+	return inlineCSSImportsDepth(cssText, cssDir, resourceBase, resourceToken, index, seen, 0)
+}
+
+func inlineCSSImportsDepth(cssText, cssDir, resourceBase, resourceToken string, index map[string]*zip.File, seen map[string]bool, depth int) string {
+	if depth >= maxCSSImportDepth || !strings.Contains(strings.ToLower(cssText), "@import") {
+		return cssText
+	}
+
+	return cssImportRuleRegex.ReplaceAllStringFunc(cssText, func(match string) string {
+		subs := cssImportRuleRegex.FindStringSubmatch(match)
+		if len(subs) < 7 || strings.TrimSpace(subs[6]) != "" {
+			return match
+		}
+
+		rawRef := ""
+		for _, candidate := range subs[1:6] {
+			if candidate != "" {
+				rawRef = candidate
+				break
+			}
+		}
+		if rawRef == "" || isExternalResourceReference(rawRef) || !isRewritableResourceReference(rawRef) {
+			return match
+		}
+
+		importPath := resolvePath(cssDir, rawRef)
+		if importPath == "" {
+			return match
+		}
+		if seen[importPath] {
+			// Already spliced in (or the sheet itself): dropping the rule is
+			// what a browser's cycle detection does too.
+			return ""
+		}
+
+		data, err := readZipFileIndexed(index, importPath)
+		if err != nil {
+			slog.Warn("css @import target not found in epub", "path", importPath, "err", err)
+			return match
+		}
+		seen[importPath] = true
+
+		// The imported sheet's relative url() references resolve against its own
+		// directory, not the importing sheet's, so this is where it gets
+		// rewritten. Expansion has to run first: the recursion needs nested
+		// @import targets in their original relative form, and rewriting them up
+		// front would turn every one into a non-rewritable /api/ reference the
+		// recursion then skips. Rewriting afterwards is safe for the same
+		// reason — whatever the recursion already spliced in is /api/-shaped and
+		// is left alone, so nothing is rewritten twice.
+		importDir := path.Dir(importPath)
+		expanded := inlineCSSImportsDepth(string(data), importDir, resourceBase, resourceToken, index, seen, depth+1)
+		return rewriteCSSURLs(expanded, importDir, resourceBase, resourceToken)
+	})
+}
 
 // separateFontFaces splits cssText into @font-face blocks (written to fontFaceOut)
 // and the remaining rules (written to cssOut), rewriting resource URLs in both.
