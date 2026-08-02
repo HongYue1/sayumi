@@ -490,6 +490,30 @@ mark.search-highlight-active {
   bottom: 0;
 }
 
+/* A vertical chapter is pulled along X (see frame.ts flushTouchPull), so the
+   pills move to the inline edges and slide horizontally. "Previous" sits on the
+   side the reader came from: the right edge in vertical-rl, the left in
+   vertical-lr. boundary.ts writes the matching translateX. */
+html.vertical-rl .boundary-indicator,
+html.vertical-lr .boundary-indicator {
+  left: auto;
+  right: auto;
+  top: 0;
+  bottom: 0;
+  width: 160px;
+  height: auto;
+}
+
+html.vertical-rl .boundary-top,
+html.vertical-lr .boundary-bottom {
+  right: 0;
+}
+
+html.vertical-rl .boundary-bottom,
+html.vertical-lr .boundary-top {
+  left: 0;
+}
+
 .boundary-label {
   display: inline-flex;
   align-items: center;
@@ -518,6 +542,16 @@ mark.search-highlight-active {
 
 .boundary-bottom .boundary-label::before {
   content: "↓";
+}
+
+html.vertical-rl .boundary-top .boundary-label::before,
+html.vertical-lr .boundary-bottom .boundary-label::before {
+  content: "\2192";
+}
+
+html.vertical-rl .boundary-bottom .boundary-label::before,
+html.vertical-lr .boundary-top .boundary-label::before {
+  content: "\2190";
 }
 
 /* At the very start/end of the book there's nowhere to go, so the pill reads

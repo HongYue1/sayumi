@@ -175,6 +175,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     getActiveSeq: () => activeSeq,
     hasPrevChapter: () => hasPrevChapter,
     hasNextChapter: () => hasNextChapter,
+    getWritingMode: () => verticalWriting,
   });
 
   const pagination = createPagination({
@@ -192,6 +193,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     hasPrevChapter: () => hasPrevChapter,
     setChapterHidden,
     ensureBoundaryElements: () => boundary.ensureElements(),
+    flashBoundaryEdge: (direction) => boundary.flashEdge(direction),
     updateBoundaryState,
     takePendingFragment: () => {
       const f = pendingFragment;
@@ -1166,6 +1168,9 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     touchLastX = touchStartX;
     touchLastY = touchStartY;
     touchTracking = true;
+    // Re-arms the one-hand-off-per-gesture latch, and backstops a touchend the
+    // browser never delivers (gesture stolen, tab hidden mid-drag).
+    boundary.endGesture();
     touchBoundaryBase = 0;
     updateBoundaryState();
     touchAtBoundaryOnStart = atTop || atBottom;
@@ -1209,7 +1214,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       }
       const boundaryDelta = alongFlow - touchBoundaryBase;
       if (boundaryDelta > 0) {
-        boundary.processTouch("end", hasNextChapter, boundaryDelta);
+        boundary.processTouch("end", boundaryDelta);
       }
       return;
     }
@@ -1220,7 +1225,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       }
       const boundaryDelta = Math.abs(alongFlow - touchBoundaryBase);
       if (boundaryDelta > 0) {
-        boundary.processTouch("start", hasPrevChapter, boundaryDelta);
+        boundary.processTouch("start", boundaryDelta);
       }
       return;
     }
@@ -1247,6 +1252,19 @@ const PAGED_SCROLL_KEYS = new Set<string>([
 
     touchBoundaryBase = 0;
     touchAtBoundaryOnStart = false;
+    boundary.endGesture();
+    if (!boundary.isSent()) boundary.reset();
+  }
+
+  // A cancelled gesture (system gesture, incoming call, scroll takeover) never
+  // reaches handleTouchEnd, which left touchTracking armed and the boundary
+  // latch held until the next touchstart.
+  function handleTouchCancel(): void {
+    if (destroyed || !touchTracking) return;
+    touchTracking = false;
+    touchBoundaryBase = 0;
+    touchAtBoundaryOnStart = false;
+    boundary.endGesture();
     if (!boundary.isSent()) boundary.reset();
   }
 
@@ -1304,6 +1322,10 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     if (atTop && (e.key === "ArrowUp" || e.key === "PageUp")) {
       if (hasPrevChapter) {
         sendMessage({ type: "at-boundary", seq: activeSeq, boundary: "start" });
+      } else {
+        // Nothing to hand off to: flash the same end-stop the pull gestures
+        // show, so the key press is acknowledged instead of swallowed.
+        boundary.flashEdge("start");
       }
       handled = true;
     } else if (
@@ -1319,6 +1341,8 @@ const PAGED_SCROLL_KEYS = new Set<string>([
               seq: activeSeq,
               boundary: "end",
             });
+          } else {
+            boundary.flashEdge("end");
           }
           handled = true;
         }
@@ -1474,6 +1498,16 @@ const PAGED_SCROLL_KEYS = new Set<string>([
         : /vertical-lr|tb-lr/.test(wm)
           ? "lr"
           : "";
+      // The pull affordance follows the flow axis (see boundary.ts); frame.css
+      // keys the inline-edge placement off these root classes.
+      document.documentElement.classList.toggle(
+        "vertical-rl",
+        verticalWriting === "rl",
+      );
+      document.documentElement.classList.toggle(
+        "vertical-lr",
+        verticalWriting === "lr",
+      );
     }
     if (typeof msg.language === "string" && msg.language) {
       // Sanitize to BCP-47-ish chars before reflecting into the DOM lang attr.
@@ -1495,7 +1529,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     if (destroyed) return;
     destroyed = true;
 
-    boundary.disposeTimers();
+    boundary.dispose();
     pagination.dispose();
     if (scrollThrottleTimer) {
       clearTimeout(scrollThrottleTimer);
@@ -1549,6 +1583,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     document.removeEventListener("touchstart", handleTouchStart);
     document.removeEventListener("touchmove", handleTouchMove);
     document.removeEventListener("touchend", handleTouchEnd);
+    document.removeEventListener("touchcancel", handleTouchCancel);
     document.removeEventListener("keydown", handleKeyDown);
   }
 
@@ -1766,6 +1801,9 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   document.addEventListener("touchstart", handleTouchStart, { passive: true });
   document.addEventListener("touchmove", handleTouchMove, { passive: true });
   document.addEventListener("touchend", handleTouchEnd, { passive: true });
+  document.addEventListener("touchcancel", handleTouchCancel, {
+    passive: true,
+  });
   document.addEventListener("keydown", handleKeyDown);
 
   sendMessage({ type: "ready" });

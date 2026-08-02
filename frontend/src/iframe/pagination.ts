@@ -46,6 +46,12 @@ export type PaginationDeps = {
   hasPrevChapter: () => boolean;
   setChapterHidden: (hidden: boolean) => void;
   ensureBoundaryElements: () => void;
+  /**
+   * Show the "beginning/end of book" end-stop. A paged turn has no pull
+   * gesture behind it, so without this the first/last page of the book
+   * absorbs the turn with no feedback at all.
+   */
+  flashBoundaryEdge: (direction: "start" | "end") => void;
   updateBoundaryState: () => void;
   takePendingFragment: () => string | null;
 };
@@ -434,6 +440,8 @@ export function createPagination(deps: PaginationDeps): PaginationController {
           seq: deps.getActiveSeq(),
           boundary: "end",
         });
+      } else {
+        deps.flashBoundaryEdge("end");
       }
       return;
     }
@@ -449,6 +457,8 @@ export function createPagination(deps: PaginationDeps): PaginationController {
           seq: deps.getActiveSeq(),
           boundary: "start",
         });
+      } else {
+        deps.flashBoundaryEdge("start");
       }
       return;
     }
