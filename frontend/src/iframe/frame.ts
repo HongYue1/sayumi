@@ -17,10 +17,10 @@ import { createPagination } from "./pagination";
 
 // Keys whose browser default is to scroll the viewport / nearest scroller. In
 // paged mode the page turn is a JS opacity cross-fade plus a single scrollLeft
-// swap on #content (a scroll-snap container), so letting these keys ALSO
-// natively scroll/snap it races the fade and makes the turn flicker. Their
-// default is prevented in paged mode while the parent still drives discrete
-// page navigation from the forwarded key event.
+// swap on #content, so letting these keys ALSO scroll it natively races the
+// fade and makes the turn flicker. Their default is prevented in paged mode
+// while the parent still drives discrete page navigation from the forwarded
+// key event.
 const PAGED_SCROLL_KEYS = new Set<string>([
   "ArrowLeft",
   "ArrowRight",
@@ -750,8 +750,14 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       css.push(
         `html { --paged-padding-top: ${pt}; --paged-padding-bottom: ${pb}; --paged-padding-side: ${ps}; }`,
       );
+      // Two height declarations, mirroring frame.css's html.paged body rule:
+      // the dvh one wins where it is supported and is dropped at parse where
+      // it is not. A lone 100vh !important would override that rule's dvh
+      // upgrade and leave the paged page box taller than the visible viewport
+      // on mobile, pushing the last line and #page-indicator under the
+      // browser chrome.
       css.push(
-        "body { padding: 0 !important; height: 100vh !important; overflow: hidden !important; }",
+        "body { padding: 0 !important; height: 100vh !important; height: 100dvh !important; overflow: hidden !important; }",
       );
       // Vertical margin is applied as the paged column-box inset (clip
       // height/offset in pagination, via --paged-padding-top/bottom) so it

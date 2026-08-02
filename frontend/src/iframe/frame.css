@@ -11,6 +11,13 @@ html {
 
 html,
 html.theme-light {
+  /* UA-drawn surfaces inside this document -- the default focus ring on
+     chapter links, EPUB3 form controls, spellcheck underlines -- come from
+     color-scheme, not from these variables. The shell keeps its own current
+     via applyTheme (lib/theme.ts:93) and custom themes carry one of their own
+     (deriveReaderVars, lib/themes.ts:389); built-in themes had no path into
+     this document at all, so they are classified here and below. */
+  color-scheme: light;
   --bg-primary: #ffffff;
   --bg-secondary: #f5f5f4;
   --text-primary: #1c1917;
@@ -270,6 +277,27 @@ html.theme-night-owl {
   --border: #1d3b53;
 }
 
+/* Dark built-ins, classified by ThemeDef.group in lib/themes.ts so the frame
+   and the shell can never disagree about a palette. Custom themes are
+   unaffected: theirs arrives in a later <style> slot and wins. */
+html.theme-dark,
+html.theme-rose-pine,
+html.theme-nord,
+html.theme-dracula,
+html.theme-catppuccin,
+html.theme-gruvbox,
+html.theme-ayu-dark,
+html.theme-solarized-dark,
+html.theme-tokyo-night,
+html.theme-tokyo-storm,
+html.theme-everforest-dark,
+html.theme-one-dark,
+html.theme-kanagawa,
+html.theme-flexoki-dark,
+html.theme-night-owl {
+  color-scheme: dark;
+}
+
 html {
   background: var(--bg-primary);
 }
@@ -324,6 +352,12 @@ h2 {
 
 h3 {
   font-size: 1.2em;
+}
+
+/* Explicit rather than left to the UA sheet, so the scale is self-contained:
+   2 / 1.5 / 1.2 / 1 / 0.83 / 0.67. */
+h4 {
+  font-size: 1em;
 }
 
 h5 {
@@ -393,8 +427,12 @@ a {
   text-underline-offset: 2px;
 }
 
+/* Blend toward the background instead of fading the box: any opacity below 1
+   paints the link as a transparency group, which costs its glyphs subpixel
+   antialiasing and shifts the apparent text weight while hovered -- the same
+   reason html.raster-refresh below dirties paint with a background-image. */
 a:hover {
-  opacity: 0.8;
+  color: color-mix(in srgb, var(--accent) 80%, var(--bg-primary));
 }
 
 img,
@@ -452,10 +490,24 @@ th {
   font-weight: 700;
 }
 
+/* Text selection carries the accent, mirroring the shell's rule (app.css:237)
+   so a selection reads the same on both sides of the iframe boundary. */
+::selection {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
 /* One rule: searchHighlight.ts only ever applies .search-highlight, and only
    to the single active match, so the former .search-highlight-active variant
-   was unreachable. Computed style is unchanged. */
-mark.search-highlight {
+   was unreachable. Computed style is unchanged.
+
+   Matched by attribute, not by class. The Go sanitizer is a deny-list
+   (internal/epub/sanitize.go:164): it drops on* handlers and dangerous URI
+   schemes and keeps every other attribute, so book content reaches the DOM
+   with its own class names intact. A chapter that ships
+   <mark class="search-highlight"> would otherwise paint permanently as the
+   active hit. searchHighlight.ts keys every lookup off this same attribute
+   (SEARCH_MARK_SELECTOR, searchHighlight.ts:122). */
+mark[data-search-mark] {
   background: var(--accent);
   color: var(--bg-primary);
   border-radius: 2px;
@@ -585,9 +637,14 @@ html.paged-two #page-indicator {
   display: block;
 }
 
-/* ── Single-column paged ──────────────────────────────────────────── */
+/* ── Paged modes ──────────────────────────────────────────────────────
+   Single-column and the two-column spread share every box rule below; only
+   the column geometry and the side inset differ. The shared declarations are
+   grouped so the two modes cannot drift apart, and each mode's block carries
+   only its differences. */
 
-html.paged body {
+html.paged body,
+html.paged-two body {
   padding: 0;
   overflow: hidden;
   height: 100vh;
@@ -602,7 +659,8 @@ html.paged body {
    selecting a word used to snap it back into focus. So the base transforms here
    stay 2D and promotion is transient only -- .chapter-anim and .page-turning add
    will-change for the duration of a swap or a turn and then drop it. */
-html.paged #paged-clip {
+html.paged #paged-clip,
+html.paged-two #paged-clip {
   overflow: hidden;
   position: relative;
   width: 100%;
@@ -619,15 +677,20 @@ html.paged #paged-clip {
  * The multicol container must have NO padding. Padding on a multicol
  * container shifts columns inside the scrollable area so at scrollLeft=0
  * you see adjacent content bleed into the viewport.
+ *
+ * No scroll-snap-type here, deliberately. Nothing in the app sets
+ * scroll-snap-align, so a snap container had no snap area to snap to -- and
+ * book CSS reaches this document with its declarations intact (cssText.ts
+ * filters colors, not properties), so a book shipping its own
+ * scroll-snap-align would have turned this into a live mandatory snap
+ * container and fought the scrollLeft page turns.
  */
-html.paged #content {
-  column-width: 100vw;
-  column-gap: 0;
+html.paged #content,
+html.paged-two #content {
   column-fill: auto;
   height: 100%;
   overflow-x: scroll;
   overflow-y: hidden;
-  scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   padding: 0;
@@ -637,8 +700,16 @@ html.paged #content {
   contain: paint;
 }
 
-html.paged #content::-webkit-scrollbar {
+html.paged #content::-webkit-scrollbar,
+html.paged-two #content::-webkit-scrollbar {
   display: none;
+}
+
+/* ── Single-column paged ──────────────────────────────────────────── */
+
+html.paged #content {
+  column-width: 100vw;
+  column-gap: 0;
 }
 
 html.paged #content-inner {
@@ -648,26 +719,6 @@ html.paged #content-inner {
 
 /* ── Two-column book spread ───────────────────────────────────────── */
 
-html.paged-two body {
-  padding: 0;
-  overflow: hidden;
-  height: 100vh;
-  height: 100dvh;
-}
-
-html.paged-two #paged-clip {
-  overflow: hidden;
-  position: relative;
-  width: 100%;
-  height: 100%;
-  opacity: 1;
-  transform: translate(0, 0) scale(1);
-  transition:
-    opacity 0.18s cubic-bezier(0.2, 0.7, 0.2, 1),
-    transform 0.18s cubic-bezier(0.2, 0.7, 0.2, 1);
-  transform-origin: center center;
-}
-
 /*
  * column-count: 2 makes each pair of columns fill one viewport width.
  * One "page turn" = one full viewport width = one spread.
@@ -676,22 +727,6 @@ html.paged-two #content {
   column-count: 2;
   column-gap: 1px;
   column-rule: 1px solid var(--border);
-  column-fill: auto;
-  height: 100%;
-  overflow-x: scroll;
-  overflow-y: hidden;
-  scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  padding: 0;
-  min-width: 100vw;
-  overscroll-behavior-x: contain;
-  overscroll-behavior-y: none;
-  contain: paint;
-}
-
-html.paged-two #content::-webkit-scrollbar {
-  display: none;
 }
 
 html.paged-two #content-inner {
@@ -703,6 +738,18 @@ html.paged-two img,
 html.paged-two figure,
 html.paged-two table {
   break-inside: avoid;
+}
+
+/* Paged modes clip rather than scroll: #content is contain: paint with
+   overflow-y: hidden, so media taller than the page box is unreachable rather
+   than scrollable -- a full-page plate would simply lose its bottom. Bound the
+   block axis to the page box (the viewport minus the column-box insets);
+   height: auto above keeps the aspect ratio. */
+html.paged :is(img, svg, video),
+html.paged-two :is(img, svg, video) {
+  max-height: calc(
+    100dvh - var(--paged-padding-top, 24px) - var(--paged-padding-bottom, 24px)
+  );
 }
 
 html.chapter-hidden.paged #paged-clip,
@@ -724,7 +771,6 @@ html.chapter-anim.paged-two #paged-clip {
 
 html.page-turning.paged #content,
 html.page-turning.paged-two #content {
-  scroll-snap-type: none !important;
   /* The cross-fade animates opacity from JS; hint a layer for the turn. */
   will-change: opacity;
 }
