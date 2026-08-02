@@ -186,6 +186,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     isDestroyed: () => destroyed,
     isContentReady: () => contentReady,
     isRestorePending: () => restorePending,
+    getPositionCfi: () => anchorCfiForCurrentView(),
     isPagedMode: () => isPagedMode,
     hasNextChapter: () => hasNextChapter,
     hasPrevChapter: () => hasPrevChapter,
@@ -927,8 +928,16 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       _lastOverrideCSS = overrideCSS;
     }
 
-    isPagedMode = settings.mode === "paged" || settings.mode === "paged-two";
-    applyRootClasses(settings.theme, settings.mode);
+    // Paged mode is horizontal-tb only (see the axis invariant in
+    // pagination.ts): a vertical-writing chapter orders multicol columns along
+    // the vertical inline axis, so the paged math collapses to a single page and
+    // the first turn reports at-boundary — paging would skip the chapter instead
+    // of reading it. Fall back to scroll for vertical chapters, and derive the
+    // root classes from the same effective mode so CSS can't claim a layout that
+    // JS isn't driving.
+    const effectiveMode = verticalWriting ? "scroll" : settings.mode;
+    isPagedMode = effectiveMode === "paged" || effectiveMode === "paged-two";
+    applyRootClasses(settings.theme, effectiveMode);
 
     if (!isPagedMode) {
       // Paged mode insets the column box by setting inline height/marginTop on
@@ -1039,6 +1048,24 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     lastReportedCfi = null;
   }
 
+  // CFI for the block anchoring the current view, or the empty marker when none
+  // resolves. Both modes report through this helper so a paged report can never
+  // omit the field: an absent cfi means "keep the stored value" on the parent,
+  // which would pin paged progress to the page the chapter opened on.
+  function anchorCfiForCurrentView(): string {
+    const el = findFirstVisibleBlock();
+    if (!el) {
+      lastReportedAnchor = null;
+      lastReportedCfi = null;
+      return NO_CFI;
+    }
+    if (el !== lastReportedAnchor) {
+      lastReportedAnchor = el;
+      lastReportedCfi = generateCFI(el, document);
+    }
+    return lastReportedCfi ?? NO_CFI;
+  }
+
   function reportPosition(): void {
     if (restorePending) return;
     if (isPagedMode) {
@@ -1046,29 +1073,12 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       return;
     }
 
-    const percent = getScrollPercent();
-    const el = findFirstVisibleBlock();
-    let cfi: string | null = null;
-
-    if (el) {
-      if (el === lastReportedAnchor) {
-        cfi = lastReportedCfi;
-      } else {
-        cfi = generateCFI(el, document);
-        lastReportedAnchor = el;
-        lastReportedCfi = cfi;
-      }
-    } else {
-      lastReportedAnchor = null;
-      lastReportedCfi = null;
-    }
-
     sendMessage({
       type: "position",
       seq: activeSeq,
       chapterIndex: activeChapterIndex,
-      percent,
-      cfi: cfi ?? NO_CFI,
+      percent: getScrollPercent(),
+      cfi: anchorCfiForCurrentView(),
     });
   }
 

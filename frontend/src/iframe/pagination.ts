@@ -27,8 +27,20 @@ export type PaginationDeps = {
   getActiveChapterIndex: () => number;
   isDestroyed: () => boolean;
   isContentReady: () => boolean;
-  /** True while a chapter's position restore is still pending — position reports are suppressed so they can't clobber saved progress. */
-  isRestorePending?: () => boolean;
+  /**
+   * True while a chapter's position restore is still pending — position
+   * reports are suppressed so they can't clobber saved progress. Required, not
+   * optional: a caller that forgets it silently re-enables those reports.
+   */
+  isRestorePending: () => boolean;
+  /**
+   * CFI for the block anchoring the current page, or the explicit empty marker
+   * when none resolves. Every position report must carry one (see
+   * iframe/AGENTS.md): the parent reads an ABSENT cfi field as "keep the stored
+   * value", so omitting it freezes saved progress at the CFI the chapter opened
+   * with while percent keeps advancing past it.
+   */
+  getPositionCfi: () => string;
   isPagedMode: () => boolean;
   hasNextChapter: () => boolean;
   hasPrevChapter: () => boolean;
@@ -44,8 +56,9 @@ export type PaginationController = {
   goToPage: (page: number, animated: boolean) => void;
   goToLastPage: () => void;
   getElementPageIndex: (el: Element) => number;
-  scrollToFragmentPaged: (id: string) => void;
-  goToElementPaged: (el: Element) => void;
+  /** Turn to the page holding `id`; false when the anchor isn't in this chapter. */
+  scrollToFragmentPaged: (id: string, animated?: boolean) => boolean;
+  goToElementPaged: (el: Element, animated?: boolean) => void;
   relayout: () => void;
   restorePagedPosition: (
     scrollTarget: "top" | "end",
@@ -61,12 +74,96 @@ export type PaginationController = {
   dispose: () => void;
 };
 
+// ── Pure page geometry ─────────────────────────────────────────────────────
+// Exported for tests: these encode the multicol contract (stride = column box
+// + gap, page origins are stride-aligned, RTL runs on negative DOM offsets)
+// that the controller reads layout for. Keeping them DOM-free is what makes
+// the off-by-one edges testable without a browser.
+
+/** Stride between page origins: the column box plus the multicol column-gap. */
+export function pageStrideFrom(width: number, gap: number): number {
+  const stride = width + (Number.isFinite(gap) ? gap : 0);
+  return Number.isFinite(stride) ? Math.max(1, stride) : 1;
+}
+
+/**
+ * Page count from the scroller's max scroll offset. Round (not ceil) so
+ * sub-pixel column rounding can't invent a phantom trailing page; +1 turns the
+ * last page index into a count.
+ */
+export function pageCountFrom(maxScrollLeft: number, stride: number): number {
+  if (!(stride > 0) || !Number.isFinite(maxScrollLeft)) return 1;
+  return Math.max(1, Math.round(maxScrollLeft / stride) + 1);
+}
+
+export function clampPage(page: number, totalPages: number): number {
+  if (!Number.isFinite(page)) return 0;
+  return Math.max(0, Math.min(totalPages - 1, page));
+}
+
+/** Logical scroll offset for a page, clamped so the last page lands exactly. */
+export function logicalOffsetForPage(
+  page: number,
+  stride: number,
+  maxScrollLeft: number,
+): number {
+  const raw = page * stride;
+  if (!Number.isFinite(raw)) return 0;
+  return Math.max(0, Math.min(raw, maxScrollLeft));
+}
+
+/** Inverse of logicalOffsetForPage: the page containing a logical offset. */
+export function pageAtOffset(
+  x: number,
+  stride: number,
+  totalPages: number,
+): number {
+  if (!Number.isFinite(x) || !(stride > 0)) return 0;
+  return clampPage(Math.floor(x / stride), totalPages);
+}
+
+export function pageForRatio(ratio: number, totalPages: number): number {
+  if (!Number.isFinite(ratio) || totalPages <= 1) return 0;
+  return clampPage(Math.round(ratio * (totalPages - 1)), totalPages);
+}
+
+export function pagePercent(page: number, totalPages: number): number {
+  return totalPages > 1 && Number.isFinite(page) ? page / (totalPages - 1) : 0;
+}
+
+/**
+ * An element's logical (positive, reading-order) x inside the multicol
+ * scroller. RTL columns advance left from scrollLeft=0 using negative DOM
+ * offsets, so measure from the right edge and flip the scroll sign back.
+ */
+export function elementLogicalX(m: {
+  containerLeft: number;
+  containerRight: number;
+  elementLeft: number;
+  elementRight: number;
+  domScrollLeft: number;
+  rtl: boolean;
+}): number {
+  return m.rtl
+    ? m.containerRight - m.elementRight - m.domScrollLeft
+    : m.elementLeft - m.containerLeft + m.domScrollLeft;
+}
+
 // Paged (column) reading mode: page geometry, the cross-fade page turn, paged
 // fragment/position restore, the resize-driven relayout, and the page-number
 // indicator. Pulled out of frame.ts behind a createPagination(deps) factory so
 // frame.ts keeps only mode orchestration (isPagedMode flag, chapter swap,
 // settings, lifecycle). All behaviour is verbatim from the original inline
 // implementation; deps inject the small slice of frame state it needs.
+//
+// AXIS INVARIANT — horizontal-tb only. Every metric here (scrollLeft,
+// clientWidth, scrollWidth, column-gap) is physical-X, but a vertical-writing
+// chapter orders multicol columns along the INLINE axis (vertical) and
+// overflows along the block axis: those reads then measure the wrong axis,
+// maxPageScrollLeft collapses to ~0, totalPages pins to 1, and the first
+// nextPage() reports at-boundary — the reader skips the chapter instead of
+// paging it. frame.ts keeps isPagedMode false for vertical chapters; never
+// drive this controller while verticalWriting is set.
 export function createPagination(deps: PaginationDeps): PaginationController {
   let currentPage = 0;
   let totalPages = 0;
@@ -91,6 +188,11 @@ export function createPagination(deps: PaginationDeps): PaginationController {
   let pageIndicatorText = "";
   let reduceMotionQuery: MediaQueryList | null = null;
   let fontRelayoutToken = 0;
+  // Element the current page was resolved from (restore/fragment only). A
+  // relayout re-derives the page from it so a font-driven repagination lands on
+  // the same content instead of a ratio-rounded neighbour. Any later page
+  // change clears it, since from then on the ratio is the honest estimate.
+  let lastAnchorEl: Element | null = null;
 
   function ensurePageIndicator(): HTMLElement {
     if (!_pageIndicator) {
@@ -140,8 +242,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
       const parsed = parseFloat(getComputedStyle(content).columnGap);
       if (Number.isFinite(parsed)) gap = parsed;
     }
-    const stride = width + gap;
-    return Number.isFinite(stride) ? Math.max(1, stride) : 1;
+    return pageStrideFrom(width, gap);
   }
 
   function getMaxPageScrollLeft(): number {
@@ -172,26 +273,24 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     if (pageStride <= 0) return 1;
 
     // Pages are stride-aligned scroll positions, so the last page begins at
-    // maxScrollLeft. Round (not ceil) so sub-pixel column rounding can't invent
-    // a phantom trailing page; +1 converts the last page index to a count.
-    // Reads two layout metrics instead of walking the DOM for the last
-    // meaningful rect on every relayout.
-    return Math.max(1, Math.round(maxPageScrollLeft / pageStride) + 1);
+    // maxScrollLeft (see pageCountFrom). Reads two layout metrics instead of
+    // walking the DOM for the last meaningful rect on every relayout.
+    return pageCountFrom(maxPageScrollLeft, pageStride);
   }
 
   function reportPagePosition(): void {
     // A relayout triggered by settings arriving mid-load must not report the
     // pre-restore page (percent 0) under the new seq; the restore reports.
-    if (deps.isRestorePending?.()) return;
-    const percent =
-      totalPages > 1 && Number.isFinite(currentPage)
-        ? currentPage / (totalPages - 1)
-        : 0;
+    if (deps.isRestorePending()) return;
     deps.sendMessage({
       type: "position",
       seq: deps.getActiveSeq(),
       chapterIndex: deps.getActiveChapterIndex(),
-      percent,
+      percent: pagePercent(currentPage, totalPages),
+      // Always send a CFI (or the empty marker). An absent field means "keep
+      // the stored one" on the parent, which pins paged progress to the CFI the
+      // chapter opened with while percent advances past it.
+      cfi: deps.getPositionCfi(),
     });
   }
 
@@ -199,11 +298,9 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     const content = deps.getContentEl();
     if (!content) return;
 
-    const logicalTarget = Math.max(
-      0,
-      Math.min(page * pageStride, maxPageScrollLeft),
+    const target = toDOMScrollLeft(
+      logicalOffsetForPage(page, pageStride, maxPageScrollLeft),
     );
-    const target = toDOMScrollLeft(logicalTarget);
 
     if (pageTurnFinishTimer !== null) {
       clearTimeout(pageTurnFinishTimer);
@@ -230,6 +327,16 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     // into one cross-fade to the final destination, instead of restarting the
     // fade (and visibly flickering the current page) on every keystroke.
     if (pageScrollRafHandle !== null) {
+      // Retargeting to the page we are already on (a fast next→prev) has
+      // nothing to swap: abort instead of blinking through a turn that doesn't
+      // move. Only safe before the swap, while scrollLeft is still the origin.
+      if (!pageTurnSwapped && Math.abs(target - content.scrollLeft) < 1) {
+        cancelAnimationFrame(pageScrollRafHandle);
+        pageScrollRafHandle = null;
+        content.style.opacity = "";
+        setPageTurning(false);
+        return;
+      }
       if (pageTurnSwapped) pageTurnSwapped = false;
       return;
     }
@@ -253,9 +360,17 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     // possible here: every page is a column in one multicol scroller, not its
     // own layer.
     let lastTime = performance.now();
+    // Track opacity in JS rather than parsing it back out of the style
+    // attribute every frame: this animation is its only writer, so the
+    // parseFloat/String round-trip was pure per-frame overhead.
+    let opacity = parseFloat(content.style.opacity || "1");
+    if (!Number.isFinite(opacity)) opacity = 1;
 
     const animate = (now: number): void => {
-      if (deps.isDestroyed()) return;
+      if (deps.isDestroyed()) {
+        pageScrollRafHandle = null;
+        return;
+      }
 
       // Quick fade-out, gentler fade-in (asymmetric; see the constants) so the
       // turn reads as a smooth dip rather than a slow symmetric blink.
@@ -267,8 +382,6 @@ export function createPagination(deps: PaginationDeps): PaginationController {
       const rawStep = phaseMs > 0 ? (now - lastTime) / phaseMs : 1;
       const step = Math.min(rawStep, MAX_FADE_STEP);
       lastTime = now;
-
-      let opacity = parseFloat(content.style.opacity || "1");
 
       if (!pageTurnSwapped) {
         opacity -= step;
@@ -293,9 +406,8 @@ export function createPagination(deps: PaginationDeps): PaginationController {
         return;
       }
 
-      content.style.opacity = String(
-        opacity < 0 ? 0 : opacity > 1 ? 1 : opacity,
-      );
+      opacity = opacity < 0 ? 0 : opacity > 1 ? 1 : opacity;
+      content.style.opacity = String(opacity);
       pageScrollRafHandle = requestAnimationFrame(animate);
     };
 
@@ -304,7 +416,10 @@ export function createPagination(deps: PaginationDeps): PaginationController {
 
   function goToPageInternal(page: number, animated: boolean): void {
     if (!Number.isFinite(page)) return;
-    currentPage = Math.max(0, Math.min(totalPages - 1, page));
+    // An explicit page change invalidates the restore anchor: from here a
+    // relayout should preserve the ratio, not jump back to the anchor.
+    lastAnchorEl = null;
+    currentPage = clampPage(page, totalPages);
     applyPageScroll(currentPage, animated);
     reportPagePosition();
     updatePageIndicator();
@@ -370,43 +485,60 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     const height = Math.max(0, viewportHeight - top - bottom);
     const clip = deps.getClipEl();
     const content = deps.getContentEl();
+    // Write only on change: a style write dirties layout even when the value is
+    // identical, and the content-load path relayouts without the viewport guard
+    // (see queuePagedRelayout), so a chapter with several late images would
+    // otherwise force a full reflow per no-op relayout.
+    const heightPx = height + "px";
+    const topPx = top + "px";
     if (clip) {
-      clip.style.height = height + "px";
-      clip.style.marginTop = top + "px";
+      if (clip.style.height !== heightPx) clip.style.height = heightPx;
+      if (clip.style.marginTop !== topPx) clip.style.marginTop = topPx;
     }
-    if (content) content.style.height = height + "px";
+    if (content && content.style.height !== heightPx)
+      content.style.height = heightPx;
   }
 
   function getElementPageIndex(el: Element): number {
     const content = deps.getContentEl();
     if (!content) return 0;
-    const stride = pageStride;
-    if (stride <= 0) return 0;
+    // Refresh geometry first. searchHighlight resolves a match to a page at
+    // arbitrary times — inside the 120ms resize debounce, or before the
+    // double-rAF settings relayout lands — and stale stride/totalPages send the
+    // jump to the wrong page, silently clamped by clampPage. Two layout reads,
+    // never on a hot path.
+    totalPages = calculateTotalPages();
+    if (pageStride <= 0) return 0;
 
     const contentRect = content.getBoundingClientRect();
     const rect = el.getBoundingClientRect();
-    // RTL columns advance left from scrollLeft=0, using negative DOM offsets.
-    // Measure from the right edge and convert that physical position back into
-    // the same positive logical coordinate used by currentPage/pageStride.
-    const x = isRTL
-      ? contentRect.right - rect.right - content.scrollLeft
-      : rect.left - contentRect.left + content.scrollLeft;
-    if (!Number.isFinite(x)) return 0;
-    return Math.max(0, Math.min(totalPages - 1, Math.floor(x / stride)));
+    return pageAtOffset(
+      elementLogicalX({
+        containerLeft: contentRect.left,
+        containerRight: contentRect.right,
+        elementLeft: rect.left,
+        elementRight: rect.right,
+        domScrollLeft: content.scrollLeft,
+        rtl: isRTL,
+      }),
+      pageStride,
+      totalPages,
+    );
   }
 
-  function scrollToFragmentPaged(id: string): void {
+  function scrollToFragmentPaged(id: string, animated = true): boolean {
     const el = document.getElementById(id);
-    if (!el) return;
-    goToElementPaged(el);
+    if (!el) return false;
+    goToElementPaged(el, animated);
+    return true;
   }
 
-  function goToElementPaged(el: Element): void {
+  function goToElementPaged(el: Element, animated = true): void {
     if (totalPages <= 0) {
       el.scrollIntoView({ behavior: "auto" });
       return;
     }
-    goToPageInternal(getElementPageIndex(el), true);
+    goToPageInternal(getElementPageIndex(el), animated);
   }
 
   function relayoutPagedContentPreservingPosition(): void {
@@ -422,15 +554,17 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     // handler can skip no-op relayouts (see handlePagedResize).
     lastLayoutW = window.innerWidth;
     lastLayoutH = window.innerHeight;
-    const ratio =
-      totalPages > 1 && Number.isFinite(currentPage)
-        ? currentPage / (totalPages - 1)
-        : 0;
+    // Prefer the element the page was resolved from: the fonts.ready correction
+    // fires right after a CFI-exact restore, and remapping by ratio across a
+    // changed page count lands a page or two off the anchor the restore just
+    // resolved. Ratio is the fallback once the reader has turned a page.
+    const anchor = lastAnchorEl?.isConnected ? lastAnchorEl : null;
+    const ratio = pagePercent(currentPage, totalPages);
     totalPages = calculateTotalPages();
-    currentPage = Math.max(
-      0,
-      Math.min(Math.round(ratio * (totalPages - 1)), totalPages - 1),
-    );
+    currentPage = anchor
+      ? getElementPageIndex(anchor)
+      : pageForRatio(ratio, totalPages);
+    lastAnchorEl = anchor;
     applyPageScroll(currentPage, false);
     reportPagePosition();
     updatePageIndicator();
@@ -506,11 +640,20 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     lastLayoutH = window.innerHeight;
     totalPages = calculateTotalPages();
 
-    const fragment = deps.takePendingFragment();
-    if (fragment) {
+    // Resolve the fragment before committing to it: the pending id is consumed
+    // here and there is no second chance, so an anchor that isn't in this
+    // chapter must fall through to the percent/CFI restore instead of stranding
+    // the reader on page 0.
+    const fragmentId = deps.takePendingFragment();
+    const fragmentEl = fragmentId ? document.getElementById(fragmentId) : null;
+    if (fragmentEl) {
       requestAnimationFrame(() => {
         if (deps.isDestroyed() || deps.getActiveSeq() !== seqAtStart) return;
-        scrollToFragmentPaged(fragment);
+        // Not animated: the shell is revealed in the same frame, so a cross-fade
+        // here plays after the chapter is already visible — the page fades out
+        // and back in on top of its own reveal.
+        goToElementPaged(fragmentEl, false);
+        lastAnchorEl = fragmentEl;
         revealPagedShell(seqAtStart);
       });
       return;
@@ -521,16 +664,11 @@ export function createPagination(deps: PaginationDeps): PaginationController {
       : restorePercent !== null &&
           Number.isFinite(restorePercent) &&
           totalPages > 1
-        ? Math.max(
-            0,
-            Math.min(
-              totalPages - 1,
-              Math.round(restorePercent * (totalPages - 1)),
-            ),
-          )
+        ? pageForRatio(restorePercent, totalPages)
         : scrollTarget === "end"
           ? Math.max(0, totalPages - 1)
           : 0;
+    lastAnchorEl = restoreElement;
 
     applyPageScroll(currentPage, false);
     reportPagePosition();
@@ -618,8 +756,10 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     pageTurnSwapped = false;
     pageTurningActive = false;
     pageIndicatorText = "";
+    if (_pageIndicator) _pageIndicator.textContent = "";
     pageStride = 1;
     maxPageScrollLeft = 0;
+    lastAnchorEl = null;
     isRTL = rtl;
     teardownPagedResizeObserver();
     const content = deps.getContentEl();
@@ -644,13 +784,22 @@ export function createPagination(deps: PaginationDeps): PaginationController {
       pageTurnFinishTimer = null;
     }
     teardownPagedResizeObserver();
+    // cleanupFrame must leave nothing behind (see iframe/AGENTS.md). The
+    // indicator is a body child, not part of #content-inner, so a chapter
+    // rewrite never removes it.
+    _pageIndicator?.remove();
+    _pageIndicator = null;
+    pageIndicatorText = "";
+    lastAnchorEl = null;
   }
 
   return {
     nextPage,
     prevPage,
     goToPage: goToPageInternal,
-    goToLastPage: () => goToPageInternal(totalPages - 1, false),
+    goToLastPage: () => {
+      if (totalPages > 0) goToPageInternal(totalPages - 1, false);
+    },
     getElementPageIndex,
     scrollToFragmentPaged,
     goToElementPaged,
