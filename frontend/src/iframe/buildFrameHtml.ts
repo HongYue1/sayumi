@@ -1,37 +1,21 @@
+// buildFrameHtml.ts — build-time asset wiring for the reader iframe shell.
+//
+// Everything with a decision in it lives in frameHtmlTemplate.ts, which is pure
+// and unit-tested. This module exists only to bind the two payloads that can't
+// be imported from a test:
+//   - frame.css as a raw string. A normal CSS import would inject the sheet
+//     into the *parent* document; this one has to travel inside the srcdoc.
+//   - the engine bundle from vite's frameScriptPlugin, which is a virtual
+//     module and so is absent from the vitest resolver.
 import frameCSS from "./frame.css?raw";
 import frameScript from "virtual:frame-script";
+import {
+  renderFrameSrcdoc,
+  type FrameSrcdocOptions,
+} from "./frameHtmlTemplate";
 
-export function buildFrameSrcdoc(nonce: string, initialTheme: string): string {
-  const safeNonce = nonce.replace(/[^a-zA-Z0-9-]/g, "");
-  const safeTheme = initialTheme.replace(/[^a-z0-9-]/g, "") || "light";
+export type { FrameSrcdocOptions };
 
-  return `<!DOCTYPE html>
-<html class="theme-${safeTheme}">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none';
-                 base-uri 'none';
-                 form-action 'none';
-                 object-src 'none';
-                 style-src 'unsafe-inline' *;
-                 font-src * data: blob:;
-                 img-src * data: blob:;
-                 media-src * data: blob:;
-                 script-src 'nonce-${safeNonce}';
-                 connect-src 'none';
-                 frame-src 'none';">
-  <style id="base-css">${frameCSS}</style>
-  <style id="font-face-css"></style>
-  <style id="book-css"></style>
-  <style id="override-css"></style>
-</head>
-<body>
-  <div id="paged-clip">
-    <div id="content"><div id="content-inner"></div></div>
-  </div>
-  <script nonce="${safeNonce}">${frameScript}</script>
-</body>
-</html>`;
+export function buildFrameSrcdoc(options: FrameSrcdocOptions): string {
+  return renderFrameSrcdoc({ ...options, frameCSS, frameScript });
 }

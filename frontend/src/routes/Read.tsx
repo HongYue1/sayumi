@@ -1418,6 +1418,8 @@ export default function Read(props: Props) {
           <Show when={book()}>
             <ChapterFrame
               initialTheme={settings.value.theme}
+              initialThemeVars={settings.iframe.themeVars}
+              initialLanguage={book()?.language ?? null}
               onapi={handleApi}
               onready={handleReady}
               onloaded={handleLoaded}

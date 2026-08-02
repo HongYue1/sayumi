@@ -72,6 +72,14 @@ function acceptedOrigin(origin: string): boolean {
 
 interface Props {
   initialTheme: string;
+  /**
+   * Resolved palette for a custom theme (settings.iframe.themeVars), null for a
+   * built-in. Required rather than optional: a caller that forgets it silently
+   * reintroduces the white flash described at the srcdoc const below.
+   */
+  initialThemeVars: string | null;
+  /** Book language, so the document is tagged before the first chapter lands. */
+  initialLanguage: string | null;
   onapi?: (api: ChapterFrameAPI) => void;
   onready?: () => void;
   onloaded?: (seq: number) => void;
@@ -85,9 +93,21 @@ interface Props {
 
 export default function ChapterFrame(props: Props) {
   // srcdoc is built once at mount; the iframe document is static thereafter and
-  // theme changes are pushed in via apply-settings, so the initial theme is
-  // fine. Deliberately a plain const: props.initialTheme is read once.
-  const srcdoc = buildFrameSrcdoc(crypto.randomUUID(), props.initialTheme);
+  // theme changes are pushed in via apply-settings, so seeding it with the
+  // initial values is enough. Deliberately a plain const: the initial* props
+  // are read once, at mount, and never tracked.
+  //
+  // initialThemeVars is what makes that true for custom themes as well. They
+  // have no static html.theme-<id> rule in frame.css, so without the palette
+  // inlined here the first paint falls through to frame.css's bare `html`
+  // rule — the light palette — and a custom dark theme flashes white until the
+  // first apply-settings arrives.
+  const srcdoc = buildFrameSrcdoc({
+    nonce: crypto.randomUUID(),
+    theme: props.initialTheme,
+    themeVars: props.initialThemeVars,
+    language: props.initialLanguage,
+  });
 
   // Non-reactive instance state (not rendered).
   let iframeEl: HTMLIFrameElement | undefined;
