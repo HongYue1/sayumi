@@ -12,6 +12,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "bench": "vitest bench --run",
     "test:watch": "vitest"
   },
   "devDependencies": {

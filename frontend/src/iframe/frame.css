@@ -452,18 +452,14 @@ th {
   font-weight: 700;
 }
 
-mark.search-highlight,
-mark.search-highlight-active {
+/* One rule: searchHighlight.ts only ever applies .search-highlight, and only
+   to the single active match, so the former .search-highlight-active variant
+   was unreachable. Computed style is unchanged. */
+mark.search-highlight {
   background: var(--accent);
   color: var(--bg-primary);
-}
-
-mark.search-highlight {
   border-radius: 2px;
   padding: 0 1px;
-}
-
-mark.search-highlight-active {
   outline: 2px solid color-mix(in srgb, var(--accent) 60%, var(--text-primary));
   outline-offset: 1px;
 }

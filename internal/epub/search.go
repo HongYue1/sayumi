@@ -286,10 +286,16 @@ func isTextBoundaryElement(tag atom.Atom, rawTag string) bool {
 		}
 	}
 
+	// atom.Form is deliberately absent below: sanitize.go unwraps <form>,
+	// promoting its children, before a chapter reaches the reader frame, so
+	// the DOM the frontend indexes has no form element to score. A boundary
+	// here would insert a collapsed space the frontend cannot reproduce and
+	// shift every later CharOffset by one (the mirror list lives in
+	// frontend/src/iframe/searchHighlight.ts).
 	switch tag {
 	case atom.Address, atom.Article, atom.Aside, atom.Blockquote,
 		atom.Caption, atom.Div, atom.Dd, atom.Dl, atom.Dt,
-		atom.Figcaption, atom.Figure, atom.Footer, atom.Form,
+		atom.Figcaption, atom.Figure, atom.Footer,
 		atom.H1, atom.H2, atom.H3, atom.H4, atom.H5, atom.H6,
 		atom.Header, atom.Hr, atom.Li, atom.Main, atom.Nav,
 		atom.Ol, atom.P, atom.Pre, atom.Section,
