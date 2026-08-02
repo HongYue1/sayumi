@@ -12,6 +12,7 @@ import {
   currentSessionEpoch,
   subscribeUnauthenticated,
 } from "~/lib/sessionGate";
+import { isReachable, reportReachable } from "~/lib/reachability";
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -134,6 +135,89 @@ describe("requestWithRetry", () => {
     expect(err).toBeInstanceOf(DOMException);
     expect(err).toMatchObject({ name: "AbortError" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// These cases drive the real per-attempt timer, which the block above disables
+// with timeoutMs: 0.
+describe("per-attempt timeout", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  // A fetch that settles only when its signal aborts, so the per-attempt timer
+  // is the sole thing that can end the attempt.
+  function neverSettles(init?: { signal?: AbortSignal }): Promise<Response> {
+    const signal = init?.signal;
+    return new Promise<Response>((_resolve, reject) => {
+      if (!signal) return;
+      signal.addEventListener("abort", () => {
+        reject(signal.reason as Error);
+      });
+    });
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    // Reachability is shared module state: start from "reachable" so an earlier
+    // network-error case cannot pre-satisfy or mask the assertions below.
+    reportReachable();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    reportReachable();
+  });
+
+  it("does not report the server unreachable when an attempt times out", async () => {
+    fetchMock.mockImplementation(
+      (_input: unknown, init?: { signal?: AbortSignal }) => neverSettles(init),
+    );
+    const settled = requestWithRetry("GET", "/x", undefined, {
+      attempts: 1,
+      timeoutMs: 20_000,
+    }).catch((e) => e);
+    await vi.runAllTimersAsync();
+    const err = await settled;
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ code: "network_error" });
+    // A slow answer is not evidence of a dead server; flipping this would paint
+    // the offline banner over a working reader.
+    expect(isReachable()).toBe(true);
+  });
+
+  it("keeps its full retry budget when an attempt times out", async () => {
+    let calls = 0;
+    fetchMock.mockImplementation(
+      (_input: unknown, init?: { signal?: AbortSignal }) => {
+        calls += 1;
+        return calls < 3
+          ? neverSettles(init)
+          : Promise.resolve(jsonResponse({ ok: true }));
+      },
+    );
+    const p = requestWithRetry<{ ok: boolean }>("GET", "/x", undefined, {
+      attempts: 3,
+      timeoutMs: 20_000,
+    });
+    await vi.runAllTimersAsync();
+    await expect(p).resolves.toEqual({ ok: true });
+    // This stopped at 2 before the fix: the timeout flipped reachability, and
+    // the next attempt reads that snapshot as its go/no-go for retrying.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("releases the timeout timer as soon as the request settles", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true }));
+    await expect(
+      requestWithRetry("GET", "/x", undefined, {
+        attempts: 1,
+        timeoutMs: 20_000,
+      }),
+    ).resolves.toEqual({ ok: true });
+    // AbortSignal.timeout would leave this armed for the full 20s.
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 

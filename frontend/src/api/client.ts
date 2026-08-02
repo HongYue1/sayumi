@@ -131,16 +131,45 @@ async function parseSuccessResponse<T>(res: Response): Promise<T> {
 // never answered would hang forever and never reach the retry path.
 const DEFAULT_TIMEOUT_MS = 20_000;
 
-// Combines an optional caller signal with a timeout. AbortSignal.timeout aborts
-// with a TimeoutError (not an AbortError), so request()'s catch routes it to the
-// retryable network-error branch instead of treating it as a user cancellation.
+// True for the abort reason withTimeout raises. A timed-out attempt is not a
+// user cancellation (AbortError) and not proof of a dead server, so it needs a
+// branch of its own in both request() and the retry loop.
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "TimeoutError";
+}
+
+// Combines an optional caller signal with a per-attempt timeout and returns a
+// dispose() that releases the timer the moment the request settles.
+//
+// AbortSignal.timeout is deliberately NOT used: its timer cannot be cancelled,
+// so a request answered in milliseconds still pins an armed timer -- and the
+// composite signal fed by it -- for the whole window, which is 30 minutes for
+// uploadToGofile. The abort reason keeps AbortSignal.timeout's shape (a
+// TimeoutError DOMException, not an AbortError) so request()'s catch routes it
+// to the retryable network-error branch rather than treating it as a user
+// cancellation.
 function withTimeout(
   signal: AbortSignal | undefined,
   timeoutMs: number | undefined,
-): AbortSignal | undefined {
-  if (!timeoutMs || timeoutMs <= 0) return signal;
-  const timeout = AbortSignal.timeout(timeoutMs);
-  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+): { signal: AbortSignal | undefined; dispose: () => void } {
+  if (!timeoutMs || timeoutMs <= 0) return { signal, dispose: () => {} };
+  const controller = new AbortController();
+  const timer = globalThis.setTimeout(() => {
+    controller.abort(
+      new DOMException(
+        `Request timed out after ${timeoutMs}ms`,
+        "TimeoutError",
+      ),
+    );
+  }, timeoutMs);
+  return {
+    signal: signal
+      ? AbortSignal.any([signal, controller.signal])
+      : controller.signal,
+    dispose: (): void => {
+      clearTimeout(timer);
+    },
+  };
 }
 
 async function request<T>(
@@ -153,11 +182,12 @@ async function request<T>(
   // Bind authentication failures to the profile generation that launched the
   // request. A late 401 from an old profile must not sign out a newer login.
   const sessionEpoch = currentSessionEpoch();
+  const { signal: attemptSignal, dispose } = withTimeout(signal, timeoutMs);
   const options: RequestInit = {
     method,
     headers: buildHeaders(),
     credentials: "same-origin",
-    signal: withTimeout(signal, timeoutMs),
+    signal: attemptSignal,
   };
 
   if (body != null) {
@@ -173,6 +203,7 @@ async function request<T>(
   try {
     res = await fetch(`${BASE}${path}`, options);
   } catch (error) {
+    dispose();
     if (error instanceof DOMException && error.name === "AbortError")
       throw error;
     if (signal?.aborted) throw abortError(signal);
@@ -180,7 +211,14 @@ async function request<T>(
     // (e.g. it was quit). Flip the shared reachability signal so the offline
     // banner appears immediately, without waiting on navigator.onLine — which
     // stays true for a downed localhost server.
-    reportUnreachable();
+    //
+    // A timeout is excluded on purpose: it means THIS attempt was slow, not
+    // that the server is gone. Read.tsx prefetches adjacent chapters unaborted
+    // in the background, so flipping the signal here paints the offline banner
+    // over a working reader until the next recovery poll, and it poisons
+    // requestWithRetry, whose following attempt reads isReachable() as its
+    // go/no-go snapshot. /health owns recovery; a slow answer proves nothing.
+    if (!isTimeoutError(error)) reportUnreachable();
     throw new ApiError(
       networkErrorMessage(error),
       undefined,
@@ -192,26 +230,32 @@ async function request<T>(
   // The server answered (even a 4xx/5xx proves it's reachable).
   reportReachable();
 
-  if (!res.ok) {
-    const fallback =
-      res.status >= 500
-        ? "Server error. Please try again."
-        : `Request failed: ${res.status}`;
-    const parsed = await parseErrorResponse(res, fallback);
-    // A 401 "unauthenticated" on a request we made while believing we were
-    // logged in means the server-side session is gone (commonly: the server
-    // restarted and a non-remembered session wasn't restored, or the session
-    // expired). Notify the session store so the app falls back to the login
-    // screen instead of looking broken. Credential failures use other codes
-    // ("invalid_credentials") and /auth/status returns 200, so neither trips
-    // this.
-    if (res.status === 401 && parsed.code === "unauthenticated") {
-      reportUnauthenticated(sessionEpoch);
+  // The timer covers the body read too -- headers can arrive promptly and then
+  // the stream can stall -- so it is only released once the body is parsed.
+  try {
+    if (!res.ok) {
+      const fallback =
+        res.status >= 500
+          ? "Server error. Please try again."
+          : `Request failed: ${res.status}`;
+      const parsed = await parseErrorResponse(res, fallback);
+      // A 401 "unauthenticated" on a request we made while believing we were
+      // logged in means the server-side session is gone (commonly: the server
+      // restarted and a non-remembered session wasn't restored, or the session
+      // expired). Notify the session store so the app falls back to the login
+      // screen instead of looking broken. Credential failures use other codes
+      // ("invalid_credentials") and /auth/status returns 200, so neither trips
+      // this.
+      if (res.status === 401 && parsed.code === "unauthenticated") {
+        reportUnauthenticated(sessionEpoch);
+      }
+      throw new ApiError(parsed.message, res.status, parsed.code);
     }
-    throw new ApiError(parsed.message, res.status, parsed.code);
-  }
 
-  return parseSuccessResponse<T>(res);
+    return await parseSuccessResponse<T>(res);
+  } finally {
+    dispose();
+  }
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -243,44 +287,16 @@ export interface RequestWithRetryOptions {
   timeoutMs?: number;
 }
 
-export function requestWithRetry<T>(
-  method: HttpMethod,
-  path: string,
-  body?: unknown,
-  attempts?: number,
-  signal?: AbortSignal,
-): Promise<T>;
-export function requestWithRetry<T>(
-  method: HttpMethod,
-  path: string,
-  body?: unknown,
-  options?: RequestWithRetryOptions,
-): Promise<T>;
 export async function requestWithRetry<T>(
   method: HttpMethod,
   path: string,
   body?: unknown,
-  attemptsOrOptions: number | RequestWithRetryOptions = 3,
-  signal?: AbortSignal,
+  options: RequestWithRetryOptions = {},
 ): Promise<T> {
-  let maxAttempts: number;
-  let sig: AbortSignal | undefined;
-  let timeoutMs: number | undefined;
-
-  if (typeof attemptsOrOptions === "object" && attemptsOrOptions !== null) {
-    const raw = attemptsOrOptions.attempts ?? 3;
-    maxAttempts = Number.isFinite(raw) ? Math.max(1, Math.trunc(raw)) : 3;
-    sig = attemptsOrOptions.signal;
-    timeoutMs = attemptsOrOptions.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  } else {
-    maxAttempts = Number.isFinite(attemptsOrOptions)
-      ? Math.max(1, Math.trunc(attemptsOrOptions))
-      : 3;
-    sig = signal;
-    timeoutMs = DEFAULT_TIMEOUT_MS;
-  }
-
-  let lastError: unknown;
+  const raw = options.attempts ?? 3;
+  const maxAttempts = Number.isFinite(raw) ? Math.max(1, Math.trunc(raw)) : 3;
+  const sig = options.signal;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     // Snapshot reachability BEFORE the attempt. request() flips the shared
@@ -321,12 +337,14 @@ export async function requestWithRetry<T>(
         throw error;
       }
 
-      lastError = error;
       await sleep(500 * 2 ** attempt, sig);
     }
   }
 
-  throw lastError;
+  // Unreachable: maxAttempts is at least 1 and every iteration returns or
+  // throws. It exists so the signature stays honest without a write-only
+  // lastError threaded through the loop.
+  throw new Error("requestWithRetry exhausted its attempts");
 }
 
 export interface AuthStatus {
@@ -559,7 +577,19 @@ export function rescanFonts(signal?: AbortSignal): Promise<UserFontFamily[]> {
   ).then(acceptFontsResponse);
 }
 
-/** Absolute URL for a user font file (used in @font-face src across the iframe boundary). */
+/**
+ * Absolute URL for a user font file (used in @font-face src across the iframe
+ * boundary).
+ *
+ * Two server contracts are load-bearing here (internal/api/router.go):
+ *   - protectUserFonts compares the ENTIRE raw query against `token=<hex>`, so
+ *     this URL must carry exactly one query parameter. Adding a second (a
+ *     cache-buster, say) would 404 every user font with no other clue.
+ *   - The token is minted once per process by NewDependencies, not per
+ *     response, so it is a server-lifetime value rather than a rotating
+ *     credential. A restart mints a new one while a remembered session
+ *     survives, so the cached copy here can outlive its server.
+ */
 export function userFontUrl(dir: string, file: string): string {
   return `${window.location.origin}/fonts/user/${encodeURIComponent(
     dir,
@@ -705,8 +735,7 @@ export function fetchChapter(
     "GET",
     `/books/${pathSegment(bookId)}/chapters/${index}`,
     undefined,
-    attempts,
-    signal,
+    { attempts, signal },
   );
 }
 
