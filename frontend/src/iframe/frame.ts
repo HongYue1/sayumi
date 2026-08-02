@@ -14,6 +14,7 @@ import { generateCFI, resolveCFI } from "~/lib/cfi";
 import { createSearchHighlight } from "./searchHighlight";
 import { createBoundary } from "./boundary";
 import { createPagination } from "./pagination";
+import { prefersReducedMotion } from "./reduceMotion";
 
 // Keys whose browser default is to scroll the viewport / nearest scroller. In
 // paged mode the page turn is a JS opacity cross-fade plus a single scrollLeft
@@ -79,17 +80,6 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   // empty string is an explicit "use percent" marker: it crosses that bridge as
   // a real update, while commitLoad rejects it as a restore CFI.
   const NO_CFI = "";
-
-  // Declared next to its only reader. prefersReducedMotion() is defined above
-  // the module state block, so parking the cache down there left a TDZ trap for
-  // the first init-time caller.
-  let reduceMotionQuery: MediaQueryList | null = null;
-
-  function prefersReducedMotion(): boolean {
-    if (typeof window.matchMedia !== "function") return false;
-    reduceMotionQuery ??= window.matchMedia("(prefers-reduced-motion: reduce)");
-    return reduceMotionQuery.matches;
-  }
 
   let activeSeq = -1;
   let activeChapterIndex = -1;
@@ -333,12 +323,17 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     return (_styleEls[id] ??= document.getElementById(id) as HTMLStyleElement);
   }
 
-  function getContentEl(): HTMLElement {
-    return (_contentEl ??= document.getElementById("content") as HTMLElement);
+  // Nullable on purpose. Every caller already guards, and searchHighlight's dep
+  // contract types it honestly; the cast these used to carry asserted a
+  // guarantee the lookup cannot make. Caching with ??= is safe across chapter
+  // swaps because #content and #paged-clip are static srcdoc shell nodes -- a
+  // load replaces the inner HTML, never these elements.
+  function getContentEl(): HTMLElement | null {
+    return (_contentEl ??= document.getElementById("content"));
   }
 
-  function getClipEl(): HTMLElement {
-    return (_clipEl ??= document.getElementById("paged-clip") as HTMLElement);
+  function getClipEl(): HTMLElement | null {
+    return (_clipEl ??= document.getElementById("paged-clip"));
   }
 
   function sendMessage(msg: FrameToParentMessage): void {
@@ -1442,8 +1437,10 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       scrollRafHandle = null;
     }
 
+    // Conditional write, not an early return: the rest of commitLoad does not
+    // depend on the element, and throwing here would abandon the load halfway.
     const contentEl = getContentEl();
-    contentEl.scrollLeft = 0;
+    if (contentEl) contentEl.scrollLeft = 0;
 
     loadScrollTarget = msg.scrollTo || "top";
     pendingFragment = msg.fragment || null;

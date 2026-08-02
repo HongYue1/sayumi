@@ -1,4 +1,5 @@
 import type { FrameToParentMessage } from "~/lib/frameMessages";
+import { prefersReducedMotion } from "./reduceMotion";
 
 /**
  * Pull-past-the-edge "previous/next chapter" affordance.
@@ -160,14 +161,6 @@ export function createBoundary(deps: BoundaryDeps): BoundaryController {
   let gestureLatched = false;
   let appliedTop = "";
   let appliedBottom = "";
-  let reduceMotionQuery: MediaQueryList | null = null;
-
-  // Cached per controller, and guarded so the test DOM (no matchMedia) is safe.
-  function prefersReducedMotion(): boolean {
-    if (typeof window.matchMedia !== "function") return false;
-    reduceMotionQuery ??= window.matchMedia("(prefers-reduced-motion: reduce)");
-    return reduceMotionQuery.matches;
-  }
 
   function createIndicator(
     id: string,

@@ -1,4 +1,5 @@
 import type { FrameToParentMessage } from "~/lib/frameMessages";
+import { prefersReducedMotion } from "./reduceMotion";
 
 // Page-turn cross-fade timing. The paged view is one multicol scroller, so a
 // turn fades out, swaps scrollLeft while invisible, then fades back in (see
@@ -20,8 +21,10 @@ const MAX_FADE_STEP = 0.2;
 const PAGE_INDICATOR_CLEARANCE = 32;
 
 export type PaginationDeps = {
-  getContentEl: () => HTMLElement;
-  getClipEl: () => HTMLElement;
+  /** The paged multicol scroller (#content); null before the shell exists. */
+  getContentEl: () => HTMLElement | null;
+  /** The paged viewport clip (#paged-clip); null before the shell exists. */
+  getClipEl: () => HTMLElement | null;
   sendMessage: (msg: FrameToParentMessage) => void;
   getActiveSeq: () => number;
   getActiveChapterIndex: () => number;
@@ -192,7 +195,6 @@ export function createPagination(deps: PaginationDeps): PaginationController {
   let pageTurningActive = false;
   let _pageIndicator: HTMLElement | null = null;
   let pageIndicatorText = "";
-  let reduceMotionQuery: MediaQueryList | null = null;
   let fontRelayoutToken = 0;
   // Element the current page was resolved from (restore/fragment only). A
   // relayout re-derives the page from it so a font-driven repagination lands on
@@ -226,12 +228,6 @@ export function createPagination(deps: PaginationDeps): PaginationController {
       clearTimeout(pageTurnFinishTimer);
       pageTurnFinishTimer = null;
     }
-  }
-
-  function prefersReducedMotion(): boolean {
-    if (typeof window.matchMedia !== "function") return false;
-    reduceMotionQuery ??= window.matchMedia("(prefers-reduced-motion: reduce)");
-    return reduceMotionQuery.matches;
   }
 
   function getPageStride(): number {

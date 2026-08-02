@@ -21,6 +21,8 @@
 // indexes the sanitized DOM, so an element internal/epub/sanitize.go unwraps
 // must not be a boundary on either side (see TEXT_BOUNDARY_TAGS).
 
+import { prefersReducedMotion } from "./reduceMotion";
+
 export interface SearchHighlightDeps {
   /** The live chapter content element (#content); null before the shell exists. */
   getContentEl: () => HTMLElement | null;
@@ -41,18 +43,6 @@ export interface SearchHighlighter {
     query: string,
   ) => void;
   clearSearchHighlights: () => void;
-}
-
-// Matches the guarded + lazily-cached MediaQueryList form used by the two other
-// frame-side helpers (frame.ts, pagination.ts). The MQL is live, so a cached
-// instance still reflects the current OS setting on every read; caching avoids
-// allocating a fresh MediaQueryList per highlight scroll, and the typeof guard
-// keeps it safe where window.matchMedia is absent (e.g. the test DOM).
-let reduceMotionQuery: MediaQueryList | null = null;
-function prefersReducedMotion(): boolean {
-  if (typeof window.matchMedia !== "function") return false;
-  reduceMotionQuery ??= window.matchMedia("(prefers-reduced-motion: reduce)");
-  return reduceMotionQuery.matches;
 }
 
 // Mirrors isTextBoundaryElement in internal/epub/search.go. Two absences are

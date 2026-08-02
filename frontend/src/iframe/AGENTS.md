@@ -62,6 +62,12 @@ decision and `buildFrameHtml.ts` holds nothing but the two imports. Two conseque
   `@import` outright — an import that reaches the frame is lost from every preserve
   mode and is never color-stripped or font-split. Imports still present here are
   remote or unresolvable, so dropping them is correct.
+- **One reduced-motion probe, in `reduceMotion.ts`.** It had grown four copies with
+  three different cache lifetimes. The `MediaQueryList` is live, so caching it only
+  saves an allocation — worth keeping because `boundary.show()` reads it on every
+  `touchmove` — and the cache is keyed on the `window.matchMedia` reference so a test
+  that swaps it is never served a query built by the implementation it replaced. The
+  `typeof` guard stays: some DOMs have no `matchMedia` at all.
 - **CFI logic lives in `lib/cfi.ts` only.** Inlined copies drifted once and mis-resolved
   malformed segments. An unresolvable CFI falls back to percentage.
 - **Every position report carries a CFI or an explicit empty marker.** Omitting it makes
