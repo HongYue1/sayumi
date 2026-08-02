@@ -80,6 +80,11 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   // a real update, while commitLoad rejects it as a restore CFI.
   const NO_CFI = "";
 
+  // Declared next to its only reader. prefersReducedMotion() is defined above
+  // the module state block, so parking the cache down there left a TDZ trap for
+  // the first init-time caller.
+  let reduceMotionQuery: MediaQueryList | null = null;
+
   function prefersReducedMotion(): boolean {
     if (typeof window.matchMedia !== "function") return false;
     reduceMotionQuery ??= window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -125,7 +130,6 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   let _lastFontFaceContent: string | null = null;
   let _lastBookCSS: string | null = null;
   let _lastOverrideCSS: string | null = null;
-  let reduceMotionQuery: MediaQueryList | null = null;
 
   let _contentEl: HTMLElement | null = null;
   let _clipEl: HTMLElement | null = null;
@@ -138,6 +142,8 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   const _preparedCSSCache = new Map<
     string,
     {
+      origin: string;
+      fontFaceInput: string;
       fontCSS: string;
       layoutCSS: string;
       rawCSS: string;
@@ -196,6 +202,12 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   let isPagedMode = false;
   let reportPositionRafHandle: number | null = null;
   let scrollRafHandle: number | null = null;
+  // Wheel/touch boundary pulls read layout and then write indicator styles, so
+  // doing both per raw event forces a reflow on every tick. Coalesced into one
+  // rAF each, the same way handleScroll coalesces its reads.
+  let wheelPullDelta = 0;
+  let wheelPullRafHandle: number | null = null;
+  let touchPullRafHandle: number | null = null;
   let pagedRelayoutRafHandle: number | null = null;
   let revealFallbackTimer: ReturnType<typeof setTimeout> | null = null;
   let loadCommitTimer: ReturnType<typeof setTimeout> | null = null;
@@ -245,10 +257,21 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     if (!content.contains(node) || !BLOCK_TAGS.has(node.tagName)) return false;
     const rect = node.getBoundingClientRect();
     const vh = Number.isFinite(window.innerHeight) ? window.innerHeight : 0;
+    const vw = Number.isFinite(window.innerWidth) ? window.innerWidth : 0;
     // This simplified CFI addresses elements, not an offset within one. A block
-    // as tall as the viewport (or taller) cannot restore the current position
-    // precisely, so omit its anchor and let the explicit no-CFI marker select
-    // the more accurate percent fallback instead of jumping to the block's start.
+    // that fills the viewport along the flow axis (or overflows it) cannot
+    // restore the current position precisely, so omit its anchor and let the
+    // explicit no-CFI marker select the more accurate percent fallback instead
+    // of jumping to the block's start.
+    //
+    // Both tests follow the flow axis. A vertical chapter flows along X, where
+    // every block is viewport-tall by construction: measuring height there
+    // rejects every candidate and silently disables CFI anchoring, while
+    // testing only vertical overlap accepts blocks sitting whole viewports away
+    // along the reading axis and anchors the position to the wrong place.
+    if (verticalWriting) {
+      return rect.width < vw && rect.right > 0 && rect.left < vw;
+    }
     return rect.height < vh && rect.bottom > 0 && rect.top < vh;
   }
 
@@ -275,12 +298,23 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     const vw = Number.isFinite(window.innerWidth) ? window.innerWidth : 0;
     const vh = Number.isFinite(window.innerHeight) ? window.innerHeight : 0;
     if (vw <= 0 || vh <= 0) return null;
-    const cx = vw / 2;
-    const samples = [8, 40, Math.floor(vh * 0.18), Math.floor(vh * 0.33)];
+    // Probe inward from the reading edge: the top edge for horizontal-tb, the
+    // right edge for vertical-rl (which reads right to left), the left edge for
+    // vertical-lr. Sampling top-centre in a vertical chapter anchors to a block
+    // up to half a viewport ahead of the reader.
+    const span = verticalWriting ? vw : vh;
+    const samples = [8, 40, Math.floor(span * 0.18), Math.floor(span * 0.33)];
+    const probePoint = (offset: number): [number, number] => {
+      if (!verticalWriting) return [vw / 2, offset];
+      return verticalWriting === "rl"
+        ? [vw - 1 - offset, vh / 2]
+        : [offset, vh / 2];
+    };
 
-    for (const y of samples) {
-      if (y < 0 || y >= vh) continue;
-      const leaf = document.elementFromPoint(cx, y);
+    for (const offset of samples) {
+      if (offset < 0 || offset >= span) continue;
+      const [px, py] = probePoint(offset);
+      const leaf = document.elementFromPoint(px, py);
       if (!leaf || !content.contains(leaf)) continue;
       const block = ascendToVisibleBlock(leaf, content);
       if (block) {
@@ -367,9 +401,17 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     // as before on a miss, so the sandbox CSP, nonce handling and color/style
     // stripping behaviour are completely unchanged. parentOrigin is part of the
     // key because absolutifyCSS rewrites /api/ urls against it.
-    const cacheKey = `${parentOrigin ?? ""}\u0000${rawBookCSS}\u0000${bookFontFaceCSS}`;
+    // Keyed on the book stylesheet itself rather than on a concatenation of
+    // every input: that composite key was a third full-size copy of the CSS,
+    // allocated on every load and retained for the life of the entry. The other
+    // two inputs are verified on the entry, so a hit is still an exact match.
+    const cacheKey = rawBookCSS;
     const hit = _preparedCSSCache.get(cacheKey);
-    if (hit) {
+    if (
+      hit &&
+      hit.origin === parentOrigin &&
+      hit.fontFaceInput === bookFontFaceCSS
+    ) {
       _preparedCSSCache.delete(cacheKey);
       _preparedCSSCache.set(cacheKey, hit); // refresh LRU position
       preparedFontCSS = hit.fontCSS;
@@ -379,6 +421,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       preparedBookFontFamilies = hit.bookFontFamilies;
       return;
     }
+    if (hit) _preparedCSSCache.delete(cacheKey);
     const { fontCSS, layoutCSS } = splitBookCSS(rawBookCSS);
     preparedFontCSS = fontCSS;
     preparedLayoutCSS = stripColorsFromCSS(absolutifyCSS(layoutCSS));
@@ -390,6 +433,8 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       if (lru !== undefined) _preparedCSSCache.delete(lru);
     }
     _preparedCSSCache.set(cacheKey, {
+      origin: parentOrigin,
+      fontFaceInput: bookFontFaceCSS,
       fontCSS: preparedFontCSS,
       layoutCSS: preparedLayoutCSS,
       rawCSS: preparedRawCSS,
@@ -490,15 +535,21 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     loadScrollTarget = null;
 
     if (fragment) {
-      revealScrollShell();
-      requestAnimationFrame(() => {
-        if (destroyed) return;
-        scrollToFragmentById(fragment);
+      const target = document.getElementById(fragment);
+      if (target) {
+        // Instant, and before the reveal. The interactive scroll-to-fragment
+        // path animates on purpose, but on a chapter that is still hidden a
+        // smooth scroll shows one frame of the chapter top and then animates
+        // away from it. An unresolvable id now falls through to the percent/CFI
+        // restore below instead of revealing at the top.
+        target.scrollIntoView({ behavior: "instant" as ScrollBehavior });
+        boundary.reset();
+        revealScrollShell();
         if (reportPositionRafHandle !== null)
           cancelAnimationFrame(reportPositionRafHandle);
         reportPositionRafHandle = requestAnimationFrame(reportPosition);
-      });
-      return;
+        return;
+      }
     }
 
     axisScrollTo(scrollTarget === "end" ? getScrollableMax() : 0);
@@ -530,6 +581,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       return;
     }
     pendingSearchHighlight = null;
+    invalidateAnchorCache();
     searchHl.highlightSearchMatch(h.charOffset, h.matchLen, h.query);
   }
 
@@ -557,46 +609,63 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     void document.fonts.ready.then(run);
   }
 
-  function runInitialLayoutRestore(): void {
-    const seqAtStart = activeSeq;
-
+  // Runs the restore for the mode the frame is in WHEN THE REVEAL FIRES, not
+  // the mode captured when it was scheduled: a scroll<->paged toggle can land
+  // inside the fonts-gated window, and running the captured path would silently
+  // drop the restore (axisScrollTo is a no-op under the paged shell's
+  // body{overflow:hidden}).
+  function performInitialRestore(): void {
     if (isPagedMode) {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (destroyed || activeSeq !== seqAtStart) return;
-
-          revealAfterFonts(() => {
-            if (destroyed || activeSeq !== seqAtStart) return;
-            const target = loadScrollTarget || "top";
-            const pagedRestore = loadRestorePercent;
-            const pagedRestoreElement = loadRestoreCfi
-              ? resolveCFI(loadRestoreCfi, document)
-              : null;
-            loadScrollTarget = null;
-            loadRestorePercent = null;
-            loadRestoreCfi = null;
-            restorePending = false;
-            pagination.restorePagedPosition(
-              target,
-              pagedRestore,
-              pagedRestoreElement,
-            );
-            requestAnimationFrame(drainPendingSearchHighlight);
-          }, REVEAL_FALLBACK_PAGED_MS);
-        });
-      });
+      const target = loadScrollTarget || "top";
+      const pagedRestore = loadRestorePercent;
+      const pagedRestoreElement = loadRestoreCfi
+        ? resolveCFI(loadRestoreCfi, document)
+        : null;
+      loadScrollTarget = null;
+      loadRestorePercent = null;
+      loadRestoreCfi = null;
+      restorePending = false;
+      pagination.restorePagedPosition(
+        target,
+        pagedRestore,
+        pagedRestoreElement,
+      );
+      requestAnimationFrame(drainPendingSearchHighlight);
       return;
     }
 
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() =>
+    restoreScrollPosition();
+    drainPendingSearchHighlight();
+  }
+
+  function runInitialLayoutRestore(): void {
+    const seqAtStart = activeSeq;
+    // activeSeq alone is not a sufficient guard. The load handler bumps
+    // loadTransitionToken and starts the swap-out fade CHAPTER_SWAP_OUT_MS
+    // before commitLoad moves activeSeq, so a reveal armed for the outgoing
+    // chapter still passes a seq-only check and un-hides the chapter being
+    // replaced, reversing the fade mid-transition. Pin both.
+    const tokenAtStart = loadTransitionToken;
+    const isStale = (): boolean =>
+      destroyed ||
+      activeSeq !== seqAtStart ||
+      loadTransitionToken !== tokenAtStart;
+
+    // The paged shell needs a longer fallback: its multicol layout settles
+    // later than a scroll chapter's.
+    const fallbackMs = isPagedMode
+      ? REVEAL_FALLBACK_PAGED_MS
+      : REVEAL_FALLBACK_SCROLL_MS;
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (isStale()) return;
         revealAfterFonts(() => {
-          if (destroyed || activeSeq !== seqAtStart) return;
-          restoreScrollPosition();
-          drainPendingSearchHighlight();
-        }),
-      ),
-    );
+          if (isStale()) return;
+          performInitialRestore();
+        }, fallbackMs);
+      });
+    });
   }
 
   function schedulePagedRelayout(): void {
@@ -887,8 +956,21 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     }
   }
 
+  // A jump that arrives while the fonts-gated restore is still queued must not
+  // clear restorePending and must not promote contentReady itself. The DOM
+  // still holds the previous chapter's offset, so reopening reports here
+  // clobbers saved progress under the new seq (see restorePending above), and
+  // faking readiness makes the pending apply-settings skip
+  // runInitialLayoutRestore entirely -- stranding the restore percent/CFI and
+  // the deferred search highlight, and leaving paged mode with totalPages 0.
+  // Hand the target to the restore instead; it consumes both.
   function scrollToFragmentById(id: string): void {
-    restorePending = false;
+    if (restorePending) {
+      pendingFragment = id;
+      return;
+    }
+    if (!contentReady) return;
+
     if (isPagedMode) {
       pagination.scrollToFragmentPaged(id);
       boundary.reset();
@@ -897,15 +979,6 @@ const PAGED_SCROLL_KEYS = new Set<string>([
 
     const el = document.getElementById(id);
     if (!el) return;
-
-    if (!contentReady) {
-      contentReady = true;
-      document.body.style.opacity = "1";
-      document.documentElement.style.overflow = "";
-      requestAnimationFrame(() => {
-        if (!destroyed) setChapterHidden(false);
-      });
-    }
 
     el.scrollIntoView({
       behavior: prefersReducedMotion() ? "auto" : "smooth",
@@ -917,7 +990,14 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   // bookmark in the chapter already on screen). Mirrors scrollToFragmentById
   // but resolves the position via the CFI path instead of an element id.
   function scrollToCfiLocal(cfi: string): void {
-    restorePending = false;
+    // Same contract as scrollToFragmentById: defer into the pending restore
+    // rather than dropping the guard or forcing readiness.
+    if (restorePending) {
+      loadRestoreCfi = cfi;
+      return;
+    }
+    if (!contentReady) return;
+
     const el = resolveCFI(cfi, document);
     if (!el) return;
 
@@ -925,15 +1005,6 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       pagination.goToElementPaged(el);
       boundary.reset();
       return;
-    }
-
-    if (!contentReady) {
-      contentReady = true;
-      document.body.style.opacity = "1";
-      document.documentElement.style.overflow = "";
-      requestAnimationFrame(() => {
-        if (!destroyed) setChapterHidden(false);
-      });
     }
 
     el.scrollIntoView({
@@ -958,6 +1029,15 @@ const PAGED_SCROLL_KEYS = new Set<string>([
 
   let scrollThrottleTimer: ReturnType<typeof setTimeout> | null = null;
   let scrollThrottlePending = false;
+
+  // generateCFI indexes among all element siblings, so wrapping or unwrapping
+  // search <mark>s can shift the path a cached CFI encodes. Drop the cache
+  // whenever the chapter DOM is mutated under it.
+  function invalidateAnchorCache(): void {
+    lastVisibleBlock = null;
+    lastReportedAnchor = null;
+    lastReportedCfi = null;
+  }
 
   function reportPosition(): void {
     if (restorePending) return;
@@ -1023,23 +1103,54 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     });
   }
 
+  // Wheel travel in reading order, forward-positive. A vertical chapter scrolls
+  // along X, where a trackpad emits deltaX for the same gesture that emits
+  // deltaY in a horizontal one; vertical-rl reads right to left, so rightward
+  // travel goes backwards. Chromium maps a classic wheel's deltaY onto whatever
+  // axis actually scrolls, so that component is already forward-positive.
+  function readingAxisWheelDelta(e: WheelEvent): number {
+    if (!verticalWriting) return e.deltaY;
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+      return verticalWriting === "rl" ? -e.deltaX : e.deltaX;
+    }
+    return e.deltaY;
+  }
+
   function handleWheel(e: WheelEvent): void {
     if (destroyed || !contentReady || restorePending) return;
     if (isPagedMode) return;
+    // Sum synchronously, read layout and paint the indicator once per frame:
+    // updateBoundaryState() reads scrollHeight and boundary.* then writes
+    // indicator styles, so running both per event forces a reflow per tick.
+    wheelPullDelta += readingAxisWheelDelta(e);
+    if (wheelPullRafHandle !== null) return;
+    wheelPullRafHandle = requestAnimationFrame(flushWheelPull);
+  }
+
+  function flushWheelPull(): void {
+    wheelPullRafHandle = null;
+    const delta = wheelPullDelta;
+    wheelPullDelta = 0;
+    if (destroyed || !contentReady || restorePending || isPagedMode) return;
+
     updateBoundaryState();
-    if (atTop && e.deltaY < 0) {
-      boundary.accumulate(Math.abs(e.deltaY), "start", WHEEL_THRESHOLD);
+    if (atTop && delta < 0) {
+      boundary.accumulate(Math.abs(delta), "start", WHEEL_THRESHOLD);
       return;
     }
-    if (atBottom && e.deltaY > 0) {
-      boundary.accumulate(Math.abs(e.deltaY), "end", WHEEL_THRESHOLD);
+    if (atBottom && delta > 0) {
+      boundary.accumulate(Math.abs(delta), "end", WHEEL_THRESHOLD);
       return;
     }
     if (boundary.hasActiveDirection()) boundary.reset();
   }
 
   function handleTouchStart(e: TouchEvent): void {
-    if (destroyed || !contentReady || e.touches.length !== 1) return;
+    // Arming during the restore would capture the OUTGOING chapter's offset in
+    // touchAtBoundaryOnStart; handleTouchMove skips until the guard clears and
+    // would then measure the pull against that stale base.
+    if (destroyed || !contentReady || restorePending) return;
+    if (e.touches.length !== 1) return;
     touchStartY = e.touches[0].clientY;
     touchStartX = e.touches[0].clientX;
     touchLastX = touchStartX;
@@ -1056,31 +1167,48 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     touchLastX = e.touches[0].clientX;
     touchLastY = e.touches[0].clientY;
     if (isPagedMode) return;
+    // Same coalescing as the wheel path; the flush reads the latest touch point.
+    if (touchPullRafHandle !== null) return;
+    touchPullRafHandle = requestAnimationFrame(flushTouchPull);
+  }
 
-    const touchY = e.touches[0].clientY;
-    const touchX = e.touches[0].clientX;
-    const totalDeltaY = touchStartY - touchY;
-    const deltaX = Math.abs(touchX - touchStartX);
-    if (deltaX > Math.abs(totalDeltaY) * 0.7) return;
+  function flushTouchPull(): void {
+    touchPullRafHandle = null;
+    if (destroyed || !touchTracking || restorePending || isPagedMode) return;
+
+    // Pull distance in reading order, forward-positive. A vertical chapter
+    // flows along X, so the boundary pull is a horizontal drag: vertical-rl
+    // advances as the finger moves right (the next content sits to the left),
+    // vertical-lr as it moves left. Measuring Y here rejected every vertical
+    // pull as an off-axis pan, which left touch chapter hand-off unreachable.
+    const alongFlow = verticalWriting
+      ? verticalWriting === "rl"
+        ? touchLastX - touchStartX
+        : touchStartX - touchLastX
+      : touchStartY - touchLastY;
+    const acrossFlow = verticalWriting
+      ? Math.abs(touchLastY - touchStartY)
+      : Math.abs(touchLastX - touchStartX);
+    if (acrossFlow > Math.abs(alongFlow) * 0.7) return;
 
     updateBoundaryState();
 
-    if (atBottom && totalDeltaY > 0) {
+    if (atBottom && alongFlow > 0) {
       if (touchBoundaryBase === 0) {
-        touchBoundaryBase = touchAtBoundaryOnStart ? 0 : totalDeltaY;
+        touchBoundaryBase = touchAtBoundaryOnStart ? 0 : alongFlow;
       }
-      const boundaryDelta = totalDeltaY - touchBoundaryBase;
+      const boundaryDelta = alongFlow - touchBoundaryBase;
       if (boundaryDelta > 0) {
         boundary.processTouch("end", hasNextChapter, boundaryDelta);
       }
       return;
     }
 
-    if (atTop && totalDeltaY < 0) {
+    if (atTop && alongFlow < 0) {
       if (touchBoundaryBase === 0) {
-        touchBoundaryBase = touchAtBoundaryOnStart ? 0 : totalDeltaY;
+        touchBoundaryBase = touchAtBoundaryOnStart ? 0 : alongFlow;
       }
-      const boundaryDelta = Math.abs(totalDeltaY - touchBoundaryBase);
+      const boundaryDelta = Math.abs(alongFlow - touchBoundaryBase);
       if (boundaryDelta > 0) {
         boundary.processTouch("start", hasPrevChapter, boundaryDelta);
       }
@@ -1289,9 +1417,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
         ? msg.restoreCfi
         : null;
 
-    lastVisibleBlock = null;
-    lastReportedAnchor = null;
-    lastReportedCfi = null;
+    invalidateAnchorCache();
 
     if (revealFallbackTimer !== null) {
       clearTimeout(revealFallbackTimer);
@@ -1321,7 +1447,16 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     // mode into a following horizontal one. Vertical modes flip all scroll
     // math to the horizontal axis via verticalWriting (see getAxisScrollPos).
     {
-      const wm = typeof msg.writingMode === "string" ? msg.writingMode : "";
+      const raw = typeof msg.writingMode === "string" ? msg.writingMode : "";
+      // Allowlisted before it reaches the DOM, matching the lang sanitization
+      // below. The value originates in book CSS, and the backend closes the set
+      // to horizontal-tb / vertical-rl / vertical-lr (internal/epub/chapter.go);
+      // the tb-* aliases are kept so no previously accepted value regresses.
+      const wm = /^(horizontal-tb|vertical-rl|vertical-lr|tb-rl|tb-lr)$/.test(
+        raw,
+      )
+        ? raw
+        : "";
       document.documentElement.style.writingMode =
         wm && wm !== "horizontal-tb" ? wm : "";
       verticalWriting = /vertical-rl|tb-rl/.test(wm)
@@ -1379,12 +1514,23 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       cancelAnimationFrame(scrollRafHandle);
       scrollRafHandle = null;
     }
+    if (wheelPullRafHandle !== null) {
+      cancelAnimationFrame(wheelPullRafHandle);
+      wheelPullRafHandle = null;
+    }
+    if (touchPullRafHandle !== null) {
+      cancelAnimationFrame(touchPullRafHandle);
+      touchPullRafHandle = null;
+    }
+    wheelPullDelta = 0;
     cancelScheduledPagedRelayout();
     if (rasterRefreshRafHandle !== null) {
       cancelAnimationFrame(rasterRefreshRafHandle);
       rasterRefreshRafHandle = null;
     }
-    document.documentElement.classList.remove("raster-refresh");
+    // chapter-anim is transient like raster-refresh; drop both so teardown
+    // never leaves a will-change promotion behind.
+    document.documentElement.classList.remove("raster-refresh", "chapter-anim");
 
     window.removeEventListener("message", handleMessage);
     document.removeEventListener("click", handleClick);
@@ -1469,6 +1615,13 @@ const PAGED_SCROLL_KEYS = new Set<string>([
 
         pendingSettingsMessage = null;
         const transitionToken = ++loadTransitionToken;
+        // Disarm the outgoing chapter's reveal here rather than at commitLoad:
+        // the swap-out fade starts now, and the fallback would otherwise fire
+        // mid-transition and un-hide the chapter being replaced.
+        if (revealFallbackTimer !== null) {
+          clearTimeout(revealFallbackTimer);
+          revealFallbackTimer = null;
+        }
         beginChapterSwapOut();
 
         const delay = shouldAnimateChapterSwap() ? CHAPTER_SWAP_OUT_MS : 0;
@@ -1577,11 +1730,13 @@ const PAGED_SCROLL_KEYS = new Set<string>([
           };
           break;
         }
+        invalidateAnchorCache();
         searchHl.highlightSearchMatch(msg.charOffset, msg.matchLen, msg.query);
         break;
 
       case "clear-highlights":
         pendingSearchHighlight = null;
+        invalidateAnchorCache();
         searchHl.clearSearchHighlights();
         break;
 
