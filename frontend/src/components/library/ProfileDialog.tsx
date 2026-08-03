@@ -11,11 +11,11 @@
 //     toast (unchanged from the Svelte reasoning).
 //   - The backdrop dismiss is the shared .backdrop-dismiss button (guarded by
 //     !busy, mirroring the Svelte's conditional overlay click).
-import { createMemo, createSignal, onCleanup, onSettled, Show } from "solid-js";
+import { createMemo, createSignal, onSettled, Show } from "solid-js";
 import { session } from "~/lib/session";
 import { ApiError, listProfiles } from "~/api/client";
 import { toast } from "~/lib/toast";
-import { focusTrap } from "~/lib/focusTrap";
+import { trap } from "~/lib/focusTrap";
 import Icon from "~/lib/Icon";
 import { TriangleAlert, X } from "~/lib/icons";
 
@@ -200,7 +200,7 @@ export default function ProfileDialog(props: Props) {
         tabindex="-1"
         aria-modal="true"
         aria-label={props.mode === "clone" ? "Clone profile" : "Delete profile"}
-        ref={(el) => onCleanup(focusTrap(el))}
+        ref={trap()}
       >
         <header>
           <div class="pd-head-text">

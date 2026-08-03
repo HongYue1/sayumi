@@ -22,7 +22,7 @@ import { settings } from "~/lib/settings";
 import { applyTheme, onAccentColor } from "~/lib/theme";
 import { THEMES, autoAccent, themeGroupFor, type ThemeDef } from "~/lib/themes";
 import type { CustomThemeInput } from "~/api/client";
-import { focusTrap } from "~/lib/focusTrap";
+import { trap } from "~/lib/focusTrap";
 import Icon from "~/lib/Icon";
 import { X, Trash2 } from "~/lib/icons";
 
@@ -241,7 +241,7 @@ export default function CustomThemeDialog(props: Props) {
         tabindex="-1"
         aria-modal="true"
         aria-label={editing() ? "Edit custom theme" : "New custom theme"}
-        ref={(el) => onCleanup(focusTrap(el))}
+        ref={trap()}
       >
         <header class="ctd-head">
           <div class="ctd-head-text">

@@ -434,7 +434,19 @@ export default function SettingsPanel(props: Props) {
   }
 
   return (
-    <div class="stp">
+    // Escape is handled here, not by focusTrap (which deliberately ignores
+    // Esc): range/select controls are keyboard consumers (isKeyboardConsumer
+    // in Read.tsx), so the reader's window-level Esc never fires with focus on
+    // a slider or font select. Toc/Search/Bookmarks handle Esc locally too.
+    <div
+      class="stp"
+      onKeyDown={(e) => {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        e.stopPropagation();
+        props.onclose();
+      }}
+    >
       <header class="stp-head">
         <div class="stp-head-text">
           <p class="eyebrow">Reader</p>

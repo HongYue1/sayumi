@@ -11,11 +11,12 @@
 //     one-microtask fallback, matching the Svelte prewarm. Specimen mode
 //     still prewarms Settings only.
 //   - svelte:window/document listeners -> window/document addEventListener in
-//     onSettled + onCleanup; the moreOpen-conditional pointerdown listener
+//     onSettled + its returned cleanup; the moreOpen-conditional pointerdown listener
 //     becomes a compute/apply createEffect keyed on moreOpen().
-//   - The three $effects become compute/apply createEffects; the apply phase
-//     never tracks, which is exactly the guarantee the Svelte version used
-//     untrack() for.
+//   - The three Svelte $effects (font-face push, settings push, theme sync)
+//     become compute/apply createEffects — plus a fourth for the overflow
+//     menu's outside-pointer listener; the apply phase never tracks, which is
+//     exactly the guarantee the Svelte version used untrack() for.
 //   - fly/fade transitions -> CSS keyframe enters (rdp-panel-in-left/right,
 //     rdp-fade-in) with a prefers-reduced-motion kill switch in CSS — the
 //     Svelte JS honored it via PANEL_MS=0; CSS owns it now. Exit animations
@@ -28,9 +29,9 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  onCleanup,
   onSettled,
   Show,
+  untrack,
 } from "solid-js";
 import { clientOnly } from "@solidjs/web";
 import {
@@ -77,7 +78,7 @@ import type {
   KeyEvent,
 } from "~/components/reader/frame-types";
 import Icon from "~/lib/Icon";
-import { focusTrap } from "~/lib/focusTrap";
+import { trap } from "~/lib/focusTrap";
 import {
   ArrowLeft,
   Bookmark as BookmarkIcon,
@@ -139,7 +140,13 @@ export default function Read(props: Props) {
   // place. Scoped to the profile: two profiles reading the same book id must
   // not resume from (or clobber) each other's locally cached position.
   const bookId = props.bookId;
-  const progressCacheKey = `sayumi:progress:${session.profile ?? ""}:${bookId}`;
+  // Intentional one-time read of a signal-backed getter at component-body top
+  // level: untrack marks it deliberate and silences STRICT_READ_UNTRACKED
+  // (docs29 08). Correctness comes from App's keyed Show remounting Read per
+  // book; the publisher is deliberately bound to the profile NAME (dead after
+  // a switch), not a live subscription.
+  const bootProfile = untrack(() => session.profile);
+  const progressCacheKey = `sayumi:progress:${bootProfile ?? ""}:${bookId}`;
   // The reader doubles as a live typography preview: a sentinel bookId renders
   // a built-in specimen chapter entirely client-side (no book/progress/bookmark
   // server calls), so users can tune reading settings against rich sample text.
@@ -147,7 +154,7 @@ export default function Read(props: Props) {
   // Bind reader-to-library updates to the profile generation that opened this
   // route. A delayed save from an old reader must never touch a later profile.
   const publishLibraryProgress = library.createReadingProgressPublisher(
-    session.profile,
+    bootProfile,
     bookId,
   );
 
@@ -247,8 +254,19 @@ export default function Read(props: Props) {
   let initialLoadDone = false;
   let saveData: ProgressData = { chapter: 0, percent: 0 };
   const chapterCache = new Map<number, ChapterData>();
+  // In-flight chapter fetches, so a navigation racing its own prefetch joins
+  // the shared request instead of issuing a duplicate fetch + EPUB decode.
+  const chapterInflight = new Map<number, Promise<ChapterData>>();
   let chapterLoadInProgress = false;
   let pendingNav: {
+    index: number;
+    scrollTo: "top" | "end";
+    fragment?: string;
+    restore?: { percent: number; cfi?: string };
+  } | null = null;
+  // The most recent failed chapter navigation, so the error Retry re-attempts
+  // the chapter that actually failed rather than the current one.
+  let lastFailedNav: {
     index: number;
     scrollTo: "top" | "end";
     fragment?: string;
@@ -268,6 +286,11 @@ export default function Read(props: Props) {
   let lastPersistedChapter = -1;
   let lastPersistedPercent = -1;
   let lastBoundaryTime = 0;
+  // Serializes bookmark create/delete: the add path applies only after its
+  // await, so an unguarded double-toggle duplicates — and an add that resolves
+  // after a remove was meant to win ghosts the bookmark back.
+  let bookmarkOpInFlight = false;
+  let bookmarkToggleQueued = false;
   let lastChapterSwapAt = 0;
   let lastBootProgress: ProgressData = { chapter: 0, percent: 0 };
 
@@ -396,8 +419,13 @@ export default function Read(props: Props) {
       clearTimeout(chromeHideTimer);
       chromeHideTimer = undefined;
     }
-    // Never auto-hide while a panel is open.
-    if (activePanel() === "none") {
+    // Never auto-hide while a panel is open — or while focus is inside the
+    // bar: hiding would flip the bar inert under a mid-Tab keyboard walk and
+    // drop focus to <body>.
+    const barHasFocus =
+      document.activeElement instanceof HTMLElement &&
+      document.activeElement.closest(".rdp-bar") !== null;
+    if (activePanel() === "none" && !barHasFocus) {
       chromeHideTimer = setTimeout(
         () => setChromeVisible(false),
         CHROME_AUTO_HIDE_MS,
@@ -452,6 +480,10 @@ export default function Read(props: Props) {
   // value. This keeps live preview smooth without flooding postMessage.
   let applyRaf: number | null = null;
   let pendingSettings: IframeSettings | null = null;
+  // Latest iframe settings, written by the settings effect's apply phase — a
+  // plain value for other apply phases, because a reactive read in an
+  // untracked scope trips STRICT_READ_UNTRACKED (docs29 08).
+  let lastIframe: IframeSettings = untrack(() => settings.iframe);
   function scheduleApplySettings(s: IframeSettings): void {
     pendingSettings = s;
     if (applyRaf !== null) return;
@@ -473,7 +505,7 @@ export default function Read(props: Props) {
     (faces) => {
       if (api && initialLoadDone) {
         api.setFontFaces(faces);
-        scheduleApplySettings(settings.iframe);
+        scheduleApplySettings(lastIframe);
       }
       return undefined;
     },
@@ -485,20 +517,25 @@ export default function Read(props: Props) {
   createEffect(
     () => settings.iframe,
     (s) => {
+      lastIframe = s;
       if (api && initialLoadDone) scheduleApplySettings(s);
       return undefined;
     },
   );
 
   // Keep the app chrome (reader bar, panels) in sync with the reading theme.
-  // Gated on settings.loaded: before the server settings arrive, value.theme is
-  // the compile-time default ("light"), and applying it would flash the shell
-  // to light AND overwrite the localStorage palette cache the pre-paint
-  // bootstrap relies on. The cached theme from index.html stays up instead.
+  // Gated on settings.loaded: before a successful load, value.theme is the
+  // compile-time default ("catppuccin" — dark Mocha), and applying it would
+  // repaint the shell with the wrong palette AND overwrite the localStorage
+  // palette cache the pre-paint bootstrap relies on. The cached theme from
+  // index.html stays up instead. The conjunction lives in the compute phase:
+  // reading settings.loaded in the untracked apply phase trips
+  // STRICT_READ_UNTRACKED (docs29 08), and a load resolving the SAME theme id
+  // must still re-run the effect when loaded flips.
   createEffect(
-    () => settings.value.theme,
+    () => (settings.loaded ? settings.value.theme : null),
     (id) => {
-      if (settings.loaded) applyTheme(id);
+      if (id !== null) applyTheme(id);
       return undefined;
     },
   );
@@ -538,11 +575,16 @@ export default function Read(props: Props) {
     panelPrewarm = schedulePrewarm(prewarmPanels);
 
     window.addEventListener("keydown", handleWindowKey);
+    window.addEventListener("focusin", handlePointerActivity);
     window.addEventListener("pointermove", handlePointerActivity);
     document.addEventListener("visibilitychange", handleVisibility);
 
-    onCleanup(() => {
+    // onSettled's callback runs in a tracked-effect scope where onCleanup is
+    // forbidden (CLEANUP_IN_FORBIDDEN_SCOPE, beta.29 dev) — RETURN the
+    // cleanup instead; it runs once at owner disposal, exactly the teardown.
+    return () => {
       window.removeEventListener("keydown", handleWindowKey);
+      window.removeEventListener("focusin", handlePointerActivity);
       window.removeEventListener("pointermove", handlePointerActivity);
       document.removeEventListener("visibilitychange", handleVisibility);
       // SPA route changes that don't go through handleBack or a page
@@ -554,6 +596,15 @@ export default function Read(props: Props) {
       // and the backend coalescer collapses duplicate positions before the
       // WAL write.
       if (bookLoaded && !isSpecimen) {
+        // Mirror the page-hide path: the cache is the crash-guard copy when
+        // the beacon never lands. A successful save is what removes it (see
+        // flushProgress), so its presence always means "newest known
+        // position" — chooseBootProgress prefers it over the server.
+        try {
+          localStorage.setItem(progressCacheKey, JSON.stringify(saveData));
+        } catch {
+          // ignore
+        }
         publishLibraryProgress(saveData.chapter, saveData.percent);
         beaconProgress(bookId, { ...saveData });
       }
@@ -563,7 +614,7 @@ export default function Read(props: Props) {
       if (chromeHideTimer) clearTimeout(chromeHideTimer);
       if (applyRaf !== null) cancelAnimationFrame(applyRaf);
       panelPrewarm?.cancel();
-    });
+    };
   });
 
   // The outside-pointer listener for the ⋯ menu exists only while the menu is
@@ -611,7 +662,18 @@ export default function Read(props: Props) {
       const raw = localStorage.getItem(progressCacheKey);
       if (raw) {
         const cached: ProgressData = JSON.parse(raw);
-        saved = chooseBootProgress(saved, cached);
+        // The cache is writable by anything in this origin — validate before
+        // trusting it. A non-integer/NaN chapter would slip the loadChapter
+        // bounds guard (NaN comparisons are all false) and wedge the reader in
+        // an error loop; a non-finite percent poisons the restore and toast.
+        const cacheOk =
+          Number.isSafeInteger(cached.chapter) &&
+          cached.chapter >= 0 &&
+          Number.isFinite(cached.percent) &&
+          cached.percent >= 0 &&
+          cached.percent <= 1 &&
+          (cached.cfi === undefined || typeof cached.cfi === "string");
+        if (cacheOk) saved = chooseBootProgress(saved, cached);
       }
     } catch {
       // ignore malformed cache
@@ -631,9 +693,7 @@ export default function Read(props: Props) {
     }
 
     // Bookmarks are non-blocking for reader startup.
-    getBookmarks(bookId)
-      .then((bms) => setBookmarks(bms))
-      .catch(() => {});
+    void refreshBookmarks();
   }
 
   // Fetches the book metadata and starts the initial chapter render. Split out
@@ -654,6 +714,13 @@ export default function Read(props: Props) {
       const data = await getBook(bookId);
       setBook(data);
       bookLoaded = true;
+      if (data.chapterCount <= 0) {
+        // Empty-spine EPUB: nothing to render — fail at the book level instead
+        // of opening a blank reader (Chapter 1/0) whose progress writes 400.
+        setBookLoadFailed(true);
+        setError("This book has no readable chapters.");
+        return;
+      }
       const chapter = Math.max(
         0,
         Math.min(saved.chapter, data.chapterCount - 1),
@@ -676,6 +743,7 @@ export default function Read(props: Props) {
   }
 
   function retryOpen(): void {
+    void refreshBookmarks();
     void openBook(lastBootProgress);
   }
 
@@ -702,18 +770,45 @@ export default function Read(props: Props) {
       chapterCache.set(index, cached); // refresh LRU position
       return cached;
     }
-    const data = await fetchChapter(
+    // Join an in-flight fetch instead of issuing a duplicate — the prefetch
+    // fired at the previous chapter's load may still be on the wire. Race the
+    // caller's signal so an abort still resolves promptly (a superseded
+    // navigation must not wait on the shared fetch).
+    const inflight = chapterInflight.get(index);
+    if (inflight) {
+      if (!signal) return inflight;
+      return Promise.race([
+        inflight,
+        new Promise<never>((_, reject) => {
+          const onAbort = () =>
+            reject(new DOMException("Aborted", "AbortError"));
+          if (signal.aborted) onAbort();
+          else signal.addEventListener("abort", onAbort, { once: true });
+        }),
+      ]);
+    }
+    const request = fetchChapter(
       bookId,
       index,
       CHAPTER_LOAD_RETRY_ATTEMPTS,
       signal,
     );
-    if (chapterCache.size >= MAX_CHAPTER_CACHE) {
-      const lru = chapterCache.keys().next().value;
-      if (lru !== undefined) chapterCache.delete(lru);
+    chapterInflight.set(index, request);
+    try {
+      const data = await request;
+      // A prefetch that completes after the user moved on must not refresh
+      // itself as most-recently-used and evict the warm working set.
+      if (Math.abs(index - currentChapter()) <= 1) {
+        if (chapterCache.size >= MAX_CHAPTER_CACHE) {
+          const lru = chapterCache.keys().next().value;
+          if (lru !== undefined) chapterCache.delete(lru);
+        }
+        chapterCache.set(index, data);
+      }
+      return data;
+    } finally {
+      chapterInflight.delete(index);
     }
-    chapterCache.set(index, data);
-    return data;
   }
 
   async function loadChapter(
@@ -723,7 +818,11 @@ export default function Read(props: Props) {
     restore?: { percent: number; cfi?: string },
   ): Promise<void> {
     const b = book();
-    if (!b || index < 0 || index >= b.chapterCount || !api) return;
+    if (!b || !api) return;
+    // A poisoned boot cache or a bad frame report must never reach the fetch
+    // URL: NaN slips past index < 0 || index >= n (NaN comparisons are false).
+    if (!Number.isSafeInteger(index) || index < 0 || index >= b.chapterCount)
+      return;
 
     if (chapterLoadInProgress) {
       pendingNav = { index, scrollTo, fragment, restore };
@@ -736,6 +835,11 @@ export default function Read(props: Props) {
       return;
     }
 
+    // Disarm an armed highlight timer (it could still fire into the outgoing
+    // chapter inside its 120ms window) — but keep pendingHighlight: a deferred
+    // cross-chapter search highlight is set immediately before this call and
+    // must survive to handleLoaded.
+    if (highlightTimer) clearTimeout(highlightTimer);
     fetchAbort?.abort();
     fetchAbort = new AbortController();
     const { signal } = fetchAbort;
@@ -784,6 +888,11 @@ export default function Read(props: Props) {
       setCurrentChapter(index);
       setChapterPercent(nextPercent);
       setChapterDirection(data.direction === "rtl" ? "rtl" : "ltr");
+      // The post-swap boundary grace exists so wheel momentum can't chain-skip
+      // a chapter the user hasn't seen render — stamp it only when a swap
+      // actually happened, not on a failed/aborted load.
+      lastChapterSwapAt = Date.now();
+      lastFailedNav = null;
       saveData = { chapter: index, percent: nextPercent, cfi: nextCFI };
 
       if (!pendingNav) {
@@ -792,11 +901,14 @@ export default function Read(props: Props) {
       }
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
+      // Remember the failed destination so Retry re-attempts IT — retrying the
+      // current chapter after a superseded error would reload the chapter
+      // already on screen.
+      lastFailedNav = { index, scrollTo, fragment, restore };
       setError(getErrorMessage(err, "Failed to load chapter"));
     } finally {
       chapterLoadInProgress = false;
       setChapterLoading(false);
-      lastChapterSwapAt = Date.now();
       const nav = pendingNav;
       if (nav) {
         pendingNav = null;
@@ -935,9 +1047,14 @@ export default function Read(props: Props) {
       void loadChapter(currentChapter() - 1, "end");
   }
   function handleFrameError(_code: string, message: string): void {
-    // An in-iframe render failure: stop the spinner and show the error UI with
-    // Retry instead of silently swallowing it.
-    chapterLoadInProgress = false;
+    // A render failure arriving while a newer chapter is still FETCHING is
+    // necessarily the outgoing chapter's (the new one has not reached the
+    // frame yet): do not release the load latch mid-fetch, kill its spinner,
+    // or show the stale error over the chapter being loaded.
+    if (chapterLoadInProgress) return;
+    // Stop the spinner and show the error UI with Retry instead of silently
+    // swallowing it. (The latch is already released by loadChapter's finally
+    // by the time a genuine current-chapter load-error can arrive.)
     setChapterLoading(false);
     setError(message || "Failed to render this chapter.");
   }
@@ -1016,6 +1133,20 @@ export default function Read(props: Props) {
 
     cancelPendingHighlight();
     api?.clearHighlights();
+    if (chapterLoadInProgress || pendingNav) {
+      // A navigation is queued or in flight: an immediate highlight lands in
+      // the outgoing chapter and is wiped by the swap. Defer through the same
+      // pendingHighlight path as a cross-chapter hit.
+      pendingHighlight = {
+        chapterIndex: result.chapterIndex,
+        charOffset: result.charOffset,
+        matchLen: result.matchLen,
+        query,
+      };
+      if (result.chapterIndex !== currentChapter())
+        void loadChapter(result.chapterIndex, "top");
+      return;
+    }
     if (result.chapterIndex === currentChapter()) {
       api?.highlightSearch(result.charOffset, result.matchLen, query);
     } else {
@@ -1030,30 +1161,92 @@ export default function Read(props: Props) {
   }
 
   // ---- bookmarks ----------------------------------------------------------
+  /** Fetches the bookmark list; an in-flight mutation owns the newer state. */
+  async function refreshBookmarks(): Promise<void> {
+    try {
+      const server = await getBookmarks(bookId);
+      if (bookmarkOpInFlight) return;
+      setBookmarks(server);
+    } catch {
+      showToast("Couldn't load bookmarks");
+    }
+  }
+
   async function toggleBookmark(): Promise<void> {
-    const existingId = currentBookmarkId();
-    if (existingId) {
-      const prev = bookmarks();
-      setBookmarks(bookmarks().filter((b) => b.id !== existingId));
-      try {
-        await deleteBookmark(bookId, existingId);
-        showToast("Bookmark removed");
-      } catch (err) {
-        setBookmarks(prev);
-        showToast(getErrorMessage(err, "Failed to remove bookmark"));
-      }
+    // Re-entrant presses queue a single re-toggle that resolves when the
+    // in-flight op settles — a second press during the add's await must not
+    // start a second create (duplicate), and an add-then-remove must delete.
+    if (bookmarkOpInFlight) {
+      bookmarkToggleQueued = !bookmarkToggleQueued;
       return;
     }
+    bookmarkOpInFlight = true;
     try {
-      const bm = await createBookmark(bookId, {
-        chapter: currentChapter(),
-        percent: chapterPercent(),
-        cfi: saveData.cfi,
-      });
-      setBookmarks([...bookmarks(), bm]);
-      showToast("Bookmark added");
-    } catch (err) {
-      showToast(getErrorMessage(err, "Failed to add bookmark"));
+      const existingId = currentBookmarkId();
+      if (existingId) {
+        const removed = bookmarks().find((b) => b.id === existingId);
+        setBookmarks(bookmarks().filter((b) => b.id !== existingId));
+        try {
+          await deleteBookmark(bookId, existingId);
+          showToast("Bookmark removed");
+          // A toggle queued during the delete's flight means "undo the
+          // delete" — re-create from the removed record (its server id is
+          // gone). Done here, not via the finally's re-toggle, because
+          // currentBookmarkId() is a memo and beta.29 recomputes memos on the
+          // scheduler queue — a same-continuation re-read sees the stale
+          // pre-delete value (probe-verified; pinned in Read.test.tsx).
+          if (bookmarkToggleQueued && removed) {
+            bookmarkToggleQueued = false;
+            try {
+              const reAdded = await createBookmark(bookId, {
+                chapter: removed.chapter,
+                percent: removed.percent,
+                cfi: removed.cfi,
+              });
+              setBookmarks([...bookmarks(), reAdded]);
+              showToast("Bookmark added");
+            } catch (err) {
+              showToast(getErrorMessage(err, "Failed to add bookmark"));
+            }
+          }
+        } catch (err) {
+          // Surgical rollback: re-add only the removed bookmark, never restore
+          // a whole pre-flight snapshot over a concurrent op's newer state.
+          if (removed) setBookmarks([...bookmarks(), removed]);
+          showToast(getErrorMessage(err, "Failed to remove bookmark"));
+        }
+      } else {
+        try {
+          const bm = await createBookmark(bookId, {
+            chapter: currentChapter(),
+            percent: chapterPercent(),
+            cfi: saveData.cfi,
+          });
+          setBookmarks([...bookmarks(), bm]);
+          showToast("Bookmark added");
+          // A toggle queued during the create's flight means "undo the add" —
+          // delete by the id just created (memo staleness note above).
+          if (bookmarkToggleQueued) {
+            bookmarkToggleQueued = false;
+            setBookmarks(bookmarks().filter((b) => b.id !== bm.id));
+            try {
+              await deleteBookmark(bookId, bm.id);
+              showToast("Bookmark removed");
+            } catch (err) {
+              setBookmarks([...bookmarks(), bm]);
+              showToast(getErrorMessage(err, "Failed to remove bookmark"));
+            }
+          }
+        } catch (err) {
+          showToast(getErrorMessage(err, "Failed to add bookmark"));
+        }
+      }
+    } finally {
+      bookmarkOpInFlight = false;
+      if (bookmarkToggleQueued) {
+        bookmarkToggleQueued = false;
+        void toggleBookmark();
+      }
     }
   }
 
@@ -1071,12 +1264,12 @@ export default function Read(props: Props) {
   }
 
   async function removeBookmark(id: string): Promise<void> {
-    const prev = bookmarks();
+    const removed = bookmarks().find((b) => b.id === id);
     setBookmarks(bookmarks().filter((b) => b.id !== id));
     try {
       await deleteBookmark(bookId, id);
     } catch (err) {
-      setBookmarks(prev);
+      if (removed) setBookmarks([...bookmarks(), removed]);
       showToast(getErrorMessage(err, "Failed to remove bookmark"));
     }
   }
@@ -1098,7 +1291,9 @@ export default function Read(props: Props) {
       const updated = await updateBookmark(bookId, id, { label, comment });
       setBookmarks(bookmarks().map((b) => (b.id === id ? updated : b)));
     } catch (err) {
-      setBookmarks(prev);
+      const prior = prev.find((b) => b.id === id);
+      if (prior)
+        setBookmarks(bookmarks().map((b) => (b.id === id ? prior : b)));
       showToast(getErrorMessage(err, "Failed to update bookmark"));
     }
   }
@@ -1109,6 +1304,7 @@ export default function Read(props: Props) {
     key: string;
     ctrlKey?: boolean;
     metaKey?: boolean;
+    shiftKey?: boolean;
   }): boolean {
     if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
       ui.togglePalette();
@@ -1140,6 +1336,11 @@ export default function Read(props: Props) {
         "?",
         "ArrowLeft",
         "ArrowRight",
+        " ",
+        "PageDown",
+        "PageUp",
+        "Home",
+        "End",
       ].includes(e.key);
     }
     // The specimen has no TOC, search, or bookmarks; ignore those shortcuts so
@@ -1177,6 +1378,35 @@ export default function Read(props: Props) {
         if (isPaged() && isRTL()) goPrev();
         else goNext();
         return true;
+      case "PageDown":
+      case " ":
+        // The frame suppresses these keys' native scroll in paged mode so the
+        // parent can drive the navigation (frame.ts PAGED_SCROLL_KEYS +
+        // preventDefault) — so the parent must actually drive it. PageDown and
+        // Space step forward; Shift+Space and PageUp step back.
+        if (isPaged()) {
+          if (e.key === " " && e.shiftKey) goPrev();
+          else goNext();
+          return true;
+        }
+        return false;
+      case "PageUp":
+        if (isPaged()) {
+          goPrev();
+          return true;
+        }
+        return false;
+      case "Home":
+      case "End":
+        // Suppressed frame-side in paged mode; no first/last-page command
+        // exists (X5's goToPage is unwired), so acknowledge the key with a
+        // chapter step instead of a silent swallow.
+        if (isPaged()) {
+          if (e.key === "Home") goPrev();
+          else goNext();
+          return true;
+        }
+        return false;
       case "t":
       case "T":
         togglePanel("toc");
@@ -1450,7 +1680,12 @@ export default function Read(props: Props) {
                 onClick={() =>
                   bookLoadFailed()
                     ? retryOpen()
-                    : void loadChapter(currentChapter())
+                    : void loadChapter(
+                        lastFailedNav?.index ?? currentChapter(),
+                        lastFailedNav?.scrollTo ?? "top",
+                        lastFailedNav?.fragment,
+                        lastFailedNav?.restore,
+                      )
                 }
               >
                 Retry
@@ -1470,7 +1705,7 @@ export default function Read(props: Props) {
                   role="dialog"
                   aria-modal="true"
                   aria-label="Table of contents"
-                  ref={(el) => onCleanup(focusTrap(el))}
+                  ref={trap()}
                 >
                   <TocPanel
                     fallback={null}
@@ -1500,7 +1735,7 @@ export default function Read(props: Props) {
             role="dialog"
             aria-modal="true"
             aria-label="Bookmarks"
-            ref={(el) => onCleanup(focusTrap(el))}
+            ref={trap()}
           >
             <BookmarksPanel
               fallback={null}
@@ -1528,7 +1763,7 @@ export default function Read(props: Props) {
             role="dialog"
             aria-modal="true"
             aria-label="Search in book"
-            ref={(el) => onCleanup(focusTrap(el))}
+            ref={trap()}
           >
             <SearchPanel
               fallback={null}
@@ -1552,7 +1787,7 @@ export default function Read(props: Props) {
             role="dialog"
             aria-modal="true"
             aria-label="Settings"
-            ref={(el) => onCleanup(focusTrap(el))}
+            ref={trap()}
           >
             <SettingsPanel fallback={null} onclose={closePanel} />
           </div>
@@ -1591,7 +1826,8 @@ export default function Read(props: Props) {
           {(b) => (
             <div
               class={["rdp-pos tnum", { "rdp-hidden": chromeVisible() }]}
-              aria-hidden="true"
+              role="status"
+              aria-label={`Chapter ${currentChapter() + 1} of ${b().chapterCount}, ${Math.round(chapterPercent() * 100)} percent`}
             >
               Ch {currentChapter() + 1}/{b().chapterCount} ·{" "}
               {Math.round(chapterPercent() * 100)}%

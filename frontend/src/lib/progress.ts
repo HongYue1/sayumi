@@ -1,5 +1,5 @@
-// Pure progress-persistence predicates extracted from routes/Read.svelte so they
-// can be unit-tested without mounting the reader. Read.svelte imports these;
+// Pure progress-persistence predicates extracted from routes/Read.tsx so they
+// can be unit-tested without mounting the reader. Read.tsx imports these;
 // do NOT re-inline copies (single source of truth).
 import type { ProgressData } from "~/api/client";
 
@@ -13,7 +13,7 @@ export const PROGRESS_EPSILON = 0.001;
 
 /** True when `next` is effectively the last-persisted position, so a non-forced
  *  flush can be skipped. Mirrors the lastPersistedChapter/Percent dedupe in
- *  Read.svelte.flushProgress. */
+ *  Read.tsx.flushProgress. */
 export function isProgressDuplicate(
   next: ProgressPosition,
   last: ProgressPosition,

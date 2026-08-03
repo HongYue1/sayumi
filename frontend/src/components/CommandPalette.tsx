@@ -8,19 +8,12 @@
 //   - Arrow-key stepping computes `next` in a local before setActive: reading
 //     active() right after writing would still return the pre-write value
 //     (batched), and scrollActiveIntoView would chase the previous row.
-//   - {@attach focusTrap} -> ref + onCleanup(focusTrap(el)); bind:this ->
+//   - {@attach focusTrap} -> ref={trap()} (two-phase factory — beta.29 ref callbacks are unowned, so the old ref + onCleanup(...) form never tore the trap down); bind:this ->
 //     ref callbacks; bind:value -> value={query()} + onInput.
 //   - The backdrop dismiss uses the shared untabbable-button pattern
 //     (.backdrop-dismiss) instead of the Svelte's stopPropagation-on-the-sheet
 //     trick, which jsx-a11y rejects.
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  For,
-  onCleanup,
-  Show,
-} from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { ui } from "~/lib/ui";
 import { library } from "~/lib/library";
 import { settings } from "~/lib/settings";
@@ -31,7 +24,7 @@ import { THEMES } from "~/lib/themes";
 import { customThemes } from "~/lib/customThemes";
 import Icon from "~/lib/Icon";
 import { Search } from "~/lib/icons";
-import { focusTrap } from "~/lib/focusTrap";
+import { trap } from "~/lib/focusTrap";
 
 interface Command {
   id: string;
@@ -236,7 +229,7 @@ export default function CommandPalette() {
           tabindex="-1"
           aria-modal="true"
           aria-label="Command palette"
-          ref={(el) => onCleanup(focusTrap(el))}
+          ref={trap()}
         >
           <div class="cmd-search">
             <Icon icon={Search} size={18} class="cmd-search-icon" />

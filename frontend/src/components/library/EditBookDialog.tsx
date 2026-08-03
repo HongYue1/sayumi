@@ -14,7 +14,7 @@ import { createMemo, createSignal, onCleanup, onSettled, Show } from "solid-js";
 import { ApiError, getCoverUrl, type BookMeta } from "~/api/client";
 import { library } from "~/lib/library";
 import { toast } from "~/lib/toast";
-import { focusTrap } from "~/lib/focusTrap";
+import { trap } from "~/lib/focusTrap";
 import Icon from "~/lib/Icon";
 import { ImageUp, X } from "~/lib/icons";
 
@@ -193,7 +193,7 @@ export default function EditBookDialog(props: Props) {
         tabindex="-1"
         aria-modal="true"
         aria-label="Edit book"
-        ref={(el) => onCleanup(focusTrap(el))}
+        ref={trap()}
       >
         <header>
           <div class="eb-head-text">

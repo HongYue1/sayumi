@@ -2,7 +2,7 @@
 // `shortcuts` flag. Ported from ShortcutsHelp.svelte.
 //
 // Solid 2.0 notes:
-//   - {@attach focusTrap} -> ref + onCleanup(focusTrap(el)), registered with
+//   - {@attach focusTrap} -> ref={trap()} (two-phase factory — beta.29 ref callbacks are unowned, so the old ref + onCleanup(...) form never tore the trap down), registered with
 //     the Show branch's owner so the trap's cleanup runs when the sheet
 //     unmounts (restoring focus to whatever opened it).
 //   - The conditional <svelte:window onkeydown> becomes a compute/apply
@@ -15,10 +15,10 @@
 //   - close() is ui.closeOverlays(): palette and shortcuts are mutually
 //     exclusive in the ui store, so closing both is exactly the old
 //     `ui.shortcuts = false`.
-import { createEffect, For, onCleanup, Show } from "solid-js";
+import { createEffect, For, Show } from "solid-js";
 import Icon from "~/lib/Icon";
 import { X } from "~/lib/icons";
-import { focusTrap } from "~/lib/focusTrap";
+import { trap } from "~/lib/focusTrap";
 import { ui } from "~/lib/ui";
 
 const groups: { title: string; items: { keys: string[]; desc: string }[] }[] = [
@@ -27,7 +27,10 @@ const groups: { title: string; items: { keys: string[]; desc: string }[] }[] = [
     items: [
       { keys: ["Ctrl / ⌘", "K"], desc: "Open command palette" },
       { keys: ["?"], desc: "Show this help" },
-      { keys: ["Esc"], desc: "Close overlay / panel" },
+      {
+        keys: ["Esc"],
+        desc: "Close overlay / panel; back to library in the reader",
+      },
     ],
   },
   {
@@ -88,7 +91,7 @@ export default function ShortcutsHelp() {
           tabindex="-1"
           aria-modal="true"
           aria-label="Keyboard shortcuts"
-          ref={(el) => onCleanup(focusTrap(el))}
+          ref={trap()}
         >
           <header>
             <div class="shortcuts-head-text">

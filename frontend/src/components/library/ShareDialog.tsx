@@ -5,7 +5,7 @@
 //   - onDestroy -> onCleanup; <svelte:window onkeydowncapture> -> an
 //     onSettled-scoped capture listener (the Svelte original already used
 //     capture for exactly the registration-order reason documented below).
-//   - {@attach focusTrap} -> ref + onCleanup(focusTrap(el)); bind:this is not
+//   - {@attach focusTrap} -> ref={trap()} (two-phase factory — beta.29 ref callbacks are unowned, so the old ref + onCleanup(...) form never tore the trap down); bind:this is not
 //     needed -- the abort controller and timers are plain (non-reactive) vars.
 //   - The backdrop dismiss is the shared .backdrop-dismiss button instead of
 //     the sheet stopPropagation trick, which jsx-a11y rejects.
@@ -17,7 +17,7 @@ import {
   type BookMeta,
 } from "~/api/client";
 import { toast } from "~/lib/toast";
-import { focusTrap } from "~/lib/focusTrap";
+import { trap } from "~/lib/focusTrap";
 import Icon from "~/lib/Icon";
 import { Check, Copy, Download, UploadCloud, X } from "~/lib/icons";
 
@@ -129,7 +129,7 @@ export default function ShareDialog(props: Props) {
         aria-modal="true"
         aria-label="Share book"
         aria-busy={busy() ? "true" : "false"}
-        ref={(el) => onCleanup(focusTrap(el))}
+        ref={trap()}
       >
         <header>
           <div class="sd-head-text">

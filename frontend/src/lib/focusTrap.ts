@@ -1,6 +1,8 @@
+import { onCleanup } from "solid-js";
+
 /**
- * Svelte attachment that makes an overlay / dialog / slide-over panel keyboard
- * accessible, per the fixing-accessibility skill (priority 3: focus & dialogs):
+ * Focus trap for overlay / dialog / slide-over panels, per the
+ * fixing-accessibility skill (priority 3: focus & dialogs):
  *
  *   - moves focus into the node on mount (first focusable, or the node itself),
  *     unless the component already placed focus inside (e.g. a search input),
@@ -10,7 +12,15 @@
  * It deliberately does NOT handle Escape — each overlay owns its own Esc logic
  * (and the consume-vs-bubble semantics that go with it).
  *
- * Usage:  <div role="dialog" aria-modal="true" {@attach focusTrap}>…</div>
+ * Usage:  <div role="dialog" aria-modal="true" ref={trap()}>…</div>
+ *
+ * Solid 2.0 ownership (probe-verified, beta.29): an arrow ref callback runs
+ * UNOWNED — onCleanup inside ref={(el) => onCleanup(focusTrap(el))} never
+ * registered, so the trap never tore down: the closed panel stayed topmost in
+ * ACTIVE_TRAPS and swallowed Tab app-wide, and focus was never restored.
+ * trap() is the two-phase factory: the outer call runs in the component's
+ * owned body (onCleanup registers there), the returned function is the ref
+ * callback. Call trap() once per element — it captures teardown state.
  */
 const FOCUSABLE = [
   "a[href]",
@@ -98,5 +108,16 @@ export function focusTrap(node: HTMLElement): () => void {
     }
     // Return focus to whatever triggered the overlay, if it's still around.
     if (previouslyFocused?.isConnected) previouslyFocused.focus();
+  };
+}
+
+/** Two-phase ref factory: registers focusTrap's teardown on the component's
+ *  owner (see the header note on beta.29 ref-callback ownership). */
+export function trap(): (el: HTMLElement) => void {
+  let teardown: (() => void) | undefined;
+  onCleanup(() => teardown?.());
+  return (el) => {
+    teardown?.();
+    teardown = focusTrap(el);
   };
 }

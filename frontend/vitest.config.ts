@@ -26,6 +26,10 @@ export default defineConfig({
   },
   test: {
     environment: "happy-dom",
+    // Node 22+ defines an inert `localStorage` global that shadows the Storage
+    // happy-dom installs, so DOM suites that read it see undefined. The setup
+    // file reinstalls a working Storage before any suite runs.
+    setupFiles: ["./src/test-setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
     globals: false,
   },
