@@ -56,6 +56,12 @@ const api = vi.hoisted(() => ({
   createBookmark: vi.fn(),
   updateBookmark: vi.fn(),
   deleteBookmark: vi.fn(),
+  // Reached through the real fontRegistry singleton rather than imported by
+  // Read.tsx directly: Read.tsx:639 calls fontRegistry.load(), which calls
+  // getFonts(). Without these two the `...actual` spread below leaves them
+  // live, and every mount fired a real request at the dev-server port.
+  getFonts: vi.fn(),
+  rescanFonts: vi.fn(),
 }));
 const showToast = vi.hoisted(() => vi.fn());
 const navigate = vi.hoisted(() => vi.fn());
@@ -234,6 +240,8 @@ beforeEach(() => {
   api.getBookmarks.mockResolvedValue([]);
   api.saveProgress.mockResolvedValue({});
   api.beaconProgress.mockReturnValue(undefined);
+  api.getFonts.mockResolvedValue([]);
+  api.rescanFonts.mockResolvedValue([]);
   settings.update({ displayMode: "scroll" });
 });
 
