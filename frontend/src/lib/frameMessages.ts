@@ -2,35 +2,60 @@
 //
 // frame.ts is compiled standalone into the srcdoc sandbox, so it can only
 // share *types* with the parent (type-only imports are erased at build time).
-// Keeping both directions here lets the parent (ChapterFrame.svelte) and the
-// frame engine (frame.ts) stay in lockstep: adding a message kind that only one
-// side handles becomes a compile error via the exhaustive switches below.
+// Keeping both directions here lets the parent (ChapterFrame.tsx) and the frame
+// engine (frame.ts) stay in lockstep.
+//
+// This file declares types only: it must stay free of runtime code so both
+// bundles can import it with `import type` and erase it completely.
+//
+// Exhaustiveness is enforced at the switch sites, not here:
+//   - parent -> frame: the message switch in frame.ts ends in a `never` guard.
+//   - frame -> parent: the dispatch switch in ChapterFrame.tsx ends in one too.
+// A new frame -> parent kind also needs a validator case in that file's
+// `isInbound` runtime guard. The compile error at the dispatch switch is what
+// sends you there, since an unvalidated kind is dropped silently at runtime.
 
 import type { IframeSettings } from "~/lib/settings";
 
 export type { IframeSettings };
+
+/** Reading direction. Mirrors the Go enum: internal/epub/parser.go emits
+ *  exactly "ltr" or "rtl", defaulting to "ltr" -- never a raw OPF string. */
+export type ReadingDirection = "ltr" | "rtl";
+
+/** Chapter writing mode. Mirrors the Go enum: internal/epub/chapter.go starts
+ *  from "horizontal-tb" and only ever overrides it with a vertical value. */
+export type WritingMode = "horizontal-tb" | "vertical-rl" | "vertical-lr";
 
 /** Chapter payload the parent sends to render content inside the frame. */
 export interface LoadMessage {
   type: "load";
   seq: number;
   chapterIndex: number;
-  css?: string;
-  fontFaceCSS?: string;
-  direction?: string;
-  writingMode?: string;
+  // These come straight from ChapterData, which the API client types as
+  // required. Optional here would only invite defensive reads for a shape no
+  // producer can build.
+  css: string;
+  fontFaceCSS: string;
+  direction: ReadingDirection;
+  writingMode: WritingMode;
+  html: string;
+  /** BCP-47 tag from the book metadata; absent when the book declares none. */
   language?: string;
-  html?: string;
   // Base URL the frame resolves relative resource links against. Sent by the
-  // parent from ChapterData.resourceBase; optional because not every chapter
-  // carries one.
-  resourceBase?: string | null;
-  scrollTo?: "top" | "end";
-  fragment?: string | null;
-  hasNext?: boolean;
-  hasPrev?: boolean;
-  restorePercent?: number | null;
-  restoreCfi?: string | null;
+  // parent from ChapterData.resourceBase; null when the chapter carries none.
+  resourceBase: string | null;
+  scrollTo: "top" | "end";
+  fragment: string | null;
+  hasNext: boolean;
+  hasPrev: boolean;
+  restorePercent: number | null;
+  restoreCfi: string | null;
+  // Belt-and-braces only. frame.ts pins the parent origin from the first
+  // message it accepts, and that is always the set-font-faces sent on "ready",
+  // so a load is already origin-checked before this field is read. Kept
+  // because it documents the expectation; optional because nothing depends on
+  // it being present.
   origin?: string;
 }
 
@@ -40,14 +65,24 @@ export type ParentToFrameMessage =
   | { type: "set-font-faces"; fontFaces: string }
   | LoadMessage
   | { type: "apply-settings"; settings: IframeSettings }
-  | { type: "scroll-to"; percent: number }
-  | { type: "scroll-to-end" }
-  | { type: "next-page" }
-  | { type: "prev-page" }
-  | { type: "go-to-page"; page: number }
-  | { type: "go-to-last-page" }
-  | { type: "scroll-to-fragment"; id: string }
-  | { type: "scroll-to-cfi"; cfi: string }
+  // Positional commands carry the seq of the chapter load they were computed
+  // against; the parent stamps the live seq and frame.ts drops anything older
+  // than the committed chapter (isStaleCommand). Without it a scroll or page
+  // command aimed at chapter N still lands after a fast turn and moves
+  // chapter N+1 instead. highlight-search already worked this way; these are
+  // the rest of the same family.
+  | { type: "scroll-to"; seq: number; percent: number }
+  | { type: "scroll-to-end"; seq: number }
+  | { type: "next-page"; seq: number }
+  | { type: "prev-page"; seq: number }
+  // page is 1-based on the wire; frame.ts converts to pagination's 0-based
+  // index. Keep the bases distinct: pagination.goToLastPage() is totalPages-1.
+  | { type: "go-to-page"; seq: number; page: number }
+  | { type: "go-to-last-page"; seq: number }
+  | { type: "scroll-to-fragment"; seq: number; id: string }
+  | { type: "scroll-to-cfi"; seq: number; cfi: string }
+  // A query, not a positional command: the reply carries the frame's own
+  // activeSeq and the parent drops it when that no longer matches.
   | { type: "get-position" }
   | {
       type: "highlight-search";

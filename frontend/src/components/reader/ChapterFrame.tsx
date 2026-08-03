@@ -10,6 +10,8 @@ import type { ChapterFrameAPI, KeyEvent } from "./frame-types";
 import type {
   FrameToParentMessage,
   ParentToFrameMessage,
+  ReadingDirection,
+  WritingMode,
 } from "~/lib/frameMessages";
 import { createFrameMessageQueue } from "./frameMessageQueue";
 
@@ -28,6 +30,15 @@ const isBoundary = (v: unknown): v is "start" | "end" =>
   v === "start" || v === "end";
 const isRegion = (v: unknown): v is "left" | "center" | "right" =>
   v === "left" || v === "center" || v === "right";
+
+// ChapterData carries these as plain strings off the wire. The Go side emits a
+// closed set (internal/epub/parser.go, internal/epub/chapter.go), so this is
+// the last place a value becomes a protocol enum: anything unexpected falls
+// back to the same default the backend would have sent.
+const toReadingDirection = (v: string): ReadingDirection =>
+  v === "rtl" ? "rtl" : "ltr";
+const toWritingMode = (v: string): WritingMode =>
+  v === "vertical-rl" || v === "vertical-lr" ? v : "horizontal-tb";
 
 function isInbound(v: unknown): v is FrameToParentMessage {
   if (!isRecord(v) || !isStr(v.type)) return false;
@@ -185,6 +196,13 @@ export default function ChapterFrame(props: Props) {
         // them through the same callback so the reader can show its error UI.
         if (m.seq === seq) props.onframeerror?.("load-error", m.error);
         break;
+      default: {
+        // A new FrameToParentMessage kind that is not handled above fails
+        // type-checking here. It also needs a validator case in isInbound,
+        // which would otherwise reject it before it reached this switch.
+        const _exhaustive: never = m;
+        void _exhaustive;
+      }
     }
   }
 
@@ -209,8 +227,8 @@ export default function ChapterFrame(props: Props) {
         html: data.html,
         css: data.css,
         fontFaceCSS: data.fontFaceCSS,
-        direction: data.direction,
-        writingMode: data.writingMode,
+        direction: toReadingDirection(data.direction),
+        writingMode: toWritingMode(data.writingMode),
         language: language || undefined,
         resourceBase: data.resourceBase ?? null,
         scrollTo: scrollTo || "top",
@@ -224,15 +242,19 @@ export default function ChapterFrame(props: Props) {
     },
     applySettings: (settings) =>
       sendToFrame({ type: "apply-settings", settings }),
-    scrollTo: (percent) => sendToFrame({ type: "scroll-to", percent }),
-    scrollToEnd: () => sendToFrame({ type: "scroll-to-end" }),
-    scrollToFragment: (id) => sendToFrame({ type: "scroll-to-fragment", id }),
-    scrollToCfi: (cfi) => sendToFrame({ type: "scroll-to-cfi", cfi }),
+    // seq is read at call time, so these stamp the chapter the caller was
+    // looking at. A command issued just before a chapter turn is dropped by
+    // the frame instead of moving the chapter that replaced it.
+    scrollTo: (percent) => sendToFrame({ type: "scroll-to", seq, percent }),
+    scrollToEnd: () => sendToFrame({ type: "scroll-to-end", seq }),
+    scrollToFragment: (id) =>
+      sendToFrame({ type: "scroll-to-fragment", seq, id }),
+    scrollToCfi: (cfi) => sendToFrame({ type: "scroll-to-cfi", seq, cfi }),
     requestPosition: () => sendToFrame({ type: "get-position" }),
-    nextPage: () => sendToFrame({ type: "next-page" }),
-    prevPage: () => sendToFrame({ type: "prev-page" }),
-    goToPage: (page) => sendToFrame({ type: "go-to-page", page }),
-    goToLastPage: () => sendToFrame({ type: "go-to-last-page" }),
+    nextPage: () => sendToFrame({ type: "next-page", seq }),
+    prevPage: () => sendToFrame({ type: "prev-page", seq }),
+    goToPage: (page) => sendToFrame({ type: "go-to-page", seq, page }),
+    goToLastPage: () => sendToFrame({ type: "go-to-last-page", seq }),
     highlightSearch: (charOffset, matchLen, query, forSeq) =>
       sendToFrame({
         type: "highlight-search",

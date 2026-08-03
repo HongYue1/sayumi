@@ -1630,6 +1630,15 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     });
   }
 
+  // Positional commands are computed against a specific chapter load. Anything
+  // stamped older than the committed chapter is stale by definition: applying
+  // it would move whatever is on screen now. A command for a load that has not
+  // committed yet still runs -- it belongs to the chapter currently rendered,
+  // which is exactly what the caller was looking at.
+  function isStaleCommand(seq: number): boolean {
+    return seq < activeSeq;
+  }
+
   function handleMessage(e: MessageEvent): void {
     const raw: unknown = e.data;
     if (!raw || typeof (raw as Record<string, unknown>).type !== "string")
@@ -1695,6 +1704,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
         break;
 
       case "scroll-to":
+        if (isStaleCommand(msg.seq)) break;
         if (contentReady) {
           const max = getScrollableMax();
           const pct = Number.isFinite(msg.percent)
@@ -1708,6 +1718,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
         break;
 
       case "scroll-to-end":
+        if (isStaleCommand(msg.seq)) break;
         if (contentReady) {
           const max = getScrollableMax();
           // Axis-aware: in vertical-writing scroll mode the flow axis is X.
@@ -1718,28 +1729,34 @@ const PAGED_SCROLL_KEYS = new Set<string>([
         break;
 
       case "next-page":
+        if (isStaleCommand(msg.seq)) break;
         if (isPagedMode) pagination.nextPage();
         break;
 
       case "prev-page":
+        if (isStaleCommand(msg.seq)) break;
         if (isPagedMode) pagination.prevPage();
         break;
 
       case "go-to-page":
+        if (isStaleCommand(msg.seq)) break;
         if (isPagedMode && typeof msg.page === "number") {
           pagination.goToPage(msg.page - 1, false);
         }
         break;
 
       case "go-to-last-page":
+        if (isStaleCommand(msg.seq)) break;
         if (isPagedMode) pagination.goToLastPage();
         break;
 
       case "scroll-to-fragment":
+        if (isStaleCommand(msg.seq)) break;
         if (typeof msg.id === "string") scrollToFragmentById(msg.id);
         break;
 
       case "scroll-to-cfi":
+        if (isStaleCommand(msg.seq)) break;
         if (typeof msg.cfi === "string") scrollToCfiLocal(msg.cfi);
         break;
 

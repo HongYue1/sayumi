@@ -31,6 +31,7 @@ export interface ChapterFrameAPI {
   requestPosition: () => void;
   nextPage: () => void;
   prevPage: () => void;
+  /** 1-based page number; the frame converts to pagination's 0-based index. */
   goToPage: (page: number) => void;
   goToLastPage: () => void;
   highlightSearch: (
