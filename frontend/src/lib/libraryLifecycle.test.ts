@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type * as ApiClient from "~/api/client";
 import { flush } from "solid-js";
 import type { BookMeta } from "~/api/client";
 
@@ -14,14 +15,15 @@ const mocks = vi.hoisted(() => ({
   deleteFlair: vi.fn(),
   setBookFlair: vi.fn(),
   toast: vi.fn(),
+  reachable: vi.fn(),
 }));
 
-vi.mock("~/api/client", () => ({
-  ...mocks,
-  ApiError: class ApiError extends Error {},
-}));
+vi.mock("~/api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof ApiClient>();
+  return { ...actual, ...mocks };
+});
 vi.mock("~/lib/toast", () => ({ toast: { show: mocks.toast } }));
-vi.mock("~/lib/reachability", () => ({ isReachable: () => true }));
+vi.mock("~/lib/reachability", () => ({ isReachable: mocks.reachable }));
 
 const { Library } = await import("~/lib/library");
 
@@ -38,7 +40,7 @@ function book(id: string, title: string): BookMeta {
     direction: "",
     chapterCount: 0,
     progress: 0,
-  } as BookMeta;
+  };
 }
 
 function deferred<T>(): {
@@ -57,8 +59,16 @@ function deferred<T>(): {
 
 describe("library profile lifecycle", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.resetAllMocks();
     mocks.getFlairs.mockResolvedValue([]);
+    mocks.reachable.mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    // A timer that outlives its test would fire into a later test's instance.
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
   });
 
   it("clears old data and drops a stale profile load", async () => {
@@ -178,5 +188,29 @@ describe("library profile lifecycle", () => {
       progress: 0.375,
       lastReadAt: "2024-06-01T12:00:00.000Z",
     });
+  });
+});
+
+describe("library profile lifecycle - timer hygiene", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    // A timer that outlives its test would fire into a later test's instance.
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
+  });
+
+  it("clears a pending debounce timer on profile switch", () => {
+    const store = new Library();
+    store.activate("a");
+    store.setQuery("pending query");
+
+    store.activate("b");
+    vi.advanceTimersByTime(200);
+    flush();
+
+    expect(store.debouncedQuery).toBe("");
   });
 });

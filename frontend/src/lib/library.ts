@@ -16,7 +16,6 @@ import {
 } from "~/api/client";
 import { DEFAULT_FLAIRS, getNextPaletteColor } from "~/lib/flairs";
 import { toast } from "~/lib/toast";
-import { isReachable } from "~/lib/reachability";
 
 export type SortKey = "title" | "author" | "added" | "read" | "progress";
 
@@ -54,8 +53,9 @@ export class Library {
   // `books` is a store, not a signal: createReadingProgressPublisher mutates a
   // single book's progress/lastReadAt in place to avoid copying the array on
   // every progress report, and stores are the only primitive here with
-  // property-level reactivity. Same for the two flair arrays, whose updates are
-  // all derived from the previous value.
+  // property-level reactivity. Same for the two flair arrays: apart from the
+  // wholesale load/rollback replacements, their updates are all derived from
+  // the previous value.
   readonly #books = createStore<BookMeta[]>([]);
   readonly #customFlairs = createStore<FlairDef[]>([]);
   readonly #flairFilters = createStore<string[]>([]);
@@ -77,8 +77,9 @@ export class Library {
    * Solid batches writes, so a signal read immediately after a write still
    * returns the pre-write value. `uploading` and `rescanning` exist purely to
    * reject a second concurrent call; if their guards read the accessors, two
-   * drops (or rescan clicks) dispatched in the same tick would both pass, start
-   * two worker pools, and the first to finish would clear the flag mid-flight.
+   * calls dispatched in the same tick would both pass - two interleaved upload
+   * batches (or two rescans), where the first to finish clears the flag
+   * mid-flight and re-enables the UI under the survivor.
    * Control flow reads these fields; the signals only drive the UI.
    */
   #uploadingPlain = false;
@@ -109,8 +110,9 @@ export class Library {
 
   constructor() {
     // Detached on purpose: in Solid 2.0 a root is owned by its parent by
-    // default and an unowned memo warns, so an app-lifetime singleton has to
-    // opt into global lifetime explicitly. This instance is never disposed.
+    // default, so an app-lifetime singleton opts into global lifetime
+    // explicitly. The instance is never disposed; its memos are pure
+    // derivations that autodispose when unwatched and recompute on next read.
     const derived = runWithOwner(null, () => ({
       allFlairs: createMemo<FlairDef[]>(() => [
         ...DEFAULT_FLAIRS,
@@ -122,11 +124,11 @@ export class Library {
     this.#visible = derived.visible;
   }
 
-  get books(): readonly BookMeta[] {
+  get books(): readonly Readonly<BookMeta>[] {
     return this.#books[0];
   }
 
-  get customFlairs(): readonly FlairDef[] {
+  get customFlairs(): readonly Readonly<FlairDef>[] {
     return this.#customFlairs[0];
   }
 
@@ -294,7 +296,13 @@ export class Library {
     profile: string | null,
     bookId: string,
   ): (chapter: number, percent: number, readAt?: string) => void {
-    return (chapter, percent, readAt = new Date().toISOString()) => {
+    // Stamped in the server's own format (time.DateTime, progress.go) so the
+    // codepoint compare in compareIsoDesc never has to mix formats.
+    return (
+      chapter,
+      percent,
+      readAt = new Date().toISOString().slice(0, 19).replace("T", " "),
+    ) => {
       if (
         profile === null ||
         this.#profile !== profile ||
@@ -350,7 +358,9 @@ export class Library {
     if (this.#booksLoaded) return;
     if (this.#loadPromise) return this.#loadPromise;
 
-    this.#loading[1](true);
+    // The loading state is for the initial load only: a refresh with a
+    // populated shelf revalidates in place instead of blanking the grid.
+    if (this.#books[0].length === 0) this.#loading[1](true);
     this.#error[1]("");
     const promise = (async () => {
       try {
@@ -360,10 +370,16 @@ export class Library {
         this.#booksLoaded = true;
       } catch (e) {
         if (!this.#isCurrent(profile, generation)) return;
-        // When the server is unreachable the global offline banner already says
-        // so; don't stack a redundant red error above the empty list. Genuine
-        // errors (e.g. a 500) still surface inline.
-        this.#error[1](isReachable() ? msg(e, "Failed to load library") : "");
+        // A transport failure means the global offline banner is already on
+        // its way (the API client flips reachability before throwing); don't
+        // stack a redundant red error above the empty list. Keyed off the
+        // error, not the reachability flag, which an unrelated earlier request
+        // may have flipped. Genuine errors (e.g. a 500) still surface inline.
+        this.#error[1](
+          e instanceof ApiError && e.code === "network_error"
+            ? ""
+            : msg(e, "Failed to load library"),
+        );
       } finally {
         // A profile switch increments the generation before a new load starts,
         // so an old request cannot clear the new profile's loading state/promise.
@@ -448,9 +464,13 @@ export class Library {
       await setBookFlair(bookId, flairId);
     } catch (e) {
       if (!this.#isCurrent(profile, generation)) return;
+      // Roll back only if the live value is still this call's optimistic
+      // write: an overlapping setFlair that landed meanwhile owns the book now.
       this.#books[1]((s) => {
         const book = s.find((b) => b.id === bookId);
-        if (book) book.flairId = prevFlair;
+        if (book && book.flairId === (flairId ?? undefined)) {
+          book.flairId = prevFlair;
+        }
       });
       toast.show(msg(e, "Could not update flair"));
     }
@@ -483,8 +503,10 @@ export class Library {
     // old arrays because every update REPLACED them; draft mutation edits them
     // in place, so keeping the proxy here would alias the live state and the
     // rollback below would restore the already-mutated value.
-    const prevFlairs = this.customFlairs.slice();
-    const prevFilters = this.flairFilters.slice();
+    const found = this.customFlairs.find((f) => f.id === id);
+    const removedFlair = found ? { ...found } : null;
+    const removedIndex = found ? this.customFlairs.indexOf(found) : -1;
+    const hadFilter = this.flairFilters.includes(id);
     // Remember which books carried this flair; rollback re-applies it to those
     // books on the CURRENT array instead of restoring a stale array snapshot
     // (which would revert unrelated in-flight updates too).
@@ -509,11 +531,27 @@ export class Library {
       await deleteFlair(id);
     } catch (e) {
       if (!this.#isCurrent(profile, generation)) return;
-      this.#customFlairs[1](() => prevFlairs);
-      this.#flairFilters[1](() => prevFilters);
+      // Surgical rollback, not a snapshot restore: additions and toggles
+      // that landed while the delete was in flight stay.
+      if (removedFlair) {
+        this.#customFlairs[1]((s) => {
+          if (!s.some((f) => f.id === removedFlair.id)) {
+            s.splice(Math.min(Math.max(removedIndex, 0), s.length), 0, {
+              ...removedFlair,
+            });
+          }
+        });
+      }
+      if (hadFilter) {
+        this.#flairFilters[1]((s) => {
+          if (!s.includes(id)) s.push(id);
+        });
+      }
       this.#books[1]((s) => {
         for (const book of s) {
-          if (affected.has(book.id)) book.flairId = id;
+          if (affected.has(book.id) && book.flairId === undefined) {
+            book.flairId = id;
+          }
         }
       });
       toast.show(msg(e, "Could not delete flair"));
@@ -539,11 +577,11 @@ export class Library {
       toast.show("Only .epub files can be added");
       return;
     }
-    // Guard against a re-entrant call (e.g. a drag-drop while the previous batch
-    // is still importing): a second worker pool would double-load, and the
-    // first to finish would clear `uploading` mid-flight, re-enabling the UI
-    // and emitting a duplicate "Added N books" toast. Reads the plain mirror
-    // because the signal would still report false inside the same tick.
+    // Guard against re-entrant upload batches: the first to finish would
+    // clear `uploading` mid-flight, re-enabling the UI and emitting a
+    // duplicate "Added N books" toast. Only a same-tick pair needs the plain
+    // mirror - a later call would see the flushed signal; within one tick the
+    // accessor still reports false, so both calls would pass.
     if (this.#uploadingPlain) {
       toast.show("Still importing the previous batch\u2026");
       return;
@@ -572,12 +610,10 @@ export class Library {
       Array.from({ length: Math.min(CONCURRENCY, epubs.length) }, worker),
     );
     if (!this.#isCurrent(profile, generation)) return;
+    // refresh() never rejects - load() reports failures through `error` -
+    // so the flag clear only needs a finally; there is no refresh-failure toast.
     try {
       await this.refresh();
-    } catch (e) {
-      if (this.#isCurrent(profile, generation)) {
-        toast.show(msg(e, "Failed to refresh library"));
-      }
     } finally {
       if (this.#isCurrent(profile, generation)) this.#setUploading(false);
     }
@@ -589,9 +625,10 @@ export class Library {
       );
   }
 
-  /** Edits a book's title/author with an optimistic update + rollback. Resolves
-   *  with the server's refreshed record; rejects (after rollback) so the caller
-   *  dialog can surface the error inline instead of a toast. */
+  /** Edits a book's title/author with an optimistic update + rollback. On
+   *  success the server's canonical record is reconciled into the store;
+   *  rejects (after rollback) so the caller dialog can surface the error
+   *  inline instead of a toast. */
   async editMetadata(
     id: string,
     patch: { title?: string; author?: string },
@@ -612,19 +649,36 @@ export class Library {
       if (!this.#isCurrent(profile, generation)) return;
       // Reconcile with the server's canonical record (e.g. trimmed values,
       // bumped updatedAt) and drop the stale search haystack for this book.
+      // The response is a bare books-row summary (bookResponseFromSummary):
+      // progress is always 0 in it and flairId/lastReadAt are absent, so the
+      // reader-owned fields are preserved from the current record.
       this.#books[1]((s) => {
         const index = s.findIndex((b) => b.id === id);
-        if (index !== -1) s[index] = updated;
+        if (index === -1) return;
+        const prev = s[index];
+        s[index] = {
+          ...updated,
+          progress: prev.progress,
+          flairId: prev.flairId,
+          lastReadAt: prev.lastReadAt,
+        };
       });
       this.#hayCache.delete(id);
     } catch (e) {
       if (!this.#isCurrent(profile, generation)) return;
-      // Restore only this book's previous title/author onto the current array;
-      // a whole-array snapshot would also revert unrelated in-flight updates.
+      // Restore this book's previous title/author on the current array, and
+      // only the keys still holding THIS call's optimistic value - a newer
+      // overlapping edit owns those keys now.
       if (prevMeta) {
         this.#books[1]((s) => {
           const book = s.find((b) => b.id === id);
-          if (book) Object.assign(book, prevMeta);
+          if (!book) return;
+          if (patch.title !== undefined && book.title === patch.title) {
+            book.title = prevMeta.title;
+          }
+          if (patch.author !== undefined && book.author === patch.author) {
+            book.author = prevMeta.author;
+          }
         });
       }
       throw e;
@@ -641,9 +695,19 @@ export class Library {
     const generation = this.#generation;
     const updated = await uploadCover(id, file);
     if (!this.#isCurrent(profile, generation)) return;
+    // Same bare-summary response shape as editMetadata: keep the reader-owned
+    // fields from the current record, take the rest (incl. updatedAt, which
+    // busts the cover cache) from the server.
     this.#books[1]((s) => {
       const index = s.findIndex((b) => b.id === id);
-      if (index !== -1) s[index] = updated;
+      if (index === -1) return;
+      const prev = s[index];
+      s[index] = {
+        ...updated,
+        progress: prev.progress,
+        flairId: prev.flairId,
+        lastReadAt: prev.lastReadAt,
+      };
     });
   }
 
@@ -665,7 +729,8 @@ export class Library {
     }
   }
 
-  /** Re-scans the ./Library folder for files added outside the app. */
+  /** Re-scans the library folder (default <executable-dir>/Library) for files
+   *  added outside the app. */
   async rescan(): Promise<void> {
     const profile = this.#profile;
     if (profile === null) return;
@@ -677,7 +742,10 @@ export class Library {
     try {
       const { imported } = await rescanLibrary();
       if (!this.#isCurrent(profile, generation)) return;
-      if (imported > 0) await this.refresh();
+      // Always refresh, even when nothing was imported: a rescan also backfills
+      // covers and reconciles paths for existing books (the scanner's
+      // RefreshedIDs), and the response only reports the import count.
+      await this.refresh();
       if (!this.#isCurrent(profile, generation)) return;
       toast.show(
         imported === 0
