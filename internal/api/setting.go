@@ -59,7 +59,7 @@ type fontRoleEntry struct {
 // fresh profile) into the JSON shape sent to the client. The literal values
 // below are the application defaults returned when no row exists yet.
 // NOTE: these defaults must stay in sync with DEFAULT_USER_SETTINGS in the
-// client settings store (frontend/src/lib/settings.svelte.ts).
+// client settings store (frontend/src/lib/settings.ts).
 func recordToJSON(s storage.SettingsRecord) settingsJSON {
 	j := settingsJSON{
 		FontSize:       30,

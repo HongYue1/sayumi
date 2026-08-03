@@ -178,6 +178,7 @@ async function request<T>(
   body?: unknown,
   signal?: AbortSignal,
   timeoutMs?: number,
+  keepalive?: boolean,
 ): Promise<T> {
   // Bind authentication failures to the profile generation that launched the
   // request. A late 401 from an old profile must not sign out a newer login.
@@ -189,6 +190,9 @@ async function request<T>(
     credentials: "same-origin",
     signal: attemptSignal,
   };
+  // keepalive lets a pagehide flush outlive the page (same contract as
+  // beaconProgress); only the settings save passes it today.
+  if (keepalive) options.keepalive = true;
 
   if (body != null) {
     if (body instanceof FormData) {
@@ -746,8 +750,17 @@ export function getSettings(signal?: AbortSignal): Promise<UserSettings> {
 export function saveSettings(
   settings: UserSettings,
   signal?: AbortSignal,
+  /** Set by the settings store's pagehide flush so the PUT survives teardown. */
+  keepalive?: boolean,
 ): Promise<UserSettings> {
-  return request<UserSettings>("PUT", "/settings", settings, signal);
+  return request<UserSettings>(
+    "PUT",
+    "/settings",
+    settings,
+    signal,
+    undefined,
+    keepalive,
+  );
 }
 
 /** A saved snapshot of the whole settings object (theme + fonts included). */
