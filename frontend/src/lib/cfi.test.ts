@@ -5,6 +5,31 @@ function setBody(html: string): void {
   document.body.innerHTML = html;
 }
 
+// Mirrors iframe/searchHighlight.ts: a match is wrapped in place with
+// Range.surroundContents, and clearing unwraps and normalises the parent.
+function wrapMark(container: Element, start: number, length: number): Element {
+  const text = container.firstChild as Text;
+  const mark = document.createElement("mark");
+  mark.className = "search-highlight";
+  mark.setAttribute("data-search-mark", "");
+  const range = document.createRange();
+  range.setStart(text, start);
+  range.setEnd(text, start + length);
+  range.surroundContents(mark);
+  return mark;
+}
+
+function clearSearchMarks(): void {
+  const marks = Array.from(
+    document.body.querySelectorAll("mark[data-search-mark]"),
+  );
+  for (const mark of marks) {
+    const parent = mark.parentNode as Element;
+    mark.replaceWith(...Array.from(mark.childNodes));
+    parent.normalize();
+  }
+}
+
 describe("generateCFI / resolveCFI", () => {
   it("round-trips a nested element to a 1-based element path", () => {
     setBody(`<div><p>a</p><p><span id="t">x</span></p></div>`);
@@ -56,6 +81,51 @@ describe("generateCFI / resolveCFI", () => {
   it("returns null when an index points past the children", () => {
     setBody(`<div></div>`);
     expect(resolveCFI("cfi:5", document)).toBeNull();
+  });
+
+  it("generates the same path with a live search mark as without", () => {
+    setBody(`<div>intro hit tail<p id="t">anchor</p></div>`);
+    const target = document.getElementById("t")!;
+    const clean = generateCFI(target, document);
+
+    wrapMark(document.body.firstElementChild!, 6, 3);
+
+    expect(generateCFI(target, document)).toBe(clean);
+    expect(resolveCFI(clean!, document)).toBe(target);
+  });
+
+  it("resolves a path minted under a live highlight after it is cleared", () => {
+    setBody(
+      `<div>intro hit tail<p id="t">anchor</p><p id="after">second</p></div>`,
+    );
+    const target = document.getElementById("t")!;
+
+    wrapMark(document.body.firstElementChild!, 6, 3);
+    const cfi = generateCFI(target, document);
+    clearSearchMarks();
+
+    // Counting the mark used to shift this path onto #after: a different real
+    // element, so the caller got no null and never fell back to percent.
+    expect(resolveCFI(cfi!, document)).toBe(target);
+  });
+
+  it("keeps book-authored marks in the index", () => {
+    // searchHighlight.ts only unwraps its own attribute-tagged marks, so a
+    // <mark> shipped by the book is permanent structure and must be counted.
+    setBody(
+      `<div><mark class="search-highlight">quoted</mark><p id="t">x</p></div>`,
+    );
+    const target = document.getElementById("t")!;
+
+    expect(generateCFI(target, document)).toBe("cfi:1/2");
+    expect(resolveCFI("cfi:1/2", document)).toBe(target);
+  });
+
+  it("returns null when generating for a search mark itself", () => {
+    setBody(`<div>intro hit tail</div>`);
+    const mark = wrapMark(document.body.firstElementChild!, 6, 3);
+
+    expect(generateCFI(mark, document)).toBeNull();
   });
 
   // Strict integer parse: a malformed/foreign segment must fail to null so
