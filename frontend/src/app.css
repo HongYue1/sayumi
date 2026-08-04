@@ -1041,7 +1041,9 @@ main {
 .login-profiles li {
   border-bottom: 1px solid var(--hairline);
   animation: app-rise-in var(--dur-slow) var(--ease-out) both;
-  animation-delay: calc(140ms + var(--i, 0) * 45ms);
+  /* Clamped: --i is unbounded, and with `both` a 40-profile library would
+     hold the last row invisible for nearly two seconds. */
+  animation-delay: calc(140ms + min(var(--i, 0), 6) * 45ms);
 }
 
 .login-profile {
@@ -1135,8 +1137,12 @@ main {
   border-radius: var(--radius-sm);
   background: var(--surface-hover);
 }
-.sk-initial,
-.sk-bar {
+/* Scoped to the placeholder container: these two classes exist only inside
+   .login-skeleton, and an unscoped infinite animation is six compositor
+   animations that never stop if a placeholder is ever left mounted. The global
+   prefers-reduced-motion switch (above) already zeroes them. */
+.login-skeleton .sk-initial,
+.login-skeleton .sk-bar {
   animation: pulse 1.2s var(--ease) infinite;
 }
 @keyframes pulse {
@@ -1207,6 +1213,30 @@ main {
 }
 .login-error svg {
   flex: none;
+}
+
+/* Permanently-mounted live regions on this screen (see Login.tsx). Same
+   contract as .lib-live: collapse while empty, WITHOUT display:none or
+   visibility:hidden -- either would drop the region out of the accessibility
+   tree, the exact failure these regions exist to fix. */
+.login-live:empty {
+  margin: 0;
+  padding: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+/* Consequence and validation lines under a field: left-aligned, unlike the
+   centred headings .login-muted otherwise carries. */
+.login-hint {
+  text-align: left;
+}
+
+/* The consequence line is mounted permanently and content-toggled, so it has to
+   leave the flex flow completely while empty or it would still eat a row gap.
+   Unlike .login-live it carries no live semantics, so display:none is safe. */
+.login-hint:empty {
+  display: none;
 }
 
 /* Colophon line pinned to the foot of the frontispiece. */
