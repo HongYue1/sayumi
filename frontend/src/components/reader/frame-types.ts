@@ -10,7 +10,7 @@ export interface KeyEvent {
   metaKey: boolean;
 }
 
-/** Imperative handle the ChapterFrame exposes to its parent (ReaderView). */
+/** Imperative handle the ChapterFrame exposes to its parent (routes/Read.tsx). */
 export interface ChapterFrameAPI {
   loadChapter: (
     data: ChapterData,

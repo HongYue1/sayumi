@@ -294,14 +294,18 @@ export default function ChapterFrame(props: Props) {
   onSettled(() => props.onapi?.(api));
 
   onSettled(() => {
-    // Replaces <svelte:window onmessage={handleMessage} />.
+    // Replaces <svelte:window onmessage={handleMessage} />. The teardown is
+    // returned, not registered via onCleanup: onCleanup inside an onSettled
+    // callback throws CLEANUP_IN_FORBIDDEN_SCOPE in dev builds (probe-verified
+    // against @solidjs/signals beta.29), leaking the listeners and the raster
+    // timer there. Every sibling settle handler uses this returned shape.
     window.addEventListener("message", handleMessage);
     const viewport = window.visualViewport;
     if (viewport) {
       lastRefreshedScale = viewport.scale;
       viewport.addEventListener("resize", scheduleRasterRefresh);
     }
-    onCleanup(() => {
+    return () => {
       window.removeEventListener("message", handleMessage);
       if (viewport)
         viewport.removeEventListener("resize", scheduleRasterRefresh);
@@ -309,7 +313,7 @@ export default function ChapterFrame(props: Props) {
         clearTimeout(rasterRefreshTimer);
         rasterRefreshTimer = null;
       }
-    });
+    };
   });
 
   // The iframe is the component's root element, so the Svelte {@attach}
