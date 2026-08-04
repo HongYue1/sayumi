@@ -241,6 +241,7 @@ export default function CommandPalette() {
               placeholder="Type a command, book, or theme…"
               aria-label="Command palette search"
               aria-controls="cmd-list"
+              aria-autocomplete="list"
               aria-expanded="true"
               aria-activedescendant={
                 filtered().length ? `cmd-opt-${sel()}` : undefined
