@@ -141,3 +141,53 @@ func TestListFlairsStableTies(t *testing.T) {
 		}
 	}
 }
+
+// GetBookFlairContext is the single-book counterpart of
+// GetAllBookFlairsContext. Single-book responses need exactly one row, and an
+// unassigned book is a normal state rather than an error, so sql.ErrNoRows has
+// to collapse to the empty string instead of surfacing.
+func TestGetBookFlairContext(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+	ctx := context.Background()
+	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub"))
+	mustInsertBook(t, db, sampleBook("id2", "hash-b", "/lib/b.epub"))
+
+	flairID, err := db.GetBookFlairContext(ctx, "id1", "default")
+	if err != nil {
+		t.Fatalf("unassigned book err = %v, want nil", err)
+	}
+	if flairID != "" {
+		t.Fatalf("unassigned flair = %q, want empty", flairID)
+	}
+
+	if err := db.SetBookFlairCheckedContext(ctx, "id1", "default", "reading", testBuiltinFlairs); err != nil {
+		t.Fatalf("assign flair: %v", err)
+	}
+	flairID, err = db.GetBookFlairContext(ctx, "id1", "default")
+	if err != nil {
+		t.Fatalf("get assigned flair: %v", err)
+	}
+	if flairID != "reading" {
+		t.Fatalf("assigned flair = %q, want reading", flairID)
+	}
+
+	// Assignments are scoped to one (book, user) pair, so neither another user
+	// nor another book may pick up id1's flair.
+	flairID, err = db.GetBookFlairContext(ctx, "id1", "other")
+	if err != nil || flairID != "" {
+		t.Fatalf("other user flair = %q, err = %v; want empty and nil", flairID, err)
+	}
+	flairID, err = db.GetBookFlairContext(ctx, "id2", "default")
+	if err != nil || flairID != "" {
+		t.Fatalf("other book flair = %q, err = %v; want empty and nil", flairID, err)
+	}
+
+	// A book deleted between the write and this read is the same "no
+	// assignment" answer, not a failure that would break the response.
+	flairID, err = db.GetBookFlairContext(ctx, "missing", "default")
+	if err != nil || flairID != "" {
+		t.Fatalf("missing book flair = %q, err = %v; want empty and nil", flairID, err)
+	}
+}

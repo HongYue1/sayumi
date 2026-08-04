@@ -180,7 +180,7 @@ func updateBookHandler(_ *Dependencies) http.HandlerFunc {
 
 		// No effective change: skip rewriting the (potentially large) file.
 		if title == book.Title && author == book.Author {
-			writeJSON(w, http.StatusOK, bookResponseFromRecord(book))
+			writeJSON(w, http.StatusOK, bookResponseFromRecord(r, pd, book))
 			return
 		}
 
@@ -240,7 +240,7 @@ func updateBookHandler(_ *Dependencies) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, "db_error", "book updated but failed to reload")
 			return
 		}
-		writeJSON(w, http.StatusOK, bookResponseFromRecord(updated))
+		writeJSON(w, http.StatusOK, bookResponseFromRecord(r, pd, updated))
 	}
 }
 
@@ -407,6 +407,6 @@ func uploadCoverHandler(_ *Dependencies) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, "db_error", "cover updated but failed to reload")
 			return
 		}
-		writeJSON(w, http.StatusOK, bookResponseFromRecord(updated))
+		writeJSON(w, http.StatusOK, bookResponseFromRecord(r, pd, updated))
 	}
 }

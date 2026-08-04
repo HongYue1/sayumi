@@ -3,7 +3,9 @@ package storage
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -135,6 +137,25 @@ func (db *DB) GetAllBookFlairsContext(ctx context.Context, userID string) (out m
 		return nil, fmt.Errorf("iterate book flairs: %w", err)
 	}
 	return out, nil
+}
+
+// GetBookFlairContext returns the flair id assigned to one book for a user, or
+// "" when there is no assignment. Single-book responses (upload, metadata edit,
+// cover replace) use this instead of GetAllBookFlairsContext: the listing needs
+// every assignment in one query, these need exactly one row. "No assignment" is
+// a normal state, not an error, so sql.ErrNoRows collapses to the empty string.
+func (db *DB) GetBookFlairContext(ctx context.Context, bookID, userID string) (string, error) {
+	var flairID string
+	err := db.QueryRowContext(ctx, `
+		SELECT flair_id FROM book_flairs WHERE book_id = ? AND user_id = ?
+	`, bookID, userID).Scan(&flairID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get book flair: %w", err)
+	}
+	return flairID, nil
 }
 
 // FlairExistsContext reports whether a flair with the given id exists for the

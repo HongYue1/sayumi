@@ -423,6 +423,10 @@ export interface BookMeta {
   // Server's updated_at; appended to the cover URL as ?v=<updatedAt> so an
   // edited cover (same path) busts the immutable browser cache.
   updatedAt?: string;
+  // Upload responses only: true when the book was already in the library
+  // (content-hash dedup, or a lost import race). Not a stored book field, so it
+  // is absent from every other endpoint -- uploadBook lifts it off the payload.
+  duplicate?: boolean;
 }
 
 export interface FlairDef {
@@ -610,11 +614,17 @@ export function getBooks(signal?: AbortSignal): Promise<BookMeta[]> {
   return request<BookMeta[]>("GET", "/books", undefined, signal);
 }
 
-/** Re-scans the on-disk library folder for newly added EPUBs. Returns the count imported. */
+/** Re-scans the on-disk library folder for newly added EPUBs.
+ *
+ *  imported counts new books; refreshed counts existing books whose summary
+ *  changed during the scan (e.g. a backfilled cover), so a scan that only
+ *  backfilled is not indistinguishable from a no-op. partial is set when the
+ *  scan stopped early after committing some of that work -- the counts are
+ *  still authoritative for what landed. */
 export function rescanLibrary(
   signal?: AbortSignal,
-): Promise<{ imported: number }> {
-  return request<{ imported: number }>(
+): Promise<{ imported: number; refreshed: number; partial?: boolean }> {
+  return request<{ imported: number; refreshed: number; partial?: boolean }>(
     "POST",
     "/library/rescan",
     undefined,
@@ -649,13 +659,20 @@ export function getToc(id: string, signal?: AbortSignal): Promise<TocEntry[]> {
   );
 }
 
+// uploadBook adds an .epub. A book that was already in the library comes back
+// as a success with the same body shape as a fresh import, and request() does
+// not expose the 200-vs-201 status, so the server marks the payload instead.
+// The flag is lifted out of the book here so callers cannot mistake it for a
+// persisted field of the stored record.
 export function uploadBook(
   file: File,
   signal?: AbortSignal,
-): Promise<BookMeta> {
+): Promise<{ book: BookMeta; duplicate: boolean }> {
   const form = new FormData();
   form.append("epub", file);
-  return request<BookMeta>("POST", "/books/upload", form, signal);
+  return request<BookMeta>("POST", "/books/upload", form, signal).then(
+    (book) => ({ book, duplicate: book.duplicate === true }),
+  );
 }
 
 // version (the book's updatedAt) is appended as ?v= so that editing a cover —

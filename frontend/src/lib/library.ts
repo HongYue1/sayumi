@@ -623,6 +623,7 @@ export class Library {
     }
     this.#setUploading(true);
     let ok = 0;
+    let dupes = 0;
     let failed = 0;
     // Import with a small concurrency cap rather than strictly one-at-a-time:
     // faster for multi-file drops without hammering the backend. The shared
@@ -634,8 +635,11 @@ export class Library {
       while (cursor < epubs.length) {
         const file = epubs[cursor++];
         try {
-          await uploadBook(file);
-          ok += 1;
+          // A duplicate is a success carrying a book, so counting it as added
+          // would report "Added 3 books" for a batch that added nothing.
+          const { duplicate } = await uploadBook(file);
+          if (duplicate) dupes += 1;
+          else ok += 1;
         } catch {
           failed += 1;
         }
@@ -654,6 +658,10 @@ export class Library {
     }
     if (!this.#isCurrent(profile, generation)) return;
     if (ok > 0) toast.show(`Added ${ok} ${ok === 1 ? "book" : "books"}`);
+    if (dupes > 0)
+      toast.show(
+        `${dupes} ${dupes === 1 ? "book was" : "books were"} already in the library`,
+      );
     if (failed > 0)
       toast.show(
         `${failed} ${failed === 1 ? "file" : "files"} failed to import`,
@@ -684,19 +692,14 @@ export class Library {
       if (!this.#isCurrent(profile, generation)) return;
       // Reconcile with the server's canonical record (e.g. trimmed values,
       // bumped updatedAt) and drop the stale search haystack for this book.
-      // The response is a bare books-row summary (bookResponseFromSummary):
-      // progress is always 0 in it and flairId/lastReadAt are absent, so the
-      // reader-owned fields are preserved from the current record.
+      // The response is now enriched server-side, so it carries progress,
+      // lastReadAt and flairId too and replaces the record whole. Grafting
+      // those back from the local copy would only reinstate what this client
+      // last happened to see.
       this.#books[1]((s) => {
         const index = s.findIndex((b) => b.id === id);
         if (index === -1) return;
-        const prev = s[index];
-        s[index] = {
-          ...updated,
-          progress: prev.progress,
-          flairId: prev.flairId,
-          lastReadAt: prev.lastReadAt,
-        };
+        s[index] = updated;
       });
       this.#hayCache.delete(id);
     } catch (e) {
@@ -730,19 +733,13 @@ export class Library {
     const generation = this.#generation;
     const updated = await uploadCover(id, file);
     if (!this.#isCurrent(profile, generation)) return;
-    // Same bare-summary response shape as editMetadata: keep the reader-owned
-    // fields from the current record, take the rest (incl. updatedAt, which
-    // busts the cover cache) from the server.
+    // Same enriched response shape as editMetadata: it already carries the
+    // reader-owned fields alongside the new updatedAt (which busts the cover
+    // cache), so it replaces the record whole.
     this.#books[1]((s) => {
       const index = s.findIndex((b) => b.id === id);
       if (index === -1) return;
-      const prev = s[index];
-      s[index] = {
-        ...updated,
-        progress: prev.progress,
-        flairId: prev.flairId,
-        lastReadAt: prev.lastReadAt,
-      };
+      s[index] = updated;
     });
   }
 
@@ -775,13 +772,22 @@ export class Library {
     if (this.#rescanningPlain) return;
     this.#setRescanning(true);
     try {
-      const { imported } = await rescanLibrary();
+      const { imported, refreshed, partial } = await rescanLibrary();
       if (!this.#isCurrent(profile, generation)) return;
       // Always refresh, even when nothing was imported: a rescan also backfills
-      // covers and reconciles paths for existing books (the scanner's
-      // RefreshedIDs), and the response only reports the import count.
+      // covers and reconciles paths for existing books, which the server
+      // reports as refreshed rather than imported.
       await this.refresh();
       if (!this.#isCurrent(profile, generation)) return;
+      // A scan that stopped early still committed what it reports, and the
+      // next scan will not re-report it, so say what landed instead of calling
+      // the whole thing a failure.
+      if (partial) {
+        toast.show(
+          `Rescan incomplete: added ${imported}, refreshed ${refreshed} before it stopped`,
+        );
+        return;
+      }
       toast.show(
         imported === 0
           ? "No new books found"

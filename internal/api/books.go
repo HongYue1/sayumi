@@ -35,6 +35,11 @@ type BookResponse struct {
 	// URL as ?v=<updatedAt> so an edited cover (which keeps the same path) busts
 	// the immutable browser cache; it also folds into the cover/detail ETags.
 	UpdatedAt string `json:"updatedAt,omitempty"`
+	// Duplicate marks a response whose book was already in the library: the
+	// upload was deduped by content hash, or it lost an import race against a
+	// concurrent scan. It describes the outcome of the request, not the book, so
+	// it is response-only and omitted when false.
+	Duplicate bool `json:"duplicate,omitempty"`
 }
 
 type BookDetailResponse struct {
@@ -98,6 +103,46 @@ func bookResponseFromSummary(b storage.BookSummary) BookResponse {
 		AddedAt:      b.CreatedAt,
 		UpdatedAt:    b.UpdatedAt,
 	}
+}
+
+// enrichBookResponse fills in the fields a books-row summary cannot carry: the
+// reader's progress, its timestamp, and the assigned flair. listBooksHandler
+// loads both in one query per profile; a single-book response has to look them
+// up for just this book, which is why this is separate from
+// bookResponseFromSummary.
+//
+// Staged progress from the coalescer wins over the persisted row, so the
+// response stays read-after-write consistent during the coalescer's durability
+// window -- same precedence as getBookHandler.
+//
+// Best-effort by design: it decorates a response whose primary work (upload,
+// metadata edit, cover replace) has already committed, so a failed lookup is
+// logged and the field left at its zero value rather than turned into a 500
+// that would tell the client the write itself failed.
+func enrichBookResponse(r *http.Request, pd *profileDeps, br *BookResponse) {
+	userID := getUserID(r)
+
+	if prog, ok := pd.Progress.get(br.ID, userID); ok {
+		br.Progress = calcProgress(prog.Chapter, prog.Percent, br.ChapterCount)
+		br.LastReadAt = prog.UpdatedAt
+	} else {
+		prog, err := pd.DB.GetProgressContext(r.Context(), br.ID, userID)
+		switch {
+		case err == nil:
+			br.Progress = calcProgress(prog.Chapter, prog.Percent, br.ChapterCount)
+			br.LastReadAt = prog.UpdatedAt
+		case errors.Is(err, storage.ErrNotFound):
+		default:
+			slog.Warn("enrich book response: load progress failed", "book", br.ID, "user", userID, "err", err)
+		}
+	}
+
+	flairID, err := pd.DB.GetBookFlairContext(r.Context(), br.ID, userID)
+	if err != nil {
+		slog.Warn("enrich book response: load flair failed", "book", br.ID, "user", userID, "err", err)
+		return
+	}
+	br.FlairID = flairID
 }
 
 func listBooksHandler(_ *Dependencies) http.HandlerFunc {

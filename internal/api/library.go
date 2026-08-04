@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"sayumi/internal/library"
 	"sayumi/internal/storage"
 )
 
@@ -63,14 +64,45 @@ func rescanLibraryHandler(_ *Dependencies) http.HandlerFunc {
 			warmBook(id)
 		}
 
-		if scanErr != nil {
+		resp, ok := rescanResponse(scanResult, scanErr)
+		if !ok {
 			slog.Error("library rescan failed", "err", scanErr)
 			writeError(w, http.StatusInternalServerError, "scan_error", "failed to rescan library")
 			return
 		}
+		if scanErr != nil {
+			slog.Warn("library rescan stopped after partial work",
+				"imported", resp["imported"], "refreshed", resp["refreshed"], "err", scanErr)
+		}
 
-		writeJSON(w, http.StatusOK, map[string]int{"imported": len(scanResult.ImportedIDs)})
+		writeJSON(w, http.StatusOK, resp)
 	}
+}
+
+// rescanResponse builds the rescan payload and reports whether it should be
+// sent at all.
+//
+// refreshed is carried alongside imported because a scan that only backfilled
+// covers changes what the client must display while importing nothing; with an
+// import count alone the client cannot tell that apart from a no-op.
+//
+// A scan that failed *after* committing work is reported as a 200 with
+// partial: true rather than a bare 500. Those rows are durable, and the next
+// scan's dedup snapshot treats them as known and never re-reports them, so a
+// flat error would permanently hide books that are now in the library. ok is
+// false only when nothing was committed, leaving the caller to write the 500.
+func rescanResponse(result library.ScanResult, scanErr error) (map[string]any, bool) {
+	imported := len(result.ImportedIDs)
+	refreshed := len(result.RefreshedIDs)
+	if scanErr != nil && imported == 0 && refreshed == 0 {
+		return nil, false
+	}
+
+	resp := map[string]any{"imported": imported, "refreshed": refreshed}
+	if scanErr != nil {
+		resp["partial"] = true
+	}
+	return resp, true
 }
 
 // filterAndSortBooks applies optional query (q), sort field, and order to a

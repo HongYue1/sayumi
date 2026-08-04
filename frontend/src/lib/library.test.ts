@@ -337,10 +337,16 @@ describe("library.editMetadata", () => {
         lastReadAt: "2024-01-01 10:00:00",
       }),
     ]);
-    // The PATCH response is a bare books-row summary: progress 0, no
-    // flairId/lastReadAt, fresh updatedAt.
+    // The PATCH response is enriched server-side, so it already carries the
+    // reader-owned fields; the store takes it whole.
     mocks.updateBookMeta.mockResolvedValue({
-      ...book({ id: "a", title: "Trimmed" }),
+      ...book({
+        id: "a",
+        title: "Trimmed",
+        progress: 0.4,
+        flairId: "reading",
+        lastReadAt: "2024-01-01 10:00:00",
+      }),
       updatedAt: "2024-06-01 00:00:00",
     });
 
@@ -363,7 +369,13 @@ describe("library.replaceCover", () => {
       book({ id: "a", title: "A", progress: 0.4, flairId: "reading" }),
     ]);
     mocks.uploadCover.mockResolvedValue({
-      ...book({ id: "a", title: "A", hasCover: true }),
+      ...book({
+        id: "a",
+        title: "A",
+        hasCover: true,
+        progress: 0.4,
+        flairId: "reading",
+      }),
       updatedAt: "2024-06-02 00:00:00",
     });
 
@@ -417,9 +429,15 @@ describe("library.uploadFiles", () => {
   it("toasts the per-file outcome after the refresh", async () => {
     mocks.getBooks.mockResolvedValue([]);
     mocks.uploadBook
-      .mockResolvedValueOnce(book({ id: "u1", title: "U1" }))
+      .mockResolvedValueOnce({
+        book: book({ id: "u1", title: "U1" }),
+        duplicate: false,
+      })
       .mockRejectedValueOnce(new Error("bad epub"))
-      .mockResolvedValueOnce(book({ id: "u3", title: "U3" }));
+      .mockResolvedValueOnce({
+        book: book({ id: "u3", title: "U3" }),
+        duplicate: false,
+      });
     const store = new Library();
     store.activate("p");
 
@@ -431,12 +449,38 @@ describe("library.uploadFiles", () => {
     expect(messages).toContain("1 file failed to import");
     expect(store.uploading).toBe(false);
   });
+
+  // A deduped upload resolves with a book, so the old counter reported it as
+  // added: dropping two copies of a book already on the shelf toasted
+  // "Added 2 books" while the library was unchanged.
+  it("counts a deduped upload apart from a real addition", async () => {
+    mocks.getBooks.mockResolvedValue([]);
+    mocks.uploadBook
+      .mockResolvedValueOnce({
+        book: book({ id: "u1", title: "U1" }),
+        duplicate: false,
+      })
+      .mockResolvedValueOnce({
+        book: book({ id: "u1", title: "U1" }),
+        duplicate: true,
+      });
+    const store = new Library();
+    store.activate("p");
+
+    await store.uploadFiles([epub(), epub()]);
+    flush();
+
+    const messages = mocks.toast.mock.calls.map((c) => c[0]);
+    expect(messages).toContain("Added 1 book");
+    expect(messages).toContain("1 book was already in the library");
+    expect(messages).not.toContain("Added 2 books");
+  });
 });
 
 describe("library.rescan", () => {
   it("refreshes even when nothing new was imported", async () => {
     mocks.getBooks.mockResolvedValue([]);
-    mocks.rescanLibrary.mockResolvedValue({ imported: 0 });
+    mocks.rescanLibrary.mockResolvedValue({ imported: 0, refreshed: 0 });
     const store = new Library();
     store.activate("p");
 
@@ -456,6 +500,27 @@ describe("library.rescan", () => {
 
     expect(mocks.rescanLibrary).toHaveBeenCalledTimes(1);
     expect(mocks.toast).not.toHaveBeenCalled();
+  });
+
+  // A scan that stopped partway still committed what it reports, so the store
+  // must refresh and say what landed rather than treat it as a failure.
+  it("refreshes and reports what landed when the scan stopped early", async () => {
+    mocks.getBooks.mockResolvedValue([]);
+    mocks.rescanLibrary.mockResolvedValue({
+      imported: 2,
+      refreshed: 1,
+      partial: true,
+    });
+    const store = new Library();
+    store.activate("p");
+
+    await store.rescan();
+
+    expect(mocks.getBooks).toHaveBeenCalledTimes(1);
+    expect(mocks.toast).toHaveBeenCalledWith(
+      "Rescan incomplete: added 2, refreshed 1 before it stopped",
+    );
+    expect(store.rescanning).toBe(false);
   });
 });
 

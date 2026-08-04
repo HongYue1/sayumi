@@ -71,7 +71,12 @@ func uploadBookHandler(_ *Dependencies) http.HandlerFunc {
 				writeError(w, http.StatusInternalServerError, "db_error", "failed to load duplicate book")
 				return
 			}
-			writeJSON(w, http.StatusOK, bookResponseFromRecord(book))
+			// "Already in your library" and "added" are both successes carrying a
+			// book payload, and the client's fetch wrapper does not surface the
+			// 200-vs-201 status, so the flag is the only discriminator it has.
+			resp := bookResponseFromRecord(r, pd, book)
+			resp.Duplicate = true
+			writeJSON(w, http.StatusOK, resp)
 			return
 		}
 
@@ -168,7 +173,12 @@ func uploadBookHandler(_ *Dependencies) http.HandlerFunc {
 			}
 		}
 
-		writeJSON(w, status, bookResponseFromRecord(book))
+		// imported == false means another writer already owned this content hash,
+		// so this upload added nothing -- the same outcome the dedup path above
+		// reports, reached after the file was already staged.
+		resp := bookResponseFromRecord(r, pd, book)
+		resp.Duplicate = !imported
+		writeJSON(w, status, resp)
 	}
 }
 
@@ -278,8 +288,14 @@ func loadAndWarmUploadedBook(
 	return book, true, nil
 }
 
-func bookResponseFromRecord(book storage.BookRecord) BookResponse {
-	return bookResponseFromSummary(book.BookSummary)
+// bookResponseFromRecord builds a single-book response for the upload and edit
+// paths. It enriches, so those responses carry the same fields the library
+// listing does and the client can replace its record wholesale instead of
+// grafting the reader-owned fields back from its own copy.
+func bookResponseFromRecord(r *http.Request, pd *profileDeps, book storage.BookRecord) BookResponse {
+	br := bookResponseFromSummary(book.BookSummary)
+	enrichBookResponse(r, pd, &br)
+	return br
 }
 
 func validateEPUB(filePath string) error {
