@@ -1758,27 +1758,38 @@ export default function Read(props: Props) {
         </Show>
 
         <Show when={activePanel() === "search"}>
-          <div
-            class="rdp-panel rdp-right"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Search in book"
-            ref={trap()}
-          >
-            <SearchPanel
-              fallback={null}
-              bookId={bookId}
-              chapterCount={book()?.chapterCount ?? 0}
-              onresultclick={navigateToResult}
-              onclose={closePanel}
-            />
-          </div>
-          <button
-            class="rdp-scrim"
-            aria-label="Close panel backdrop"
-            tabindex="-1"
-            onClick={closePanel}
-          />
+          {/* Gated on book() like the TOC panel: the toolbar button and the F
+              shortcut both open search before the detail fetch resolves, and
+              indefinitely after it fails, where a chapterCount of 0 made the
+              validator reject every row and report "No results" for a book it
+              had never searched. */}
+          <Show when={book()}>
+            {(b) => (
+              <>
+                <div
+                  class="rdp-panel rdp-right"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Search in book"
+                  ref={trap()}
+                >
+                  <SearchPanel
+                    fallback={null}
+                    bookId={bookId}
+                    chapterCount={b().chapterCount}
+                    onresultclick={navigateToResult}
+                    onclose={closePanel}
+                  />
+                </div>
+                <button
+                  class="rdp-scrim"
+                  aria-label="Close panel backdrop"
+                  tabindex="-1"
+                  onClick={closePanel}
+                />
+              </>
+            )}
+          </Show>
         </Show>
 
         <Show when={activePanel() === "settings"}>

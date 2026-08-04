@@ -9,21 +9,26 @@
 //     nodes directly, so arrowing through 200+ results never re-renders rows.
 //     Safe because every row attribute is static — Solid never re-applies
 //     them, so the manual setAttribute can't be clobbered.
-//   - onMount -> onSettled (+ onCleanup for the debounce/abort teardown).
+//   - onMount -> onSettled, which RETURNS the debounce/abort teardown.
+//     onCleanup() inside onSettled throws CLEANUP_IN_FORBIDDEN_SCOPE, and an
+//     uncaught throw there halts the whole reactive system: no further updates
+//     anywhere in the app, and dispose() can no longer unmount. Login.tsx and
+//     Library.tsx document the same rule.
 //   - await tick() -> flush() in syncActiveOptionAfterRender.
 //   - appendRawResults replaces the LAST group object (Solid's keyed <For>
 //     maps by group identity; mutating the old object in place would never
 //     re-render). The last group's rows are recreated on each load-more, so we
 //     re-sync the active option afterwards — the Svelte original relied on
 //     rune proxies mutating in place and needed no such pass.
-//   - aria-expanded gets "true"/"false" strings (EnumeratedPseudoBoolean).
+//   - aria-expanded is a constant "true" string (EnumeratedPseudoBoolean): the
+//     listbox is always rendered, and carries the loading/error/empty states
+//     too, so the popup is never collapsed (as in CommandPalette.tsx).
 import {
   createMemo,
   createSignal,
   flush,
   For,
   Match,
-  onCleanup,
   onSettled,
   Show,
   Switch,
@@ -56,7 +61,6 @@ interface SearchResultItem {
 }
 
 interface Group {
-  key: string;
   chapterIndex: number;
   label: string;
   items: SearchResultItem[];
@@ -88,24 +92,35 @@ function isSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value);
 }
 
+// Snippet offsets from the API are code-point counts, not UTF-16 lengths.
+function codePointLength(value: string): number {
+  return Array.from(value).length;
+}
+
 function toItem(r: SearchResult, globalIdx: number): SearchResultItem {
+  // snippetStart/snippetLen are CODE POINT offsets: internal/epub/search.go
+  // slices []rune, and iframe/searchHighlight.ts pins the same code-point
+  // contract for charOffset. String#slice counts UTF-16 units, so one astral
+  // character ahead of the match would slide <mark> a unit per surrogate pair,
+  // and a boundary landing inside a pair would render a lone surrogate.
+  const chars = Array.from(r.snippet);
   const snippetStart = Number.isSafeInteger(r.snippetStart)
-    ? Math.min(Math.max(r.snippetStart, 0), r.snippet.length)
+    ? Math.min(Math.max(r.snippetStart, 0), chars.length)
     : 0;
   const snippetLen = Number.isSafeInteger(r.snippetLen)
     ? Math.max(r.snippetLen, 0)
     : 0;
-  const matchLen = Math.min(snippetLen, r.snippet.length - snippetStart);
+  const matchLen = Math.min(snippetLen, chars.length - snippetStart);
   const matchEnd = snippetStart + matchLen;
   return {
     result: r,
     globalIdx,
     id: `sr-${globalIdx}`,
-    before: r.snippet.slice(0, snippetStart).trimStart(),
-    match: r.snippet.slice(snippetStart, matchEnd),
-    after: r.snippet.slice(matchEnd).trimEnd(),
+    before: chars.slice(0, snippetStart).join("").trimStart(),
+    match: chars.slice(snippetStart, matchEnd).join(""),
+    after: chars.slice(matchEnd).join("").trimEnd(),
     clippedStart: snippetStart > 0,
-    clippedEnd: matchEnd < r.snippet.length,
+    clippedEnd: matchEnd < chars.length,
   };
 }
 
@@ -116,7 +131,6 @@ function addItemToGroups(target: Group[], item: SearchResultItem): void {
   } else {
     const chapterNumber = item.result.chapterIndex + 1;
     target.push({
-      key: `${item.result.chapterIndex}-${item.globalIdx}`,
       chapterIndex: item.result.chapterIndex,
       label: `Chapter ${chapterNumber}`,
       items: [item],
@@ -168,7 +182,9 @@ export default function SearchPanel(props: Props) {
       snippet.length > 0 &&
       isSafeInteger(snippetStart) &&
       snippetStart >= 0 &&
-      snippetStart < snippet.length &&
+      // Code-point bound: snippetStart indexes runes, so a UTF-16 length would
+      // over-admit by one per astral character ahead of the match.
+      snippetStart < codePointLength(snippet) &&
       isSafeInteger(snippetLen) &&
       snippetLen > 0 &&
       Number.isSafeInteger(snippetStart + snippetLen)
@@ -246,18 +262,22 @@ export default function SearchPanel(props: Props) {
   }
 
   // flush() applies the just-committed results synchronously so the option
-  // nodes exist before we sync (the Svelte original awaited tick()).
-  function syncActiveOptionAfterRender(): void {
+  // nodes exist before we sync (the Svelte original awaited tick()). It also
+  // publishes a setCurrentIdx() issued by the calling handler: a signal write
+  // is not visible to a synchronous read in the same handler, so syncing
+  // without it marks the option the user just left and leaves aria-selected a
+  // keystroke behind aria-activedescendant.
+  function syncActiveOptionAfterRender(scroll = false): void {
     flush();
-    syncActiveOption();
+    syncActiveOption(scroll);
   }
 
   onSettled(() => {
     input?.focus();
-    onCleanup(() => {
+    return () => {
       if (debounce) clearTimeout(debounce);
       abort?.abort();
-    });
+    };
   });
 
   function onInput(value: string, deferSearch = false): void {
@@ -328,7 +348,10 @@ export default function SearchPanel(props: Props) {
       );
       if (my !== token) return;
       const rows = searchResults(resp.results);
-      const canPage = rows.length > 0 && hasNextPage(resp);
+      // Page on the server's hasMore + cursor alone. The validator is a display
+      // filter: a page whose rows it all drops is not "no more matches", and
+      // treating it as such strands the rest of the book behind it.
+      const canPage = hasNextPage(resp);
       setRawResults(rows);
       setHasMore(canPage);
       setNextCursor(canPage ? responseCursor(resp) : "");
@@ -365,7 +388,9 @@ export default function SearchPanel(props: Props) {
       );
       if (my !== token) return;
       const more = searchResults(resp.results);
-      const canPage = more.length > 0 && hasAdvancedPage(resp, cursor);
+      // hasAdvancedPage already refuses a cursor that did not move, which is
+      // the real loop guard; an all-dropped page must not end paging.
+      const canPage = hasAdvancedPage(resp, cursor);
       appendRawResults(more);
       setHasMore(canPage);
       setNextCursor(canPage ? responseCursor(resp) : "");
@@ -388,7 +413,7 @@ export default function SearchPanel(props: Props) {
   function pick(r: SearchResult, idx: number): void {
     if (!isValidIndex(idx)) return;
     setCurrentIdx(idx);
-    syncActiveOption();
+    syncActiveOptionAfterRender();
     props.onresultclick(r, query().trim());
   }
 
@@ -430,24 +455,26 @@ export default function SearchPanel(props: Props) {
     const total = resultItems().length;
     switch (e.key) {
       case "Escape":
+        // First press closes, per ShortcutsHelp ("Close overlay / panel") and
+        // the three sibling panels. Clearing first was redundant: the panel is
+        // unmounted on close, so every signal resets anyway.
         e.preventDefault();
         e.stopPropagation();
-        if (query().trim()) onInput("");
-        else props.onclose();
+        props.onclose();
         break;
       case "ArrowDown":
         e.preventDefault();
         e.stopPropagation();
         if (total === 0) return;
         setCurrentIdx((currentIdx() + 1) % total);
-        syncActiveOption(true);
+        syncActiveOptionAfterRender(true);
         break;
       case "ArrowUp":
         e.preventDefault();
         e.stopPropagation();
         if (total === 0) return;
         setCurrentIdx((currentIdx() - 1 + total) % total);
-        syncActiveOption(true);
+        syncActiveOptionAfterRender(true);
         break;
       case "Enter":
         if (total > 0 && e.target === input && isValidIndex(currentIdx())) {
@@ -482,7 +509,7 @@ export default function SearchPanel(props: Props) {
           role="combobox"
           aria-label="Search book"
           aria-controls="search-results"
-          aria-expanded={resultItems().length > 0 ? "true" : "false"}
+          aria-expanded="true"
           aria-autocomplete="list"
           aria-activedescendant={
             resultItems().length > 0

@@ -141,7 +141,10 @@ export default function CustomThemeDialog(props: Props) {
   // registration order.
   onSettled(() => {
     window.addEventListener("keydown", onKeydown, true);
-    onCleanup(() => window.removeEventListener("keydown", onKeydown, true));
+    // Returned teardown, not onCleanup(): onCleanup inside onSettled throws
+    // CLEANUP_IN_FORBIDDEN_SCOPE and the uncaught throw halts the reactive
+    // system app-wide, taking the whole reader down with this dialog.
+    return () => window.removeEventListener("keydown", onKeydown, true);
   });
 
   onCleanup(() => {
