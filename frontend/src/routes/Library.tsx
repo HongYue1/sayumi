@@ -11,6 +11,7 @@ import {
   onSettled,
   Show,
 } from "solid-js";
+import type { FlairDef } from "~/api/client";
 import { library, SORT_OPTIONS, type SortKey } from "~/lib/library";
 import { session } from "~/lib/session";
 import { settings } from "~/lib/settings";
@@ -64,7 +65,19 @@ export default function Library() {
   // Drag-and-drop: a counter (not a bool) avoids flicker as the pointer crosses
   // child elements, since dragenter/dragleave fire per element.
   const [dragDepth, setDragDepth] = createSignal(0);
-  const dragging = createMemo(() => dragDepth() > 0);
+  // Non-reactive mirror of that counter, same doctrine as library.ts's
+  // #uploadingPlain / #rescanningPlain. Solid batches writes, so `dragDepth()`
+  // read immediately after a set still returns the pre-write value.
+  // dragenter/dragleave arrive in bursts as the pointer crosses child elements
+  // and can land inside one flush window, where a read-modify-write through the
+  // accessor loses increments. The counter then never returns to zero and
+  // .lib-dropzone -- position:fixed, inset:0 -- stays mounted over the entire
+  // viewport until reload. Control flow reads this field; the signal only
+  // drives the <Show>.
+  let depth = 0;
+  // Single consumer (the dropzone <Show>), so a memo only adds a node to the
+  // graph; the comparison it caches is cheaper than the node itself.
+  const dragging = () => dragDepth() > 0;
 
   // Which profile dialog (if any) is open. Rendered at page level — never
   // inside the command bar, whose backdrop-filter would clip a fixed overlay
@@ -114,12 +127,15 @@ export default function Library() {
   // clip it to the bar box. A window listener is container-proof, matching
   // ThemeDropdown / ProfileMenu / BookCard.
   function onSortOutside(e: PointerEvent): void {
+    // Narrow, don't cast -- ThemeDropdown.tsx:80 uses exactly this guard. The
+    // cast form lied to the compiler: a non-Element target (shadow-DOM
+    // retargeting, or a synthetic event with no target) made both contains()
+    // calls return false, so this menu treated it as an outside click and
+    // closed while every peer menu stayed open. The parity the comment above
+    // claims was real for the listener and false for the hit test.
     const t = e.target;
-    if (
-      sortMenuEl?.contains(t as Node | null) ||
-      sortTrigger?.contains(t as Node | null)
-    )
-      return;
+    if (!(t instanceof Node)) return;
+    if (sortMenuEl?.contains(t) || sortTrigger?.contains(t)) return;
     closeSort(false);
   }
 
@@ -132,12 +148,20 @@ export default function Library() {
       closeSort();
       return;
     }
+    if (e.key === "Tab") {
+      // Tab must LEAVE the menu, never wrap inside it. WCAG 2.1.2 (No Keyboard
+      // Trap) and the APG Menu Button pattern both require it, and this popover
+      // has no visible close control -- containment left keyboard and switch
+      // users with Escape as the only exit, which is not discoverable. Close
+      // and let the browser continue the tab order from the restored trigger.
+      closeSort();
+      return;
+    }
     if (
       e.key !== "ArrowDown" &&
       e.key !== "ArrowUp" &&
       e.key !== "Home" &&
-      e.key !== "End" &&
-      e.key !== "Tab"
+      e.key !== "End"
     ) {
       return;
     }
@@ -162,16 +186,6 @@ export default function Library() {
       case "End":
         next = items.length - 1;
         break;
-      case "Tab":
-        // Contain focus so it can't escape into the page behind the popover.
-        next = e.shiftKey
-          ? cur < 0
-            ? items.length - 1
-            : (cur - 1 + items.length) % items.length
-          : cur < 0
-            ? 0
-            : (cur + 1) % items.length;
-        break;
       case "ArrowDown":
         next = cur < 0 ? 0 : (cur + 1) % items.length;
         break;
@@ -187,39 +201,114 @@ export default function Library() {
     // effect after a full-page refresh, so a bare load() could still see the
     // store's initial null profile and silently no-op.
     void library.loadForProfile(session.profile);
-    // Reflect the profile's saved theme in the library (not just the reader).
-    // Guard the fetch: on failure, apply whatever theme we already have rather
-    // than leaving an unhandled rejection (and a stuck default theme).
-    settings
-      .load()
-      .then(() => applyTheme(settings.value.theme))
-      .catch(() => applyTheme(settings.value.theme));
+
+    // settings.load() never rejects (settings.ts:234) -- it resolves on both
+    // paths and flips `loaded` only on success. So the old .catch arm was dead
+    // code, and the .then arm ran after a FAILED GET too, where settings.value
+    // is still the compile-time default. applyTheme then wrote that default's
+    // CSS vars, set root.dataset.theme, and persisted "catppuccin" into
+    // localStorage["sayumi:theme"] -- overwriting the user's real theme with a
+    // guess because the network blipped. Gate on `loaded` and leave the theme
+    // untouched on failure.
+    let live = true;
+    void settings.load().then(() => {
+      if (live && settings.loaded) applyTheme(settings.value.theme);
+    });
+
+    // A drag that ends outside the window -- dropped on another application, or
+    // cancelled with Escape -- fires neither dragleave nor drop, so the depth
+    // counter never unwinds and the full-viewport dropzone stays up.
+    window.addEventListener("dragend", resetDrag);
+    window.addEventListener("drop", resetDrag);
+
+    // onCleanup() is forbidden inside onSettled's callback
+    // (CLEANUP_IN_FORBIDDEN_SCOPE); returning the teardown is the sanctioned
+    // form, and it is what makes the promise above owned rather than orphaned.
+    return () => {
+      live = false;
+      window.removeEventListener("dragend", resetDrag);
+      window.removeEventListener("drop", resetDrag);
+    };
   });
 
   function onDragEnter(e: DragEvent): void {
     if (!hasFiles(e)) return;
     e.preventDefault();
-    setDragDepth(dragDepth() + 1);
+    depth += 1;
+    setDragDepth(depth);
   }
 
   function onDragLeave(): void {
-    if (dragDepth() > 0) setDragDepth(dragDepth() - 1);
+    if (depth === 0) return;
+    depth -= 1;
+    setDragDepth(depth);
+  }
+
+  function resetDrag(): void {
+    if (depth === 0) return;
+    depth = 0;
+    setDragDepth(0);
   }
 
   async function onDrop(e: DragEvent): Promise<void> {
     if (!hasFiles(e)) return;
     e.preventDefault();
-    setDragDepth(0);
+    resetDrag();
     const files = Array.from(e.dataTransfer?.files ?? []);
     if (files.length) await library.uploadFiles(files);
   }
 
+  // Non-reactive in-flight guard, same doctrine as the drag counter above: a
+  // signal read immediately after its own write still returns the pre-write
+  // value, so a signal-based check would let two Enter presses in one flush
+  // window both through. That matters here because addCustomFlair reads
+  // getNextPaletteColor(customFlairs.length) BEFORE its await (library.ts:487),
+  // so the second call sees the pre-insert length and mints a duplicate chip in
+  // the same colour. The paired signal exists only to drive the disabled state.
+  let adding = false;
+  const [addingFlair, setAddingFlair] = createSignal(false);
+
   async function addFlair(): Promise<void> {
     const name = newFlair().trim();
-    if (!name) return;
-    await library.addCustomFlair(name);
-    setNewFlair("");
+    if (!name || adding) return;
+    adding = true;
+    setAddingFlair(true);
+    try {
+      // addCustomFlair swallows its own errors and reports outcome by return
+      // value. Clearing unconditionally threw away what the user typed on every
+      // failure, leaving a transient toast as the only trace of it.
+      const created = await library.addCustomFlair(name);
+      if (created) setNewFlair("");
+    } finally {
+      adding = false;
+      setAddingFlair(false);
+    }
   }
+
+  // Deleting a custom flair is destructive and, unlike every other destructive
+  // control on this page, was a bare one-click: the store strips the flair from
+  // every book carrying it, optimistically, before the server round-trip.
+  // BookCard confirms a single-book delete, so an action that can clear dozens
+  // of assignments cannot be quieter than that.
+  function removeFlair(f: FlairDef): void {
+    const n = library.books.filter((b) => b.flairId === f.id).length;
+    const scope =
+      n === 0
+        ? ""
+        : n === 1
+          ? " It is currently on 1 book."
+          : ` It is currently on ${n} books.`;
+    if (confirm(`Delete the flair “${f.label}”?${scope}`))
+      void library.removeCustomFlair(f.id);
+  }
+
+  // Text for the single persistent status live region below.
+  const statusText = () =>
+    library.loading
+      ? "Loading…"
+      : library.books.length > 0 && library.visible.length === 0
+        ? "No books match your search or filters."
+        : "";
 
   // Replaces <svelte:window onpointerdown={sortOpen ? onSortOutside : undefined}>:
   // the listener lives only while the menu is open. Compute/apply pair:
@@ -290,32 +379,36 @@ export default function Library() {
               aria-label="Sort by"
               onKeyDown={onSortKeydown}
             >
-              <For each={SORT_OPTIONS}>
-                {(opt) => {
-                  const active = () => library.sort === opt.key;
-                  return (
-                    <button
-                      type="button"
-                      class={["lib-sort-item", active() ? "active" : ""]}
-                      role="menuitemradio"
-                      aria-checked={active() ? "true" : "false"}
-                      tabindex={active() ? "0" : "-1"}
-                      ref={(el) => {
-                        // Focus the current sort on open (menuitemradio model).
-                        if (active()) el.focus();
-                      }}
-                      onClick={() => chooseSort(opt.key)}
-                    >
-                      <span class="lib-sort-item-label">{opt.label}</span>
-                      <Show when={active()}>
-                        <span class="lib-check" aria-hidden="true">
-                          <Icon icon={Check} size={15} />
-                        </span>
-                      </Show>
-                    </button>
-                  );
-                }}
-              </For>
+              {/* SORT_OPTIONS is a frozen module-level constant: the array
+                  never changes identity or contents, so <For>'s keyed
+                  reconciliation had nothing to reconcile and cost a keyed diff
+                  every time the menu opened. Solid 2.0 does not export <Index>,
+                  and this list needs no reconciler node at all -- a plain
+                  .map() emits the five buttons once. */}
+              {SORT_OPTIONS.map((opt) => {
+                const active = () => library.sort === opt.key;
+                return (
+                  <button
+                    type="button"
+                    class={["lib-sort-item", active() ? "active" : ""]}
+                    role="menuitemradio"
+                    aria-checked={active() ? "true" : "false"}
+                    tabindex={active() ? "0" : "-1"}
+                    ref={(el) => {
+                      // Focus the current sort on open (menuitemradio model).
+                      if (active()) el.focus();
+                    }}
+                    onClick={() => chooseSort(opt.key)}
+                  >
+                    <span class="lib-sort-item-label">{opt.label}</span>
+                    <Show when={active()}>
+                      <span class="lib-check" aria-hidden="true">
+                        <Icon icon={Check} size={15} />
+                      </span>
+                    </Show>
+                  </button>
+                );
+              })}
             </div>
           </Show>
         </div>
@@ -410,7 +503,7 @@ export default function Library() {
                       class="lib-chip-del"
                       title="Delete flair"
                       aria-label={`Delete flair ${f.label}`}
-                      onClick={() => library.removeCustomFlair(f.id)}
+                      onClick={() => removeFlair(f)}
                     >
                       <Icon icon={X} size={13} />
                     </button>
@@ -427,15 +520,17 @@ export default function Library() {
               maxlength="40"
               value={newFlair()}
               onInput={(e) => setNewFlair(e.currentTarget.value)}
-              onKeyDown={(e) => e.key === "Enter" && addFlair()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void addFlair();
+              }}
               aria-label="New flair name"
             />
             <button
               type="button"
-              onClick={addFlair}
-              disabled={!newFlair().trim()}
+              onClick={() => void addFlair()}
+              disabled={!newFlair().trim() || addingFlair()}
             >
-              Add
+              {addingFlair() ? "Adding…" : "Add"}
             </button>
           </span>
 
@@ -451,17 +546,22 @@ export default function Library() {
         </div>
       </Show>
 
-      <Show when={library.error}>
-        <p class="lib-error" role="alert">
-          {library.error}
-        </p>
-      </Show>
+      {/* Live regions must already be in the accessibility tree BEFORE their
+          text appears (WCAG 4.1.3). Mounting the region and its content in the
+          same tick gives AT no "before" to diff against, and NVDA and JAWS drop
+          the announcement outright -- which is why an upload failure and an
+          empty result set were both silent. These two stay mounted for the life
+          of the route and only their text changes; .lib-live collapses them to
+          zero height while empty WITHOUT display:none, which would take them
+          back out of the a11y tree and reintroduce the bug. */}
+      <p class="lib-error lib-live" role="alert">
+        {library.error}
+      </p>
+      <p class="lib-state lib-live" role="status">
+        {statusText()}
+      </p>
 
-      {library.loading ? (
-        <p class="lib-state" role="status">
-          Loading…
-        </p>
-      ) : library.books.length === 0 ? (
+      {library.loading ? null : library.books.length === 0 ? (
         <div class="lib-empty">
           <span class="fleuron lib-empty-mark" aria-hidden="true">
             ❦
@@ -482,7 +582,7 @@ export default function Library() {
           </p>
         </div>
       ) : library.visible.length === 0 ? (
-        <div class="lib-noresults" role="status">
+        <div class="lib-noresults">
           <p class="lib-empty-title display">Nothing on this shelf.</p>
           <p class="lib-state">No books match your search or filters.</p>
           <button

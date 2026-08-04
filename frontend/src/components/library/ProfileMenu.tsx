@@ -77,8 +77,7 @@ export default function ProfileMenu(props: Props) {
       e.key !== "ArrowDown" &&
       e.key !== "ArrowUp" &&
       e.key !== "Home" &&
-      e.key !== "End" &&
-      e.key !== "Tab"
+      e.key !== "End"
     ) {
       return;
     }
@@ -99,16 +98,6 @@ export default function ProfileMenu(props: Props) {
         break;
       case "End":
         next = items.length - 1;
-        break;
-      case "Tab":
-        // Contain focus so it can't escape into the page behind the popover.
-        next = e.shiftKey
-          ? cur < 0
-            ? items.length - 1
-            : (cur - 1 + items.length) % items.length
-          : cur < 0
-            ? 0
-            : (cur + 1) % items.length;
         break;
       case "ArrowDown":
         next = cur < 0 ? 0 : (cur + 1) % items.length;

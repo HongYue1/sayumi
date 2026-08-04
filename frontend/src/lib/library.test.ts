@@ -579,3 +579,83 @@ describe("library.refresh loading state", () => {
     expect(store.loading).toBe(false);
   });
 });
+
+describe("library.visible (H5: split sort/filter memos)", () => {
+  it("constructs without reading a field that is not assigned yet", () => {
+    // Regression for the memo-ordering trap the split exposed. `visible` read
+    // `this.#sorted()` inside its own memo body; createMemo evaluates eagerly,
+    // so that body ran during the constructor -- before runWithOwner returned
+    // and the field was assigned -- and every instantiation threw. The sorted
+    // memo is now a local const passed in as an argument.
+    expect(() => new Library()).not.toThrow();
+  });
+
+  it("keeps the sorted order once the query narrows the list", async () => {
+    // Filtering is order-preserving, which is the invariant that lets `visible`
+    // skip re-sorting entirely.
+    const store = await seed([
+      book({ id: "c", title: "Book 3", author: "Zed" }),
+      book({ id: "a", title: "Book 1", author: "Zed" }),
+      book({ id: "b", title: "Book 2", author: "Other" }),
+    ]);
+    expect(store.visible.map((b) => b.title)).toEqual([
+      "Book 1",
+      "Book 2",
+      "Book 3",
+    ]);
+
+    store.setQuery("zed");
+    vi.advanceTimersByTime(140);
+    flush();
+    expect(store.visible.map((b) => b.title)).toEqual(["Book 1", "Book 3"]);
+  });
+
+  it("re-sorts when the sort key changes, with the filter still applied", async () => {
+    const store = await seed([
+      book({ id: "a", title: "Book 1", author: "Zed" }),
+      book({ id: "b", title: "Book 2", author: "Other" }),
+      book({ id: "c", title: "Book 3", author: "Abe" }),
+    ]);
+    store.setQuery("book");
+    vi.advanceTimersByTime(140);
+    flush();
+
+    store.sort = "author";
+    flush();
+    expect(store.visible.map((b) => b.author)).toEqual(["Abe", "Other", "Zed"]);
+
+    store.sort = "title";
+    flush();
+    expect(store.visible.map((b) => b.title)).toEqual([
+      "Book 1",
+      "Book 2",
+      "Book 3",
+    ]);
+  });
+});
+
+describe("library.addCustomFlair (M2)", () => {
+  it("returns null for a blank label without reaching the transport", async () => {
+    const store = await seed([]);
+    await expect(store.addCustomFlair("   ")).resolves.toBeNull();
+    expect(mocks.createFlair).not.toHaveBeenCalled();
+  });
+
+  it("returns null and surfaces a toast when the request fails", async () => {
+    // The caller clears the text the user typed only on a non-null return, so
+    // a failed create must be distinguishable from a successful one.
+    const store = await seed([]);
+    mocks.createFlair.mockRejectedValueOnce(new Error("offline"));
+    await expect(store.addCustomFlair("Favourites")).resolves.toBeNull();
+    expect(mocks.toast).toHaveBeenCalled();
+    expect(store.customFlairs).toHaveLength(0);
+  });
+
+  it("returns the created flair and appends it exactly once", async () => {
+    const store = await seed([]);
+    const flair = { id: "cf1", label: "Favourites", color: "#3b82f6" };
+    mocks.createFlair.mockResolvedValueOnce(flair);
+    await expect(store.addCustomFlair("Favourites")).resolves.toEqual(flair);
+    expect(store.customFlairs.map((f) => f.id)).toEqual(["cf1"]);
+  });
+});

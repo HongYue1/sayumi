@@ -2426,6 +2426,12 @@ main {
   position: fixed;
   inset: 0;
   z-index: 40;
+  /* Purely decorative (aria-hidden) and covers the entire viewport, so it must
+     never take the pointer. If the depth counter is ever stranded above zero,
+     an interactive overlay would eat every click on the page until reload;
+     this makes that failure cosmetic instead of fatal. It also stops the
+     overlay from swallowing the dragleave/drop events it sits on top of. */
+  pointer-events: none;
   display: grid;
   place-items: center;
   padding: var(--sp-6);
@@ -2638,10 +2644,23 @@ main {
   border: 1px solid var(--hairline);
   border-radius: 999px;
   background: var(--surface);
+  /* Kept: it is what clips the child buttons' hover fill to the pill. The cost
+     is that it also clips their focus ring, since the global --focus is drawn
+     with an OUTSET box-shadow that lands outside the padding box. Rather than
+     drop the clip and let the fill bleed past the radius, the two children
+     below opt into an equivalent inset ring. */
   overflow: hidden;
   transition:
     border-color var(--dur) var(--ease-out),
     background var(--dur) var(--ease-out);
+}
+/* Inset equivalent of --focus for the controls inside the clipping pill: the
+   outset ring was invisible, so keyboard focus vanished entirely while tabbing
+   the flair filter bar. */
+.lib-chip-toggle:focus-visible,
+.lib-chip-del:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 .lib-chip:hover {
   border-color: var(--hairline-strong);
@@ -2803,6 +2822,16 @@ main {
 
 .lib-error {
   color: var(--danger);
+}
+/* Permanently-mounted live regions (see Library.tsx): collapse to nothing while
+   empty. Deliberately NOT display:none / visibility:hidden -- either would drop
+   the region out of the accessibility tree, which is exactly the WCAG 4.1.3
+   failure these regions exist to fix. */
+.lib-live:empty {
+  margin: 0;
+  padding: 0;
+  height: 0;
+  overflow: hidden;
 }
 
 /* ---- empty shelf ---- */

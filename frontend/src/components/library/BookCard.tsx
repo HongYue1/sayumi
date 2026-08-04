@@ -26,6 +26,14 @@ export default function BookCard(props: Props) {
   // accumulate long delays.
   const enterDelay = Math.min(props.index ?? 0, 16) * 32;
 
+  // Same one-shot treatment, and for the same reason. `index` is a live getter
+  // on the props proxy, so reading it inside JSX made loading/fetchpriority
+  // reactive: every reorder (sort change, filter, upload) rewrote both
+  // attributes on an already-live <img>, where the browser ignores them once
+  // the request is in flight. Pure churn, plus a misleading read of which
+  // covers are actually in the LCP window. Decide once, at creation.
+  const eager = (props.index ?? 0) < 8;
+
   // Remember the exact URL that failed rather than permanently suppressing the
   // cover for this book id. Metadata/cover edits advance updatedAt while the
   // keyed card instance stays mounted, so a new URL must get a fresh attempt.
@@ -103,7 +111,15 @@ export default function BookCard(props: Props) {
   function chooseDelete(e: MouseEvent): void {
     e.stopPropagation();
     closeMenu();
-    if (confirm(`Remove “${props.book.title}” from your library?`))
+    // Name the actual consequence. The server handler calls
+    // removeManagedLibraryFile on the .epub and its cover sidecar -- a plain
+    // os.Remove, no trash, no undo -- so "Remove from your library" described a
+    // list operation the code does not perform, and read as reversible.
+    if (
+      confirm(
+        `Delete “${props.book.title}” permanently?\n\nThis deletes the .epub file from your Library folder. It cannot be undone.`,
+      )
+    )
       props.onremove(props.book.id);
   }
 
@@ -192,12 +208,16 @@ export default function BookCard(props: Props) {
       closeMenu();
       return;
     }
+    if (e.key === "Tab") {
+      // Tab leaves the menu (WCAG 2.1.2 / APG Menu Button). See Library.tsx.
+      closeMenu();
+      return;
+    }
     if (
       e.key !== "ArrowDown" &&
       e.key !== "ArrowUp" &&
       e.key !== "Home" &&
-      e.key !== "End" &&
-      e.key !== "Tab"
+      e.key !== "End"
     ) {
       return;
     }
@@ -221,17 +241,6 @@ export default function BookCard(props: Props) {
         break;
       case "End":
         next = items.length - 1;
-        break;
-      case "Tab":
-        // Contain focus: Tab wraps forward, Shift+Tab backward, so keyboard
-        // focus can't escape into the grid behind the open popover.
-        next = e.shiftKey
-          ? cur < 0
-            ? items.length - 1
-            : (cur - 1 + items.length) % items.length
-          : cur < 0
-            ? 0
-            : (cur + 1) % items.length;
         break;
       case "ArrowDown":
         next = cur < 0 ? 0 : (cur + 1) % items.length;
@@ -280,8 +289,8 @@ export default function BookCard(props: Props) {
             <img
               src={coverUrl()}
               alt=""
-              loading={(props.index ?? 0) < 8 ? "eager" : "lazy"}
-              fetchpriority={(props.index ?? 0) < 8 ? "high" : undefined}
+              loading={eager ? "eager" : "lazy"}
+              fetchpriority={eager ? "high" : undefined}
               decoding="async"
               onError={() => setFailedCoverUrl(coverUrl())}
             />
