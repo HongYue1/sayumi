@@ -3808,10 +3808,13 @@ main {
   background: var(--accent);
   color: var(--accent-fg);
 }
-.stp-preset-confirm:hover:not(:disabled) {
+/* aria-disabled, not :disabled: the Save button keeps its place in the tab
+   order while the name is empty or a save is in flight (savePreset guards),
+   so the spent look is driven off the ARIA state instead. */
+.stp-preset-confirm:hover:not([aria-disabled="true"]) {
   filter: brightness(1.06);
 }
-.stp-preset-confirm:disabled {
+.stp-preset-confirm[aria-disabled="true"] {
   opacity: 0.5;
   cursor: default;
 }

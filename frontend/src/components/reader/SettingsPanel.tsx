@@ -2,8 +2,10 @@
 // layout, chapter titles, book styling — Solid 2.0 port.
 //
 // Solid 2.0 notes:
-//   - Rendered state is signals; resetTimer stays a plain let. `s` becomes a
-//     createMemo over settings.value (the store's getter tracks its signal).
+//   - Rendered state is signals; resetTimer stays a plain let. `s` is a plain
+//     thunk over settings.value: that getter hands back the store node itself,
+//     a stable reference, so a memo over it could only ever compute once --
+//     the property reads at each s().foo call site are what track.
 //   - The two Svelte snippets become module-level components (AutoRow,
 //     Swatch): neither closes over panel state — everything arrives via props
 //     (unicorn consistent-function-scoping).
@@ -97,7 +99,8 @@ const WEIGHT_NAMES: Record<number, string> = {
   800: "Extra-bold",
   900: "Black",
 };
-function weightName(v: number): string {
+function weightName(v: number | null): string {
+  if (v === null) return "";
   return WEIGHT_NAMES[v] ?? "";
 }
 
@@ -110,8 +113,15 @@ function set<K extends keyof UserSettings>(
 
 // Opens the built-in typography specimen in the reader so these settings can
 // be tuned against rich sample text. Navigation remounts the reader (App keys
-// it on the book id), which closes this panel.
-function openSpecimen(): void {
+// it on the book id), which closes this panel -- except when the specimen is
+// already the open book: assigning the hash it already has fires no
+// hashchange, nothing remounts, and the button is a dead click. Close the
+// panel directly in that case so the specimen is actually visible.
+function openSpecimen(onclose: () => void): void {
+  if (router.route.params.id === SPECIMEN_BOOK_ID) {
+    onclose();
+    return;
+  }
   router.navigate(`/read/${SPECIMEN_BOOK_ID}`);
 }
 
@@ -126,17 +136,20 @@ interface AutoRowProps {
   unit: string;
   apply: (v: number | null) => void;
   disabledReason?: string | null;
-  headNote?: (v: number) => string;
+  headNote?: (v: number | null) => string;
 }
 
 function AutoRow(p: AutoRowProps) {
+  // Computed once per read so an empty note renders nothing at all (no orphan
+  // " \u00b7 " separator) and so Auto rows can still carry one.
+  const headNote = (): string => (p.headNote ? p.headNote(p.value) : "");
   return (
     <div class={["stp-row", { "stp-row-disabled": !!p.disabledReason }]}>
       <div class="stp-row-head">
         <span class="stp-label">
           {p.label}
-          {p.value !== null && p.headNote ? (
-            <span class="stp-head-note"> · {p.headNote(p.value)}</span>
+          {headNote() ? (
+            <span class="stp-head-note"> · {headNote()}</span>
           ) : null}
         </span>
         <Show
@@ -226,7 +239,7 @@ function Swatch(p: SwatchProps) {
 }
 
 export default function SettingsPanel(props: Props) {
-  const s = createMemo(() => settings.value);
+  const s = (): UserSettings => settings.value;
 
   // --- Presets: server-synced snapshots of the whole settings object --------
   // A preset captures every setting (including theme + fonts) and round-trips
@@ -307,7 +320,13 @@ export default function SettingsPanel(props: Props) {
     // settings surface that consumes and edits those themes.
     if (!customThemes.loaded) {
       void customThemes.load().then(() => {
-        if (customThemes.loaded) applyTheme(settings.value.theme);
+        // Gated on settings.loaded exactly like the reader's theme effect:
+        // before a successful settings load, value.theme is the compile-time
+        // default, so applying it here repaints the shell in the wrong palette
+        // AND overwrites the localStorage palette cache the pre-paint
+        // bootstrap reads -- making the wrong theme survive a reload.
+        if (customThemes.loaded && settings.loaded)
+          applyTheme(settings.value.theme);
       });
     }
   });
@@ -334,9 +353,21 @@ export default function SettingsPanel(props: Props) {
     event.preventDefault();
     const name = presetName().trim();
     if (!name || saving()) return;
+    // Never capture the compile-time defaults: until the load resolves,
+    // settings.value is not the user's state, and the server would happily
+    // store those defaults under a user-chosen name (they validate fine).
+    if (!settings.loaded) {
+      toast.show("Settings aren't loaded yet");
+      return;
+    }
     setSaving(true);
     try {
-      const created = await createPreset({ name, settings: { ...s() } });
+      // Copy the nested map too: { ...s() } alone would put the live store's
+      // own fontRoles object in the request body (see #saveNow).
+      const created = await createPreset({
+        name,
+        settings: { ...s(), fontRoles: { ...(s().fontRoles ?? {}) } },
+      });
       setPresets([...presets(), created]);
       setNaming(false);
       setPresetName("");
@@ -349,18 +380,31 @@ export default function SettingsPanel(props: Props) {
   }
 
   function applyPreset(p: SettingsPreset): void {
-    settings.update({ ...p.settings });
+    // Copy the nested container as well: update() assigns it into the store
+    // as-is, and the store must never alias an object this cached preset list
+    // keeps holding (freshDefaults() and #saveNow follow the same doctrine).
+    settings.update({
+      ...p.settings,
+      fontRoles: { ...(p.settings.fontRoles ?? {}) },
+    });
     toast.show(`Applied "${p.name}"`);
   }
 
   async function removePreset(p: SettingsPreset): Promise<void> {
-    // Optimistic remove; restore the previous list if the delete fails.
-    const prev = presets();
+    // Optimistic remove, rolled back by id at its old index -- never from a
+    // whole-list snapshot, which resurrects presets that other in-flight
+    // deletes removed after the snapshot was taken.
+    const index = presets().findIndex((x) => x.id === p.id);
     setPresets(presets().filter((x) => x.id !== p.id));
     try {
       await deletePreset(p.id);
     } catch {
-      setPresets(prev);
+      const list = presets();
+      if (!list.some((x) => x.id === p.id)) {
+        const restored = [...list];
+        restored.splice(index < 0 ? list.length : index, 0, p);
+        setPresets(restored);
+      }
       toast.show("Couldn't delete preset");
     }
   }
@@ -377,14 +421,17 @@ export default function SettingsPanel(props: Props) {
     setEditor(null);
   }
 
-  // The file currently chosen for a role: the explicit override, else the
-  // backend's detected guess, else empty.
+  // The file explicitly chosen for a role, or "" for Auto. Deliberately no
+  // fall back to fam.detected: the Auto option names the detected file, so
+  // preselecting it here would render the scanner's guess as the user's own
+  // pick -- and make clearing back to Auto look like a no-op when it in fact
+  // deletes a persisted override.
   function roleValue(
     role: "regular" | "italic" | "bold" | "boldItalic",
   ): string {
     const fam = selectedUserFamily();
     if (!fam) return "";
-    return s().fontRoles?.[fam.id]?.[role] ?? fam.detected[role] ?? "";
+    return s().fontRoles?.[fam.id]?.[role] ?? "";
   }
 
   function setRole(
@@ -516,7 +563,9 @@ export default function SettingsPanel(props: Props) {
               <button
                 class="stp-preset-confirm"
                 type="submit"
-                disabled={!presetName().trim() || saving()}
+                aria-disabled={
+                  !presetName().trim() || saving() ? "true" : "false"
+                }
               >
                 Save
               </button>
@@ -598,7 +647,10 @@ export default function SettingsPanel(props: Props) {
 
         <section class="stp-section">
           <h3>Font</h3>
-          <button class="stp-specimen" onClick={openSpecimen}>
+          <button
+            class="stp-specimen"
+            onClick={() => openSpecimen(props.onclose)}
+          >
             Open type specimen
           </button>
           <p class="stp-hint">A sample chapter for previewing your settings.</p>
@@ -629,13 +681,22 @@ export default function SettingsPanel(props: Props) {
                 {(f) => <option value={f.id}>{f.label}</option>}
               </For>
             </optgroup>
-            <Show when={userFamilies().length > 0}>
-              <optgroup label="Your fonts">
-                <For each={userFamilies()}>
-                  {(f) => <option value={f.id}>{f.label}</option>}
-                </For>
-              </optgroup>
-            </Show>
+            {/* Always mounted, emptied by <For>: on 2.0.0-beta.29 a
+                conditional element child of a <select> is never removed once
+                the <select> has another element child (probe-verified for
+                <Show>, a ternary and a gated <For>, on either side of the
+                sibling). Gating it here strands the stale group after a rescan
+                and its dead user:<dir> options stay selectable, so the empty
+                state lives in the label instead. */}
+            <optgroup
+              label={
+                userFamilies().length > 0 ? "Your fonts" : "Your fonts (none)"
+              }
+            >
+              <For each={userFamilies()}>
+                {(f) => <option value={f.id}>{f.label}</option>}
+              </For>
+            </optgroup>
           </select>
 
           <Show when={selectedUserFamily()}>
@@ -660,7 +721,11 @@ export default function SettingsPanel(props: Props) {
                           setRole(role.key, e.currentTarget.value)
                         }
                       >
-                        <option value="">Auto</option>
+                        <option value="">
+                          {fam().detected[role.key]
+                            ? `Auto (${fam().detected[role.key]})`
+                            : "Auto"}
+                        </option>
                         <For each={fam().files}>
                           {(file) => <option value={file}>{file}</option>}
                         </For>
@@ -677,7 +742,7 @@ export default function SettingsPanel(props: Props) {
             onClick={() => void rescan()}
             disabled={rescanning() || s().preserveFonts}
           >
-            {rescanning() ? "Scanning…" : "Rescan ./Fonts"}
+            {rescanning() ? "Scanning…" : "Rescan fonts folder"}
           </button>
         </section>
 
@@ -784,6 +849,10 @@ export default function SettingsPanel(props: Props) {
             unit="px"
             apply={(v) => set("marginSide", v)}
           />
+          {/* Top and bottom are independent server-side fields that this one
+              row writes together. A preset or a hand-edited save can diverge
+              them, so surface the bottom value instead of showing top as if it
+              spoke for both. */}
           <AutoRow
             label="Vertical margin"
             value={s().marginTop}
@@ -793,6 +862,11 @@ export default function SettingsPanel(props: Props) {
             fallback={48}
             unit="px"
             apply={(v) => settings.update({ marginTop: v, marginBottom: v })}
+            headNote={(v) => {
+              const b = s().marginBottom;
+              if (b === v) return "";
+              return b === null ? "bottom auto" : `bottom ${b}px`;
+            }}
           />
           <AutoRow
             label="Content width"
@@ -833,13 +907,17 @@ export default function SettingsPanel(props: Props) {
                 {(f) => <option value={f.id}>{f.label}</option>}
               </For>
             </optgroup>
-            <Show when={userFamilies().length > 0}>
-              <optgroup label="Your fonts">
-                <For each={userFamilies()}>
-                  {(f) => <option value={f.id}>{f.label}</option>}
-                </For>
-              </optgroup>
-            </Show>
+            {/* Always mounted for the same beta.29 reason as the body-font
+                group above. */}
+            <optgroup
+              label={
+                userFamilies().length > 0 ? "Your fonts" : "Your fonts (none)"
+              }
+            >
+              <For each={userFamilies()}>
+                {(f) => <option value={f.id}>{f.label}</option>}
+              </For>
+            </optgroup>
           </select>
 
           <div class="stp-row">
