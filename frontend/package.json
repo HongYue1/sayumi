@@ -27,6 +27,6 @@
     "vitest": "4.1.10"
   },
   "dependencies": {
-    "@lucide/svelte": "^1.27.0"
+    "@lucide/svelte": "^1.28.0"
   }
 }
