@@ -1,12 +1,18 @@
 // BookCard: library grid card — Solid 2.0 port.
 // (Solid notes: the dismiss effect and the edge-flip measurement split into
 // compute→apply pairs; ref vars are assigned at mount and read only while a
-// menu is open, so plain `let` bindings stay intentionally non-reactive.)
+// menu is open, so plain `let` bindings stay intentionally non-reactive.
+// Apply phases are untracked scopes, so the chips are resolved with a plain
+// lookup rather than a memo — reading a memo there logs STRICT_READ_UNTRACKED.
+// Menu items do not self-focus from a ref either — refs run while the node is
+// still detached, so focus moves in from a post-flush apply phase instead.)
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { getCoverUrl, type BookMeta, type FlairDef } from "~/api/client";
 import { findFlair, flairTextColor } from "~/lib/flairs";
 import Icon from "~/lib/Icon";
 import { Check, Pencil, Settings, Share2, Tag, Trash2 } from "~/lib/icons";
+
+type MenuKind = "flair" | "actions";
 
 interface Props {
   book: BookMeta;
@@ -41,9 +47,7 @@ export default function BookCard(props: Props) {
   const coverUrl = createMemo(() =>
     getCoverUrl(props.book.id, props.book.updatedAt),
   );
-  const [openMenu, setOpenMenu] = createSignal<"flair" | "actions" | null>(
-    null,
-  );
+  const [openMenu, setOpenMenu] = createSignal<MenuKind | null>(null);
   const showCover = createMemo(
     () => props.book.hasCover && failedCoverUrl() !== coverUrl(),
   );
@@ -52,8 +56,8 @@ export default function BookCard(props: Props) {
   );
   const flair = createMemo(() => findFlair(props.book.flairId, props.flairs));
   // Whether the book's current flair is one of the selectable options, so the
-  // menu can open with focus on the checked item (menuitemradio model, matching
-  // ThemeDropdown) and fall back to the first item only when nothing is set.
+  // menu can open with focus on the checked item and fall back to the first
+  // item only when nothing is set.
   const hasActiveFlair = createMemo(() =>
     props.flairs.some((f) => f.id === props.book.flairId),
   );
@@ -61,16 +65,18 @@ export default function BookCard(props: Props) {
   let flairBtn: HTMLButtonElement | undefined;
   let actionsBtn: HTMLButtonElement | undefined;
   let menuEl: HTMLDivElement | undefined;
-  // The trigger that owns the currently-open popover, so dismiss/Escape can
-  // restore focus to the right chip (gear or flair) regardless of which menu
-  // is open.
-  const activeTrigger = createMemo(() =>
-    openMenu() === "flair"
-      ? flairBtn
-      : openMenu() === "actions"
-        ? actionsBtn
-        : null,
-  );
+  // The trigger that owns a popover, and the card's other chip. Plain lookups,
+  // not memos: both are read from effect apply phases, which are untracked
+  // scopes where a memo read logs STRICT_READ_UNTRACKED (see Read.tsx).
+  const triggerFor = (menu: MenuKind | null): HTMLButtonElement | undefined =>
+    menu === "flair" ? flairBtn : menu === "actions" ? actionsBtn : undefined;
+  const peerTriggerFor = (
+    menu: MenuKind | null,
+  ): HTMLButtonElement | undefined =>
+    menu === "flair" ? actionsBtn : menu === "actions" ? flairBtn : undefined;
+  // Stable popover ids so each chip can point at the menu it owns.
+  const flairMenuId = (): string => `bc-flair-menu-${props.book.id}`;
+  const actionsMenuId = (): string => `bc-actions-menu-${props.book.id}`;
   // Flip the open popover inward when a card near the right/bottom viewport
   // edge would otherwise open it off-screen.
   const [flipX, setFlipX] = createSignal(false);
@@ -87,10 +93,11 @@ export default function BookCard(props: Props) {
   }
 
   function closeMenu(restoreFocus = true): void {
-    // Capture the trigger before clearing openMenu, since activeTrigger derives
-    // from it and would otherwise read null.
-    const trigger = activeTrigger();
+    // Resolve the trigger before clearing openMenu, which is what selects it.
+    const trigger = triggerFor(openMenu());
     setOpenMenu(null);
+    // Drop the stale node so a queued focus can't land in a closed popover.
+    menuEl = undefined;
     if (restoreFocus) trigger?.focus();
   }
 
@@ -125,6 +132,10 @@ export default function BookCard(props: Props) {
 
   function pick(e: MouseEvent, id: string): void {
     e.stopPropagation();
+    // Re-picking the current flair clears it — a toggle, which is why the items
+    // are menuitemcheckbox. A menuitemradio cannot be unchecked by activating
+    // it again, so the role has to match the behaviour. (A discoverable "No
+    // flair" entry would be a design change; tracked separately.)
     props.onsetflair(props.book.id, props.book.flairId === id ? null : id);
     closeMenu();
   }
@@ -145,7 +156,8 @@ export default function BookCard(props: Props) {
     () => openMenu(),
     (menu) => {
       if (!menu) return undefined;
-      const trigger = activeTrigger();
+      const trigger = triggerFor(menu);
+      const peer = peerTriggerFor(menu);
       const onWindowClick = (e: MouseEvent): void => {
         const t = e.target;
         if (
@@ -153,6 +165,15 @@ export default function BookCard(props: Props) {
           trigger?.contains(t as Node | null)
         )
           return;
+        // The card's other chip is a menu switch, not a dismissal: close this
+        // menu but let the click through to that chip's own handler so it opens
+        // in the same activation. Swallowing it here cost a second activation —
+        // including a second Enter, since activating a button dispatches a
+        // click through this very capture listener.
+        if (peer?.contains(t as Node | null)) {
+          closeMenu(false);
+          return;
+        }
         e.preventDefault();
         e.stopPropagation();
         closeMenu(false);
@@ -198,6 +219,39 @@ export default function BookCard(props: Props) {
     },
   );
 
+  // Move focus into the popover when it opens. This cannot be done from a ref
+  // on the item: refs fire while their node is still detached, so focus() there
+  // is a silent no-op — which also left the roving arrow-key handler below
+  // unreachable, since focus never entered the menu. The apply phase runs
+  // post-flush (the menu is mounted), and one more microtask lets the rest of
+  // this flush's DOM work land first.
+  let menuGen = 0;
+  createEffect(
+    () => openMenu(),
+    (menu) => {
+      // Bump on every open AND close, so a queued focus for a menu that has
+      // since closed (or swapped) is dropped instead of stealing focus back.
+      const gen = ++menuGen;
+      if (!menu) return undefined;
+      queueMicrotask(() => {
+        if (gen !== menuGen) return;
+        const el = menuEl;
+        if (!el) return;
+        const items = Array.from(
+          el.querySelectorAll<HTMLButtonElement>(".bc-menu-item"),
+        );
+        // Open on the item the markup nominates with tabindex 0 (the checked
+        // flair, else the first entry); fall back to the menu container so
+        // focus is at least inside the popover for Escape and arrow keys.
+        const preferred = items.find(
+          (it) => it.getAttribute("tabindex") === "0",
+        );
+        (preferred ?? items[0] ?? el).focus();
+      });
+      return undefined;
+    },
+  );
+
   // Escape closes the popover and returns focus to its trigger.
   function onMenuKeydown(
     e: KeyboardEvent & { currentTarget: HTMLDivElement },
@@ -221,8 +275,10 @@ export default function BookCard(props: Props) {
     ) {
       return;
     }
-    // Roving focus across the radio items, matching the menu role's keyboard
-    // model so arrow keys move between flairs.
+    // Roving focus across the items, matching the menu role's keyboard model so
+    // arrow keys move between entries. This was dead code until focus actually
+    // entered the popover: the items' refs no-oped on detached nodes, so the
+    // active element stayed on the chip and these keydowns never arrived.
     const menu = e.currentTarget;
     const items = Array.from(
       menu.querySelectorAll<HTMLButtonElement>(".bc-menu-item"),
@@ -339,6 +395,7 @@ export default function BookCard(props: Props) {
         aria-label={`Book actions for ${props.book.title}`}
         aria-haspopup="menu"
         aria-expanded={openMenu() === "actions" ? "true" : "false"}
+        aria-controls={openMenu() === "actions" ? actionsMenuId() : undefined}
         onClick={toggleActions}
       >
         <Icon icon={Settings} size={15} />
@@ -351,6 +408,7 @@ export default function BookCard(props: Props) {
         aria-label={`Set flair for ${props.book.title}`}
         aria-haspopup="menu"
         aria-expanded={openMenu() === "flair" ? "true" : "false"}
+        aria-controls={openMenu() === "flair" ? flairMenuId() : undefined}
         onClick={toggleFlair}
       >
         <Icon icon={Tag} size={15} />
@@ -376,6 +434,7 @@ export default function BookCard(props: Props) {
       <Show when={openMenu() === "flair"}>
         <div
           ref={menuEl}
+          id={flairMenuId()}
           class={[
             "bc-flair-menu paper",
             flipX() ? "flip-x" : "",
@@ -396,17 +455,11 @@ export default function BookCard(props: Props) {
                 <button
                   type="button"
                   class={["bc-menu-item", isActive() ? "active" : ""]}
-                  role="menuitemradio"
+                  role="menuitemcheckbox"
                   aria-checked={isActive() ? "true" : "false"}
                   tabindex={
                     isActive() || (i() === 0 && !hasActiveFlair()) ? "0" : "-1"
                   }
-                  ref={(el) => {
-                    // Open with focus on the checked flair (menuitemradio model); fall
-                    // back to the first item only when the book has no flair set.
-                    if (isActive() || (i() === 0 && !hasActiveFlair()))
-                      el.focus();
-                  }}
                   onClick={(e) => pick(e, f.id)}
                 >
                   <span
@@ -430,6 +483,7 @@ export default function BookCard(props: Props) {
       <Show when={openMenu() === "actions"}>
         <div
           ref={menuEl}
+          id={actionsMenuId()}
           class={[
             "bc-actions-menu paper",
             flipX() ? "flip-x" : "",
@@ -445,7 +499,6 @@ export default function BookCard(props: Props) {
             class="bc-menu-item"
             role="menuitem"
             tabindex="0"
-            ref={(el) => el.focus()}
             onClick={chooseEdit}
           >
             <span class="bc-menu-ico" aria-hidden="true">
