@@ -1824,9 +1824,29 @@ main {
 .eb-frow input {
   height: 2.5rem;
 }
-.eb-frow input:disabled {
+/* readonly + aria-disabled while saving, not :disabled: Enter in a field is the
+   dominant submit path here, and disabling the field the keystroke came from
+   blurs it mid-request. */
+.eb-frow input:disabled,
+.eb-frow input[aria-disabled="true"] {
   opacity: 0.7;
   cursor: not-allowed;
+}
+/* aria-disabled, not :disabled, on the save button: a real disabled attribute
+   blurs the button the moment the save starts, dropping the keyboard user out
+   of the dialog for the whole request and leaving them nowhere on failure, and
+   submit() is already inert unless canSubmit() -- so the attribute only has to
+   say so. Same pattern as .offline-banner-retry, and no pointer-events: none,
+   because the activation still has to reach the guard. */
+.eb-save[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: default;
+}
+.eb-save[aria-disabled="true"]:hover,
+.eb-save[aria-disabled="true"]:active {
+  background: var(--accent);
+  filter: none;
+  transform: none;
 }
 
 .eb-error {
@@ -2030,7 +2050,7 @@ main {
   opacity: 0.45;
   cursor: default;
 }
-/* ── BookCard ─────────────────────────────────────────────────────────── */
+/* ── BookCard ─────────────────────────────��───────────────────────────── */
 
 .bc-card {
   position: relative;
@@ -3260,7 +3280,7 @@ main {
   background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
-/* ── SearchPanel ────────────────────────────────────────────────────── */
+/* ── SearchPanel ─────────────────────────────────────��──────────────── */
 
 .srp {
   height: 100%;

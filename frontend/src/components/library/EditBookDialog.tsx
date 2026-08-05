@@ -4,8 +4,11 @@
 // Solid 2.0 notes:
 //   - onDestroy -> onCleanup; <svelte:window onkeydowncapture> -> an
 //     onSettled-scoped capture listener (mount-scoped).
-//   - {@attach ...focus()} -> ref; the file input's currentTarget is typed via
-//     an intersection, not an `as` cast (lint).
+//   - {@attach ...focus()} -> an onSettled + queueMicrotask focus of the title
+//     field, NOT a ref: refs run while the node is still detached (b28 probe),
+//     so a self-focusing ref is a no-op and focusTrap's fallback then took the
+//     header close button. The file input's currentTarget is typed via an
+//     intersection, not an `as` cast (lint).
 //   - Signals initialize from props once (the Svelte state_referenced_locally
 //     pattern); the saved* baselines advance only after a successful stage.
 //   - The backdrop dismiss is the shared .backdrop-dismiss button (guarded by
@@ -20,6 +23,7 @@ import { ImageUp, X } from "~/lib/icons";
 
 const MAX_META_BYTES = 512;
 const MAX_COVER_BYTES = 20 * 1024 * 1024;
+const AUTHOR_TOO_LONG = "Author is too long (512-byte limit).";
 const textEncoder = new TextEncoder();
 
 interface Props {
@@ -69,6 +73,28 @@ export default function EditBookDialog(props: Props) {
     () => !busy() && titleError() === null && !authorTooLong() && dirty(),
   );
 
+  // Every message is announced from the one pre-mounted region below, never
+  // from the visible paragraphs. Freshest first: a submit failure outranks the
+  // field validators.
+  const announcement = createMemo(
+    () =>
+      error() ??
+      coverPickError() ??
+      titleError() ??
+      (authorTooLong() ? AUTHOR_TOO_LONG : null),
+  );
+
+  // Focus the field this dialog exists to edit. A ref cannot do it: refs run
+  // while the node is still detached (b28 probe), so ref={(el) => el.focus()}
+  // was a silent no-op and focusTrap's fallback took the first focusable in the
+  // sheet -- the header close button, where Enter dismisses. Deferring one
+  // microtask lands after the trap's own queueMicrotask; if this runs first
+  // instead, the trap's !node.contains(activeElement) guard stands down.
+  let titleEl: HTMLInputElement | undefined;
+  onSettled(() => {
+    queueMicrotask(() => titleEl?.focus());
+  });
+
   // The chosen file's object URL is revoked when replaced (below) and on
   // destroy, so a dialog opened/closed repeatedly doesn't leak blob URLs.
   onCleanup(() => {
@@ -76,26 +102,21 @@ export default function EditBookDialog(props: Props) {
     if (preview) URL.revokeObjectURL(preview);
   });
 
-  function clearCoverSelection(): void {
-    const preview = coverPreview();
-    if (preview) URL.revokeObjectURL(preview);
-    setCoverFile(null);
-    setCoverPreview(null);
-  }
-
   function onCoverPick(e: Event & { currentTarget: HTMLInputElement }): void {
     const input = e.currentTarget;
     const file = input.files?.[0] ?? null;
     if (!file) return;
     setError(null);
+    // A rejected pick leaves an already-staged cover alone: discarding it threw
+    // away a good selection and said only "choose a JPEG", with the preview
+    // silently reverting to the book's existing cover. Clearing the input's
+    // value is enough to let the same file be re-picked.
     if (!/^image\/(jpeg|png|webp)$/.test(file.type)) {
-      clearCoverSelection();
       setCoverPickError("Choose a JPEG, PNG, or WebP image.");
       input.value = "";
       return;
     }
     if (file.size > MAX_COVER_BYTES) {
-      clearCoverSelection();
       setCoverPickError("Choose an image no larger than 20 MB.");
       input.value = "";
       return;
@@ -158,6 +179,10 @@ export default function EditBookDialog(props: Props) {
   }
 
   function onKeydown(e: KeyboardEvent): void {
+    // An IME uses Escape to abandon a composition, and capture at window beats
+    // the field, so without this the dialog closed and dropped the edit
+    // (BookmarksPanel, SearchPanel and TocPanel guard the same way).
+    if (e.isComposing) return;
     if (e.key === "Escape") {
       e.preventDefault();
       // Consume so the reader/library window key handlers don't also act on it.
@@ -260,7 +285,7 @@ export default function EditBookDialog(props: Props) {
               </p>
               <Show when={coverPickError()}>
                 {(message) => (
-                  <p class="eb-error" id="cover-pick-error" role="alert">
+                  <p class="eb-error" id="cover-pick-error">
                     {message()}
                   </p>
                 )}
@@ -279,17 +304,23 @@ export default function EditBookDialog(props: Props) {
               autocomplete="off"
               aria-invalid={titleError() !== null ? "true" : "false"}
               aria-describedby={titleError() ? "book-title-error" : undefined}
-              disabled={busy()}
-              ref={(el) => el.focus()}
+              readonly={busy()}
+              aria-disabled={busy() ? "true" : "false"}
+              ref={(el) => (titleEl = el)}
             />
           </label>
-          <Show when={titleError()}>
-            {(message) => (
-              <p class="eb-note" id="book-title-error" role="alert">
-                {message()}
-              </p>
-            )}
-          </Show>
+          {/* Always mounted, hidden when clean: a <Show> true at first paint
+              never removes its child (X35), so a book with no title -- which
+              the importer allows and PATCH then rejects -- kept "Title can't be
+              empty." on screen forever, with aria-invalid back to false and the
+              describedby link already dropped. */}
+          <p
+            class="eb-note"
+            id="book-title-error"
+            hidden={titleError() === null}
+          >
+            {titleError() ?? ""}
+          </p>
 
           <label class="eb-frow">
             <span class="eb-lbl">Author</span>
@@ -304,22 +335,25 @@ export default function EditBookDialog(props: Props) {
               aria-describedby={
                 authorTooLong() ? "book-author-error" : undefined
               }
-              disabled={busy()}
+              readonly={busy()}
+              aria-disabled={busy() ? "true" : "false"}
             />
           </label>
-          <Show when={authorTooLong()}>
-            <p class="eb-note" id="book-author-error" role="alert">
-              Author is too long (512-byte limit).
-            </p>
-          </Show>
+          <p class="eb-note" id="book-author-error" hidden={!authorTooLong()}>
+            {AUTHOR_TOO_LONG}
+          </p>
 
           <Show when={error()}>
-            {(message) => (
-              <p class="eb-error" role="alert">
-                {message()}
-              </p>
-            )}
+            {(message) => <p class="eb-error">{message()}</p>}
           </Show>
+
+          {/* Pre-mounted live region. Every visible message above is inserted
+              in the same tick as its text, which NVDA and JAWS do not announce
+              (b27, WCAG 4.1.3) -- this region exists from first paint and only
+              its text changes, so the paragraphs carry no role="alert". */}
+          <p class="sr-only" role="alert">
+            {announcement() ?? ""}
+          </p>
 
           <div class="eb-actions">
             <button
@@ -330,7 +364,15 @@ export default function EditBookDialog(props: Props) {
             >
               Cancel
             </button>
-            <button type="submit" class="btn press" disabled={!canSubmit()}>
+            {/* aria-disabled, not disabled: a real disabled attribute blurs
+                whatever holds focus the moment the save starts, which dropped
+                the keyboard user out of the dialog for the whole request and
+                left them nowhere on failure. submit() holds the guard. */}
+            <button
+              type="submit"
+              class="btn press eb-save"
+              aria-disabled={!canSubmit() ? "true" : "false"}
+            >
               {busy() ? "Saving…" : "Save changes"}
             </button>
           </div>
