@@ -706,10 +706,17 @@ main {
     background var(--dur-fast) var(--ease-out),
     transform var(--dur-fast) var(--ease-out);
 }
-.offline-banner-retry:hover {
+/* aria-disabled, not :disabled: a real disabled attribute blurs the button the
+   reader just pressed, and check() is already inert while a probe is in flight,
+   so the attribute only has to say so -- same pattern as .stp-preset-confirm. */
+.offline-banner-retry[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: default;
+}
+.offline-banner-retry:hover:not([aria-disabled="true"]) {
   background: rgb(255 255 255 / 0.32);
 }
-.offline-banner-retry:active {
+.offline-banner-retry:active:not([aria-disabled="true"]) {
   transform: scale(0.96);
 }
 

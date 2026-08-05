@@ -11,6 +11,21 @@
 //   - `offlinePlain` mirrors the signal for the scheduler: a signal read
 //     immediately after a write still returns the pre-write value (batched),
 //     so scheduleNext() would compute the wrong cadence off the accessor.
+//     `checkInFlight` is mirrored the other way round by the `checking`
+//     signal: the plain flag stays the coalescing guard because check() reads
+//     it synchronously after writing it, and the signal exists only to drive
+//     the Retry button's aria-disabled/aria-busy state.
+//
+// This heartbeat is load-bearing beyond the banner. session.#armBootRetry
+// (lib/session.ts) subscribes to reachability and re-probes the session when
+// the flag flips, which is how a user gets signed in when the server starts
+// after the tab does; nothing else in the app polls /health. Weakening or
+// gating this poll strands that retry on the login screen.
+//
+// The visible banner deliberately carries no role="alert". A live region that
+// is inserted in the same tick as its text is not announced by NVDA or JAWS
+// (WCAG 4.1.3) -- the trap batch 20 hit on .lib-live -- so the announcement
+// comes from the always-mounted .sr-only region instead.
 import { createEffect, createSignal, onSettled, Show } from "solid-js";
 import { checkHealth } from "~/api/client";
 import Icon from "~/lib/Icon";
@@ -26,7 +41,7 @@ const HEARTBEAT_MS = 10_000;
 const RECOVERY_POLL_MS = 15_000;
 
 function isHidden(): boolean {
-  return typeof document !== "undefined" && document.hidden;
+  return document.hidden;
 }
 
 export default function OfflineBanner() {
@@ -34,6 +49,7 @@ export default function OfflineBanner() {
   let offlinePlain = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let checkInFlight = false;
+  const [checking, setChecking] = createSignal(false);
   let mounted = true;
 
   // The banner is a fixed overlay, so reserve its height on <html> while it's
@@ -74,6 +90,7 @@ export default function OfflineBanner() {
   async function check(): Promise<void> {
     if (checkInFlight) return;
     checkInFlight = true;
+    setChecking(true);
     try {
       const healthy = await checkHealth();
       if (!mounted) return;
@@ -81,6 +98,7 @@ export default function OfflineBanner() {
       setOffline(!healthy);
     } finally {
       checkInFlight = false;
+      if (mounted) setChecking(false);
       // Keep the heartbeat loop alive regardless of outcome, at the cadence
       // that matches the current online/offline state.
       scheduleNext();
@@ -137,18 +155,32 @@ export default function OfflineBanner() {
   });
 
   return (
-    <Show when={offline()}>
-      <div class="offline-banner" role="alert">
-        <Icon icon={WifiOff} size={15} />
-        Server unreachable
-        <button
-          type="button"
-          class="offline-banner-retry"
-          onClick={() => void check()}
-        >
-          Retry
-        </button>
+    <>
+      {/* Mounted for the life of the app so the transition into "unreachable"
+          is what changes, not the region itself. .sr-only already takes it out
+          of the visual flow, so unlike .lib-live/.login-live it needs no
+          :empty collapse rule. */}
+      <div class="sr-only" role="alert">
+        {offline() ? "Server unreachable" : ""}
       </div>
-    </Show>
+      <Show when={offline()}>
+        <div class="offline-banner">
+          <Icon icon={WifiOff} size={15} />
+          Server unreachable
+          {/* aria-disabled rather than disabled: a probe is bounded at 5s and
+              a real disabled attribute would blur the button the user just
+              activated. check() already no-ops while one is in flight. */}
+          <button
+            type="button"
+            class="offline-banner-retry"
+            aria-disabled={checking() ? "true" : "false"}
+            aria-busy={checking() ? "true" : "false"}
+            onClick={() => void check()}
+          >
+            Retry
+          </button>
+        </div>
+      </Show>
+    </>
   );
 }
