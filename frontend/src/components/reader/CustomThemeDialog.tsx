@@ -16,6 +16,9 @@
 //     matching CommandPalette and the library dialogs.
 //   - style: directives -> style objects; bind:value/checked -> value/checked
 //     + onInput/onChange.
+//   - Busy state is aria-disabled + handler-side guards, never a real
+//     disabled attribute: a real disabled blurs the pressed control
+//     mid-request, Enter-in-field included (the X46 doctrine).
 import { createMemo, createSignal, onCleanup, onSettled, Show } from "solid-js";
 import { customThemes } from "~/lib/customThemes";
 import { settings } from "~/lib/settings";
@@ -74,8 +77,22 @@ export default function CustomThemeDialog(props: Props) {
     "save" | "delete" | null
   >(null);
   const [deleteArmed, setDeleteArmed] = createSignal(false);
+  // Mirrors SettingsPanel's resetArmed: the armed delete disarms on a timer,
+  // so a stale armed state cannot fire on a stray click minutes later.
+  let deleteArmTimer: ReturnType<typeof setTimeout> | undefined;
   const [nameDirty, setNameDirty] = createSignal(false);
   let operationController: AbortController | null = null;
+
+  // Focus the name field on open. A focusing ref cannot do it: refs run while
+  // the node is still detached (b28 probe), so the old ref was a silent no-op
+  // and focusTrap's fallback took the first focusable in the sheet -- the
+  // header close button, where Enter dismisses. Deferring one microtask lands
+  // after the trap's own queueMicrotask; if this runs first instead, the
+  // trap's !node.contains(activeElement) guard stands down.
+  let nameEl: HTMLInputElement | undefined;
+  onSettled(() => {
+    queueMicrotask(() => nameEl?.focus());
+  });
 
   const editing = createMemo(() => props.edit != null);
   const resolvedAccent = createMemo(() =>
@@ -126,6 +143,10 @@ export default function CustomThemeDialog(props: Props) {
   }
 
   function onKeydown(e: KeyboardEvent): void {
+    // An Escape that ends an IME composition is not a dismissal: the name
+    // field is a text input, and this capture listener runs before any other
+    // handler, so an unguarded consume would close the dialog mid-composition.
+    if (e.isComposing) return;
     if (e.key === "Escape") {
       e.preventDefault();
       // Consume so the reader / settings window handlers don't also act on it.
@@ -150,6 +171,7 @@ export default function CustomThemeDialog(props: Props) {
   onCleanup(() => {
     operationController?.abort();
     operationController = null;
+    if (deleteArmTimer !== undefined) clearTimeout(deleteArmTimer);
   });
 
   function toggleAuto(e: Event): void {
@@ -207,6 +229,8 @@ export default function CustomThemeDialog(props: Props) {
     if (!edit || busy()) return;
     if (!deleteArmed()) {
       setDeleteArmed(true);
+      if (deleteArmTimer !== undefined) clearTimeout(deleteArmTimer);
+      deleteArmTimer = setTimeout(() => setDeleteArmed(false), 3000);
       return;
     }
     const controller = beginOperation("delete");
@@ -291,7 +315,8 @@ export default function CustomThemeDialog(props: Props) {
               maxlength={String(MAX_THEME_NAME_CHARS * 2)}
               placeholder="My theme"
               autocomplete="off"
-              disabled={busy()}
+              readonly={busy()}
+              aria-disabled={busy() ? "true" : "false"}
               aria-invalid={visibleNameError() ? "true" : undefined}
               aria-describedby={
                 visibleNameError() ? "theme-name-error" : undefined
@@ -300,9 +325,7 @@ export default function CustomThemeDialog(props: Props) {
                 setName(e.currentTarget.value);
                 setNameDirty(true);
               }}
-              ref={(el) => {
-                el.focus();
-              }}
+              ref={(el) => (nameEl = el)}
             />
             <Show when={visibleNameError()}>
               <small id="theme-name-error" class="ctd-field-error" role="alert">
@@ -319,7 +342,7 @@ export default function CustomThemeDialog(props: Props) {
                   type="color"
                   value={bg()}
                   aria-label="Background color"
-                  disabled={busy()}
+                  aria-disabled={busy() ? "true" : "false"}
                   onInput={(e) => setBg(e.currentTarget.value)}
                 />
                 <code>{bg()}</code>
@@ -332,7 +355,7 @@ export default function CustomThemeDialog(props: Props) {
                   type="color"
                   value={fg()}
                   aria-label="Text color"
-                  disabled={busy()}
+                  aria-disabled={busy() ? "true" : "false"}
                   onInput={(e) => setFg(e.currentTarget.value)}
                 />
                 <code>{fg()}</code>
@@ -345,7 +368,7 @@ export default function CustomThemeDialog(props: Props) {
               type="checkbox"
               checked={auto()}
               onChange={toggleAuto}
-              disabled={busy()}
+              aria-disabled={busy() ? "true" : "false"}
             />
             <span>
               Auto accent <small>(derive from your colors)</small>
@@ -359,7 +382,7 @@ export default function CustomThemeDialog(props: Props) {
                   type="color"
                   value={accent()}
                   aria-label="Accent color"
-                  disabled={busy()}
+                  aria-disabled={busy() ? "true" : "false"}
                   onInput={(e) => setAccent(e.currentTarget.value)}
                 />
                 <code>{accent()}</code>
@@ -376,7 +399,7 @@ export default function CustomThemeDialog(props: Props) {
                   { armed: deleteArmed() },
                 ]}
                 onClick={() => void remove()}
-                disabled={busy()}
+                aria-disabled={busy() ? "true" : "false"}
                 aria-label={
                   deleteArmed()
                     ? `Confirm deleting ${trimmedName() || "custom theme"}`
@@ -395,7 +418,11 @@ export default function CustomThemeDialog(props: Props) {
                   ? "Cancel save"
                   : "Cancel"}
             </button>
-            <button type="submit" class="btn press" disabled={!canSave()}>
+            <button
+              type="submit"
+              class="btn press"
+              aria-disabled={!canSave() ? "true" : "false"}
+            >
               {pendingAction() === "save"
                 ? "Saving…"
                 : editing()

@@ -1,0 +1,307 @@
+// Suite for the custom theme create/edit dialog. Stubbed: the customThemes
+// store (network), settings (the store the dialog reads and writes), and
+// applyTheme (a DOM-wide side effect, spread over importOriginal so
+// onAccentColor stays the real contrast computation). THEMES, autoAccent and
+// themeGroupFor stay real -- the seeding assertions are statements about the
+// real catalogue. focusTrap is real: this dialog mounts inside its trap.
+//
+// The invariants, four of which regressed silently before b36:
+//   - Focus lands on the name field on open. The old self-focusing ref ran
+//     while the node was still detached (b28 probe), so the trap's fallback
+//     took the first focusable in the sheet -- the header close button, where
+//     Enter dismisses the dialog.
+//   - An Escape that ends an IME composition is not a dismissal, even though
+//     the dialog's window listener is capture-phase (it runs before Read's).
+//   - Busy controls use aria-disabled, never a real disabled attribute: the
+//     pressed control (or the field that submitted with Enter) must not blur
+//     mid-request. save()/remove() guard the busy state handler-side.
+//   - The two-click delete disarms on a 3s timer, mirroring SettingsPanel's
+//     resetArmed -- an indefinitely armed delete is one stray click from
+//     deleting a theme.
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render } from "@solidjs/web";
+import { flush } from "solid-js";
+import { THEMES, autoAccent, type ThemeDef } from "~/lib/themes";
+
+const stubs = vi.hoisted(() => ({
+  create: vi.fn(),
+  update: vi.fn(),
+  remove: vi.fn(),
+  applyTheme: vi.fn(),
+  settingsUpdate: vi.fn(),
+  state: {
+    theme: "light",
+  },
+}));
+
+vi.mock("~/lib/customThemes", () => ({
+  customThemes: {
+    create: stubs.create,
+    update: stubs.update,
+    remove: stubs.remove,
+  },
+}));
+
+vi.mock("~/lib/settings", () => ({
+  settings: {
+    get value() {
+      return { theme: stubs.state.theme };
+    },
+    update: stubs.settingsUpdate,
+  },
+}));
+
+vi.mock("~/lib/theme", async (importOriginal) => {
+  // importOriginal + spread, per Login.test.ts: onAccentColor stays the real
+  // contrast computation; only the DOM-wide applier is stubbed.
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, applyTheme: stubs.applyTheme };
+});
+
+import CustomThemeDialog from "~/components/reader/CustomThemeDialog";
+
+async function settle(): Promise<void> {
+  for (let i = 0; i < 4; i += 1) {
+    await Promise.resolve();
+    flush();
+  }
+}
+
+const BASE: ThemeDef = {
+  id: "light",
+  label: "Light",
+  group: "light",
+  bg: "#ffffff",
+  fg: "#111111",
+  accent: "#2563eb",
+};
+
+const EDIT: ThemeDef = {
+  id: "custom:abc",
+  label: "Mine",
+  group: "dark",
+  bg: "#101010",
+  fg: "#eeeeee",
+  accent: "#60a5fa",
+};
+
+describe("CustomThemeDialog", () => {
+  let container: HTMLDivElement;
+  let dispose: (() => void) | undefined;
+  let onclose: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    onclose = vi.fn();
+    stubs.state.theme = "light";
+    stubs.create.mockReset();
+    stubs.update.mockReset();
+    stubs.remove.mockReset();
+    stubs.applyTheme.mockReset();
+    stubs.settingsUpdate.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    dispose?.();
+    dispose = undefined;
+    container.remove();
+    vi.restoreAllMocks();
+  });
+
+  async function mount(edit: ThemeDef | null = null): Promise<void> {
+    dispose = render(
+      () =>
+        CustomThemeDialog({
+          base: BASE,
+          edit,
+          onclose: onclose as () => void,
+        }),
+      container,
+    );
+    await settle();
+  }
+
+  const nameField = (): HTMLInputElement =>
+    container.querySelector<HTMLInputElement>('.ctd-field input[type="text"]')!;
+  const submitBtn = (): HTMLButtonElement =>
+    container.querySelector<HTMLButtonElement>(".ctd-actions .btn")!;
+  const deleteBtn = (): HTMLButtonElement =>
+    container.querySelector<HTMLButtonElement>(".ctd-danger-ghost")!;
+  const autoCheck = (): HTMLInputElement =>
+    container.querySelector<HTMLInputElement>(".ctd-check input")!;
+  const accentField = (): HTMLInputElement | null =>
+    container.querySelector<HTMLInputElement>(
+      'input[aria-label="Accent color"]',
+    );
+  const errEl = (): HTMLElement | null =>
+    container.querySelector<HTMLElement>("#theme-name-error");
+
+  function typeInto(field: HTMLInputElement, value: string): void {
+    field.value = value;
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    flush();
+  }
+
+  it("focuses the name field on open (create mode)", async () => {
+    await mount();
+    expect(document.activeElement).toBe(nameField());
+    expect(nameField().value).toBe("");
+  });
+
+  it("focuses the seeded name field on open (edit mode)", async () => {
+    await mount(EDIT);
+    expect(document.activeElement).toBe(nameField());
+    expect(nameField().value).toBe("Mine");
+  });
+
+  it("lets an IME composition Escape pass, but closes on a real Escape", async () => {
+    await mount();
+    const composing = new KeyboardEvent("keydown", {
+      key: "Escape",
+      isComposing: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    // Guards the environment as much as the component: if the flag does not
+    // survive construction, this test proves nothing about the guard.
+    expect(composing.isComposing).toBe(true);
+    nameField().dispatchEvent(composing);
+    await settle();
+    expect(onclose).not.toHaveBeenCalled();
+    expect(nameField().isConnected).toBe(true);
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await settle();
+    expect(onclose).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps focus on the pressed submit and guards re-entry while saving", async () => {
+    stubs.create.mockImplementation(
+      () =>
+        new Promise<ThemeDef>((resolve) => {
+          setTimeout(
+            () =>
+              resolve({
+                id: "custom:new",
+                label: "Fresh",
+                group: "light",
+                bg: "#ffffff",
+                fg: "#111111",
+                accent: "#2563eb",
+              }),
+            50,
+          );
+        }),
+    );
+    await mount();
+    typeInto(nameField(), "Fresh");
+    const btn = submitBtn();
+    // happy-dom's click() does not move focus; a real user's pressed control
+    // has focus, so place it there before activating.
+    btn.focus();
+    btn.click();
+    await settle();
+    // In flight: the button says so with aria-disabled, not a real disabled
+    // attribute, and the pressed control keeps focus.
+    expect(btn.getAttribute("aria-disabled")).toBe("true");
+    expect(btn.hasAttribute("disabled")).toBe(false);
+    expect(nameField().getAttribute("aria-disabled")).toBe("true");
+    expect(nameField().hasAttribute("disabled")).toBe(false);
+    expect(nameField().hasAttribute("readonly")).toBe(true);
+    expect(document.activeElement).toBe(btn);
+    // A second activation while busy reaches the handler and is guarded.
+    btn.click();
+    await settle();
+    expect(stubs.create).toHaveBeenCalledTimes(1);
+    // Settle the write: the dialog closes and applies the new theme.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    await settle();
+    expect(onclose).toHaveBeenCalledTimes(1);
+    expect(stubs.settingsUpdate).toHaveBeenCalledWith({ theme: "custom:new" });
+    expect(stubs.applyTheme).toHaveBeenCalledWith("custom:new");
+  });
+
+  it("shows the name-cap error live and a blocked submit is never silent", async () => {
+    await mount();
+    // 61 code points, over the 60-char cap the server enforces at
+    // internal/api/customthemes.go (maxThemeNameLen). maxlength is 120 units
+    // of slack, so this types fine and only the validator can stop it.
+    typeInto(nameField(), "x".repeat(61));
+    const err = errEl();
+    expect(err?.getAttribute("role")).toBe("alert");
+    expect(err?.textContent).toContain("at most 60 characters");
+    expect(nameField().getAttribute("aria-describedby")).toBe(
+      "theme-name-error",
+    );
+    submitBtn().click();
+    await settle();
+    expect(stubs.create).not.toHaveBeenCalled();
+    typeInto(nameField(), "Short name");
+    expect(errEl()).toBeNull();
+  });
+
+  it("seeds the manual accent picker from the current auto suggestion", async () => {
+    await mount();
+    expect(accentField()).toBeNull();
+    autoCheck().checked = false;
+    autoCheck().dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    const accent = accentField();
+    expect(accent).not.toBeNull();
+    expect(accent!.value).toBe(autoAccent(BASE.bg, BASE.fg));
+  });
+
+  it("arms the delete on first click and disarms it on a 3s timer", async () => {
+    vi.useFakeTimers();
+    await mount(EDIT);
+    const btn = deleteBtn();
+    btn.click();
+    await settle();
+    expect(btn.textContent).toContain("Click again to delete");
+    expect(stubs.remove).not.toHaveBeenCalled();
+    // The armed state expires, mirroring SettingsPanel's resetArmed.
+    vi.advanceTimersByTime(3100);
+    await settle();
+    expect(btn.textContent).not.toContain("Click again to delete");
+    // Re-arm, then confirm inside the window: exactly one remove call.
+    btn.click();
+    await settle();
+    btn.click();
+    await settle();
+    expect(stubs.remove).toHaveBeenCalledTimes(1);
+    expect(stubs.remove.mock.calls[0]![0]).toBe("custom:abc");
+  });
+
+  it("falls back to a built-in of the same group when deleting the active theme", async () => {
+    stubs.state.theme = "custom:abc";
+    stubs.remove.mockResolvedValue(true);
+    await mount(EDIT);
+    deleteBtn().click();
+    await settle();
+    deleteBtn().click();
+    await settle();
+    const fallback = THEMES.find((th) => th.group === "dark")!.id;
+    expect(stubs.settingsUpdate).toHaveBeenCalledWith({ theme: fallback });
+    expect(stubs.applyTheme).toHaveBeenCalledWith(fallback);
+    expect(onclose).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays open and re-arms the form when a create fails", async () => {
+    stubs.create.mockResolvedValue(null);
+    await mount();
+    typeInto(nameField(), "Fresh");
+    submitBtn().click();
+    await settle();
+    expect(stubs.create).toHaveBeenCalledTimes(1);
+    expect(onclose).not.toHaveBeenCalled();
+    expect(submitBtn().getAttribute("aria-disabled")).not.toBe("true");
+  });
+});
