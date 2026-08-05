@@ -4,7 +4,9 @@
 //   - onMount -> onSettled for the prerequisite fetch (names list or PIN
 //     check); <svelte:window onkeydowncapture> -> a mount-scoped capture
 //     listener.
-//   - {@attach ...focus()} -> ref; no `as` casts anywhere.
+//   - {@attach ...focus()} -> onSettled + queueMicrotask (a self-focusing
+//     ref runs while the node is still detached and is a silent no-op);
+//     no `as` casts anywhere.
 //   - Submit freezes the profile name and PIN before the first await:
 //     profileName is the reactive session.profile and deleteCurrent() nulls
 //     it -- reading it after the await would interpolate "null" into the
@@ -18,6 +20,37 @@ import { toast } from "~/lib/toast";
 import { trap } from "~/lib/focusTrap";
 import Icon from "~/lib/Icon";
 import { TriangleAlert, X } from "~/lib/icons";
+
+// The server additionally refuses Windows device names (validateProfileName
+// in internal/api/auth.go): a profile name becomes a directory verbatim, and
+// on Windows "nul" stats as an existing device, so a clone of one dies
+// server-side after the client waved it through -- with a message naming
+// rules the name satisfies. Same set Login carries; extracting a shared
+// validator is the X-list item, not this batch.
+const RESERVED_NAMES = new Set([
+  "con",
+  "prn",
+  "aux",
+  "nul",
+  "com1",
+  "com2",
+  "com3",
+  "com4",
+  "com5",
+  "com6",
+  "com7",
+  "com8",
+  "com9",
+  "lpt1",
+  "lpt2",
+  "lpt3",
+  "lpt4",
+  "lpt5",
+  "lpt6",
+  "lpt7",
+  "lpt8",
+  "lpt9",
+]);
 
 interface Props {
   mode: "clone" | "delete";
@@ -46,11 +79,30 @@ export default function ProfileDialog(props: Props) {
   // case-insensitive duplicate check; null while still loading.
   const [takenNames, setTakenNames] = createSignal<string[] | null>(null);
 
+  // The mount fetch must not outlive the dialog, and a Retry overlapping a
+  // live attempt must not let the older response win. Every other async
+  // surface owns an AbortController (Login's boot fetch is the template);
+  // this dialog dropping the signal listProfiles accepts was the odd one
+  // out. The returned teardown is load-bearing: onCleanup() inside onSettled
+  // throws, so the abort is returned. currentHasPin() takes no signal, so
+  // the generation counter alone guards the delete arm's writes.
+  let prerequisiteGeneration = 0;
+  let prerequisiteAbort: AbortController | undefined;
+
   onSettled(() => {
     void loadPrerequisite();
+    return () => {
+      prerequisiteGeneration += 1;
+      prerequisiteAbort?.abort();
+    };
   });
 
   async function loadPrerequisite(): Promise<void> {
+    const generation = (prerequisiteGeneration += 1);
+    const superseded = (): boolean => generation !== prerequisiteGeneration;
+    prerequisiteAbort?.abort();
+    const controller = new AbortController();
+    prerequisiteAbort = controller;
     setCheckingPrerequisite(true);
     setPrerequisiteError(null);
     if (props.mode === "clone") {
@@ -59,16 +111,18 @@ export default function ProfileDialog(props: Props) {
       // path on Windows even though SQLite treats the names as distinct.
       setTakenNames(null);
       try {
-        const profiles = await listProfiles();
+        const profiles = await listProfiles(controller.signal);
+        if (superseded()) return;
         setTakenNames(profiles.map((profile) => profile.name.toLowerCase()));
       } catch (err) {
+        if (superseded()) return;
         setPrerequisiteError(
           err instanceof ApiError
             ? err.message
             : "Could not check existing profile names.",
         );
       } finally {
-        setCheckingPrerequisite(false);
+        if (!superseded()) setCheckingPrerequisite(false);
       }
       return;
     }
@@ -77,15 +131,18 @@ export default function ProfileDialog(props: Props) {
     // profile hides the PIN field and leaves protected profiles undeletable.
     setHasPin(null);
     try {
-      setHasPin(await session.currentHasPin());
+      const pinProtected = await session.currentHasPin();
+      if (superseded()) return;
+      setHasPin(pinProtected);
     } catch (err) {
+      if (superseded()) return;
       setPrerequisiteError(
         err instanceof ApiError
           ? err.message
           : "Could not verify this profile’s PIN protection.",
       );
     } finally {
-      setCheckingPrerequisite(false);
+      if (!superseded()) setCheckingPrerequisite(false);
     }
   }
 
@@ -102,15 +159,17 @@ export default function ProfileDialog(props: Props) {
   const nameValid = createMemo(() =>
     /^[a-zA-Z0-9](?:[a-zA-Z0-9 _-]{0,30}[a-zA-Z0-9])?$/.test(trimmedNewName()),
   );
-  const nameError = createMemo(() =>
-    trimmedNewName().length === 0
-      ? null
-      : !nameValid()
-        ? "Use 1–32 characters: letters, digits, spaces, dashes, or underscores; start and end with a letter or digit."
-        : nameTaken()
-          ? "That name is already taken."
-          : null,
-  );
+  const nameError = createMemo(() => {
+    const name = trimmedNewName();
+    if (name.length === 0) return null;
+    if (!nameValid()) {
+      return "Use 1–32 characters: letters, digits, spaces, dashes, or underscores; start and end with a letter or digit.";
+    }
+    if (RESERVED_NAMES.has(name.toLowerCase())) {
+      return `${name} is a name Windows reserves for a device. Pick another.`;
+    }
+    return nameTaken() ? "That name is already taken." : null;
+  });
   const newPinError = createMemo(() =>
     newPin() !== "" && !/^\d{4,12}$/.test(newPin())
       ? "PIN must be 4–12 digits, or left empty."
@@ -135,6 +194,18 @@ export default function ProfileDialog(props: Props) {
     () => !busy() && (props.mode === "clone" ? cloneReady() : deleteReady()),
   );
 
+  // Every message is announced from the one pre-mounted region below, never
+  // from the visible paragraphs: a live region inserted in the same tick as
+  // its text is not announced by NVDA or JAWS (b27, WCAG 4.1.3), and all
+  // four Show-wrapped paragraphs here mount together with their text.
+  // Freshest first: a submit failure outranks the field validators.
+  const announcement = createMemo(
+    () =>
+      error() ??
+      prerequisiteError() ??
+      (props.mode === "clone" ? (nameError() ?? newPinError()) : null),
+  );
+
   async function submit(e: Event): Promise<void> {
     e.preventDefault();
     if (!canSubmit()) return;
@@ -154,9 +225,15 @@ export default function ProfileDialog(props: Props) {
         const name = props.profileName;
         const submittedPin = pin();
         await session.deleteCurrent(submittedPin);
-        // session.profile is now null -- App swaps to the login screen, which
-        // unmounts the library (and this dialog) on its own.
         toast.show(`Deleted profile “${name}”`);
+        // Own the teardown. deleteCurrent() can resolve WITHOUT clearing the
+        // session (its epoch early return), so "session.profile is now null
+        // and App unmounts this dialog" is not a guaranteed postcondition.
+        // Closing and unblocking here makes the external unmount an
+        // optimisation rather than the contract; without it that path leaves
+        // a busy modal whose every exit is dead.
+        setBusy(false);
+        props.onclose();
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong.");
@@ -180,6 +257,22 @@ export default function ProfileDialog(props: Props) {
   onSettled(() => {
     window.addEventListener("keydown", onKeydown, true);
     return () => window.removeEventListener("keydown", onKeydown, true);
+  });
+
+  // Focus the field this mode exists for. A ref cannot do it: refs run while
+  // the node is still detached (b28 probe), so ref={(el) => el.focus()} was
+  // a silent no-op and focusTrap's fallback took the first focusable in the
+  // sheet -- the header close button, where Enter dismisses. Deferring one
+  // microtask lands after the trap's own queueMicrotask; if this runs first
+  // instead, the trap's !node.contains(activeElement) guard stands down. The
+  // mode never changes on a mounted instance, so one branch's element is
+  // always undefined.
+  let confirmNameEl: HTMLInputElement | undefined;
+  let newNameEl: HTMLInputElement | undefined;
+  onSettled(() => {
+    queueMicrotask(() =>
+      (props.mode === "clone" ? newNameEl : confirmNameEl)?.focus(),
+    );
   });
 
   return (
@@ -248,7 +341,7 @@ export default function ProfileDialog(props: Props) {
                     autocapitalize="off"
                     spellcheck="false"
                     disabled={busy()}
-                    ref={(el) => el.focus()}
+                    ref={(el) => (confirmNameEl = el)}
                   />
                 </label>
                 <Show when={hasPin()}>
@@ -289,12 +382,12 @@ export default function ProfileDialog(props: Props) {
                   nameError() ? "profile-name-error" : undefined
                 }
                 disabled={busy()}
-                ref={(el) => el.focus()}
+                ref={(el) => (newNameEl = el)}
               />
             </label>
             <Show when={nameError()}>
               {(message) => (
-                <p class="pd-note" id="profile-name-error" role="alert">
+                <p class="pd-note" id="profile-name-error">
                   {message()}
                 </p>
               )}
@@ -321,7 +414,7 @@ export default function ProfileDialog(props: Props) {
             </label>
             <Show when={newPinError()}>
               {(message) => (
-                <p class="pd-note" id="profile-pin-error" role="alert">
+                <p class="pd-note" id="profile-pin-error">
                   {message()}
                 </p>
               )}
@@ -338,9 +431,7 @@ export default function ProfileDialog(props: Props) {
           <Show when={!checkingPrerequisite() && prerequisiteError()}>
             {(message) => (
               <div class="pd-prereq-error">
-                <p class="pd-error" role="alert">
-                  {message()}
-                </p>
+                <p class="pd-error">{message()}</p>
                 <button
                   type="button"
                   class="btn-ghost press pd-retry"
@@ -354,12 +445,17 @@ export default function ProfileDialog(props: Props) {
           </Show>
 
           <Show when={error()}>
-            {(message) => (
-              <p class="pd-error" role="alert">
-                {message()}
-              </p>
-            )}
+            {(message) => <p class="pd-error">{message()}</p>}
           </Show>
+
+          {/* Pre-mounted live region. Every visible message above is inserted
+              in the same tick as its text, which NVDA and JAWS do not
+              announce (b27, WCAG 4.1.3) -- this region exists from first
+              paint and only its text changes, so the paragraphs carry no
+              role="alert". */}
+          <p class="sr-only" role="alert">
+            {announcement() ?? ""}
+          </p>
 
           <div class="pd-actions">
             <button
