@@ -93,7 +93,24 @@ export default function ShareDialog(props: Props) {
     if (copiedResetTimer !== null) clearTimeout(copiedResetTimer);
   });
 
+  // Focus the download action, the control this dialog exists for. A ref
+  // cannot do it: refs run while the node is still detached (b28 probe), so
+  // a self-focusing ref would be a silent no-op and focusTrap's fallback
+  // would take the first focusable in the sheet -- the header close button,
+  // where Enter dismisses (the b30 EditBookDialog defect). Deferring one
+  // microtask lands after the trap's own queueMicrotask; if this runs first
+  // instead, the trap's !node.contains(activeElement) guard stands down.
+  let downloadEl: HTMLAnchorElement | undefined;
+  onSettled(() => {
+    queueMicrotask(() => downloadEl?.focus());
+  });
+
   function onKeydown(e: KeyboardEvent): void {
+    // An IME uses Escape to abandon a composition, and capture at window beats
+    // the focused control, so without this guard the dialog closed
+    // mid-composition (EditBookDialog, BookmarksPanel, SearchPanel and
+    // TocPanel guard the same way).
+    if (e.isComposing) return;
     if (e.key === "Escape") {
       e.preventDefault();
       // Consume so the reader/library window key handlers don't also act on
@@ -153,6 +170,7 @@ export default function ShareDialog(props: Props) {
             class="btn-ghost press sd-download-btn"
             href={downloadUrl()}
             download={downloadName()}
+            ref={(el) => (downloadEl = el)}
           >
             <Icon icon={Download} size={16} />
             Download EPUB
@@ -167,10 +185,15 @@ export default function ShareDialog(props: Props) {
             Anonymous upload — anyone with the link can download the file.
           </p>
 
+          {/* aria-disabled, not disabled: an upload can run for the whole
+              gofile timeout (30 minutes), and a real disabled attribute blurs
+              the button the moment it is pressed, dropping the keyboard user
+              out of the dialog for the duration. upload() entry-guards the
+              busy state, so the attribute only has to say so. */}
           <button
             class="btn press sd-upload-btn"
             onClick={() => void upload()}
-            disabled={busy()}
+            aria-disabled={busy() ? "true" : "false"}
           >
             <Icon icon={UploadCloud} size={16} />
             {busy()
@@ -199,12 +222,17 @@ export default function ShareDialog(props: Props) {
             )}
           </Show>
           <Show when={error()}>
-            {(message) => (
-              <p class="sd-error" role="alert">
-                {message()}
-              </p>
-            )}
+            {(message) => <p class="sd-error">{message()}</p>}
           </Show>
+
+          {/* Pre-mounted live region, same as EditBookDialog/ProfileDialog:
+              the visible error above is inserted in the same tick as its
+              text, which NVDA and JAWS do not announce (b27, WCAG 4.1.3) --
+              this region exists from first paint and only its text changes,
+              so the paragraph carries no role="alert". */}
+          <p class="sr-only" role="alert">
+            {error() ?? ""}
+          </p>
         </div>
       </div>
       {/* eslint-enable jsx-a11y/prefer-tag-over-role */}

@@ -1658,6 +1658,21 @@ main {
   align-self: flex-start;
   text-decoration: none;
 }
+/* aria-disabled, not :disabled, on the upload button: a real disabled
+   attribute blurs the button for the whole upload (up to the 30-minute
+   gofile timeout) and upload() already entry-guards the busy state. Same
+   pattern as .eb-save; no pointer-events: none, the activation must reach
+   the guard. */
+.sd-upload-btn[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: default;
+}
+.sd-upload-btn[aria-disabled="true"]:hover,
+.sd-upload-btn[aria-disabled="true"]:active {
+  background: var(--accent);
+  filter: none;
+  transform: none;
+}
 .sd-divider {
   align-self: stretch;
   width: 100%;
@@ -3117,7 +3132,7 @@ main {
   font-style: italic;
 }
 
-/* ── BookmarksPanel ─────────────────────────────────────────────────── */
+/* ── BookmarksPanel ────────────────────────────────────��────────────── */
 
 .bmp {
   height: 100%;
