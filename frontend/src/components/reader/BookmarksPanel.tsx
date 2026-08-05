@@ -2,19 +2,22 @@
 //
 // Solid 2.0 notes:
 //   - Rendered state is signals (editingId/editLabel/editComment/editError);
-//     returnFocusId stays a plain let — it's consumed only by the edit
-//     button's ref callback, never rendered.
-//   - {@attach (el) => el.focus()} -> a ref callback on the label input: it
-//     fires when the edit form mounts (editingId flips), which is exactly the
-//     Svelte attach timing.
-//   - {@attach restoreEditFocus} -> a ref callback on the row's edit button;
-//     when editing ends the display branch remounts and the ref restores
-//     focus without a tick/flush (refs run after the node is in the DOM).
+//     returnFocusId stays a plain let — it's consumed only by the focus
+//     effect below, never rendered.
+//   - {@attach (el) => el.focus()} -> assignment refs plus a compute/apply
+//     createEffect on editingId that focuses through queueMicrotask: element
+//     refs run while the node is still detached (b28 probe), so a focusing ref
+//     is a silent no-op and focus dropped to body on every edit toggle. The
+//     trap's initial-focus microtask only runs at panel mount, so it never
+//     covers these mid-session mounts.
+//   - {@attach restoreEditFocus} -> the same effect's other branch: when
+//     editing ends the display branch remounts and focus returns to the row's
+//     edit button (preventScroll keeps the list position).
 //   - keyed #each (bm.id) -> <For> keyed by Bookmark object identity: the
 //     store hands us stable references, so rows keep their DOM nodes.
 //   - bind:value -> value + onInput (the error-clearing oninput folds into
 //     the same handler).
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { Bookmark } from "~/api/client";
 import Icon from "~/lib/Icon";
 import { X, Pencil, Trash2 } from "~/lib/icons";
@@ -88,13 +91,33 @@ export default function BookmarksPanel(props: Props) {
     setEditError("");
   }
 
-  // Ref on the row's edit button: when the display branch remounts after an
-  // edit, put focus back on it (preventScroll keeps the list position).
-  function restoreEditFocus(node: HTMLButtonElement, id: string): void {
-    if (returnFocusId !== id) return;
-    returnFocusId = null;
-    node.focus({ preventScroll: true });
-  }
+  // Focus across the edit toggle. A focusing ref cannot do it: refs run
+  // while the node is still detached (b28 probe), so the old self-focusing
+  // refs were silent no-ops and focus dropped to body entering AND leaving
+  // edit mode. focusTrap's initial-focus microtask only runs at panel mount
+  // (Read.tsx:1738), so it never covers these mid-session mounts. Assignment
+  // refs stash the nodes; this compute/apply pair focuses them one microtask
+  // after the DOM swap, generation-guarded so a focus queued for a toggle
+  // that has since flipped again is dropped (the b32 shape).
+  let labelEl: HTMLInputElement | undefined;
+  const editButtons = new Map<string, HTMLButtonElement>();
+  let focusGen = 0;
+  createEffect(
+    () => editingId(),
+    (id) => {
+      const gen = ++focusGen;
+      queueMicrotask(() => {
+        if (gen !== focusGen) return;
+        if (id !== null) {
+          labelEl?.focus();
+        } else if (returnFocusId !== null) {
+          editButtons.get(returnFocusId)?.focus({ preventScroll: true });
+          returnFocusId = null;
+        }
+      });
+      return undefined;
+    },
+  );
 
   // Keep edit-mode keys local: Esc cancels (and is stopped from bubbling to the
   // reader's own Esc handler), Enter in the single-line label field saves. The
@@ -168,7 +191,9 @@ export default function BookmarksPanel(props: Props) {
                             class="bmp-row-btn press"
                             onClick={() => startEdit(bm)}
                             aria-label={`Edit bookmark: ${bookmarkName(bm)}`}
-                            ref={(node) => restoreEditFocus(node, bm.id)}
+                            ref={(el) => {
+                              editButtons.set(bm.id, el);
+                            }}
                           >
                             <Icon icon={Pencil} size={15} />
                           </button>
@@ -202,9 +227,7 @@ export default function BookmarksPanel(props: Props) {
                           setEditLabel(e.currentTarget.value);
                           setEditError("");
                         }}
-                        ref={(el) => {
-                          el.focus();
-                        }}
+                        ref={(el) => (labelEl = el)}
                       />
                       <textarea
                         class="field"
