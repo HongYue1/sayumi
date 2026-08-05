@@ -82,21 +82,92 @@ export default function ThemeDropdown() {
     close(false);
   }
 
+  // Escape from wherever focus happens to be while the menu is open. Bubble
+  // phase, deliberately: every overlay that can stack above this menu
+  // (.cmd-overlay, .shortcuts-overlay, .sd-overlay, .eb-overlay, .pd-overlay,
+  // all z-index 60) registers a CAPTURE keydown listener that calls
+  // stopImmediatePropagation, so an Escape belonging to a surface stacked on
+  // top never reaches here. Menus bubble, dialogs capture -- the same split
+  // as BookCard and ProfileMenu.
+  function onWindowKeyDown(e: KeyboardEvent): void {
+    if (e.key !== "Escape" || e.isComposing) return;
+    e.preventDefault();
+    close();
+  }
+
+  // Dismiss when focus leaves the dropdown entirely. relatedTarget is the
+  // element about to receive focus; a null relatedTarget means focus is
+  // leaving the document (window blur, devtools) and must NOT close the menu,
+  // or an alt-tab would drop it. No focus restore here -- focus is
+  // deliberately going somewhere else.
+  function onRootFocusOut(
+    e: FocusEvent & { currentTarget: HTMLDivElement },
+  ): void {
+    const next = e.relatedTarget;
+    if (!(next instanceof Node)) return;
+    if (e.currentTarget.contains(next)) return;
+    close(false);
+  }
+
   createEffect(
     () => open(),
     (isOpen) => {
       if (!isOpen) return undefined;
       window.addEventListener("pointerdown", onOutside);
-      return () => window.removeEventListener("pointerdown", onOutside);
+      window.addEventListener("keydown", onWindowKeyDown);
+      return () => {
+        window.removeEventListener("pointerdown", onOutside);
+        window.removeEventListener("keydown", onWindowKeyDown);
+      };
+    },
+  );
+
+  // Move focus into the menu on open. The swatches' self-focusing refs could
+  // never do it: Solid runs element refs while the node is still detached, so
+  // .focus() no-oped and the active element stayed on the trigger -- which
+  // left the roving arrow keys below unreachable (they listen on the menu,
+  // and key events never bubble UP to it) and made aria-expanded assert a
+  // focus move that never happened. One microtask after open, matching
+  // ProfileMenu; the tabindex="0" swatch -- the active theme, or the first
+  // light swatch when a custom theme is active -- is the entry point the
+  // markup nominates.
+  let menuGen = 0;
+  createEffect(
+    () => open(),
+    (isOpen) => {
+      const gen = ++menuGen;
+      if (!isOpen) return undefined;
+      queueMicrotask(() => {
+        if (gen !== menuGen) return;
+        const el = menuEl;
+        if (!el) return;
+        const items = Array.from(
+          el.querySelectorAll<HTMLButtonElement>(".td-pick"),
+        );
+        const preferred = items.find(
+          (it) => it.getAttribute("tabindex") === "0",
+        );
+        (preferred ?? items[0] ?? el).focus();
+      });
+      return undefined;
     },
   );
 
   function onKeydown(
     e: KeyboardEvent & { currentTarget: HTMLDivElement },
   ): void {
+    // An IME uses Escape to abandon a composition; that Escape is not a
+    // dismissal (the same guard as ProfileMenu and the dialogs).
+    if (e.isComposing) return;
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
+      close();
+      return;
+    }
+    // Tab leaves the menu (WCAG 2.1.2 / APG Menu Button): menus must not
+    // trap Tab, so close and let the browser move focus to whatever follows.
+    if (e.key === "Tab") {
       close();
       return;
     }
@@ -138,9 +209,10 @@ export default function ThemeDropdown() {
   }
 
   return (
-    <div class="theme-dd">
+    <div class="theme-dd" onFocusOut={onRootFocusOut}>
       <button
         ref={(el) => (trigger = el)}
+        id="td-trigger"
         class={["td-trigger", { open: open() }]}
         aria-haspopup="menu"
         aria-expanded={open() ? "true" : "false"}
@@ -164,7 +236,7 @@ export default function ThemeDropdown() {
           class="td-menu paper"
           role="menu"
           tabindex="-1"
-          aria-label="Theme"
+          aria-labelledby="td-trigger"
           onKeyDown={onKeydown}
         >
           <p class="td-group eyebrow" id="theme-grp-light">
@@ -185,12 +257,6 @@ export default function ThemeDropdown() {
                     title={t.label}
                     aria-label={t.label}
                     onClick={() => choose(t.id)}
-                    ref={(el) => {
-                      // Focus the currently-selected theme on open
-                      // (menuitemradio model), or the first swatch when a
-                      // custom theme is active.
-                      if (focusEntry()) el.focus();
-                    }}
                   >
                     <span
                       class="td-preview"
@@ -226,9 +292,6 @@ export default function ThemeDropdown() {
                     title={t.label}
                     aria-label={t.label}
                     onClick={() => choose(t.id)}
-                    ref={(el) => {
-                      if (active()) el.focus();
-                    }}
                   >
                     <span
                       class="td-preview"
