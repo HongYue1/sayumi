@@ -15,6 +15,19 @@
 //   - close() is ui.closeOverlays(): palette and shortcuts are mutually
 //     exclusive in the ui store, so closing both is exactly the old
 //     `ui.shortcuts = false`.
+//   - Probed in-sandbox (b28): the capture listener does beat both window
+//     bubble handlers that would otherwise act on Esc -- App's global shortcut
+//     listener and Read's reader keys -- so this sheet always consumes Esc
+//     first, and one Esc never both closes the sheet and pages the reader.
+//   - Focus is owned entirely by trap() on the sheet element below. The close
+//     button used to carry a self-focusing ref, but a probe showed that such a
+//     ref fires while the button is still DETACHED (connected=false), where
+//     focus() is a no-op: focusTrap's queued microtask was doing all the work,
+//     picking the first focusable, which is that same button. The dead ref was
+//     removed rather than repaired -- trap() is the single owner of
+//     focus-on-mount across every dialog here, and it also captures the true
+//     opener, so closing restores focus to whatever opened the sheet. Keep
+//     trap() on this element; the suite pins all of it.
 import { createEffect, For, Show } from "solid-js";
 import Icon from "~/lib/Icon";
 import { X } from "~/lib/icons";
@@ -38,6 +51,15 @@ const groups: { title: string; items: { keys: string[]; desc: string }[] }[] = [
     items: [
       { keys: ["←"], desc: "Navigate left" },
       { keys: ["→"], desc: "Navigate right" },
+      // Paged mode binds six more keys in Read.tsx's handleKeyAction, and
+      // frame.ts suppresses their native scroll there, so the parent handler is
+      // the only thing that can act on them. They were undocumented until b28.
+      { keys: ["Space"], desc: "Page forward" },
+      { keys: ["Shift", "Space"], desc: "Page back" },
+      { keys: ["PageDown"], desc: "Page forward" },
+      { keys: ["PageUp"], desc: "Page back" },
+      { keys: ["End"], desc: "Page forward" },
+      { keys: ["Home"], desc: "Page back" },
       { keys: ["T"], desc: "Table of contents" },
       { keys: ["S"], desc: "Settings" },
       { keys: ["F"], desc: "Search in book" },
@@ -102,7 +124,6 @@ export default function ShortcutsHelp() {
               class="icon-btn press shortcuts-close"
               aria-label="Close"
               onClick={close}
-              ref={(el) => el.focus()}
             >
               <Icon icon={X} size={18} />
             </button>
@@ -121,8 +142,14 @@ export default function ShortcutsHelp() {
                               {(k) => <kbd class="kbd">{k}</kbd>}
                             </For>
                           </dt>
-                          <span class="shortcuts-leader" aria-hidden="true" />
-                          <dd>{it.desc}</dd>
+                          {/* The leader sits inside <dd>: a div row inside a
+                              <dl> may contain only <dt>s followed by <dd>s, so
+                              a bare <span> between them broke the structure
+                              assistive tech reads off the list. */}
+                          <dd>
+                            <span class="shortcuts-leader" aria-hidden="true" />
+                            {it.desc}
+                          </dd>
                         </div>
                       )}
                     </For>

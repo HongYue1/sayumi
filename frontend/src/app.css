@@ -819,12 +819,17 @@ main {
   transform: translateY(0.3em);
   min-width: 1rem;
 }
+/* The leader is a child of dd (a div row inside a dl may contain only dt then
+   dd), so dd is the flex line that lets it grow. */
 .shortcuts-row dd {
   margin: 0;
   color: var(--muted);
   font-size: var(--text-sm);
   text-align: right;
-  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 1;
 }
 
 /* ---- Command palette ---------------------------------------------------- */
