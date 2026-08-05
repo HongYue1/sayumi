@@ -14,6 +14,8 @@
 //     in the global sheet when ThemeDropdown/BookCard land.
 import { createEffect, createSignal, Show } from "solid-js";
 import { session } from "~/lib/session";
+import { toast } from "~/lib/toast";
+import { getErrorMessage } from "~/lib/errors";
 import Icon from "~/lib/Icon";
 import { ChevronDown, Copy, LogOut, Trash2, User } from "~/lib/icons";
 
@@ -23,10 +25,15 @@ interface Props {
 }
 
 function signOut(): void {
-  // logout clears local session state in its finally block even if the
-  // request fails; consume that rejection after cleanup so it never becomes
-  // unhandled.
-  void session.logout().catch(() => undefined);
+  // logout clears local session state in its finally block even if the request
+  // fails, then rethrows: a transport failure means the server-side session
+  // may still exist. The UI is signed out either way, so the only thing the
+  // user cannot see is that half of it did not land. Report it -- a failed
+  // request gets a toast everywhere else (ShareDialog, SettingsPanel, Read);
+  // consuming the rejection silently made this the one outlier.
+  void session.logout().catch((err: unknown) => {
+    toast.show(getErrorMessage(err, "Could not reach the server to sign out"));
+  });
 }
 
 export default function ProfileMenu(props: Props) {
@@ -54,13 +61,76 @@ export default function ProfileMenu(props: Props) {
     close(false);
   }
 
+  // Escape from wherever focus happens to be while the menu is open. Bubble
+  // phase, deliberately: every overlay that can stack above this menu
+  // (.cmd-overlay, .shortcuts-overlay, .sd-overlay, .eb-overlay, .pd-overlay,
+  // all z-index 60 against this menu's 21) registers a CAPTURE keydown
+  // listener that calls stopImmediatePropagation, so an Escape belonging to a
+  // surface stacked on top never reaches here. Capture would invert that: this
+  // listener registers first, so it would run first and swallow the dialog's
+  // dismissal. Menus bubble, dialogs capture -- the same split as BookCard.
+  function onWindowKeyDown(e: KeyboardEvent): void {
+    if (e.key !== "Escape" || e.isComposing) return;
+    e.preventDefault();
+    close();
+  }
+
+  // Dismiss when focus leaves the menu entirely. relatedTarget is the element
+  // about to receive focus; a null relatedTarget means focus is leaving the
+  // document (window blur, devtools) and must NOT close the menu, or an
+  // alt-tab would drop it. No focus restore here -- focus is deliberately
+  // going somewhere else.
+  function onRootFocusOut(
+    e: FocusEvent & { currentTarget: HTMLDivElement },
+  ): void {
+    const next = e.relatedTarget;
+    if (!(next instanceof Node)) return;
+    if (e.currentTarget.contains(next)) return;
+    close(false);
+  }
+
   createEffect(
     () => open(),
     (isOpen) => {
       if (!isOpen) return undefined;
       window.addEventListener("pointerdown", onWindowPointerDown);
-      return () =>
+      window.addEventListener("keydown", onWindowKeyDown);
+      return () => {
         window.removeEventListener("pointerdown", onWindowPointerDown);
+        window.removeEventListener("keydown", onWindowKeyDown);
+      };
+    },
+  );
+
+  // Move focus into the menu on open. The first item's self-focusing ref could
+  // never do it: Solid runs element refs while the node is still detached, so
+  // .focus() no-ops and the active element stays on the trigger -- which left
+  // the roving arrow keys below unreachable and made aria-expanded assert a
+  // focus move that never happened. Post-settle plus one microtask, matching
+  // the BookCard fix.
+  let menuGen = 0;
+  createEffect(
+    () => open(),
+    (isOpen) => {
+      // Bump on open AND close, so a queued focus for a menu that has since
+      // closed is dropped instead of stealing focus back from the trigger.
+      const gen = ++menuGen;
+      if (!isOpen) return undefined;
+      queueMicrotask(() => {
+        if (gen !== menuGen) return;
+        const el = menuEl;
+        if (!el) return;
+        const items = Array.from(
+          el.querySelectorAll<HTMLButtonElement>(".pm-item"),
+        );
+        // Open on the item the markup nominates with tabindex 0; fall back to
+        // the menu container so focus is at least inside the popover.
+        const preferred = items.find(
+          (it) => it.getAttribute("tabindex") === "0",
+        );
+        (preferred ?? items[0] ?? el).focus();
+      });
+      return undefined;
     },
   );
 
@@ -68,8 +138,19 @@ export default function ProfileMenu(props: Props) {
     e: KeyboardEvent & { currentTarget: HTMLDivElement },
   ): void {
     if (e.key === "Escape") {
+      // An Escape that ends an IME composition is not a dismissal -- it
+      // cancels the candidate window. Same guard as EditBookDialog.
+      if (e.isComposing) return;
       e.preventDefault();
       e.stopPropagation();
+      close();
+      return;
+    }
+    if (e.key === "Tab") {
+      // Tab must LEAVE the menu, never wrap inside it: WCAG 2.1.2 (No Keyboard
+      // Trap) and the APG Menu Button pattern. Close and let the browser
+      // continue the tab order from the restored trigger, exactly as BookCard
+      // and Library's sort menu do.
       close();
       return;
     }
@@ -120,9 +201,10 @@ export default function ProfileMenu(props: Props) {
   }
 
   return (
-    <div class="profile-menu">
+    <div class="profile-menu" onFocusOut={onRootFocusOut}>
       <button
         ref={(el) => (trigger = el)}
+        id="pm-trigger"
         class={["pm-trigger", { open: open() }]}
         aria-haspopup="menu"
         aria-expanded={open() ? "true" : "false"}
@@ -142,7 +224,7 @@ export default function ProfileMenu(props: Props) {
           class="pm-menu paper"
           role="menu"
           tabindex="-1"
-          aria-label="Profile"
+          aria-labelledby="pm-trigger"
           onKeyDown={onMenuKeydown}
         >
           <button
@@ -150,7 +232,6 @@ export default function ProfileMenu(props: Props) {
             role="menuitem"
             tabindex="0"
             onClick={() => pick(props.onclone)}
-            ref={(el) => el.focus()}
           >
             <Icon icon={Copy} size={16} />
             Clone profile…
