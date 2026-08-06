@@ -58,6 +58,15 @@ export class CustomThemes {
   /** Invalidates async work started under a previous profile. */
   #generation = 0;
 
+  /**
+   * Counts local writes that have been published. A load compares this value
+   * across its await: a GET issued before a create/update/delete cannot know
+   * about that write, so its response is stale even though the profile never
+   * changed. #generation cannot cover it -- that counter only moves on a
+   * profile switch, and the load and the write run under the same generation.
+   */
+  #mutations = 0;
+
   /** Custom themes as ThemeDefs, in server (creation) order. */
   get list(): ThemeDef[] {
     return this.#listSignal[0]();
@@ -80,6 +89,15 @@ export class CustomThemes {
     this.#listPlain = next;
     this.#listSignal[1](next);
     setCustomThemes(next);
+  }
+
+  /**
+   * Publishes a local write. Bumping the counter before the list lands is what
+   * lets an in-flight load recognise that its response predates this change.
+   */
+  #applyWrite(next: ThemeDef[]): void {
+    this.#mutations++;
+    this.#apply(next);
   }
 
   /**
@@ -108,10 +126,18 @@ export class CustomThemes {
     if (this.#loadPromise) return this.#loadPromise;
 
     const generation = this.#generation;
+    const mutations = this.#mutations;
     const promise = (async () => {
       try {
         const themes = (await getCustomThemes()).map(toThemeDef);
         if (!this.#isCurrent(profile, generation)) return;
+        // A create/update/delete landed while this GET was in flight. The
+        // request was issued before that write, so the response cannot contain
+        // it, and publishing it would erase the local change -- the theme stays
+        // on the server but disappears from the UI, and loaded would flip true
+        // so no retry surface ever corrects it. Drop the stale list instead and
+        // leave loaded false, so the next retry refetches and converges.
+        if (this.#mutations !== mutations) return;
         this.#apply(themes);
         this.#setLoaded(true);
       } catch {
@@ -143,7 +169,7 @@ export class CustomThemes {
       if (!this.#isCurrent(profile, generation)) return null;
       // Built from the plain mirror: reading this.list here would return the
       // pre-write array inside the same batch and drop a concurrent create.
-      this.#apply([...this.#listPlain, def]);
+      this.#applyWrite([...this.#listPlain, def]);
       return def;
     } catch (error) {
       if (
@@ -168,7 +194,7 @@ export class CustomThemes {
     try {
       const def = toThemeDef(await updateCustomTheme(id, input, signal));
       if (!this.#isCurrent(profile, generation)) return null;
-      this.#apply(this.#listPlain.map((t) => (t.id === id ? def : t)));
+      this.#applyWrite(this.#listPlain.map((t) => (t.id === id ? def : t)));
       return def;
     } catch (error) {
       if (
@@ -189,7 +215,7 @@ export class CustomThemes {
     try {
       await deleteCustomTheme(id, signal);
       if (!this.#isCurrent(profile, generation)) return false;
-      this.#apply(this.#listPlain.filter((t) => t.id !== id));
+      this.#applyWrite(this.#listPlain.filter((t) => t.id !== id));
       return true;
     } catch (error) {
       if (
