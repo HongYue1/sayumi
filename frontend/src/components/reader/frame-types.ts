@@ -1,14 +1,14 @@
 import type { ChapterData } from "~/api/client";
+import type { FrameKeyMessage } from "~/lib/frameMessages";
 import type { IframeSettings } from "~/lib/settings";
 
-export interface KeyEvent {
-  key: string;
-  code: string;
-  ctrlKey: boolean;
-  shiftKey: boolean;
-  altKey: boolean;
-  metaKey: boolean;
-}
+/** The key payload frame.ts forwards, minus the transport fields the parent
+ *  consumes before the callback runs. Derived from FrameKeyMessage rather than
+ *  restated: a hand-written twin let a new wire field compile at all three
+ *  frame.ts send sites and then be dropped in silence by ChapterFrame's
+ *  dispatch, which rebuilds this object field by field. Deriving it makes that
+ *  dispatch the one site that fails to compile. */
+export type KeyEvent = Omit<FrameKeyMessage, "type" | "seq">;
 
 /** Imperative handle the ChapterFrame exposes to its parent (routes/Read.tsx). */
 export interface ChapterFrameAPI {
@@ -17,6 +17,10 @@ export interface ChapterFrameAPI {
     settings: IframeSettings,
     scrollTo?: "top" | "end",
     fragment?: string,
+    // The wire declares these the other way round (hasNext then hasPrev, see
+    // LoadMessage in frameMessages.ts). They are the only adjacent same-typed
+    // pair here and no test pins the mapping, so a transposition would reach
+    // the frame silently: ChapterFrame must keep passing them through by name.
     hasPrev?: boolean,
     hasNext?: boolean,
     restorePercent?: number,
