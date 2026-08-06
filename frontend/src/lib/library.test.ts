@@ -286,6 +286,26 @@ describe("library.setFlair", () => {
     expect(mocks.toast).toHaveBeenCalledWith("Could not update flair");
   });
 
+  // The fallback above is only half the contract. A message the server authored
+  // has to reach the user verbatim, and nothing pinned that: the whole
+  // getErrorMessage call could collapse to the bare fallback string and every
+  // other assertion in this file still passed.
+  it("surfaces a server-authored message instead of the fallback", async () => {
+    const store = await seed([book({ id: "a", title: "A" })]);
+    const request = deferred<void>();
+    mocks.setBookFlair.mockReturnValueOnce(request.promise);
+
+    const mutation = store.setFlair("a", "reading");
+    flush();
+
+    request.reject(new ApiError("Flair no longer exists", 404, "not_found"));
+    await mutation;
+    flush();
+
+    expect(store.books[0].flairId).toBeUndefined();
+    expect(mocks.toast).toHaveBeenCalledWith("Flair no longer exists");
+  });
+
   it("does not roll back over a newer overlapping change", async () => {
     const store = await seed([book({ id: "a", title: "A" })]);
     const first = deferred<void>();

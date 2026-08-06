@@ -14,7 +14,8 @@
 //   - The backdrop dismiss is the shared .backdrop-dismiss button (guarded by
 //     !busy, mirroring the Svelte's conditional overlay click).
 import { createMemo, createSignal, onCleanup, onSettled, Show } from "solid-js";
-import { ApiError, getCoverUrl, type BookMeta } from "~/api/client";
+import { getCoverUrl, type BookMeta } from "~/api/client";
+import { getErrorMessage } from "~/lib/errors";
 import { library } from "~/lib/library";
 import { toast } from "~/lib/toast";
 import { trap } from "~/lib/focusTrap";
@@ -167,8 +168,7 @@ export default function EditBookDialog(props: Props) {
       toast.show("Saved changes");
       props.onclose();
     } catch (err) {
-      const message =
-        err instanceof ApiError ? err.message : "Something went wrong.";
+      const message = getErrorMessage(err, "Something went wrong.");
       setError(
         savedDetailsThisAttempt && submittedCover
           ? `Book details were saved, but the cover could not be replaced: ${message}`

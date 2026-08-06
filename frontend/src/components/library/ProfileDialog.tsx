@@ -15,7 +15,8 @@
 //     !busy, mirroring the Svelte's conditional overlay click).
 import { createMemo, createSignal, onSettled, Show } from "solid-js";
 import { session } from "~/lib/session";
-import { ApiError, listProfiles } from "~/api/client";
+import { listProfiles } from "~/api/client";
+import { getErrorMessage } from "~/lib/errors";
 import { toast } from "~/lib/toast";
 import { trap } from "~/lib/focusTrap";
 import Icon from "~/lib/Icon";
@@ -117,9 +118,7 @@ export default function ProfileDialog(props: Props) {
       } catch (err) {
         if (superseded()) return;
         setPrerequisiteError(
-          err instanceof ApiError
-            ? err.message
-            : "Could not check existing profile names.",
+          getErrorMessage(err, "Could not check existing profile names."),
         );
       } finally {
         if (!superseded()) setCheckingPrerequisite(false);
@@ -137,9 +136,7 @@ export default function ProfileDialog(props: Props) {
     } catch (err) {
       if (superseded()) return;
       setPrerequisiteError(
-        err instanceof ApiError
-          ? err.message
-          : "Could not verify this profile’s PIN protection.",
+        getErrorMessage(err, "Could not verify this profile’s PIN protection."),
       );
     } finally {
       if (!superseded()) setCheckingPrerequisite(false);
@@ -236,7 +233,7 @@ export default function ProfileDialog(props: Props) {
         props.onclose();
       }
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong.");
+      setError(getErrorMessage(err, "Something went wrong."));
       setBusy(false);
     }
   }

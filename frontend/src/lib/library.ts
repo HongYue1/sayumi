@@ -15,6 +15,7 @@ import {
   type FlairDef,
 } from "~/api/client";
 import { DEFAULT_FLAIRS, getNextPaletteColor } from "~/lib/flairs";
+import { getErrorMessage } from "~/lib/errors";
 import { toast } from "~/lib/toast";
 
 export type SortKey = "title" | "author" | "added" | "read" | "progress";
@@ -26,10 +27,6 @@ export const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: "read", label: "Recently read" },
   { key: "progress", label: "Progress" },
 ];
-
-function msg(e: unknown, fallback: string): string {
-  return e instanceof ApiError ? e.message : fallback;
-}
 
 // Reused across every sort comparison. Calling String.prototype.localeCompare
 // with an options object can construct a fresh collator on each call, which
@@ -404,7 +401,7 @@ export class Library {
         this.#error[1](
           e instanceof ApiError && e.code === "network_error"
             ? ""
-            : msg(e, "Failed to load library"),
+            : getErrorMessage(e, "Failed to load library"),
         );
       } finally {
         // A profile switch increments the generation before a new load starts,
@@ -498,7 +495,7 @@ export class Library {
           book.flairId = prevFlair;
         }
       });
-      toast.show(msg(e, "Could not update flair"));
+      toast.show(getErrorMessage(e, "Could not update flair"));
     }
   }
 
@@ -525,7 +522,7 @@ export class Library {
       return flair;
     } catch (e) {
       if (!this.#isCurrent(profile, generation)) return null;
-      toast.show(msg(e, "Could not create flair"));
+      toast.show(getErrorMessage(e, "Could not create flair"));
       return null;
     }
   }
@@ -589,7 +586,7 @@ export class Library {
           }
         }
       });
-      toast.show(msg(e, "Could not delete flair"));
+      toast.show(getErrorMessage(e, "Could not delete flair"));
     }
   }
 
@@ -757,7 +754,7 @@ export class Library {
       this.#hayCache.delete(id);
     } catch (e) {
       if (!this.#isCurrent(profile, generation)) return;
-      toast.show(msg(e, "Could not remove book"));
+      toast.show(getErrorMessage(e, "Could not remove book"));
     }
   }
 
@@ -795,7 +792,7 @@ export class Library {
       );
     } catch (e) {
       if (!this.#isCurrent(profile, generation)) return;
-      toast.show(msg(e, "Rescan failed"));
+      toast.show(getErrorMessage(e, "Rescan failed"));
     } finally {
       if (this.#isCurrent(profile, generation)) this.#setRescanning(false);
     }

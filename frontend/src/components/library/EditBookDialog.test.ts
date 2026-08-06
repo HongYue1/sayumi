@@ -29,7 +29,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@solidjs/web";
 import { flush } from "solid-js";
-import type { BookMeta } from "~/api/client";
+import { ApiError, type BookMeta } from "~/api/client";
 
 const stubs = vi.hoisted(() => ({
   editMetadata: vi.fn(),
@@ -253,6 +253,27 @@ describe("EditBookDialog", () => {
 
     expect(stubs.toasts).toEqual(["Saved changes"]);
     expect(closes).toBe(1);
+  });
+
+  // A failed save has to show what the server said, not a house fallback that
+  // hides it. Nothing pinned this: the whole getErrorMessage call could
+  // collapse to the bare fallback string and every other assertion in this
+  // file still passed.
+  it("shows the server's own message when the save fails", async () => {
+    await mount();
+    type(titleInput(), "Tehanu");
+    await settle();
+
+    stubs.editMetadata.mockRejectedValue(
+      new ApiError("Title is already taken", 409, "conflict"),
+    );
+
+    saveButton().click();
+    await settle();
+
+    expect(container.textContent).toContain("Title is already taken");
+    expect(stubs.toasts).toEqual([]);
+    expect(closes).toBe(0);
   });
 
   it("ignores Escape that belongs to an IME composition", async () => {

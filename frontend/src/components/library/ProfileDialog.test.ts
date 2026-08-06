@@ -211,6 +211,27 @@ describe("ProfileDialog", () => {
     expect(closeButton().hasAttribute("disabled")).toBe(false);
   });
 
+  // A failed clone has to show what the server said, not a house fallback that
+  // hides it. Nothing pinned this: the getErrorMessage call could collapse to
+  // the bare fallback string and every other assertion in this file still
+  // passed.
+  it("shows the server's own message when the clone fails", async () => {
+    await mount("clone");
+    type(nameInput(), "Zephyrine");
+    await settle();
+
+    stubs.clone.mockRejectedValue(
+      new ApiError("Disk is full", 507, "insufficient_storage"),
+    );
+
+    submitButton().click();
+    await settle();
+
+    expect(container.textContent).toContain("Disk is full");
+    expect(stubs.toasts).toEqual([]);
+    expect(closes).toBe(0);
+  });
+
   it("aborts the names fetch when the dialog unmounts mid-flight", async () => {
     stubs.listProfiles.mockImplementation(
       (_signal?: AbortSignal) => new Promise(() => {}),

@@ -46,6 +46,18 @@ describe("toast store", () => {
     expect(toast.items.map((t) => t.message)).toEqual(["m2", "m3", "m4", "m5"]);
   });
 
+  // A dropped toast's timers must die with it. The assertion above cannot see
+  // this: dropped items are already out of the array, so gutting clearTimers()
+  // leaves the messages correct and only the pending timer count betrays the
+  // leak -- 4 survivors x 1 enter timer, not 6.
+  it("clears the timers of toasts dropped by the cap", () => {
+    for (let i = 0; i < 6; i++) toast.show(`m${i}`);
+    flush();
+
+    expect(toast.items).toHaveLength(4);
+    expect(vi.getTimerCount()).toBe(4);
+  });
+
   it("dispose clears items and cancels pending timers", () => {
     toast.show("a");
     toast.show("b");

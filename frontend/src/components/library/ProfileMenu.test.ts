@@ -25,6 +25,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@solidjs/web";
 import { flush } from "solid-js";
+import { ApiError } from "~/api/client";
 
 const stubs = vi.hoisted(() => ({
   logout: vi.fn(),
@@ -290,8 +291,14 @@ describe("ProfileMenu", () => {
     expect(menu()).toBeNull();
   });
 
+  // The fixture is an ApiError because that is the only shape the client can
+  // produce: apiLogout wraps every transport failure as
+  // ApiError(networkErrorMessage(e), undefined, "network_error"). A bare Error
+  // here would pin a message getErrorMessage deliberately refuses to display.
   it("reports a sign-out whose request failed", async () => {
-    stubs.logout.mockRejectedValue(new Error("Network unreachable"));
+    stubs.logout.mockRejectedValue(
+      new ApiError("Can't reach the server", undefined, "network_error"),
+    );
     await mount();
     await openMenu();
 
@@ -299,7 +306,7 @@ describe("ProfileMenu", () => {
     await settle();
 
     expect(stubs.logout).toHaveBeenCalledTimes(1);
-    expect(stubs.toasts).toEqual(["Network unreachable"]);
+    expect(stubs.toasts).toEqual(["Can't reach the server"]);
   });
 
   it("says nothing when sign-out succeeds", async () => {

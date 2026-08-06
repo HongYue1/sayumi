@@ -22,6 +22,7 @@ import {
   listProfiles,
   type ProfileInfo,
 } from "~/api/client";
+import { getErrorMessage } from "~/lib/errors";
 import { session } from "~/lib/session";
 import Icon from "~/lib/Icon";
 import { ArrowLeft, Lock, Plus, TriangleAlert } from "~/lib/icons";
@@ -200,7 +201,7 @@ export default function Login() {
     } catch (e) {
       if (disposed || signal?.aborted === true) return;
       setLoadFailed(true);
-      setError(e instanceof ApiError ? e.message : "Failed to load profiles");
+      setError(getErrorMessage(e, "Failed to load profiles"));
     } finally {
       if (!disposed && signal?.aborted !== true) setLoading(false);
     }
@@ -343,9 +344,7 @@ export default function Login() {
       if (disposed || controller !== createController) return;
       createController = null;
       const code = e2 instanceof ApiError ? e2.code : undefined;
-      setError(
-        e2 instanceof ApiError ? e2.message : "Could not create profile",
-      );
+      setError(getErrorMessage(e2, "Could not create profile"));
       setBusy(false);
       restoreFocus();
       // The row can exist even though this response failed: the DB row is

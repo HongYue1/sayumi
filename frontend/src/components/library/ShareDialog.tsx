@@ -10,12 +10,8 @@
 //   - The backdrop dismiss is the shared .backdrop-dismiss button instead of
 //     the sheet stopPropagation trick, which jsx-a11y rejects.
 import { createMemo, createSignal, onCleanup, onSettled, Show } from "solid-js";
-import {
-  ApiError,
-  getDownloadUrl,
-  uploadToGofile,
-  type BookMeta,
-} from "~/api/client";
+import { getDownloadUrl, uploadToGofile, type BookMeta } from "~/api/client";
+import { getErrorMessage } from "~/lib/errors";
 import { toast } from "~/lib/toast";
 import { trap } from "~/lib/focusTrap";
 import Icon from "~/lib/Icon";
@@ -55,9 +51,7 @@ export default function ShareDialog(props: Props) {
       setUrl(downloadPage);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
-      setError(
-        err instanceof ApiError ? err.message : "Upload to gofile failed.",
-      );
+      setError(getErrorMessage(err, "Upload to gofile failed."));
     } finally {
       if (uploadController === controller) {
         uploadController = null;
