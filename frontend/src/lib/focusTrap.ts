@@ -4,10 +4,14 @@ import { onCleanup } from "solid-js";
  * Focus trap for overlay / dialog / slide-over panels, per the
  * fixing-accessibility skill (priority 3: focus & dialogs):
  *
- *   - moves focus into the node on mount (first focusable, or the node itself),
+ *   - moves focus into the node on mount (first tab stop, or the node itself),
  *     unless the component already placed focus inside (e.g. a search input),
- *   - traps Tab / Shift+Tab within the node while it is mounted,
- *   - restores focus to the previously-focused element when the node unmounts.
+ *     retrying once real tab stops arrive if the fallback parked focus on the
+ *     container,
+ *   - traps Tab / Shift+Tab within the node while it is mounted, counting only
+ *     elements that are genuinely in the tab order,
+ *   - restores focus to the previously-focused element when the node unmounts,
+ *     but only while the node still owns focus.
  *
  * It deliberately does NOT handle Escape — each overlay owns its own Esc logic
  * (and the consume-vs-bubble semantics that go with it).
@@ -42,11 +46,24 @@ export function focusTrap(node: HTMLElement): () => void {
 
   let mounted = true;
   let addedTabIndex = false;
+  let observer: MutationObserver | undefined;
 
+  // tabIndex, not the selector, decides membership. `button:not([disabled])`
+  // also matches the tabindex="-1" rows of a roving-tabindex widget — TocPanel's
+  // virtualized list and SearchPanel's results both sit inside a trap — and
+  // counting those put first/last on elements the browser never tabs to, so the
+  // wrap either let Tab walk out of the dialog or drove focus onto a row that
+  // could not hand it back.
   function focusables(): HTMLElement[] {
     return Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-      (el) => el.getClientRects().length > 0,
+      (el) => el.tabIndex >= 0 && el.getClientRects().length > 0,
     );
+  }
+
+  // node.contains(node) is true, so a container-focused dialog read as "focus is
+  // already inside the ring" and both Tab branches stood down.
+  function inside(el: Element | null): boolean {
+    return el !== null && el !== node && node.contains(el);
   }
 
   function focusContainer(): void {
@@ -57,6 +74,37 @@ export function focusTrap(node: HTMLElement): () => void {
       addedTabIndex = true;
     }
     node.focus();
+    // The reader panels are clientOnly with a one-microtask fallback
+    // (Read.tsx), so first open reaches here with nothing to focus and, with no
+    // second attempt, focus stayed parked on the container for the life of the
+    // panel. Watch for the real controls rather than guessing at a delay.
+    if (doc.activeElement === node) watchForTabStops();
+  }
+
+  // Only ever started by the fallback above, and it stands down the moment
+  // focus is anywhere but the container, so a dialog that places focus itself
+  // (EditBookDialog, ProfileDialog, ShareDialog, CustomThemeDialog and
+  // CommandPalette each focus the control they exist for) is never overridden.
+  function watchForTabStops(): void {
+    if (observer !== undefined || typeof MutationObserver === "undefined") {
+      return;
+    }
+    observer = new MutationObserver(() => {
+      if (!mounted || doc.activeElement !== node) {
+        stopWatching();
+        return;
+      }
+      const first = focusables()[0];
+      if (first === undefined) return;
+      stopWatching();
+      first.focus();
+    });
+    observer.observe(node, { childList: true, subtree: true });
+  }
+
+  function stopWatching(): void {
+    observer?.disconnect();
+    observer = undefined;
   }
 
   // Move focus inside on mount — but only if the component hasn't already done
@@ -83,11 +131,11 @@ export function focusTrap(node: HTMLElement): () => void {
     const last = items[items.length - 1];
     const active = doc.activeElement as HTMLElement | null;
     if (e.shiftKey) {
-      if (active === first || !node.contains(active)) {
+      if (active === first || !inside(active)) {
         e.preventDefault();
         last.focus();
       }
-    } else if (active === last || !node.contains(active)) {
+    } else if (active === last || !inside(active)) {
       e.preventDefault();
       first.focus();
     }
@@ -99,6 +147,7 @@ export function focusTrap(node: HTMLElement): () => void {
 
   return () => {
     mounted = false;
+    stopWatching();
     doc.removeEventListener("keydown", onKeydown, true);
     const index = traps.lastIndexOf(node);
     if (index !== -1) traps.splice(index, 1);
@@ -106,8 +155,15 @@ export function focusTrap(node: HTMLElement): () => void {
     if (addedTabIndex && node.getAttribute("tabindex") === "-1") {
       node.removeAttribute("tabindex");
     }
-    // Return focus to whatever triggered the overlay, if it's still around.
-    if (previouslyFocused?.isConnected) previouslyFocused.focus();
+    // Return focus to whatever triggered the overlay, if it's still around --
+    // but only while this dialog still owns focus. Something that deliberately
+    // took focus before teardown keeps it, and this is also what makes a second
+    // dispose harmless: no separate idempotence flag, which would be a second
+    // guard on the same symptom.
+    const active = doc.activeElement;
+    const ownsFocus =
+      active === null || active === doc.body || node.contains(active);
+    if (ownsFocus && previouslyFocused?.isConnected) previouslyFocused.focus();
   };
 }
 
