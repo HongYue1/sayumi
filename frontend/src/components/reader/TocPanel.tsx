@@ -26,6 +26,7 @@ import {
   flush,
   For,
   Show,
+  untrack,
 } from "solid-js";
 import type { TocEntry } from "~/api/client";
 import Icon from "~/lib/Icon";
@@ -189,6 +190,20 @@ export default function TocPanel(props: Props) {
   const totalHeight = createMemo(() => filteredRows().length * ROW_H);
   const offsetY = createMemo(() => startIndex() * ROW_H);
 
+  // Roving tabindex under virtualization. focusedIndex tracks the row the user
+  // last touched, and scrolling deliberately does not move it, so once that row
+  // leaves the rendered window every mounted row sits at tabindex -1 and the
+  // whole list drops out of the tab order -- a keyboard user who scrolls away
+  // from the current chapter has no way back into the contents. focusTrap's
+  // `button:not([disabled])` still matches those rows, so a trap-driven test
+  // sees a focusable list and reports nothing. Clamp the single tab stop into
+  // the window that is actually mounted.
+  const tabStopIndex = createMemo(() => {
+    const last = endIndex() - 1;
+    if (last < startIndex()) return -1;
+    return Math.min(Math.max(focusedIndex(), startIndex()), last);
+  });
+
   function onScroll(e: Event): void {
     setScrollTop((e.currentTarget as HTMLElement).scrollTop);
   }
@@ -220,10 +235,13 @@ export default function TocPanel(props: Props) {
       // panel input is focused — handleWindowKey in Read bails on
       // INPUT/TEXTAREA so letter shortcuts aren't typed — and this field is
       // focused on open. So drive both steps locally: a non-empty query clears
-      // first, an empty query closes the panel.
+      // first, an empty query closes the panel. Branch on the RAW query, not
+      // the normalized one: the clear button renders on query() too, so a
+      // whitespace-only filter puts a visible clear affordance on screen, and
+      // Escape has to clear it rather than skip straight to closing the panel.
       e.preventDefault();
       e.stopPropagation();
-      if (normalizedQuery()) setQuery("");
+      if (query()) setQuery("");
       else props.onclose();
     }
   }
@@ -311,20 +329,27 @@ export default function TocPanel(props: Props) {
       measure();
 
       if (!initialised) {
-        if (activeIndex() >= 0) {
-          const target =
-            activeIndex() * ROW_H + padTop - (el.clientHeight - ROW_H) / 2;
-          el.scrollTop = Math.max(0, target);
-        }
-        setScrollTop(el.scrollTop);
-        setFocusedIndex(
-          activeIndex() >= 0
-            ? activeIndex()
-            : filteredRows().length > 0
-              ? 0
-              : -1,
-        );
-        queryEl?.focus({ preventScroll: true });
+        // activeIndex/filteredRows are read from an effect apply phase, which
+        // is an untracked scope. The reads are deliberate one-shots -- the
+        // centering is once-per-open, guarded by `initialised` -- so mark them
+        // with untrack the way Read.tsx does, rather than trip
+        // STRICT_READ_UNTRACKED four times on every open.
+        untrack(() => {
+          if (activeIndex() >= 0) {
+            const target =
+              activeIndex() * ROW_H + padTop - (el.clientHeight - ROW_H) / 2;
+            el.scrollTop = Math.max(0, target);
+          }
+          setScrollTop(el.scrollTop);
+          setFocusedIndex(
+            activeIndex() >= 0
+              ? activeIndex()
+              : filteredRows().length > 0
+                ? 0
+                : -1,
+          );
+          queryEl?.focus({ preventScroll: true });
+        });
         initialised = true;
       }
 
@@ -343,12 +368,16 @@ export default function TocPanel(props: Props) {
     (q) => {
       if (q === lastQuery) return undefined;
       lastQuery = q;
-      const el = scrollEl();
-      if (el) {
-        el.scrollTop = 0;
-        setScrollTop(0);
-        setFocusedIndex(filteredRows().length > 0 ? 0 : -1);
-      }
+      // Apply phase again: deliberate reads, so untrack them rather than trip
+      // STRICT_READ_UNTRACKED on every keystroke that changes the filter.
+      untrack(() => {
+        const el = scrollEl();
+        if (el) {
+          el.scrollTop = 0;
+          setScrollTop(0);
+          setFocusedIndex(filteredRows().length > 0 ? 0 : -1);
+        }
+      });
       return undefined;
     },
   );
@@ -445,8 +474,10 @@ export default function TocPanel(props: Props) {
                 aria-hidden="true"
                 style={{ height: `${railFillRows() * ROW_H}px` }}
               />
+              {/* eslint-disable jsx-a11y/no-redundant-roles -- the role is redundant only on paper: Safari and VoiceOver drop list semantics from a ul styled list-style: none, which .tocp-window is, and the rows' aria-setsize/aria-posinset describe a list that would otherwise not be announced as one. */}
               <ul
                 class="tocp-window"
+                role="list"
                 style={{ transform: `translateY(${offsetY()}px)` }}
               >
                 <For each={windowRows()}>
@@ -473,7 +504,7 @@ export default function TocPanel(props: Props) {
                               ? "location"
                               : undefined
                           }
-                          tabindex={globalIndex() === focusedIndex() ? 0 : -1}
+                          tabindex={globalIndex() === tabStopIndex() ? 0 : -1}
                           style={{
                             "padding-left": `${row.depth * 0.75 + 0.75}rem`,
                           }}
