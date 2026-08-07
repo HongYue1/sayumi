@@ -16,6 +16,17 @@ function parseHref(href: string): ParsedHref {
   };
 }
 
+/**
+ * Canonicalizes an archive path: backslashes become slashes, empty and "."
+ * segments drop out, ".." pops. It deliberately does NOT percent-decode. The
+ * server hands us OPF-joined paths exactly as authored (parser.go resolvePath)
+ * and the frame hands us the raw href attribute, so both sides are compared in
+ * whichever space the book was authored in. A book that encodes one side and
+ * not the other will not match here and the click becomes a silent no-op;
+ * closing that needs both sides decoded with a per-segment identity fallback
+ * (decodeURIComponent throws on a stray percent), which is deliberately out of
+ * scope for this pass and tracked as its own review item.
+ */
 function normalizeArchivePath(path: string): string {
   const parts: string[] = [];
   for (const part of path.replaceAll("\\", "/").split("/")) {
@@ -104,6 +115,10 @@ function matchSpinePath(path: string, index: SpineIndex): number | null {
  * Resolves an in-book href to a spine chapter. Raw iframe links may pass the
  * source chapter index so relative paths are resolved from that chapter's
  * archive directory; TOC hrefs remain canonical archive paths.
+ *
+ * Unlike buildTocChapterEntries, this rebuilds the spine index on every call.
+ * That is right at click pace, but do not wire it into a per-render or
+ * per-item path without hoisting the index out of the call first.
  */
 export function resolveHref(
   href: string,
