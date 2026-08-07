@@ -38,6 +38,7 @@ import {
   isProgressDuplicate,
   chooseBootProgress,
   isBookmarkAtPosition,
+  PROGRESS_UNSET,
 } from "~/lib/progress";
 import {
   getBook,
@@ -283,8 +284,11 @@ export default function Read(props: Props) {
   let fetchAbort: AbortController | null = null;
   let progressTimer: ReturnType<typeof setTimeout> | undefined;
   let lastFlushTime = 0;
-  let lastPersistedChapter = -1;
-  let lastPersistedPercent = -1;
+  let lastPersistedChapter = PROGRESS_UNSET;
+  let lastPersistedPercent = PROGRESS_UNSET;
+  // Part of the dedupe key, not just payload: a relayout can hold percent
+  // while moving the anchor, and that write must not be swallowed.
+  let lastPersistedCfi: string | undefined;
   let lastBoundaryTime = 0;
   // Serializes bookmark create/delete: the add path applies only after its
   // await, so an unguarded double-toggle duplicates — and an add that resolves
@@ -649,6 +653,7 @@ export default function Read(props: Props) {
       saved = await getProgress(bookId);
       lastPersistedChapter = saved.chapter;
       lastPersistedPercent = saved.percent;
+      lastPersistedCfi = saved.cfi;
     } catch {
       // first periodic save will retry
     }
@@ -924,12 +929,16 @@ export default function Read(props: Props) {
     if (!force && now - lastFlushTime < PROGRESS_FLUSH_THROTTLE_MS)
       return Promise.resolve();
 
-    const { chapter, percent } = saveData;
+    const { chapter, percent, cfi } = saveData;
     if (
       !force &&
       isProgressDuplicate(
-        { chapter, percent },
-        { chapter: lastPersistedChapter, percent: lastPersistedPercent },
+        { chapter, percent, cfi },
+        {
+          chapter: lastPersistedChapter,
+          percent: lastPersistedPercent,
+          cfi: lastPersistedCfi,
+        },
       )
     ) {
       return Promise.resolve();
@@ -942,6 +951,7 @@ export default function Read(props: Props) {
         publishLibraryProgress(payload.chapter, payload.percent);
         lastPersistedChapter = payload.chapter;
         lastPersistedPercent = payload.percent;
+        lastPersistedCfi = payload.cfi;
         try {
           localStorage.removeItem(progressCacheKey);
         } catch {

@@ -618,6 +618,83 @@ describe("Read progress", () => {
     expect(cached).not.toBeNull();
     expect(JSON.parse(cached ?? "")).toEqual({ chapter: 0, percent: 0.5 });
   });
+
+  // The scheduled (non-forced) flush is the only path that consults the
+  // dedupe -- a forced flush skips it outright -- and it sits 15s behind a
+  // position report. Without fake timers the anchor half of the dedupe key is
+  // unreachable from this suite, so these two opt in for the duration.
+  const SAVE_TICK_MS = 20_000;
+  async function tick(): Promise<void> {
+    await vi.advanceTimersByTimeAsync(SAVE_TICK_MS);
+    await settle();
+  }
+
+  it("re-saves when only the anchor moved, and not when it did not", async () => {
+    vi.useFakeTimers();
+    try {
+      await bootReader();
+      frameHandler("onposition")(0, 0.3, "cfi:a");
+      await tick();
+      expect(api.saveProgress).toHaveBeenCalledTimes(1);
+      expect(api.saveProgress).toHaveBeenLastCalledWith("book1", {
+        chapter: 0,
+        percent: 0.3,
+        cfi: "cfi:a",
+      });
+
+      // Identical chapter, percent and anchor: still a duplicate.
+      frameHandler("onposition")(0, 0.3, "cfi:a");
+      await tick();
+      expect(api.saveProgress).toHaveBeenCalledTimes(1);
+
+      // Same chapter and percent, anchor moved. Paged percent is quantized to
+      // page/(totalPages-1), so an anchor-preserving relayout can hold the
+      // ratio while the anchoring block changes -- that write has to land, or
+      // the next boot restores from a CFI that no longer matches the page.
+      frameHandler("onposition")(0, 0.3, "cfi:b");
+      await tick();
+      expect(api.saveProgress).toHaveBeenCalledTimes(2);
+      expect(api.saveProgress).toHaveBeenLastCalledWith("book1", {
+        chapter: 0,
+        percent: 0.3,
+        cfi: "cfi:b",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still persists the origin after a failed progress fetch", async () => {
+    api.getProgress.mockRejectedValue(new Error("nope"));
+    vi.useFakeTimers();
+    try {
+      await bootReader();
+      // The boot seed never ran, so the sentinel is what keeps the origin
+      // distinguishable from a real position at chapter 0, percent 0.
+      frameHandler("onposition")(0, 0, undefined);
+      await tick();
+      expect(api.saveProgress).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not re-save the anchor it just booted from", async () => {
+    api.getProgress.mockResolvedValue({
+      chapter: 1,
+      percent: 0.5,
+      cfi: "cfi:boot",
+    });
+    vi.useFakeTimers();
+    try {
+      await bootReader();
+      frameHandler("onposition")(1, 0.5, "cfi:boot");
+      await tick();
+      expect(api.saveProgress).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("Read search highlights", () => {

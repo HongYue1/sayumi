@@ -11,6 +11,11 @@ export interface Route {
   params: Record<string, string>;
 }
 
+export interface Router {
+  readonly route: Route;
+  navigate(path: string): void;
+}
+
 export function matchRoute(path: string): Route {
   const m = path.match(/^\/read\/([^/]+)$/);
   if (m) {
@@ -31,7 +36,15 @@ function parseHash(): Route {
   return matchRoute(window.location.hash.slice(1) || "/");
 }
 
-function createRouter() {
+/**
+ * Builds a router over window.location.hash.
+ *
+ * Exported for tests only. The singleton below is constructed at import time,
+ * which leaves parseHash, the hashchange wiring and navigate unreachable from
+ * any suite unless the constructor itself can be called. Application code must
+ * use `router` -- every extra instance attaches its own permanent listener.
+ */
+export function createRouter(): Router {
   const [route, setRoute] = createSignal<Route>(parseHash());
 
   // App-lifetime singleton -- the listener lives as long as the document, so no

@@ -3,6 +3,9 @@ import {
   isProgressDuplicate,
   chooseBootProgress,
   isBookmarkAtPosition,
+  BOOKMARK_EPSILON,
+  PROGRESS_EPSILON,
+  PROGRESS_UNSET,
 } from "~/lib/progress";
 import type { ProgressData } from "~/api/client";
 
@@ -34,13 +37,77 @@ describe("isProgressDuplicate", () => {
       ),
     ).toBe(false);
   });
-  it("treats the unset sentinel (-1) as not a duplicate", () => {
+  it("is false at exactly the epsilon -- the bound is strict", () => {
+    // Built off zero so the delta is exactly PROGRESS_EPSILON in binary64;
+    // 0.5 + 0.001 is not, and would pass either way.
+    expect(
+      isProgressDuplicate(
+        { chapter: 2, percent: 0 },
+        { chapter: 2, percent: PROGRESS_EPSILON },
+      ),
+    ).toBe(false);
+  });
+  it("does not dedupe a delta five times the epsilon", () => {
+    expect(
+      isProgressDuplicate(
+        { chapter: 2, percent: 0 },
+        { chapter: 2, percent: 0.005 },
+      ),
+    ).toBe(false);
+  });
+  it("treats the unset sentinel as not a duplicate", () => {
+    expect(PROGRESS_UNSET).toBe(-1);
     expect(
       isProgressDuplicate(
         { chapter: 0, percent: 0 },
-        { chapter: -1, percent: -1 },
+        { chapter: PROGRESS_UNSET, percent: PROGRESS_UNSET },
       ),
     ).toBe(false);
+  });
+
+  // The anchor is part of the key. Paged percent is quantized to
+  // page/(totalPages-1), so an anchor-preserving relayout can hold the ratio
+  // while the anchoring block moves; dropping the CFI here swallowed that
+  // write and left the reader restoring from a stale anchor.
+  it("is false when only the anchor moved", () => {
+    expect(
+      isProgressDuplicate(
+        { chapter: 2, percent: 0.5, cfi: "cfi:/4/2" },
+        { chapter: 2, percent: 0.5, cfi: "cfi:/4/8" },
+      ),
+    ).toBe(false);
+  });
+  it("is false when an anchor first resolves over the empty marker", () => {
+    expect(
+      isProgressDuplicate(
+        { chapter: 0, percent: 0, cfi: "cfi:/4/2" },
+        { chapter: 0, percent: 0, cfi: "" },
+      ),
+    ).toBe(false);
+  });
+  it("is false when one side carries no anchor at all", () => {
+    expect(
+      isProgressDuplicate(
+        { chapter: 2, percent: 0.5, cfi: "cfi:/4/2" },
+        { chapter: 2, percent: 0.5 },
+      ),
+    ).toBe(false);
+  });
+  it("is still true when the anchor is identical", () => {
+    expect(
+      isProgressDuplicate(
+        { chapter: 2, percent: 0.5, cfi: "cfi:/4/2" },
+        { chapter: 2, percent: 0.5004, cfi: "cfi:/4/2" },
+      ),
+    ).toBe(true);
+  });
+  it("is still true when neither side carries an anchor", () => {
+    expect(
+      isProgressDuplicate(
+        { chapter: 2, percent: 0.5 },
+        { chapter: 2, percent: 0.5 },
+      ),
+    ).toBe(true);
   });
 });
 
@@ -62,6 +129,17 @@ describe("chooseBootProgress", () => {
       chooseBootProgress(p(5, 0.9, "cfi:5"), p(2, 0.25, "cfi:1/3")),
     ).toMatchObject({ cfi: "cfi:1/3" });
   });
+  it("never consults the server value, even at the origin", () => {
+    // Documents the policy rather than endorsing it: a cache written by a
+    // page hide outlives having been persisted, so this rewinds a client that
+    // read on elsewhere. Arbitration needs a server timestamp the API does
+    // not currently expose.
+    expect(chooseBootProgress(p(9, 0.99, "cfi:server"), p(0, 0, ""))).toEqual({
+      chapter: 0,
+      percent: 0,
+      cfi: "",
+    });
+  });
 });
 
 describe("isBookmarkAtPosition", () => {
@@ -79,5 +157,11 @@ describe("isBookmarkAtPosition", () => {
     expect(isBookmarkAtPosition({ chapter: 1, percent: 0.5 }, 1, 0.6)).toBe(
       false,
     );
+  });
+  it("is false at exactly the epsilon -- the bound is strict", () => {
+    // Exact binary64 delta, for the same reason as the progress bound above.
+    expect(
+      isBookmarkAtPosition({ chapter: 1, percent: 0 }, 1, BOOKMARK_EPSILON),
+    ).toBe(false);
   });
 });
