@@ -239,12 +239,20 @@ func validChapterTitleAlign(value string) bool {
 	}
 }
 
+// A font family id is either a built-in name ("literata") or a user family
+// id: "user:" plus the ./Fonts/ directory name, assembled by the scanner in
+// internal/fonts. The scanner imposes no length limit on a directory name, so
+// every validator that sees such an id must agree on one ceiling -- a folder
+// accepted as a fontRoles key has to stay selectable as the active family.
+// len() counts bytes, not runes: a 20-character CJK folder name is 60 bytes.
+const maxFontFamilyIDBytes = 128
+
 func validateSettings(j *settingsJSON) (string, bool) {
 	if j.FontSize < 10 || j.FontSize > 50 {
 		return "fontSize must be 10-50", false
 	}
-	if j.FontFamily == "" || len(j.FontFamily) > 64 {
-		return "fontFamily must be 1-64 characters", false
+	if j.FontFamily == "" || len(j.FontFamily) > maxFontFamilyIDBytes {
+		return "fontFamily must be 1-128 bytes", false
 	}
 	if j.Theme == "" || len(j.Theme) > 32 {
 		return "theme must be 1-32 characters", false
@@ -285,8 +293,8 @@ func validateSettings(j *settingsJSON) (string, bool) {
 	if j.ChapterTitleSpacing != nil && (*j.ChapterTitleSpacing < 0 || *j.ChapterTitleSpacing > 5.0) {
 		return "chapterTitleSpacing must be 0-5.0", false
 	}
-	if j.ChapterTitleFont != nil && len(*j.ChapterTitleFont) > 64 {
-		return "chapterTitleFontFamily must be at most 64 characters", false
+	if j.ChapterTitleFont != nil && len(*j.ChapterTitleFont) > maxFontFamilyIDBytes {
+		return "chapterTitleFontFamily must be at most 128 bytes", false
 	}
 	if j.HeadingLetterSpacing != nil && (*j.HeadingLetterSpacing < -0.5 || *j.HeadingLetterSpacing > 1.0) {
 		return "headingLetterSpacing must be -0.5-1.0", false
@@ -306,7 +314,7 @@ func validateSettings(j *settingsJSON) (string, bool) {
 		return "too many font role mappings", false
 	}
 	for id, e := range j.FontRoles {
-		if len(id) > 128 {
+		if len(id) > maxFontFamilyIDBytes {
 			return "font family id too long", false
 		}
 		for _, file := range []string{e.Regular, e.Italic, e.Bold, e.BoldItalic} {

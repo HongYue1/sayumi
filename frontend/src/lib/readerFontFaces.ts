@@ -83,6 +83,13 @@ function buildUserFontFaces(
     const family = userFamilyCSSName(fam.id);
     const map = roles?.[fam.id] ?? {};
     // Fall back to the backend's detected roles when the user hasn't chosen.
+    //
+    // Nullish coalescing rather than a truthiness check is deliberate, and it
+    // relies on an unset role being ABSENT rather than "": SettingsPanel
+    // deletes a cleared key, and Go's fontRoleEntry tags every role omitempty
+    // so a partial entry never serializes its empty siblings. Were either
+    // side to emit "", these lines would suppress the face instead of
+    // falling back to the detected file. Both halves are pinned by tests.
     const regular = map.regular ?? fam.detected.regular;
     const italic = map.italic ?? fam.detected.italic;
     const bold = map.bold ?? fam.detected.bold;

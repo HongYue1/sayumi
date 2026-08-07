@@ -157,6 +157,11 @@ export default function ChapterFrame(props: Props) {
     switch (m.type) {
       case "ready":
         ready = true;
+        // Embedded faces only, as an initial state so the frame can render
+        // before any chapter arrives. This is NOT the authoritative source:
+        // Read.tsx pushes the full set (embedded + user families) from
+        // loadChapter on every chapter load, which always supersedes this
+        // before content appears.
         sendToFrame({
           type: "set-font-faces",
           fontFaces: buildReaderFontFaces(),

@@ -1,6 +1,11 @@
 package api
 
-import "testing"
+import (
+	"encoding/json"
+	"strconv"
+	"strings"
+	"testing"
+)
 
 func TestValidateSettings(t *testing.T) {
 	base := func() *settingsJSON {
@@ -66,5 +71,118 @@ func TestNormalizeSettingsPrunesEmptyFontRoles(t *testing.T) {
 	keep, ok := s.FontRoles["user:Keep"]
 	if !ok || keep.Regular != "Reg.ttf" {
 		t.Errorf("kept entry not trimmed/retained: %+v", s.FontRoles)
+	}
+}
+
+func TestFontFamilyIDCapsAgree(t *testing.T) {
+	// A user family id is "user:" plus a ./Fonts/ directory name, and the
+	// scanner caps neither. That same id reaches fontFamily,
+	// chapterTitleFontFamily and the fontRoles keys, so all three ceilings
+	// must agree. While they disagreed you could save role overrides for a
+	// family that could never be selected as the active font.
+	id := "user:" + strings.Repeat("a", maxFontFamilyIDBytes-len("user:"))
+	if len(id) != maxFontFamilyIDBytes {
+		t.Fatalf("test id is %d bytes, want %d", len(id), maxFontFamilyIDBytes)
+	}
+
+	s := &settingsJSON{
+		FontSize: 26, Theme: "rose-pine", DisplayMode: "scroll",
+		FontFamily:       id,
+		ChapterTitleFont: &id,
+		FontRoles:        map[string]fontRoleEntry{id: {Regular: "Regular.otf"}},
+	}
+	if msg, ok := validateSettings(s); !ok {
+		t.Errorf("an id exactly at the shared cap was rejected: %s", msg)
+	}
+
+	over := id + "a"
+	s.FontFamily = over
+	familyMsg, ok := validateSettings(s)
+	if ok {
+		t.Fatal("fontFamily one byte over the cap was accepted")
+	}
+	assertNamesCap(t, familyMsg)
+
+	s.FontFamily = id
+	s.ChapterTitleFont = &over
+	titleMsg, ok := validateSettings(s)
+	if ok {
+		t.Fatal("chapterTitleFontFamily one byte over the cap was accepted")
+	}
+	assertNamesCap(t, titleMsg)
+}
+
+// assertNamesCap keeps an over-cap message honest about both the ceiling it
+// enforces and the unit it counts. Without it the shared constant could be
+// retuned while every message kept quoting the old number.
+func assertNamesCap(t *testing.T, msg string) {
+	t.Helper()
+	if !strings.Contains(msg, "bytes") {
+		t.Errorf("message should state the unit it enforces, got %q", msg)
+	}
+	if want := strconv.Itoa(maxFontFamilyIDBytes); !strings.Contains(msg, want) {
+		t.Errorf("message should quote the %s byte cap, got %q", want, msg)
+	}
+}
+
+func TestFontFamilyCapCountsBytesNotRunes(t *testing.T) {
+	// len() counts bytes, so a folder name far under the cap in characters
+	// can still exceed it. The message has to name the unit it enforces.
+	s := &settingsJSON{
+		FontSize: 26, Theme: "rose-pine", DisplayMode: "scroll",
+		FontFamily: "user:" + strings.Repeat("あ", 50),
+	}
+	msg, ok := validateSettings(s)
+	if ok {
+		t.Fatal("a 155-byte family id should be rejected")
+	}
+	assertNamesCap(t, msg)
+}
+
+func TestFontRoleEntryOmitsEmptyRoles(t *testing.T) {
+	// The client resolves an unset role with nullish coalescing against the
+	// backend's detected file, which only works while an unset role is ABSENT
+	// from the payload rather than "". normalizeSettings deliberately keeps a
+	// partially filled entry, so omitempty on every field is the only thing
+	// stopping the empty siblings from round-tripping and silently
+	// suppressing the italic and bold faces.
+	s := &settingsJSON{
+		FontFamily:  "spectral",
+		DisplayMode: "scroll",
+		Theme:       "rose-pine",
+		FontRoles: map[string]fontRoleEntry{
+			"user:Minion": {Regular: "Regular.otf"},
+		},
+	}
+	normalizeSettings(s)
+
+	blob, err := json.Marshal(s.FontRoles)
+	if err != nil {
+		t.Fatalf("marshal font roles: %v", err)
+	}
+	got := string(blob)
+	if want := `{"user:Minion":{"regular":"Regular.otf"}}`; got != want {
+		t.Errorf("font roles serialized as %s, want %s", got, want)
+	}
+	for _, role := range []string{"italic", "bold", "boldItalic"} {
+		if strings.Contains(got, role) {
+			t.Errorf("unset role %q must not appear in the payload: %s", role, got)
+		}
+	}
+
+	// Regular is not privileged: the panel writes whichever role the user
+	// picked and deletes the others, so any single role can be the only one
+	// present and must still travel alone.
+	s.FontRoles = map[string]fontRoleEntry{
+		"user:Minion": {Italic: "Italic.otf"},
+	}
+	normalizeSettings(s)
+
+	blob, err = json.Marshal(s.FontRoles)
+	if err != nil {
+		t.Fatalf("marshal italic-only roles: %v", err)
+	}
+	if got, want := string(blob), `{"user:Minion":{"italic":"Italic.otf"}}`; got != want {
+		t.Errorf("italic-only entry serialized as %s, want %s", got, want)
 	}
 }
