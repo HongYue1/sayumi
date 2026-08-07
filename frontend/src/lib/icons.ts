@@ -1,20 +1,25 @@
 /*
- * Inline Lucide icon geometry - the 28 glyphs this UI actually uses.
+ * Inline Lucide icon geometry - the glyphs this UI actually uses.
  *
- * Generated from @lucide/svelte v1.28.0 (ISC licence). lucide-solid is not an
- * option on Solid 2: 3,520 of its dist files import the removed
- * "solid-js/web", and its Icon/context modules use splitProps, which 2.0
- * replaced with the inverted, rest-only omit. Inlining 74 nodes drops the last
- * runtime dependency and ships less than the tree-shaken package did.
+ * Originally taken from @lucide/svelte v1.28.0 (ISC licence); that package is
+ * no longer a dependency. lucide-solid is not an option on Solid 2: 3,520 of
+ * its dist files import the removed "solid-js/web", and its Icon/context
+ * modules use splitProps, which 2.0 replaced with the inverted, rest-only
+ * omit. Inlining the geometry drops the last runtime dependency and ships less
+ * than the tree-shaken package did.
  *
  * Two upstream renames are folded in so the call sites keep reading in English:
  * CircleHelp is circle-question-mark and UploadCloud is cloud-upload upstream.
  *
- * Adding an icon: copy the iconNode array out of
- * node_modules/@lucide/svelte/icons/<kebab-name>.svelte on the Svelte branch
- * (or off lucide.dev) and export it below in PascalCase. Values are inert
- * geometry - no quotes, angle brackets or ampersands - which is what lets
- * Icon.tsx serialise them straight into the <svg>.
+ * Adding an icon: copy the iconNode array off lucide.dev and export it below in
+ * PascalCase. Values MUST stay inert geometry - no quotes, angle brackets or
+ * ampersands - because Icon.tsx serialises them straight into innerHTML with
+ * no escaping at all. Nothing upstream asserts that; icons.test.ts does. It is
+ * a real failure mode, not a theoretical one: a d of
+ * M0 0" data-injected="yes  renders as a path carrying an extra attribute.
+ *
+ * Everything here is stroke-only and inherits the shell fill of none, EXCEPT
+ * Tag, whose dot carries fill currentColor and deliberately overrides it.
  */
 
 /** A Lucide glyph: the SVG children of a 24x24 viewBox, upstream tuple shape. */

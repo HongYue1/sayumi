@@ -1,20 +1,22 @@
 /*
  * Shared icon wrapper for the whole UI. Pass any glyph from ~/lib/icons as the
  * `icon` prop and this enforces one consistent size/stroke and accessibility
- * contract. Same props as the Svelte wrapper it replaces, so the 64 call sites
- * port unchanged apart from the import specifier.
+ * contract.
  *
  * Icons inherit `currentColor`, so they automatically take the active theme's
  * text colour (set `color: var(--accent)` on the parent to tint an active
  * control). Defaults match the redesign spec: 20px / stroke 1.75.
  *
- * The <svg> shell lives here rather than in icons.ts so the shell exists once
- * in the bundle instead of 27 times, and so the geometry file stays pure data.
+ * The <svg> shell lives here rather than in icons.ts so it exists once in the
+ * bundle rather than once per glyph, and so the geometry file stays pure data.
+ * The shell is stroke-only; Tag is the one glyph whose dot overrides that with
+ * its own fill. Icon.test.tsx pins both halves - do not tidy up the shell.
  *
- * innerHTML is deliberate: icons.ts holds local, static, inert geometry (the
- * generator asserts no quotes, angle brackets or ampersands), so serialising it
- * is one string parse per glyph instead of a component per node. Never pass
- * anything user-controlled through the `icon` prop.
+ * innerHTML is deliberate: icons.ts is a fixed, local, developer-authored
+ * allowlist, so serialising it is one string parse per glyph instead of a
+ * component per node. markup() does NOT escape: one double quote in a value
+ * breaks out of its attribute and injects another one. icons.test.ts is what
+ * enforces that. Never pass anything user-controlled through the `icon` prop.
  */
 import type { IconNode } from "~/lib/icons";
 
