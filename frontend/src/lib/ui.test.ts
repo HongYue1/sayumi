@@ -2,9 +2,10 @@
 // overlay reads (CommandPalette, ShortcutsHelp) and the three mutators that
 // App.tsx and Read.tsx drive from the keyboard and from reader chrome.
 //
-// Every test builds its own instance through createUIState(). The two suites
-// that already touch this store indirectly reset it by calling
-// ui.closeOverlays() (CommandPalette.test.ts, ShortcutsHelp.test.ts) -- a
+// Every test builds its own instance through createUIState(). The three
+// suites that touch this store indirectly reset it by calling
+// ui.closeOverlays() (CommandPalette.test.ts, ShortcutsHelp.test.ts,
+// Read.test.ts) -- a
 // fixture derived from a function under test, which by construction cannot
 // detect that function changing. Fresh instances remove the ordering
 // dependency instead of documenting it.
@@ -170,5 +171,66 @@ describe("ui overlay state", () => {
     // would reference an unbound method.
     expect(() => Object.assign(u, { palette: true })).toThrow(TypeError);
     expect(u.palette).toBe(false);
+  });
+
+  it("anyOverlayOpen starts false and reflects either flag", () => {
+    const u = createUIState();
+    expect(u.anyOverlayOpen).toBe(false);
+    u.togglePalette();
+    flush();
+    expect(u.anyOverlayOpen).toBe(true);
+    u.closeOverlays();
+    flush();
+    expect(u.anyOverlayOpen).toBe(false);
+    u.openShortcuts();
+    flush();
+    expect(u.anyOverlayOpen).toBe(true);
+  });
+
+  it("anyOverlayOpen closes with closeOverlays", () => {
+    const u = createUIState();
+    u.openShortcuts();
+    flush();
+    expect(u.anyOverlayOpen).toBe(true);
+    u.closeOverlays();
+    flush();
+    expect(u.anyOverlayOpen).toBe(false);
+  });
+
+  it("anyOverlayOpen notifies once per real input change", () => {
+    const u = createUIState();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    let runs = 0;
+    const dispose = render(() => {
+      createEffect(
+        () => u.anyOverlayOpen,
+        () => {
+          runs += 1;
+        },
+      );
+      return null;
+    }, host);
+    flush();
+    runs = 0;
+    u.togglePalette();
+    flush();
+    expect(runs).toBe(1);
+    // The swap re-runs the apply: both underlying signals change value, so the
+    // compute re-executes even though the conjunction's value stays true.
+    // Probe-measured at b54, not assumed: Solid 2.0 keys the apply phase on
+    // compute re-execution, not on the compute's output.
+    u.openShortcuts();
+    flush();
+    expect(runs).toBe(2);
+    // Same-value writes never notify, so nothing re-runs.
+    u.openShortcuts();
+    flush();
+    expect(runs).toBe(2);
+    u.closeOverlays();
+    flush();
+    expect(runs).toBe(3);
+    dispose();
+    host.remove();
   });
 });

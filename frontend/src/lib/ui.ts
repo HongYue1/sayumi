@@ -20,6 +20,10 @@ import { createSignal } from "solid-js";
 export interface UIState {
   readonly palette: boolean;
   readonly shortcuts: boolean;
+  /** True while either global overlay is open. The single place the conjunct
+   *  lives: a future overlay kind joins the store here, and readers (the
+   *  reader's keyboard stand-down) never re-derive the list by hand. */
+  readonly anyOverlayOpen: boolean;
   togglePalette(): void;
   openShortcuts(): void;
   closeOverlays(): void;
@@ -30,7 +34,7 @@ export interface UIState {
  * must use the `ui` singleton below, so every consumer shares one set of
  * flags. A suite that reset the singleton by calling closeOverlays() would
  * be deriving its fixture from a function under test -- which is exactly
- * what the two component suites that touch this store have to do.
+ * what the three component suites that touch this store have to do.
  */
 export function createUIState(): UIState {
   const [palette, setPalette] = createSignal(false);
@@ -42,6 +46,9 @@ export function createUIState(): UIState {
     },
     get shortcuts(): boolean {
       return shortcuts();
+    },
+    get anyOverlayOpen(): boolean {
+      return palette() || shortcuts();
     },
 
     togglePalette(): void {

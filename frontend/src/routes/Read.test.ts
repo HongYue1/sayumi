@@ -595,6 +595,23 @@ describe("Read keyboard: forwarded modifier facts", () => {
     await settle();
     expect(ui.shortcuts).toBe(true);
   });
+
+  it("stands reader shortcuts down while a global overlay is open", async () => {
+    await bootReader();
+    tocPanelLatest = null;
+    ui.togglePalette();
+    await settle();
+    frameHandler("onkey")(key("t"));
+    await settle();
+    expect(tocPanelLatest).toBeNull();
+    // Control: with the overlay closed the same key opens the TOC, proving the
+    // stand-down was the only thing holding it.
+    ui.closeOverlays();
+    await settle();
+    frameHandler("onkey")(key("t"));
+    await vi.waitFor(() => expect(tocPanelLatest).not.toBeNull());
+    tocPanelLatest = null;
+  });
 });
 
 describe("Read progress", () => {

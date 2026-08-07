@@ -1333,7 +1333,8 @@ export default function Read(props: Props) {
     // A global overlay (command palette / shortcuts help) owns the keyboard
     // while open, so reader shortcuts (Esc → back, arrows, etc.) must stand
     // down — otherwise Esc would close the modal *and* navigate to the library.
-    if (ui.palette || ui.shortcuts) return false;
+    // The store owns the overlay list (ui.anyOverlayOpen); do not re-derive it.
+    if (ui.anyOverlayOpen) return false;
     // Same stand-down for the ⋯ overflow menu. Its own keydown handler covers
     // keys while focus is inside it, but focus can also sit on the trigger
     // button (mouse open) — without this, Escape would navigate back to the
