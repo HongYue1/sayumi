@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flush } from "solid-js";
 import type { UserFontFamily } from "~/api/client";
+import { reportReachable, reportUnreachable } from "~/lib/reachability";
 
 const mocks = vi.hoisted(() => ({
   getFonts: vi.fn<() => Promise<UserFontFamily[]>>(),
@@ -178,5 +179,160 @@ describe("font registry", () => {
 
     expect(registry.get("user:Ghost")).toBeUndefined();
     expect(registry.cssValue("user:Ghost")).toBeNull();
+  });
+});
+
+describe("reachability self-heal", () => {
+  // The real ~/lib/reachability drives these edges — transition-only
+  // notification is part of the contract under test, so no hand-rolled twin.
+  // The app singleton is never subscribed in tests: its watch is wired at the
+  // entry point (main.tsx), not at module scope.
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  const tick = (): Promise<void> =>
+    new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+
+  it("ignores the recovery edge until a load has succeeded", async () => {
+    const registry = new FontRegistry();
+    const stop = registry.watchReachability();
+    reportUnreachable();
+    reportReachable();
+    await tick();
+    stop();
+    expect(mocks.getFonts).not.toHaveBeenCalled();
+    expect(registry.loaded).toBe(false);
+  });
+
+  it("does not refetch on the down-edge", async () => {
+    mocks.getFonts.mockResolvedValueOnce([family("user:A")]);
+    const registry = new FontRegistry();
+    const stop = registry.watchReachability();
+    await registry.load();
+    mocks.getFonts.mockClear();
+
+    reportUnreachable();
+    await tick();
+    expect(mocks.getFonts).not.toHaveBeenCalled();
+
+    // Restore the shared signal; the up-edge on a loaded registry refetches.
+    mocks.getFonts.mockResolvedValueOnce([family("user:A")]);
+    reportReachable();
+    await vi.waitFor(() => expect(mocks.getFonts).toHaveBeenCalledTimes(1));
+    stop();
+  });
+
+  it("refetches on the recovery edge once loaded", async () => {
+    // The restart regression: the server re-mints the user-font token behind
+    // a surviving session, and only a fresh /fonts response replaces it.
+    mocks.getFonts.mockResolvedValueOnce([family("user:Before")]);
+    const registry = new FontRegistry();
+    const stop = registry.watchReachability();
+    await registry.load();
+    flush();
+    expect([...registry.families].map((f) => f.id)).toEqual(["user:Before"]);
+
+    mocks.getFonts.mockResolvedValueOnce([family("user:After")]);
+    reportUnreachable();
+    reportReachable();
+    await vi.waitFor(() => expect(mocks.getFonts).toHaveBeenCalledTimes(2));
+    flush();
+    stop();
+
+    expect([...registry.families].map((f) => f.id)).toEqual(["user:After"]);
+    expect(registry.loaded).toBe(true);
+  });
+
+  it("keeps the previous list and loaded flag when a reload fails", async () => {
+    mocks.getFonts.mockResolvedValueOnce([family("user:Kept")]);
+    const registry = new FontRegistry();
+    const stop = registry.watchReachability();
+    await registry.load();
+    flush();
+
+    mocks.getFonts.mockRejectedValueOnce(new Error("offline again"));
+    reportUnreachable();
+    reportReachable();
+    await vi.waitFor(() => expect(mocks.getFonts).toHaveBeenCalledTimes(2));
+    flush();
+    stop();
+
+    expect([...registry.families].map((f) => f.id)).toEqual(["user:Kept"]);
+    expect(registry.loaded).toBe(true);
+  });
+
+  it("stops refetching once unsubscribed", async () => {
+    mocks.getFonts.mockResolvedValueOnce([family("user:A")]);
+    const registry = new FontRegistry();
+    const stop = registry.watchReachability();
+    await registry.load();
+    stop();
+    mocks.getFonts.mockClear();
+
+    reportUnreachable();
+    reportReachable();
+    await tick();
+    expect(mocks.getFonts).not.toHaveBeenCalled();
+  });
+});
+
+describe("reload", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("republishes the fresh list and reports success", async () => {
+    mocks.getFonts.mockResolvedValueOnce([family("user:Old")]);
+    const registry = new FontRegistry();
+    await registry.load();
+    flush();
+
+    mocks.getFonts.mockResolvedValueOnce([family("user:New")]);
+    await expect(registry.reload()).resolves.toBe(true);
+    flush();
+
+    expect([...registry.families].map((f) => f.id)).toEqual(["user:New"]);
+    expect(registry.loaded).toBe(true);
+  });
+
+  it("serializes behind an in-flight rescan so queue order decides publish order", async () => {
+    const rescanGate = deferred<UserFontFamily[]>();
+    mocks.getFonts.mockResolvedValueOnce([family("user:Initial")]);
+    mocks.rescanFonts.mockReturnValueOnce(rescanGate.promise);
+    mocks.getFonts.mockResolvedValueOnce([family("user:Reloaded")]);
+    const registry = new FontRegistry();
+    await registry.load();
+
+    const rescan = registry.rescan();
+    const reload = registry.reload();
+    await vi.waitFor(() => expect(mocks.rescanFonts).toHaveBeenCalledTimes(1));
+    // reload queued behind the in-flight rescan, so its GET has not started.
+    expect(mocks.getFonts).toHaveBeenCalledTimes(1);
+
+    rescanGate.resolve([family("user:Rescanned")]);
+    await expect(rescan).resolves.toBe(true);
+    await expect(reload).resolves.toBe(true);
+    flush();
+
+    expect(mocks.getFonts).toHaveBeenCalledTimes(2);
+    // reload was queued last, so its response publishes last.
+    expect([...registry.families].map((f) => f.id)).toEqual(["user:Reloaded"]);
+  });
+
+  it("returns false and keeps the list when the refetch fails", async () => {
+    mocks.getFonts.mockResolvedValueOnce([family("user:Kept")]);
+    const registry = new FontRegistry();
+    await registry.load();
+    flush();
+
+    mocks.getFonts.mockRejectedValueOnce(new Error("gone"));
+    await expect(registry.reload()).resolves.toBe(false);
+    flush();
+
+    expect([...registry.families].map((f) => f.id)).toEqual(["user:Kept"]);
+    expect(registry.loaded).toBe(true);
   });
 });

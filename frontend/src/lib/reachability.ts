@@ -9,9 +9,9 @@
  * /health poll) flips us back. The OfflineBanner subscribes to this so it
  * surfaces the moment a request can't reach the server, in any view.
  *
- * Deliberately framework-agnostic (no Svelte runes) so the API client can
- * import it without pulling in component/runtime concerns or risking import
- * cycles.
+ * Deliberately framework-agnostic (no framework imports) so the API client
+ * can import it without pulling in component/runtime concerns or risking
+ * import cycles.
  */
 
 type Listener = (reachable: boolean) => void;
@@ -25,6 +25,11 @@ export function isReachable(): boolean {
 
 function set(value: boolean): void {
   if (reachable === value) return;
+  // The write lands before notification, and listener exceptions propagate to
+  // the reporter by design: the API client reports from inside its own catch,
+  // and swallowing a listener bug here would hide it behind a network error
+  // and starve the listeners registered after it. Pinned by
+  // reachability.test.ts.
   reachable = value;
   for (const listener of listeners) listener(value);
 }

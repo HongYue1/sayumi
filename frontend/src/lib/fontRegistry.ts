@@ -5,6 +5,7 @@
 
 import { createSignal } from "solid-js";
 import { getFonts, rescanFonts, type UserFontFamily } from "~/api/client";
+import { subscribeReachability } from "~/lib/reachability";
 
 /** The "user:" prefix marks a family that lives in ./Fonts/ rather than embedded. */
 export const USER_FONT_PREFIX = "user:";
@@ -128,6 +129,39 @@ export class FontRegistry {
     });
   }
 
+  /**
+   * Re-fetches the family list without rescanning ./Fonts/. Every /fonts
+   * response carries the server's current user-font token, so this is also
+   * how a stale token gets replaced: the server re-mints it per process
+   * (internal/api/router.go), and a restart behind a surviving session would
+   * otherwise leave every user font URL 404ing. Keeps the previous list on
+   * failure, like rescan().
+   */
+  async reload(): Promise<boolean> {
+    return this.#enqueue(async () => {
+      try {
+        this.#publish(await getFonts(), true);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  /**
+   * Self-heal on reachability recovery. load()'s #loadedPlain early return is
+   * correct for boot, so the recovery edge routes around it — but only for a
+   * registry that HAS loaded: a never-loaded one keeps its existing retry
+   * semantics (the next load() caller retries). Returns the unsubscribe
+   * function.
+   */
+  watchReachability(): () => void {
+    return subscribeReachability((reachable) => {
+      if (!reachable || !this.#loadedPlain) return;
+      void this.reload();
+    });
+  }
+
   get(id: string): UserFontFamily | undefined {
     return this.families.find((f) => f.id === id);
   }
@@ -139,4 +173,7 @@ export class FontRegistry {
   }
 }
 
+// The app singleton. Its reachability watch is wired exactly once, at the
+// entry point (main.tsx) — never at module scope, so importing this module in
+// a test subscribes nothing.
 export const fontRegistry = new FontRegistry();

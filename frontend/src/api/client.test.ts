@@ -6,13 +6,18 @@ import {
   getFonts,
   rescanFonts,
   userFontUrl,
+  checkHealth,
 } from "~/api/client";
 import {
   advanceSessionEpoch,
   currentSessionEpoch,
   subscribeUnauthenticated,
 } from "~/lib/sessionGate";
-import { isReachable, reportReachable } from "~/lib/reachability";
+import {
+  isReachable,
+  reportReachable,
+  reportUnreachable,
+} from "~/lib/reachability";
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -287,5 +292,57 @@ describe("user font access token", () => {
     expect(userFontUrl("My Family", "Regular.woff2")).toBe(
       `${window.location.origin}/fonts/user/My%20Family/Regular.woff2?token=second-token`,
     );
+  });
+});
+
+describe("checkHealth", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    reportReachable();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    reportReachable();
+  });
+
+  it("reports reachable on a healthy answer", async () => {
+    reportUnreachable();
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: "ok" }));
+    await expect(checkHealth()).resolves.toBe(true);
+    expect(isReachable()).toBe(true);
+  });
+
+  it("reports unreachable when the server answers not-ok", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: "x" }, 503));
+    await expect(checkHealth()).resolves.toBe(false);
+    expect(isReachable()).toBe(false);
+    reportReachable();
+  });
+
+  it("treats its own timeout as inconclusive while reachable", async () => {
+    // A slow probe is not a dead server — same doctrine as request(). No
+    // report fires, and the banner's poll path keeps its previous verdict.
+    fetchMock.mockRejectedValueOnce(new DOMException("slow", "TimeoutError"));
+    await expect(checkHealth()).resolves.toBe(true);
+    expect(isReachable()).toBe(true);
+  });
+
+  it("keeps the unreachable verdict when a probe times out offline", async () => {
+    reportUnreachable();
+    fetchMock.mockRejectedValueOnce(new DOMException("slow", "TimeoutError"));
+    await expect(checkHealth()).resolves.toBe(false);
+    expect(isReachable()).toBe(false);
+    reportReachable();
+  });
+
+  it("still reports unreachable on a genuine connection failure", async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"));
+    await expect(checkHealth()).resolves.toBe(false);
+    expect(isReachable()).toBe(false);
+    reportReachable();
   });
 });

@@ -1016,7 +1016,14 @@ export async function checkHealth(): Promise<boolean> {
     if (res.ok) reportReachable();
     else reportUnreachable();
     return res.ok;
-  } catch {
+  } catch (error) {
+    // One timeout doctrine for both network paths: request() excludes timeouts
+    // from reachability because a slow attempt proves the server is slow, not
+    // gone — this probe's 5s bound is no different. Treat it as inconclusive:
+    // no report, and return the last known state so the OfflineBanner poll
+    // keeps its previous verdict instead of flipping over a loaded server. A
+    // genuine connection failure remains evidence of a down server.
+    if (isTimeoutError(error)) return isReachable();
     reportUnreachable();
     return false;
   }
