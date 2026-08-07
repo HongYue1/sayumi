@@ -5,9 +5,34 @@
 // matching accessor returns until the microtask flush. Every mutator below
 // therefore computes the next value once and reuses that local, rather than
 // writing and then re-reading (which would observe the pre-write value).
+// Measured at b49, not assumed: a write followed by an immediate read in
+// the same tick returns the pre-write value, and only flush() publishes it.
+//
+// One consequence is load-bearing elsewhere. Two handlers toggling the
+// palette on a single keydown both read the pre-write value, so both
+// compute the same next state and the second toggle is MASKED -- the
+// palette ends up open rather than flickering shut. Read.tsx keeps an
+// explicit single-ownership guard for Ctrl/Cmd+K anyway, because that
+// masking is silent; ui.test.ts pins it so a change in batching semantics
+// fails there first.
 import { createSignal } from "solid-js";
 
-function createUIState() {
+export interface UIState {
+  readonly palette: boolean;
+  readonly shortcuts: boolean;
+  togglePalette(): void;
+  openShortcuts(): void;
+  closeOverlays(): void;
+}
+
+/**
+ * Builds an independent overlay state. Exported for tests only: app code
+ * must use the `ui` singleton below, so every consumer shares one set of
+ * flags. A suite that reset the singleton by calling closeOverlays() would
+ * be deriving its fixture from a function under test -- which is exactly
+ * what the two component suites that touch this store have to do.
+ */
+export function createUIState(): UIState {
   const [palette, setPalette] = createSignal(false);
   const [shortcuts, setShortcuts] = createSignal(false);
 
@@ -43,4 +68,5 @@ function createUIState() {
   };
 }
 
+/** The one instance every component reads and mutates. */
 export const ui = createUIState();

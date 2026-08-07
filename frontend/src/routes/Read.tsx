@@ -1457,8 +1457,16 @@ export default function Read(props: Props) {
   }
 
   function handleWindowKey(e: KeyboardEvent): void {
-    // App's window handler owns Ctrl/Cmd+K on this path; handling it here too
-    // double-toggled the palette (open, then instantly closed).
+    // App's window handler owns Ctrl/Cmd+K on this path, and single ownership
+    // is deliberate -- but the justification that used to sit here (that
+    // handling it in both places double-toggled the palette, open then
+    // instantly closed) was Svelte-rune behaviour and does not hold for this
+    // build. Solid batches the write, so two handlers on one keydown both
+    // read the pre-write value, both compute the same next state, and the
+    // second toggle is MASKED: the palette ends up open. Probed at b49. The
+    // guard stays precisely because the double dispatch is now silent --
+    // lib/ui.test.ts pins the masked-open semantics so a change to them
+    // fails there instead of here.
     // handleKeyAction keeps its palette branch for iframe-forwarded keys,
     // which App never sees.
     if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) return;
