@@ -17,6 +17,19 @@ describe("onAccentColor", () => {
 
   it("falls back to white for malformed colors", () => {
     expect(onAccentColor("not-a-color")).toBe("#ffffff");
+    expect(onAccentColor("")).toBe("#ffffff");
+  });
+
+  it("accepts the hash-less and padded forms the flair badge rejects", () => {
+    // Shared contrast helper, deliberately different input tolerance: the
+    // custom-theme API allows both spellings here, while a flair badge only
+    // ever receives a canonical server color.
+    expect(onAccentColor("fff")).toBe("#000000");
+    expect(onAccentColor(" #fff ")).toBe("#000000");
+  });
+
+  it("keeps white as its fallback where the flair badge uses black", () => {
+    expect(onAccentColor("#GGG")).toBe("#ffffff");
   });
 });
 

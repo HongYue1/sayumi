@@ -1,4 +1,5 @@
 import type { FlairDef } from "~/api/client";
+import { prefersBlackText } from "~/lib/themes";
 
 // Built-in flairs live on the client (like the theme catalogue). Custom flairs
 // are created per-profile and fetched from the server.
@@ -37,30 +38,16 @@ export function findFlair(
   );
 }
 
-/** Chooses the higher-contrast opaque text color for a hex badge background. */
+/**
+ * Chooses the higher-contrast opaque text color for a hex badge background.
+ * The strict "#rgb"/"#rrggbb" test is deliberate: badge colors come from the
+ * server or CUSTOM_PALETTE and are always in that form, so anything else is
+ * unknown input and keeps this component's long-standing black default rather
+ * than being coerced. The contrast decision itself is shared with the app shell;
+ * the black fallback handed to prefersBlackText records the same policy for a
+ * color it cannot parse, though the test above already rules that case out.
+ */
 export function flairTextColor(background: string): "#000" | "#fff" {
-  const match = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(background);
-  if (!match) return "#000";
-
-  const hex =
-    match[1].length === 3
-      ? match[1]
-          .split("")
-          .map((digit) => digit + digit)
-          .join("")
-      : match[1];
-  const linearChannel = (offset: number): number => {
-    const value = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;
-    return value <= 0.04045
-      ? value / 12.92
-      : Math.pow((value + 0.055) / 1.055, 2.4);
-  };
-  const luminance =
-    0.2126 * linearChannel(0) +
-    0.7152 * linearChannel(2) +
-    0.0722 * linearChannel(4);
-  const blackContrast = (luminance + 0.05) / 0.05;
-  const whiteContrast = 1.05 / (luminance + 0.05);
-
-  return blackContrast >= whiteContrast ? "#000" : "#fff";
+  if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(background)) return "#000";
+  return prefersBlackText(background, true) ? "#000" : "#fff";
 }

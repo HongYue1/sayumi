@@ -4,6 +4,7 @@ import {
   getTheme,
   themeSurface,
   deriveSurface,
+  prefersBlackText,
   readableAccent,
 } from "~/lib/themes";
 
@@ -12,25 +13,11 @@ export { getTheme };
 /**
  * Picks the higher-contrast pure black or white for text/icons sitting on the
  * accent color. Accepts both hex forms allowed by the custom-theme API and
- * falls back to white for malformed colors.
+ * falls back to white for malformed colors. The contrast decision itself lives
+ * in lib/themes so this and the flair badge cannot drift apart.
  */
 export function onAccentColor(hex: string): string {
-  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return "#ffffff";
-  let h = m[1];
-  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
-  const n = parseInt(h, 16);
-  const toLinear = (c: number): number => {
-    const v = c / 255;
-    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-  };
-  const lum =
-    0.2126 * toLinear((n >> 16) & 0xff) +
-    0.7152 * toLinear((n >> 8) & 0xff) +
-    0.0722 * toLinear(n & 0xff);
-  const blackContrast = (lum + 0.05) / 0.05;
-  const whiteContrast = 1.05 / (lum + 0.05);
-  return blackContrast >= whiteContrast ? "#000000" : "#ffffff";
+  return prefersBlackText(hex, false) ? "#000000" : "#ffffff";
 }
 
 /** Reads the pre-paint theme cache without letting blocked storage break boot. */

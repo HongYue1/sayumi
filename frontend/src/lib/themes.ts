@@ -250,12 +250,13 @@ export const THEMES: ThemeDef[] = [
 const THEME_MAP = new Map(THEMES.map((t) => [t.id, t] as const));
 
 // Single source of truth for id -> theme resolution. O(1) Map lookup, falling
-// back to the first theme (light) for an unknown/empty id so every caller is
-// guaranteed a usable ThemeDef.
-const FALLBACK: ThemeDef = THEMES[0];
+// back to the light theme for an unknown/empty id so every caller is
+// guaranteed a usable ThemeDef. Resolved by id rather than by position so
+// reordering THEMES cannot silently repoint every unknown-id lookup.
+const FALLBACK: ThemeDef = THEME_MAP.get("light") ?? THEMES[0];
 
 // Runtime registry of user-created custom themes, keyed by id. Kept in sync by
-// customThemes.svelte.ts (setCustomThemes) after the backend list loads or
+// customThemes.ts (setCustomThemes) after the backend list loads or
 // changes, so a custom id resolves to a real ThemeDef everywhere built-ins do —
 // the app chrome (applyTheme) and, via the reader payload below, the frame —
 // without threading a store through every getTheme caller.
@@ -276,9 +277,11 @@ export function isBuiltInTheme(id: string): boolean {
   return THEME_MAP.has(id);
 }
 
-// ── Custom-theme color math ──
-// themes.ts stays import-free, so these small hex helpers are local rather than
-// shared with theme.ts (which imports from here, so importing back would cycle).
+// ── Color math ──
+// themes.ts imports nothing, which makes it the right home for the shared hex
+// helpers: theme.ts and flairs.ts both import from here, so the arrow only
+// ever points one way. Parsing and mixing stay private; the decisions callers
+// need (prefersBlackText, readableAccent, themeSurface) are exported.
 
 function parseHex(hex: string): [number, number, number] | null {
   const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
@@ -304,7 +307,12 @@ function mixHex(a: string, b: string, t: number): string {
   return `#${r}${g}${bl}`;
 }
 
-/** Relative luminance (WCAG) of a hex color, 0 (black) to 1 (white). */
+/**
+ * Relative luminance (WCAG) of a hex color, 0 (black) to 1 (white).
+ * An unparseable color yields 1, the lightest possible paper, so callers treat
+ * unknown input as light: themeGroupFor() groups it with the day themes and
+ * readableAccent() darkens against it rather than washing it out.
+ */
 function luminance(hex: string): number {
   const p = parseHex(hex);
   if (!p) return 1;
@@ -341,6 +349,18 @@ function contrastRatio(a: string, b: string): number {
 }
 
 /**
+ * Whether black text reads better than white on this color. The one home for
+ * that decision: the app shell (onAccentColor) and the flair badge
+ * (flairTextColor) both delegate here so the two cannot drift apart. Callers
+ * pass the answer they want for a color that cannot be parsed, because their
+ * historical defaults differ -- the shell assumes white ink, the badge black.
+ */
+export function prefersBlackText(color: string, fallback: boolean): boolean {
+  if (!parseHex(color)) return fallback;
+  return contrastRatio("#000000", color) >= contrastRatio("#ffffff", color);
+}
+
+/**
  * The accent, darkened/lightened just enough to read as TEXT on the theme's
  * background (WCAG AA, 4.5:1). Official palettes tune their accent for fills
  * and focus rings, and several (ayu light, solarized, rosé pine dawn) sit well
@@ -352,7 +372,16 @@ function contrastRatio(a: string, b: string): number {
 export function readableAccent(accent: string, bg: string): string {
   if (!parseHex(accent) || !parseHex(bg)) return accent;
   if (contrastRatio(accent, bg) >= 4.5) return accent;
-  const toward = luminance(bg) > 0.4 ? "#000000" : "#ffffff";
+  // Mix toward whichever endpoint actually contrasts more with this paper, not
+  // the one implied by the light/dark grouping. Those disagree over a mid-tone
+  // background: themeGroupFor() splits day from night at luminance 0.4, but
+  // black overtakes white as the readable ink at 0.179. Using the grouping
+  // pivot sent every background in between toward white, which then failed the
+  // guard below and returned bare white at as little as 2.4:1.
+  const toward = prefersBlackText(bg, true) ? "#000000" : "#ffffff";
+  // Defensive: black clears 4.5:1 from luminance 0.175 up and white from 0.183
+  // down, so the better endpoint always qualifies and this cannot trigger
+  // today. Kept so a future change to the endpoints degrades to best effort.
   if (contrastRatio(toward, bg) < 4.5) return toward;
   let lo = 0;
   let hi = 1;
