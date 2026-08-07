@@ -18,4 +18,9 @@ if (!target) throw new Error("#app root element not found");
 // token, not a client fix.
 fontRegistry.watchReachability();
 
+// The default export is the dispose function render() returns. Nothing
+// imports this module -- importing it IS mounting the app -- so the export
+// exists to keep that handle reachable: it is what a test drives the entry
+// point through, and the only way a future teardown or HMR path could unmount
+// cleanly instead of leaking the root.
 export default render(() => <App />, target);

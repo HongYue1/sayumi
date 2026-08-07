@@ -31,7 +31,19 @@ import ShortcutsHelp from "~/components/ShortcutsHelp";
 // palette doesn't hijack normal text entry.
 function onWindowKey(e: KeyboardEvent): void {
   if (!session.authenticated) return;
-  if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
+  // AltGr arrives as ctrlKey+altKey on Windows and most Linux layouts, where
+  // it is an ordinary character modifier: AltGr+K types a character on Polish,
+  // Croatian and Vietnamese layouts, and claiming it here would open the
+  // palette and swallow the keystroke. frame.ts:1302 already excludes it inside
+  // the book iframe; this is the parent-document half of the same rule. The
+  // "?" branch below deliberately does NOT exclude altKey -- AltGr is how "?"
+  // is typed on several layouts, so excluding it there would break the
+  // shortcut instead of protecting it.
+  if (
+    (e.ctrlKey || e.metaKey) &&
+    !e.altKey &&
+    (e.key === "k" || e.key === "K")
+  ) {
     e.preventDefault();
     ui.togglePalette();
     return;
@@ -40,8 +52,18 @@ function onWindowKey(e: KeyboardEvent): void {
   // files were never linted, but .tsx is, and no-unsafe-type-assertion is an
   // error here.
   const active = document.activeElement;
-  const tag = active instanceof HTMLElement ? active.tagName : "";
-  const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  const el = active instanceof HTMLElement ? active : null;
+  const tag = el === null ? "" : el.tagName;
+  // isContentEditable as well as the tag list: a rich-text region is a typing
+  // context under any tag name. Read.tsx:1449-1457 owns the same rule for the
+  // reader's own listener and already includes it. The shell has no editable
+  // region today, so this closes a divergence rather than a live bug -- but the
+  // divergence is the kind that only shows up once someone adds one.
+  const typing =
+    tag === "INPUT" ||
+    tag === "TEXTAREA" ||
+    tag === "SELECT" ||
+    (el !== null && el.isContentEditable);
   if (e.key === "?" && !typing && !e.ctrlKey && !e.metaKey) {
     e.preventDefault();
     ui.openShortcuts();
@@ -56,7 +78,22 @@ async function syncProfileOwnedState(profile: string | null): Promise<void> {
   // gets a chance to resolve the saved id against the complete registry. Keep
   // this tied to activation rather than a global theme effect: Library and Read
   // still own normal theme changes.
-  if (profile !== null && session.profile === profile && customThemes.loaded) {
+  //
+  // Both loads must have SUCCEEDED, not merely finished. settings.load()
+  // resolves on its failure path too (settings.ts:290-294) and leaves
+  // settings.value at the compile-time defaults, so applying it here paints
+  // `catppuccin` -- and because applyTheme persists whatever it paints into
+  // localStorage["sayumi:theme"] (theme.ts:117), that guess becomes what the
+  // pre-paint bootstrap in index.html replays on every later load. The user's
+  // real theme is gone from the only place that survives a failed request.
+  // Library.tsx:205-212 fixed exactly this on its own boot path; the copy here
+  // was left behind.
+  if (
+    profile !== null &&
+    session.profile === profile &&
+    customThemes.loaded &&
+    settings.loaded
+  ) {
     applyTheme(settings.value.theme);
   }
 }
@@ -77,6 +114,11 @@ export default function App() {
   // store generation-guards async work so a late response cannot publish into
   // the new profile. Closing global overlays on sign-out/session loss also
   // keeps stale commands and focus traps off the login screen.
+  //
+  // Library owns a second activation call (Library.tsx:203) because its child
+  // effects can run before this one after a full-page refresh. activate() is
+  // idempotent per profile (library.ts:273), so the duplication is ordering
+  // insurance rather than a race (X54).
   createEffect(
     () => session.profile,
     (profile) => {
@@ -97,10 +139,22 @@ export default function App() {
               <span class="sr-only">Loading…</span>
             </div>
           </Match>
+          {/* Two states standing in for three. `ready` flips in init()'s
+              finally clause even when the status request never reached the
+              server (session.ts:125-137), so a transport failure lands on the
+              login form rather than on a distinguishable "cannot tell" screen,
+              and the armed boot retry can then sign the user in from underneath
+              whoever is mid-PIN. OfflineBanner above is the only cue. Fixing it
+              means giving the session a real tri-state, which is session.ts's
+              call, not the shell's. */}
           <Match when={!session.authenticated}>
             <Login />
           </Match>
           <Match when={router.route.path === "/read/:id"}>
+            {/* `keyed` is the point here, not the guard: matchRoute only
+                produces this path with a non-empty id (router.ts:20-25), so
+                the Show cannot fall through. Keyed remounts Read on a new book
+                id instead of reusing the instance, which is what {#key} did. */}
             <Show when={router.route.params.id} keyed>
               {(id) => <Read bookId={id} />}
             </Show>

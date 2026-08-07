@@ -33,6 +33,7 @@ const stubs = vi.hoisted(() => ({
   state: {
     theme: "light",
     customLoaded: true,
+    settingsLoaded: true,
   },
 }));
 
@@ -40,6 +41,12 @@ vi.mock("~/lib/settings", () => ({
   settings: {
     get value() {
       return { theme: stubs.state.theme };
+    },
+    // The retry path gates on this as well as the registry's own flag: a
+    // settings load that failed leaves the defaults in place, and re-applying
+    // them would persist a guess (App.tsx:59, theme.ts:117).
+    get loaded(): boolean {
+      return stubs.state.settingsLoaded;
     },
     update: stubs.update,
   },
@@ -86,6 +93,7 @@ describe("ThemeDropdown", () => {
     document.body.appendChild(outside);
     stubs.state.theme = "light";
     stubs.state.customLoaded = true;
+    stubs.state.settingsLoaded = true;
     stubs.applyTheme.mockReset();
     stubs.update.mockReset();
     stubs.loadCustom.mockReset();
@@ -339,6 +347,25 @@ describe("ThemeDropdown", () => {
 
     expect(stubs.loadCustom).toHaveBeenCalledTimes(1);
     expect(stubs.applyTheme).toHaveBeenCalledWith("light");
+  });
+
+  it("retries the registry but leaves the theme alone when settings failed", async () => {
+    // The retry re-applies settings.value.theme, and applyTheme persists what
+    // it paints (theme.ts:117). A settings load that failed leaves the
+    // compile-time default in place, so re-applying it here would write that
+    // guess over the user's saved theme -- the App.tsx:59 defect, reachable
+    // from this button whenever one network blip took out both requests.
+    stubs.state.customLoaded = false;
+    stubs.state.settingsLoaded = false;
+    stubs.loadCustom.mockImplementation(async () => {
+      stubs.state.customLoaded = true;
+    });
+    await mount();
+    await openMenu();
+    await settle();
+
+    expect(stubs.loadCustom).toHaveBeenCalledTimes(1);
+    expect(stubs.applyTheme).not.toHaveBeenCalled();
   });
 
   it("does not re-fetch the registry when it is already loaded", async () => {
