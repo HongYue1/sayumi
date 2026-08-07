@@ -1272,8 +1272,15 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   function handleKeyDown(e: KeyboardEvent): void {
     if (destroyed) return;
 
+    // !e.altKey: AltGr arrives as ctrl+alt on Windows and most Linux
+    // layouts, where it types an ordinary character — suppressing the default
+    // here would kill that keystroke (a chapter can carry a contenteditable
+    // region: the sanitizer's attribute policy is a denylist, so the attribute
+    // survives into the frame). The paged-scroll suppression below already
+    // excludes altKey; the parent's palette branch (Read.tsx handleKeyAction)
+    // carries the same conjunct.
     const isPaletteShortcut =
-      (e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K");
+      (e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "k" || e.key === "K");
     if (isPaletteShortcut) e.preventDefault();
 
     if (!contentReady) {

@@ -1315,8 +1315,17 @@ export default function Read(props: Props) {
     ctrlKey?: boolean;
     metaKey?: boolean;
     shiftKey?: boolean;
+    altKey?: boolean;
   }): boolean {
-    if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
+    // !e.altKey: AltGr arrives as ctrl+alt on Windows and most Linux
+    // layouts, where it types an ordinary character — claiming the chord here
+    // opens the palette and steals the keystroke. App.tsx:44 carries the same
+    // conjunct for the shell path; frame.ts carries it for the browser default.
+    if (
+      (e.ctrlKey || e.metaKey) &&
+      !e.altKey &&
+      (e.key === "k" || e.key === "K")
+    ) {
       ui.togglePalette();
       return true;
     }
@@ -1369,7 +1378,10 @@ export default function Read(props: Props) {
       case "?":
         // The book renders in an iframe; once it has focus the window-level
         // handler in App never sees this key, so open the modal here
-        // (the iframe forwards keystrokes to handleKeyAction).
+        // (the iframe forwards keystrokes to handleKeyAction). Deliberately no
+        // altKey exclusion: AltGr/Option is how "?" is typed on several
+        // layouts, so guarding on it would silently remove the shortcut there
+        // (the shell path's reasoning, App.tsx:39-41).
         ui.openShortcuts();
         return true;
       case "Escape":

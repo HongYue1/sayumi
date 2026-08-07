@@ -9,6 +9,7 @@ import type {
 import type ChapterFrameReal from "~/components/reader/ChapterFrame";
 import Read from "~/routes/Read";
 import { settings } from "~/lib/settings";
+import { ui } from "~/lib/ui";
 
 type FrameProps = Parameters<typeof ChapterFrameReal>[0];
 
@@ -179,14 +180,18 @@ async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
 }
 
-function key(k: string, shiftKey = false): KeyEvent {
+function key(
+  k: string,
+  shiftKey = false,
+  mods: Partial<Pick<KeyEvent, "ctrlKey" | "altKey" | "metaKey">> = {},
+): KeyEvent {
   return {
     key: k,
     code: k,
-    ctrlKey: false,
+    ctrlKey: mods.ctrlKey ?? false,
     shiftKey,
-    altKey: false,
-    metaKey: false,
+    altKey: mods.altKey ?? false,
+    metaKey: mods.metaKey ?? false,
   };
 }
 
@@ -556,6 +561,39 @@ describe("Read keyboard", () => {
     frameHandler("onkey")(key("ArrowRight"));
     await settle();
     expect(frame.api.prevPage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Read keyboard: forwarded modifier facts", () => {
+  // The ui store is the real singleton in this file (not mocked): the palette
+  // and shortcuts branches are asserted on its state, and each test closes
+  // what it opened so later keyboard tests see a clean store.
+  beforeEach(() => {
+    ui.closeOverlays();
+  });
+  afterEach(() => {
+    ui.closeOverlays();
+  });
+
+  it("leaves the palette closed for a frame-forwarded ctrl+alt+k (AltGr)", async () => {
+    await bootReader();
+    frameHandler("onkey")(key("k", false, { ctrlKey: true, altKey: true }));
+    await settle();
+    expect(ui.palette).toBe(false);
+  });
+
+  it("opens the palette for a frame-forwarded ctrl+k", async () => {
+    await bootReader();
+    frameHandler("onkey")(key("k", false, { ctrlKey: true }));
+    await settle();
+    expect(ui.palette).toBe(true);
+  });
+
+  it("keeps the alt-tolerant ? shortcut: alt+? opens the shortcuts sheet", async () => {
+    await bootReader();
+    frameHandler("onkey")(key("?", false, { altKey: true }));
+    await settle();
+    expect(ui.shortcuts).toBe(true);
   });
 });
 
