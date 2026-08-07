@@ -13,7 +13,9 @@ export interface Route {
 
 export interface Router {
   readonly route: Route;
-  navigate(path: string): void;
+  /** False when the current hash already equals the path: no hashchange
+   *  fires, so the navigate is a no-op the caller may want to detect. */
+  navigate(path: string): boolean;
 }
 
 export function matchRoute(path: string): Route {
@@ -36,6 +38,21 @@ function parseHash(): Route {
   return matchRoute(window.location.hash.slice(1) || "/");
 }
 
+// Value equality for the route signal: parseHash builds a fresh object per
+// hashchange, and reference equality would publish identical routes to every
+// consumer. The option is SignalOptions.equals (@solidjs/signals), grounded
+// in the installed .d.ts, not memory. Shallow on params is exact today,
+// where routes carry at most { id }.
+function sameRoute(a: Route, b: Route): boolean {
+  if (a.path !== b.path) return false;
+  const aKeys = Object.keys(a.params);
+  const bKeys = Object.keys(b.params);
+  return (
+    aKeys.length === bKeys.length &&
+    aKeys.every((k) => a.params[k] === b.params[k])
+  );
+}
+
 /**
  * Builds a router over window.location.hash.
  *
@@ -45,7 +62,9 @@ function parseHash(): Route {
  * use `router` -- every extra instance attaches its own permanent listener.
  */
 export function createRouter(): Router {
-  const [route, setRoute] = createSignal<Route>(parseHash());
+  const [route, setRoute] = createSignal<Route>(parseHash(), {
+    equals: sameRoute,
+  });
 
   // App-lifetime singleton -- the listener lives as long as the document, so no
   // teardown is needed. The handler runs outside any reactive scope, so writing
@@ -56,8 +75,16 @@ export function createRouter(): Router {
     get route(): Route {
       return route();
     },
-    navigate(path: string): void {
+    navigate(path: string): boolean {
+      // Assigning the hash it already has fires no hashchange anywhere (the
+      // suite pins this), so the call would be a silent no-op. Report it
+      // instead of swallowing it: a caller whose intent is already satisfied
+      // (the SettingsPanel specimen button) runs its own fallback on false.
+      // The comparison is like-for-like — location.hash reads back raw, and
+      // the /read/ call sites pass encodeURIComponent'd paths.
+      if (window.location.hash.slice(1) === path) return false;
       window.location.hash = path;
+      return true;
     },
   };
 }

@@ -113,16 +113,11 @@ function set<K extends keyof UserSettings>(
 
 // Opens the built-in typography specimen in the reader so these settings can
 // be tuned against rich sample text. Navigation remounts the reader (App keys
-// it on the book id), which closes this panel -- except when the specimen is
-// already the open book: assigning the hash it already has fires no
-// hashchange, nothing remounts, and the button is a dead click. Close the
-// panel directly in that case so the specimen is actually visible.
+// it on the book id), which closes this panel. When the specimen is already
+// the open book the navigate is a no-op the router reports as false (no
+// hashchange fires — see lib/router.ts), so nothing remounts: close directly.
 function openSpecimen(onclose: () => void): void {
-  if (router.route.params.id === SPECIMEN_BOOK_ID) {
-    onclose();
-    return;
-  }
-  router.navigate(`/read/${SPECIMEN_BOOK_ID}`);
+  if (!router.navigate(`/read/${SPECIMEN_BOOK_ID}`)) onclose();
 }
 
 /** Numeric row with an "Auto" toggle for nullable settings. */

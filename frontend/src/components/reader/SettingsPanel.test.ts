@@ -41,7 +41,7 @@ const api = vi.hoisted(() => ({
 }));
 const applyTheme = vi.hoisted(() => vi.fn<(id: string) => void>());
 const showToast = vi.hoisted(() => vi.fn<(message: string) => void>());
-const navigate = vi.hoisted(() => vi.fn<(path: string) => void>());
+const navigate = vi.hoisted(() => vi.fn<(path: string) => boolean>());
 const rescanFonts = vi.hoisted(() => vi.fn<() => Promise<boolean>>());
 
 /** Test-owned state the fakes read; reset in beforeEach. */
@@ -527,7 +527,9 @@ describe("reader settings panel", () => {
     expect(settings.value.fontRoles).toEqual({});
   });
 
-  it("closes instead of re-navigating when the specimen is already open", async () => {
+  it("closes on the router's no-op report when the specimen is already open", async () => {
+    navigate.mockReset();
+    navigate.mockReturnValue(true);
     mount();
     await settle();
     el(".stp-specimen").click();
@@ -540,11 +542,15 @@ describe("reader settings panel", () => {
       path: `/read/${SPECIMEN_BOOK_ID}`,
       params: { id: SPECIMEN_BOOK_ID },
     };
+    // Already on the specimen: the real router reports the same-hash navigate
+    // as false (no hashchange fires), and the false return drives the close —
+    // navigate is still called, so the count moves to 2 across both arms.
+    navigate.mockReturnValue(false);
     mount();
     await settle();
     el(".stp-specimen").click();
     flush();
-    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledTimes(2);
     expect(onclose).toHaveBeenCalledTimes(1);
   });
 
