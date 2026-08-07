@@ -533,7 +533,8 @@ export default function Login() {
               <p class="login-muted" tabindex={-1} ref={focusIfReturned}>
                 Choose a profile to continue
               </p>
-              <ul class="login-profiles" aria-label="Profiles">
+              {/* eslint-disable jsx-a11y/no-redundant-roles -- Safari and VoiceOver drop list semantics from a ul styled list-style: none, which .login-profiles is; the role keeps the aria-label attached to a list. */}
+              <ul class="login-profiles" role="list" aria-label="Profiles">
                 <For each={profiles()}>
                   {(p, i) => {
                     // Read the index ONCE. createMemo is eager and i() in the

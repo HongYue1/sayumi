@@ -465,7 +465,7 @@ export default function ProfileDialog(props: Props) {
             </button>
             <button
               type="submit"
-              class={props.mode === "delete" ? "btn-del press" : "btn press"}
+              class={props.mode === "delete" ? "pd-btn-del press" : "btn press"}
               disabled={!canSubmit()}
             >
               {props.mode === "clone"

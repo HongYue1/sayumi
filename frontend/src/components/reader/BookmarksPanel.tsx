@@ -163,7 +163,8 @@ export default function BookmarksPanel(props: Props) {
             </p>
           }
         >
-          <ul class="bmp-items">
+          {/* eslint-disable jsx-a11y/no-redundant-roles -- Safari and VoiceOver drop list semantics from a ul styled list-style: none, which .bmp-items is; the bookmarks would otherwise not be announced as a list. */}
+          <ul class="bmp-items" role="list">
             <For each={sorted()}>
               {(bm) => (
                 <li class="bmp-item">

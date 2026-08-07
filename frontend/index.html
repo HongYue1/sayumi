@@ -42,8 +42,10 @@
     <!-- Pre-paint theme bootstrap: apply the last-used theme's cached tokens
          before the app (and its server settings) load, so a reload doesn't
          flash the default light theme. Inline element styles override app.css
-         :root defaults; no-ops safely when storage is empty/blocked. This is
-         the app shell, not the sandboxed reader iframe — its CSP is untouched. -->
+         :root defaults; no-ops safely when storage is empty or blocked, and
+         a malformed cache is refused whole — the same shape check applyCachedTheme
+         runs in lib/theme.ts. This is the app shell, not the sandboxed reader
+         iframe — its CSP is untouched. -->
     <script>
       (function () {
         try {
@@ -51,15 +53,30 @@
             localStorage.getItem("sayumi:theme-vars") || "null",
           );
           if (!v) return;
+          // The writer (applyTheme, lib/theme.ts) always stores the full shape;
+          // a cache missing or mistyping a core token is corrupt or stale, and
+          // painting it would hold broken vars until the settings load lands.
+          if (
+            typeof v.bg !== "string" ||
+            typeof v.fg !== "string" ||
+            typeof v.accent !== "string" ||
+            typeof v.accentFg !== "string" ||
+            typeof v.scheme !== "string"
+          ) {
+            return;
+          }
           var s = document.documentElement.style;
           s.setProperty("--bg", v.bg);
           s.setProperty("--fg", v.fg);
           s.setProperty("--accent", v.accent);
           s.setProperty("--accent-fg", v.accentFg);
+          // Older caches predate these two tokens; the :root fallbacks
+          // cover first paint, and the settings load applies the real values.
           if (v.elevated) s.setProperty("--elevated", v.elevated);
           if (v.accentInk) s.setProperty("--accent-ink", v.accentInk);
           s.colorScheme = v.scheme;
-          if (v.id) document.documentElement.dataset.theme = v.id;
+          if (typeof v.id === "string")
+            document.documentElement.dataset.theme = v.id;
         } catch (e) {}
       })();
     </script>

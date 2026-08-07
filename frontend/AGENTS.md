@@ -60,6 +60,10 @@ global, and vite's node-shebang bin would otherwise spawn real node.
 - **Router hash parsing is defensive.** A malformed percent-encoded book ID in
   `#/read/<id>` is an invalid route and falls back to the library — never a crash
   or a stuck reader.
+- **A list styled `list-style: none` keeps `role="list"`**, behind a one-line
+  `eslint-disable jsx-a11y/no-redundant-roles -- …` comment (the TocPanel shape):
+  Safari/VoiceOver drop the semantics, and a config-level exception would hide
+  the next instance.
 
 ## Testing
 

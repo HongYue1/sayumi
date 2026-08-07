@@ -517,7 +517,7 @@ export default function SearchPanel(props: Props) {
               : undefined
           }
         />
-        <span class="srp-live-count" aria-live="polite" aria-atomic="true">
+        <span class="sr-only" aria-live="polite" aria-atomic="true">
           {countText()}
         </span>
         <Show when={countText()}>

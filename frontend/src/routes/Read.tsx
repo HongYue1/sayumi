@@ -1685,7 +1685,7 @@ export default function Read(props: Props) {
               <span class="rdp-loading-mark" aria-hidden="true">
                 ❦
               </span>
-              <span class="rdp-sr-only">Loading chapter…</span>
+              <span class="sr-only">Loading chapter…</span>
             </div>
           </Show>
 
