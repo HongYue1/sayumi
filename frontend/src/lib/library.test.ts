@@ -1,29 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import type * as ApiClient from "~/api/client";
 import { flush } from "solid-js";
 import type { BookMeta } from "~/api/client";
+import {
+  libraryApi as mocks,
+  restoreRealTimersWithoutLeaks,
+} from "~/test/library-harness";
 
-const mocks = vi.hoisted(() => ({
-  getBooks: vi.fn(),
-  uploadBook: vi.fn(),
-  updateBookMeta: vi.fn(),
-  uploadCover: vi.fn(),
-  deleteBook: vi.fn(),
-  rescanLibrary: vi.fn(),
-  getFlairs: vi.fn(),
-  createFlair: vi.fn(),
-  deleteFlair: vi.fn(),
-  setBookFlair: vi.fn(),
-  toast: vi.fn(),
-  reachable: vi.fn(),
-}));
-
-vi.mock("~/api/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof ApiClient>();
-  return { ...actual, ...mocks };
-});
-vi.mock("~/lib/toast", () => ({ toast: { show: mocks.toast } }));
-vi.mock("~/lib/reachability", () => ({ isReachable: mocks.reachable }));
+const toast = vi.hoisted(() => vi.fn());
+vi.mock("~/lib/toast", () => ({ toast: { show: toast } }));
 
 const { Library } = await import("~/lib/library");
 
@@ -72,10 +56,9 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.resetAllMocks();
   mocks.getFlairs.mockResolvedValue([]);
-  mocks.reachable.mockReturnValue(true);
 });
 afterEach(() => {
-  vi.useRealTimers();
+  restoreRealTimersWithoutLeaks();
 });
 
 describe("library.visible (filter + sort)", () => {
@@ -106,6 +89,10 @@ describe("library.visible (filter + sort)", () => {
     store.setQuery("dune"); // not yet debounced
     flush();
     expect(store.visible).toHaveLength(2);
+
+    // The assertion deliberately stops inside the debounce window. End the
+    // store lifecycle through its real cancellation path before the leak guard.
+    store.activate("cleanup");
   });
 
   // Two toggles in one tick also cover the draft-mutation fix: a
@@ -290,7 +277,7 @@ describe("library.setFlair", () => {
     flush();
 
     expect(store.books[0].flairId).toBeUndefined();
-    expect(mocks.toast).toHaveBeenCalledWith("Could not update flair");
+    expect(toast).toHaveBeenCalledWith("Could not update flair");
   });
 
   // The fallback above is only half the contract. A message the server authored
@@ -310,7 +297,7 @@ describe("library.setFlair", () => {
     flush();
 
     expect(store.books[0].flairId).toBeUndefined();
-    expect(mocks.toast).toHaveBeenCalledWith("Flair no longer exists");
+    expect(toast).toHaveBeenCalledWith("Flair no longer exists");
   });
 
   it("does not roll back over a newer overlapping change", async () => {
@@ -351,7 +338,7 @@ describe("library.editMetadata", () => {
     flush();
 
     expect(store.books[0].title).toBe("Old");
-    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalled();
   });
 
   it("reconciles the server record without wiping reader-owned fields", async () => {
@@ -557,7 +544,7 @@ describe("library.uploadFiles", () => {
     flush();
 
     expect(mocks.uploadBook).toHaveBeenCalledTimes(1);
-    expect(mocks.toast).toHaveBeenCalledWith(
+    expect(toast).toHaveBeenCalledWith(
       expect.stringContaining("Still importing"),
     );
   });
@@ -580,7 +567,7 @@ describe("library.uploadFiles", () => {
     await store.uploadFiles([epub(), epub(), epub()]);
     flush();
 
-    const messages = mocks.toast.mock.calls.map((c) => c[0]);
+    const messages = toast.mock.calls.map((c) => c[0]);
     expect(messages).toContain("Added 2 books");
     expect(messages).toContain("1 file failed to import");
     expect(store.uploading).toBe(false);
@@ -606,7 +593,7 @@ describe("library.uploadFiles", () => {
     await store.uploadFiles([epub(), epub()]);
     flush();
 
-    const messages = mocks.toast.mock.calls.map((c) => c[0]);
+    const messages = toast.mock.calls.map((c) => c[0]);
     expect(messages).toContain("Added 1 book");
     expect(messages).toContain("1 book was already in the library");
     expect(messages).not.toContain("Added 2 books");
@@ -623,7 +610,7 @@ describe("library.rescan", () => {
     await store.rescan();
 
     expect(mocks.getBooks).toHaveBeenCalledTimes(1);
-    expect(mocks.toast).toHaveBeenCalledWith("No new books found");
+    expect(toast).toHaveBeenCalledWith("No new books found");
   });
 
   it("ignores a same-tick second rescan silently", async () => {
@@ -635,7 +622,7 @@ describe("library.rescan", () => {
     await store.rescan();
 
     expect(mocks.rescanLibrary).toHaveBeenCalledTimes(1);
-    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalled();
   });
 
   // A scan that stopped partway still committed what it reports, so the store
@@ -653,7 +640,7 @@ describe("library.rescan", () => {
     await store.rescan();
 
     expect(mocks.getBooks).toHaveBeenCalledTimes(1);
-    expect(mocks.toast).toHaveBeenCalledWith(
+    expect(toast).toHaveBeenCalledWith(
       "Rescan incomplete: added 2, refreshed 1 before it stopped",
     );
     expect(store.rescanning).toBe(false);
@@ -848,7 +835,7 @@ describe("library.addCustomFlair (M2)", () => {
     const store = await seed([]);
     mocks.createFlair.mockRejectedValueOnce(new Error("offline"));
     await expect(store.addCustomFlair("Favourites")).resolves.toBeNull();
-    expect(mocks.toast).toHaveBeenCalled();
+    expect(toast).toHaveBeenCalled();
     expect(store.customFlairs).toHaveLength(0);
   });
 

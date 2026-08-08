@@ -77,3 +77,7 @@ global, and vite's node-shebang bin would otherwise spawn real node.
 
 Vitest with happy-dom, beside the code. `bun run check` must be clean — type and a11y
 findings are gate failures, not warnings.
+
+- The store and route library suites share `src/test/library-harness.ts`. Keep
+  their transport doubles there, never mock reachability as a proxy for client
+  internals, and finish each fake clock with its pending-timer assertion.

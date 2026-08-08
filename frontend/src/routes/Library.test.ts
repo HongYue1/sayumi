@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createComponent, flush } from "solid-js";
 import { render } from "@solidjs/web";
-import type * as ApiClient from "~/api/client";
-import type { FlairDef } from "~/api/client";
-import LibraryRoute from "~/routes/Library";
-import { library, SORT_OPTIONS } from "~/lib/library";
+import type { BookMeta, FlairDef } from "~/api/client";
+import {
+  libraryApi as api,
+  restoreRealTimersWithoutLeaks,
+} from "~/test/library-harness";
 
 // The route's own wiring is what is under test here, so every child component
 // is a null stub and every singleton the route reaches for is a controllable
@@ -12,19 +13,6 @@ import { library, SORT_OPTIONS } from "~/lib/library";
 // row and the no-results branch all read real derived state, and stubbing the
 // store would make those assertions vacuous. It is driven through the mocked
 // transport instead.
-const api = vi.hoisted(() => ({
-  getBooks: vi.fn(),
-  getFlairs: vi.fn(),
-  createFlair: vi.fn(),
-  deleteFlair: vi.fn(),
-  setBookFlair: vi.fn(),
-  uploadBook: vi.fn(),
-  updateBookMeta: vi.fn(),
-  uploadCover: vi.fn(),
-  deleteBook: vi.fn(),
-  rescanLibrary: vi.fn(),
-}));
-
 const applyTheme = vi.hoisted(() => vi.fn());
 const navigate = vi.hoisted(() => vi.fn());
 const showToast = vi.hoisted(() => vi.fn());
@@ -45,22 +33,11 @@ const sessionStub = vi.hoisted(() => ({ profile: "p" as string | null }));
 // the only way to stop one test's state leaking into the next.
 let profileSeq = 0;
 
-vi.mock("~/api/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof ApiClient>();
-  return { ...actual, ...api };
-});
 vi.mock("~/lib/settings", () => ({ settings: settingsStub }));
 vi.mock("~/lib/session", () => ({ session: sessionStub }));
 vi.mock("~/lib/theme", () => ({ applyTheme }));
 vi.mock("~/lib/router", () => ({ router: { navigate } }));
 vi.mock("~/lib/toast", () => ({ toast: { show: showToast } }));
-vi.mock("~/lib/reachability", () => ({
-  isReachable: () => true,
-  reportReachable: () => {},
-  reportUnreachable: () => {},
-  subscribeReachability: () => () => {},
-}));
-
 vi.mock("~/components/library/BookCard", () => ({ default: () => null }));
 vi.mock("~/components/library/ThemeDropdown", () => ({ default: () => null }));
 vi.mock("~/components/library/ProfileMenu", () => ({ default: () => null }));
@@ -70,9 +47,10 @@ vi.mock("~/components/library/EditBookDialog", () => ({
 }));
 vi.mock("~/components/library/ShareDialog", () => ({ default: () => null }));
 
-function book(
-  p: Partial<ApiClient.BookMeta> & { id: string; title: string },
-): ApiClient.BookMeta {
+const { default: LibraryRoute } = await import("~/routes/Library");
+const { library, SORT_OPTIONS } = await import("~/lib/library");
+
+function book(p: Partial<BookMeta> & { id: string; title: string }): BookMeta {
   return {
     author: "",
     language: "",
@@ -147,7 +125,7 @@ afterEach(() => {
   }
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
-  vi.useRealTimers();
+  restoreRealTimersWithoutLeaks();
 });
 
 describe("Library route: theme on boot (H1)", () => {
