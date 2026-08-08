@@ -65,15 +65,12 @@ export default function BookCard(props: Props) {
   let flairBtn: HTMLButtonElement | undefined;
   let actionsBtn: HTMLButtonElement | undefined;
   let menuEl: HTMLDivElement | undefined;
-  // The trigger that owns a popover, and the card's other chip. Plain lookups,
-  // not memos: both are read from effect apply phases, which are untracked
-  // scopes where a memo read logs STRICT_READ_UNTRACKED (see Read.tsx).
+  let overlayEl: HTMLButtonElement | undefined;
+  // The trigger that owns a popover. A plain lookup, not a memo: it is
+  // read from effect apply phases, which are untracked scopes where a memo
+  // read logs STRICT_READ_UNTRACKED (see Read.tsx).
   const triggerFor = (menu: MenuKind | null): HTMLButtonElement | undefined =>
     menu === "flair" ? flairBtn : menu === "actions" ? actionsBtn : undefined;
-  const peerTriggerFor = (
-    menu: MenuKind | null,
-  ): HTMLButtonElement | undefined =>
-    menu === "flair" ? actionsBtn : menu === "actions" ? flairBtn : undefined;
   // Stable popover ids so each chip can point at the menu it owns.
   const flairMenuId = (): string => `bc-flair-menu-${props.book.id}`;
   const actionsMenuId = (): string => `bc-actions-menu-${props.book.id}`;
@@ -99,6 +96,19 @@ export default function BookCard(props: Props) {
     // Drop the stale node so a queued focus can't land in a closed popover.
     menuEl = undefined;
     if (restoreFocus) trigger?.focus();
+  }
+
+  // Focus-out dismissal, the ProfileMenu/ThemeDropdown shape: focus leaving
+  // the card for good closes the menu without a focus restore. A null
+  // relatedTarget is the window itself losing focus (a blur or devtools), not
+  // a leave — the menu stays.
+  function onCardFocusOut(
+    e: FocusEvent & { currentTarget: HTMLDivElement },
+  ): void {
+    const next = e.relatedTarget;
+    if (!(next instanceof Node)) return;
+    if (e.currentTarget.contains(next)) return;
+    closeMenu(false);
   }
 
   function chooseEdit(e: MouseEvent): void {
@@ -146,9 +156,17 @@ export default function BookCard(props: Props) {
   // block for `position: fixed` descendants — a "fixed inset:0" scrim was
   // clipped to the card box, so only clicks ON the card closed the menu, and
   // Escape was missed whenever focus sat on the trigger (a sibling of the
-  // menu, so its keydown never bubbled to the menu's handler). The
-  // capture-phase click also swallows the dismissing click (like the old
-  // scrim) so it doesn't fall through and open a book.
+  // menu, so its keydown never bubbled to the menu's handler).
+  //
+  // The doctrine, shared with every other menu in the app (Library's sort
+  // menu, ProfileMenu, ThemeDropdown, the reader's more menu): an outside
+  // click closes the menu AND lands on its target — one activation, never a
+  // dead first click. One principled exception: the card's own open-book
+  // overlay sits directly beneath the open menu and is one giant activation
+  // target, so a click there keeps the swallow — dismissing the menu must not
+  // also open the book. The listener stays a capture-phase click because that
+  // is the only phase that can preempt the overlay's own onClick; the other
+  // menus sit on inert backgrounds, so their pointerdown pass-through suffices.
   // Compute/apply pair: single-argument createEffect is a one-shot in
   // Solid 2.0 and silently drops the returned cleanup (MISSING_EFFECT_FN),
   // so these window listeners would never attach on open.
@@ -157,25 +175,16 @@ export default function BookCard(props: Props) {
     (menu) => {
       if (!menu) return undefined;
       const trigger = triggerFor(menu);
-      const peer = peerTriggerFor(menu);
       const onWindowClick = (e: MouseEvent): void => {
         const t = e.target;
-        if (
-          menuEl?.contains(t as Node | null) ||
-          trigger?.contains(t as Node | null)
-        )
-          return;
-        // The card's other chip is a menu switch, not a dismissal: close this
-        // menu but let the click through to that chip's own handler so it opens
-        // in the same activation. Swallowing it here cost a second activation —
-        // including a second Enter, since activating a button dispatches a
-        // click through this very capture listener.
-        if (peer?.contains(t as Node | null)) {
-          closeMenu(false);
-          return;
+        if (!(t instanceof Node)) return;
+        if (menuEl?.contains(t) || trigger?.contains(t)) return;
+        // The one swallow: the open-book overlay beneath the menu. Everything
+        // else — the peer chip included — closes and lets the click land.
+        if (overlayEl?.contains(t)) {
+          e.preventDefault();
+          e.stopPropagation();
         }
-        e.preventDefault();
-        e.stopPropagation();
         closeMenu(false);
       };
       const onWindowKeyDown = (e: KeyboardEvent): void => {
@@ -312,12 +321,14 @@ export default function BookCard(props: Props) {
     <div
       class="bc-card"
       role="listitem"
+      onFocusOut={onCardFocusOut}
       style={{ "--enter-delay": `${enterDelay}ms` }}
     >
       {/* A real button carries native Enter/Space + focus semantics for "open",
 			     so the card no longer nests action buttons inside a role="button". */}
       <button
         type="button"
+        ref={overlayEl}
         class="bc-open-overlay"
         aria-label={`Open ${props.book.title}`}
         onClick={() => props.onopen(props.book.id)}

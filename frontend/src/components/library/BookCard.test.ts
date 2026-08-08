@@ -352,6 +352,74 @@ describe("BookCard", () => {
     expect(opened).toEqual(["bk-1"]);
   });
 
+  it("lets an outside click land on its target while closing the menu", async () => {
+    mount();
+    await settle();
+    // The pass-through doctrine: only the card's own open-book overlay
+    // swallows the dismissing click; every other target activates.
+    const probe = document.createElement("button");
+    let landed = 0;
+    probe.addEventListener("click", () => {
+      landed += 1;
+    });
+    document.body.appendChild(probe);
+    try {
+      gear().click();
+      await settle();
+      probe.click();
+      await settle();
+      expect(menu()).toBeNull();
+      expect(landed).toBe(1);
+    } finally {
+      probe.remove();
+    }
+  });
+
+  it("closes the menu when focus leaves the card", async () => {
+    mount();
+    await settle();
+    gear().click();
+    await settle();
+    // Focus-out dismissal is a statement about where focus went, so
+    // relatedTarget has to be a live node outside the card.
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    try {
+      items()[0].dispatchEvent(
+        new FocusEvent("focusout", { bubbles: true, relatedTarget: outside }),
+      );
+      await settle();
+      expect(menu()).toBeNull();
+    } finally {
+      outside.remove();
+    }
+  });
+
+  it("stays open when the window itself loses focus", async () => {
+    mount();
+    await settle();
+    gear().click();
+    await settle();
+    // A null relatedTarget is a window blur, not a leave — the menu stays.
+    items()[0].dispatchEvent(
+      new FocusEvent("focusout", { bubbles: true, relatedTarget: null }),
+    );
+    await settle();
+    expect(menu()).not.toBeNull();
+  });
+
+  it("stays open on focus moves within the card", async () => {
+    mount();
+    await settle();
+    gear().click();
+    await settle();
+    items()[0].dispatchEvent(
+      new FocusEvent("focusout", { bubbles: true, relatedTarget: chip() }),
+    );
+    await settle();
+    expect(menu()).not.toBeNull();
+  });
+
   it("points each chip at the popover it owns", async () => {
     mount();
     await settle();

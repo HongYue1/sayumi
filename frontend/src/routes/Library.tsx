@@ -124,8 +124,11 @@ export default function Library() {
 
   // Dismiss on outside pointerdown. A fixed scrim can't be used here: the
   // sticky bar's backdrop-filter establishes a containing block, which would
-  // clip it to the bar box. A window listener is container-proof, matching
-  // ThemeDropdown / ProfileMenu / BookCard.
+  // clip it to the bar box. A window listener is container-proof — and the
+  // pass-through doctrine (an outside click closes the menu AND lands on its
+  // target) is shared with every menu: ThemeDropdown, ProfileMenu, the
+  // reader's more menu, and since b59 BookCard (whose only swallow is its own
+  // open-book overlay).
   function onSortOutside(e: PointerEvent): void {
     // Narrow, don't cast -- ThemeDropdown.tsx:80 uses exactly this guard. The
     // cast form lied to the compiler: a non-Element target (shadow-DOM
