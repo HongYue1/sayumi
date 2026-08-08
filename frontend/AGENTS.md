@@ -64,6 +64,11 @@ global, and vite's node-shebang bin would otherwise spawn real node.
   `eslint-disable jsx-a11y/no-redundant-roles -- …` comment (the TocPanel shape):
   Safari/VoiceOver drop the semantics, and a config-level exception would hide
   the next instance.
+- **Every `<Icon>` declares exactly one accessibility intent.** Use `label` for a
+  meaningful standalone image, `decorative` beside exposed text or outside a control,
+  and `labelFromParent` only for an icon-only control that owns a non-empty
+  `aria-label` or `aria-labelledby`. The development audit warns when the declared
+  parent contract and the rendered accessible-name source disagree.
 
 ## Testing
 

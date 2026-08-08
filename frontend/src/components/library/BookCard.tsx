@@ -409,7 +409,7 @@ export default function BookCard(props: Props) {
         aria-controls={openMenu() === "actions" ? actionsMenuId() : undefined}
         onClick={toggleActions}
       >
-        <Icon icon={Settings} size={15} />
+        <Icon icon={Settings} size={15} labelFromParent />
       </button>
       <button
         type="button"
@@ -422,7 +422,7 @@ export default function BookCard(props: Props) {
         aria-controls={openMenu() === "flair" ? flairMenuId() : undefined}
         onClick={toggleFlair}
       >
-        <Icon icon={Tag} size={15} />
+        <Icon icon={Tag} size={15} labelFromParent />
       </button>
 
       {/* Catalog caption beneath the volume. */}
@@ -481,7 +481,7 @@ export default function BookCard(props: Props) {
                   <span class="bc-menu-label">{f.label}</span>
                   <Show when={isActive()}>
                     <span class="bc-check" aria-hidden="true">
-                      <Icon icon={Check} size={15} />
+                      <Icon icon={Check} size={15} decorative />
                     </span>
                   </Show>
                 </button>
@@ -513,7 +513,7 @@ export default function BookCard(props: Props) {
             onClick={chooseEdit}
           >
             <span class="bc-menu-ico" aria-hidden="true">
-              <Icon icon={Pencil} size={15} />
+              <Icon icon={Pencil} size={15} decorative />
             </span>
             <span class="bc-menu-label">Edit</span>
           </button>
@@ -525,7 +525,7 @@ export default function BookCard(props: Props) {
             onClick={chooseShare}
           >
             <span class="bc-menu-ico" aria-hidden="true">
-              <Icon icon={Share2} size={15} />
+              <Icon icon={Share2} size={15} decorative />
             </span>
             <span class="bc-menu-label">Share</span>
           </button>
@@ -537,7 +537,7 @@ export default function BookCard(props: Props) {
             onClick={chooseDelete}
           >
             <span class="bc-menu-ico" aria-hidden="true">
-              <Icon icon={Trash2} size={15} />
+              <Icon icon={Trash2} size={15} decorative />
             </span>
             <span class="bc-menu-label">Delete</span>
           </button>

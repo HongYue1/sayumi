@@ -414,7 +414,7 @@ export default function TocPanel(props: Props) {
           onClick={props.onclose}
           aria-label="Close table of contents"
         >
-          <Icon icon={X} size={18} />
+          <Icon icon={X} size={18} labelFromParent />
         </button>
       </header>
       <Show
@@ -444,7 +444,7 @@ export default function TocPanel(props: Props) {
               onClick={clearQuery}
               aria-label="Clear filter"
             >
-              <Icon icon={X} size={16} />
+              <Icon icon={X} size={16} labelFromParent />
             </button>
           </Show>
         </div>

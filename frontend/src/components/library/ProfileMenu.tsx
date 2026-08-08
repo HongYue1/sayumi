@@ -211,11 +211,11 @@ export default function ProfileMenu(props: Props) {
         aria-label={`Profile: ${session.profile ?? ""}`}
         onClick={toggle}
       >
-        <Icon icon={User} size={15} class="pm-who-icon" />
+        <Icon icon={User} size={15} class="pm-who-icon" decorative />
         <span class="pm-who" title={session.profile ?? ""}>
           {session.profile}
         </span>
-        <Icon icon={ChevronDown} size={14} class="pm-caret" />
+        <Icon icon={ChevronDown} size={14} class="pm-caret" decorative />
       </button>
 
       <Show when={open()}>
@@ -233,7 +233,7 @@ export default function ProfileMenu(props: Props) {
             tabindex="0"
             onClick={() => pick(props.onclone)}
           >
-            <Icon icon={Copy} size={16} />
+            <Icon icon={Copy} size={16} decorative />
             Clone profile…
           </button>
           <button
@@ -242,7 +242,7 @@ export default function ProfileMenu(props: Props) {
             tabindex="-1"
             onClick={() => pick(props.ondelete)}
           >
-            <Icon icon={Trash2} size={16} />
+            <Icon icon={Trash2} size={16} decorative />
             Delete profile…
           </button>
           <hr class="pm-sep" aria-hidden="true" />
@@ -252,7 +252,7 @@ export default function ProfileMenu(props: Props) {
             tabindex="-1"
             onClick={() => pick(signOut)}
           >
-            <Icon icon={LogOut} size={16} />
+            <Icon icon={LogOut} size={16} decorative />
             Sign out
           </button>
         </div>

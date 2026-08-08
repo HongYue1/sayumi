@@ -165,7 +165,7 @@ export default function OfflineBanner() {
       </div>
       <Show when={offline()}>
         <div class="offline-banner">
-          <Icon icon={WifiOff} size={15} />
+          <Icon icon={WifiOff} size={15} decorative />
           Server unreachable
           {/* aria-disabled rather than disabled: a probe is bounded at 5s and
               a real disabled attribute would blur the button the user just

@@ -399,9 +399,9 @@ export default function Library() {
             aria-label={`Sort by (current: ${sortLabel()})`}
             onClick={() => setSortOpen(!sortOpen())}
           >
-            <Icon icon={ArrowUpDown} size={15} />
+            <Icon icon={ArrowUpDown} size={15} decorative />
             <span class="lib-sort-label">{sortLabel()}</span>
-            <Icon icon={ChevronDown} size={14} class="caret" />
+            <Icon icon={ChevronDown} size={14} class="caret" decorative />
           </button>
           <Show when={sortOpen()}>
             <div
@@ -432,7 +432,7 @@ export default function Library() {
                     <span class="lib-sort-item-label">{opt.label}</span>
                     <Show when={active()}>
                       <span class="lib-check" aria-hidden="true">
-                        <Icon icon={Check} size={15} />
+                        <Icon icon={Check} size={15} decorative />
                       </span>
                     </Show>
                   </button>
@@ -458,6 +458,7 @@ export default function Library() {
             icon={RefreshCw}
             size={17}
             class={library.rescanning ? "spin" : ""}
+            labelFromParent
           />
         </button>
 
@@ -467,7 +468,7 @@ export default function Library() {
           onClick={() => fileInput?.click()}
           disabled={library.uploading}
         >
-          <Icon icon={Plus} size={16} />
+          <Icon icon={Plus} size={16} decorative />
           <span class="lib-upload-label">
             {library.uploading ? "Uploading…" : "Add book"}
           </span>
@@ -521,7 +522,7 @@ export default function Library() {
                         style={{ color: f.color }}
                         aria-hidden="true"
                       >
-                        <Icon icon={Check} size={13} />
+                        <Icon icon={Check} size={13} decorative />
                       </span>
                     </Show>
                     {f.label}
@@ -534,7 +535,7 @@ export default function Library() {
                       aria-label={`Delete flair ${f.label}`}
                       onClick={() => removeFlair(f)}
                     >
-                      <Icon icon={X} size={13} />
+                      <Icon icon={X} size={13} labelFromParent />
                     </button>
                   </Show>
                 </span>
@@ -603,7 +604,7 @@ export default function Library() {
             onClick={() => fileInput?.click()}
             disabled={library.uploading}
           >
-            <Icon icon={Plus} size={16} />
+            <Icon icon={Plus} size={16} decorative />
             {library.uploading ? "Uploading…" : "Add your first book"}
           </button>
           <p class="lib-hint">
@@ -674,7 +675,7 @@ export default function Library() {
         <div class="lib-dropzone" aria-hidden="true">
           <div class="lib-dropzone-inner">
             <span class="lib-dropzone-mark">
-              <Icon icon={Plus} size={36} />
+              <Icon icon={Plus} size={36} decorative />
             </span>
             <p class="display">Add to your library</p>
             <span class="lib-dropzone-sub">Drop .epub files anywhere</span>

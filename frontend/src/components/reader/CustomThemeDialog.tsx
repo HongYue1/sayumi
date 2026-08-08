@@ -282,7 +282,7 @@ export default function CustomThemeDialog(props: Props) {
             aria-label={closeLabel()}
             onClick={close}
           >
-            <Icon icon={X} size={18} />
+            <Icon icon={X} size={18} labelFromParent />
           </button>
         </header>
 
@@ -406,7 +406,7 @@ export default function CustomThemeDialog(props: Props) {
                     : `Delete ${trimmedName() || "custom theme"}`
                 }
               >
-                <Icon icon={Trash2} size={16} />
+                <Icon icon={Trash2} size={16} decorative />
                 {deleteArmed() ? "Click again to delete" : "Delete"}
               </button>
             </Show>

@@ -530,7 +530,7 @@ export default function SearchPanel(props: Props) {
           onClick={props.onclose}
           aria-label="Close search"
         >
-          <Icon icon={X} size={18} />
+          <Icon icon={X} size={18} labelFromParent />
         </button>
       </header>
 

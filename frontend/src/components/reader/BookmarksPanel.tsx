@@ -149,7 +149,7 @@ export default function BookmarksPanel(props: Props) {
           onClick={props.onclose}
           aria-label="Close bookmarks"
         >
-          <Icon icon={X} size={18} />
+          <Icon icon={X} size={18} labelFromParent />
         </button>
       </header>
 
@@ -196,14 +196,14 @@ export default function BookmarksPanel(props: Props) {
                               editButtons.set(bm.id, el);
                             }}
                           >
-                            <Icon icon={Pencil} size={15} />
+                            <Icon icon={Pencil} size={15} labelFromParent />
                           </button>
                           <button
                             class="bmp-row-btn press danger"
                             onClick={() => props.ondelete(bm.id)}
                             aria-label={`Delete bookmark: ${bookmarkName(bm)}`}
                           >
-                            <Icon icon={Trash2} size={15} />
+                            <Icon icon={Trash2} size={15} labelFromParent />
                           </button>
                         </div>
                       </>

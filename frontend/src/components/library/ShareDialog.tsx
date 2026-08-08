@@ -154,7 +154,7 @@ export default function ShareDialog(props: Props) {
             aria-label={busy() ? "Cancel upload and close" : "Close"}
             onClick={close}
           >
-            <Icon icon={X} size={18} />
+            <Icon icon={X} size={18} labelFromParent />
           </button>
         </header>
 
@@ -166,7 +166,7 @@ export default function ShareDialog(props: Props) {
             download={downloadName()}
             ref={(el) => (downloadEl = el)}
           >
-            <Icon icon={Download} size={16} />
+            <Icon icon={Download} size={16} decorative />
             Download EPUB
           </a>
 
@@ -189,7 +189,7 @@ export default function ShareDialog(props: Props) {
             onClick={() => void upload()}
             aria-disabled={busy() ? "true" : "false"}
           >
-            <Icon icon={UploadCloud} size={16} />
+            <Icon icon={UploadCloud} size={16} decorative />
             {busy()
               ? "Uploading…"
               : url()
@@ -210,7 +210,11 @@ export default function ShareDialog(props: Props) {
                   title={copied() ? "Link copied" : "Copy link"}
                   onClick={() => void copyLink()}
                 >
-                  <Icon icon={copied() ? Check : Copy} size={15} />
+                  <Icon
+                    icon={copied() ? Check : Copy}
+                    size={15}
+                    labelFromParent
+                  />
                 </button>
               </div>
             )}

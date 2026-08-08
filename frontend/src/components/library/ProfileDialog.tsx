@@ -305,7 +305,7 @@ export default function ProfileDialog(props: Props) {
             onClick={() => props.onclose()}
             disabled={busy()}
           >
-            <Icon icon={X} size={18} />
+            <Icon icon={X} size={18} labelFromParent />
           </button>
         </header>
 
@@ -318,7 +318,7 @@ export default function ProfileDialog(props: Props) {
             fallback={
               <>
                 <div class="pd-warn">
-                  <Icon icon={TriangleAlert} size={18} />
+                  <Icon icon={TriangleAlert} size={18} decorative />
                   <p>
                     This permanently deletes{" "}
                     <strong>{props.profileName}</strong> and all of its books,

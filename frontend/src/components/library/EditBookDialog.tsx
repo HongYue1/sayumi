@@ -231,7 +231,7 @@ export default function EditBookDialog(props: Props) {
             onClick={() => props.onclose()}
             disabled={busy()}
           >
-            <Icon icon={X} size={18} />
+            <Icon icon={X} size={18} labelFromParent />
           </button>
         </header>
 
@@ -254,7 +254,7 @@ export default function EditBookDialog(props: Props) {
               <label
                 class={["btn-ghost press eb-file-btn", { disabled: busy() }]}
               >
-                <Icon icon={ImageUp} size={16} />
+                <Icon icon={ImageUp} size={16} decorative />
                 {coverFile() ? "Change image" : "Replace cover"}
                 <input
                   class="eb-file-input"

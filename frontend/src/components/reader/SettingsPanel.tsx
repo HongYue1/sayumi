@@ -227,7 +227,7 @@ function Swatch(p: SwatchProps) {
             aria-label={`Edit ${p.t.label}`}
             onClick={p.onEdit}
           >
-            <Icon icon={Pencil} size={11} />
+            <Icon icon={Pencil} size={11} labelFromParent />
           </button>
         </div>
       }
@@ -499,7 +499,7 @@ export default function SettingsPanel(props: Props) {
           onClick={props.onclose}
           aria-label="Close settings"
         >
-          <Icon icon={X} size={18} />
+          <Icon icon={X} size={18} labelFromParent />
         </button>
       </header>
 
@@ -529,7 +529,7 @@ export default function SettingsPanel(props: Props) {
                       aria-label={`Delete preset ${p.name}`}
                       title="Delete preset"
                     >
-                      <Icon icon={X} size={13} />
+                      <Icon icon={X} size={13} labelFromParent />
                     </button>
                   </div>
                 )}
@@ -619,7 +619,7 @@ export default function SettingsPanel(props: Props) {
               aria-label="Create custom theme"
               onClick={openCreate}
             >
-              <Icon icon={Plus} size={16} />
+              <Icon icon={Plus} size={16} labelFromParent />
             </button>
           </div>
 
@@ -641,7 +641,7 @@ export default function SettingsPanel(props: Props) {
               aria-label="Create custom theme"
               onClick={openCreate}
             >
-              <Icon icon={Plus} size={16} />
+              <Icon icon={Plus} size={16} labelFromParent />
             </button>
           </div>
         </section>

@@ -481,7 +481,7 @@ export default function Login() {
                     onClick={leaveCreate}
                     disabled={busy()}
                   >
-                    <Icon icon={ArrowLeft} size={16} />
+                    <Icon icon={ArrowLeft} size={16} decorative />
                     Back
                   </button>
                 </Show>
@@ -525,7 +525,7 @@ export default function Login() {
                 onClick={openCreate}
                 disabled={busy()}
               >
-                <Icon icon={Plus} size={16} />
+                <Icon icon={Plus} size={16} decorative />
                 New profile
               </button>
             </Match>
@@ -579,7 +579,7 @@ export default function Login() {
                 onClick={openCreate}
                 disabled={busy()}
               >
-                <Icon icon={Plus} size={16} />
+                <Icon icon={Plus} size={16} decorative />
                 New profile
               </button>
             </Match>
@@ -630,7 +630,7 @@ export default function Login() {
                       onClick={backToList}
                       disabled={busy()}
                     >
-                      <Icon icon={ArrowLeft} size={16} />
+                      <Icon icon={ArrowLeft} size={16} decorative />
                       Back
                     </button>
                   </form>
@@ -664,7 +664,7 @@ export default function Login() {
           <output class="login-muted login-live">{statusText()}</output>
           <p class="login-error login-live" role="alert">
             <Show when={error() !== ""}>
-              <Icon icon={TriangleAlert} size={16} />
+              <Icon icon={TriangleAlert} size={16} decorative />
               <span>{error()}</span>
             </Show>
           </p>

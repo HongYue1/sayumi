@@ -125,7 +125,7 @@ export default function ShortcutsHelp() {
               aria-label="Close"
               onClick={close}
             >
-              <Icon icon={X} size={18} />
+              <Icon icon={X} size={18} labelFromParent />
             </button>
           </header>
           <div class="shortcuts-groups">

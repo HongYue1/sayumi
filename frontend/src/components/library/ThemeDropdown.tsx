@@ -229,7 +229,7 @@ export default function ThemeDropdown() {
           <span class="td-aa">Aa</span>
           <span class="td-dot" style={{ background: current().accent }} />
         </span>
-        <Icon icon={ChevronDown} size={14} class="td-caret" />
+        <Icon icon={ChevronDown} size={14} class="td-caret" labelFromParent />
       </button>
 
       <Show when={open()}>
@@ -268,7 +268,7 @@ export default function ThemeDropdown() {
                       <span class="td-dot" style={{ background: t.accent }} />
                       <Show when={active()}>
                         <span class="td-check" aria-hidden="true">
-                          <Icon icon={Check} size={11} />
+                          <Icon icon={Check} size={11} decorative />
                         </span>
                       </Show>
                     </span>
@@ -303,7 +303,7 @@ export default function ThemeDropdown() {
                       <span class="td-dot" style={{ background: t.accent }} />
                       <Show when={active()}>
                         <span class="td-check" aria-hidden="true">
-                          <Icon icon={Check} size={11} />
+                          <Icon icon={Check} size={11} decorative />
                         </span>
                       </Show>
                     </span>

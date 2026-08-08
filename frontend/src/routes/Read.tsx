@@ -1582,7 +1582,7 @@ export default function Read(props: Props) {
           onClick={handleBack}
           aria-label="Back to library"
         >
-          <Icon icon={ArrowLeft} />
+          <Icon icon={ArrowLeft} labelFromParent />
         </button>
         <div class="rdp-title">
           <span class="rdp-book display">
@@ -1609,7 +1609,10 @@ export default function Read(props: Props) {
               }
               aria-pressed={currentBookmarkId() !== null ? "true" : "false"}
             >
-              <Icon icon={currentBookmarkId() ? BookmarkCheck : BookmarkIcon} />
+              <Icon
+                icon={currentBookmarkId() ? BookmarkCheck : BookmarkIcon}
+                labelFromParent
+              />
             </button>
             <button
               class="rdp-icon rdp-fold"
@@ -1617,7 +1620,7 @@ export default function Read(props: Props) {
               aria-label="Bookmarks"
               aria-pressed={activePanel() === "bookmarks" ? "true" : "false"}
             >
-              <Icon icon={BookMarked} />
+              <Icon icon={BookMarked} labelFromParent />
             </button>
             <button
               class="rdp-icon rdp-fold"
@@ -1625,7 +1628,7 @@ export default function Read(props: Props) {
               aria-label="Search in book"
               aria-pressed={activePanel() === "search" ? "true" : "false"}
             >
-              <Icon icon={Search} />
+              <Icon icon={Search} labelFromParent />
             </button>
           </Show>
           <button
@@ -1634,7 +1637,7 @@ export default function Read(props: Props) {
             aria-label="Settings"
             aria-pressed={activePanel() === "settings" ? "true" : "false"}
           >
-            <Icon icon={Settings} />
+            <Icon icon={Settings} labelFromParent />
           </button>
           <Show when={!isSpecimen}>
             <button
@@ -1643,7 +1646,7 @@ export default function Read(props: Props) {
               aria-label="Table of contents"
               aria-pressed={activePanel() === "toc" ? "true" : "false"}
             >
-              <Icon icon={List} />
+              <Icon icon={List} labelFromParent />
             </button>
           </Show>
           <button
@@ -1651,7 +1654,7 @@ export default function Read(props: Props) {
             onClick={() => ui.openShortcuts()}
             aria-label="Keyboard shortcuts"
           >
-            <Icon icon={CircleHelp} />
+            <Icon icon={CircleHelp} labelFromParent />
           </button>
           <Show when={!isSpecimen}>
             {/* Narrow viewports: the folded tools live here instead. */}
@@ -1666,7 +1669,7 @@ export default function Read(props: Props) {
                 aria-label="More tools"
                 onClick={toggleMore}
               >
-                <Icon icon={Ellipsis} />
+                <Icon icon={Ellipsis} labelFromParent />
               </button>
               <Show when={moreOpen()}>
                 <div
@@ -1685,7 +1688,7 @@ export default function Read(props: Props) {
                     tabindex="0"
                     onClick={() => pickMore(() => togglePanel("search"))}
                   >
-                    <Icon icon={Search} size={16} />
+                    <Icon icon={Search} size={16} decorative />
                     Search in book
                   </button>
                   <button
@@ -1694,7 +1697,7 @@ export default function Read(props: Props) {
                     tabindex="-1"
                     onClick={() => pickMore(() => togglePanel("bookmarks"))}
                   >
-                    <Icon icon={BookMarked} size={16} />
+                    <Icon icon={BookMarked} size={16} decorative />
                     Bookmarks
                   </button>
                   <button
@@ -1703,7 +1706,7 @@ export default function Read(props: Props) {
                     tabindex="-1"
                     onClick={() => pickMore(() => togglePanel("settings"))}
                   >
-                    <Icon icon={Settings} size={16} />
+                    <Icon icon={Settings} size={16} decorative />
                     Settings
                   </button>
                   <button
@@ -1712,7 +1715,7 @@ export default function Read(props: Props) {
                     tabindex="-1"
                     onClick={() => pickMore(() => ui.openShortcuts())}
                   >
-                    <Icon icon={CircleHelp} size={16} />
+                    <Icon icon={CircleHelp} size={16} decorative />
                     Keyboard shortcuts
                   </button>
                 </div>

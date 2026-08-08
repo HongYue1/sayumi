@@ -232,7 +232,7 @@ export default function CommandPalette() {
           ref={trap()}
         >
           <div class="cmd-search">
-            <Icon icon={Search} size={18} class="cmd-search-icon" />
+            <Icon icon={Search} size={18} class="cmd-search-icon" decorative />
             <input
               ref={(el) => (input = el)}
               class="cmd-input"
