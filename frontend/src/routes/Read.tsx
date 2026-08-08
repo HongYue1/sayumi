@@ -1419,6 +1419,20 @@ export default function Read(props: Props) {
           return true;
         }
         return false;
+      case "ArrowDown":
+      case "ArrowUp":
+        // The frame suppresses these keys' native scroll in paged mode
+        // (PAGED_SCROLL_KEYS), so the parent must drive them like the PageDown
+        // family above. Vertical arrows are physical — Down steps forward, Up
+        // steps back, no RTL mirror — and a vertical-writing chapter never
+        // renders paged (the frame falls back to scroll frame-side, X6), so
+        // no per-mode axis check is owed here.
+        if (isPaged()) {
+          if (e.key === "ArrowDown") goNext();
+          else goPrev();
+          return true;
+        }
+        return false;
       case "Home":
       case "End":
         // Suppressed frame-side in paged mode; no first/last-page command

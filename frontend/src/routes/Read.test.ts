@@ -562,6 +562,50 @@ describe("Read keyboard", () => {
     await settle();
     expect(frame.api.prevPage).toHaveBeenCalledTimes(1);
   });
+
+  it("drives paged page turns from the vertical arrows", async () => {
+    settings.update({ displayMode: "paged" });
+    await bootReader();
+    // The frame suppresses the vertical arrows' native scroll in paged mode
+    // and forwards them — the parent has to answer, or both keys are dead.
+    frameHandler("onkey")(key("ArrowDown"));
+    await settle();
+    expect(frame.api.nextPage).toHaveBeenCalledTimes(1);
+    frameHandler("onkey")(key("ArrowUp"));
+    await settle();
+    expect(frame.api.prevPage).toHaveBeenCalledTimes(1);
+    // …and neither touched the chapter loader.
+    expect(loadChapterCalls().length).toBe(1);
+  });
+
+  it("does not mirror the vertical arrows in RTL paged mode", async () => {
+    api.fetchChapter.mockImplementation((_: string, i: number) =>
+      Promise.resolve({ ...chapter(i), direction: "rtl" }),
+    );
+    settings.update({ displayMode: "paged" });
+    await bootReader();
+    // Physical keys: Down always steps forward, Up always back — the mirror
+    // belongs to the horizontal page-turn axis.
+    frameHandler("onkey")(key("ArrowDown"));
+    await settle();
+    expect(frame.api.nextPage).toHaveBeenCalledTimes(1);
+    expect(frame.api.prevPage).not.toHaveBeenCalled();
+    frameHandler("onkey")(key("ArrowUp"));
+    await settle();
+    expect(frame.api.prevPage).toHaveBeenCalledTimes(1);
+    expect(frame.api.nextPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the vertical arrows to the frame's native scroll in scroll mode", async () => {
+    settings.update({ displayMode: "scroll" });
+    await bootReader();
+    frameHandler("onkey")(key("ArrowDown"));
+    frameHandler("onkey")(key("ArrowUp"));
+    await settle();
+    expect(frame.api.nextPage).not.toHaveBeenCalled();
+    expect(frame.api.prevPage).not.toHaveBeenCalled();
+    expect(loadChapterCalls().length).toBe(1);
+  });
 });
 
 describe("Read keyboard: forwarded modifier facts", () => {
