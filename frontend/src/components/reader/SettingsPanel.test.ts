@@ -43,6 +43,7 @@ const applyTheme = vi.hoisted(() => vi.fn<(id: string) => void>());
 const showToast = vi.hoisted(() => vi.fn<(message: string) => void>());
 const navigate = vi.hoisted(() => vi.fn<(path: string) => boolean>());
 const rescanFonts = vi.hoisted(() => vi.fn<() => Promise<boolean>>());
+const loadCustomThemes = vi.hoisted(() => vi.fn<() => Promise<boolean>>());
 
 /** Test-owned state the fakes read; reset in beforeEach. */
 const world = vi.hoisted(() => ({
@@ -126,10 +127,7 @@ vi.mock("~/lib/customThemes", async (importOriginal) => {
       get loaded() {
         return world.themesLoaded;
       },
-      load: () => {
-        world.themesLoaded = true;
-        return Promise.resolve(true);
-      },
+      load: loadCustomThemes,
     },
   };
 });
@@ -310,6 +308,13 @@ beforeEach(() => {
   );
   api.deletePreset.mockResolvedValue(undefined);
   rescanFonts.mockResolvedValue(true);
+  // The retry-load default: resolves and marks the registry loaded. A test
+  // needing a failed registry load overrides this, and the reinstall keeps
+  // the override from leaking (clearAllMocks does not strip implementations).
+  loadCustomThemes.mockImplementation(() => {
+    world.themesLoaded = true;
+    return Promise.resolve(true);
+  });
 });
 
 afterEach(() => {
@@ -335,6 +340,17 @@ describe("reader settings panel", () => {
     mount();
     await settle();
     expect(applyTheme).toHaveBeenCalledWith("gruvbox");
+  });
+
+  it("leaves the theme alone when the registry load itself fails", async () => {
+    // The other half of the conjunct: settings loaded fine, but the registry
+    // load resolves without its flag, so the saved id cannot be resolved
+    // against it — applying it would paint and persist the fallback.
+    loadCustomThemes.mockImplementation(() => Promise.resolve(false));
+    world.setSettings({ theme: "gruvbox" });
+    mount();
+    await settle();
+    expect(applyTheme).not.toHaveBeenCalled();
   });
 
   it("restores a failed delete at its original position", async () => {

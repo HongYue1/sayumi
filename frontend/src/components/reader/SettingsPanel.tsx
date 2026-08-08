@@ -26,7 +26,7 @@ import {
 import { settings, DEFAULT_USER_SETTINGS } from "~/lib/settings";
 import { THEMES, getTheme, isBuiltInTheme, type ThemeDef } from "~/lib/themes";
 import { customThemes } from "~/lib/customThemes";
-import { applyTheme } from "~/lib/theme";
+import { applyTheme, themeReady } from "~/lib/theme";
 import CustomThemeDialog from "./CustomThemeDialog";
 import { READER_FONTS, getFontById } from "~/lib/fonts";
 import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry";
@@ -315,13 +315,9 @@ export default function SettingsPanel(props: Props) {
     // settings surface that consumes and edits those themes.
     if (!customThemes.loaded) {
       void customThemes.load().then(() => {
-        // Gated on settings.loaded exactly like the reader's theme effect:
-        // before a successful settings load, value.theme is the compile-time
-        // default, so applying it here repaints the shell in the wrong palette
-        // AND overwrites the localStorage palette cache the pre-paint
-        // bootstrap reads -- making the wrong theme survive a reload.
-        if (customThemes.loaded && settings.loaded)
-          applyTheme(settings.value.theme);
+        // themeReady() (lib/theme.ts) carries the why: applying the saved id
+        // before both stores have loaded paints and persists the default.
+        if (themeReady()) applyTheme(settings.value.theme);
       });
     }
   });

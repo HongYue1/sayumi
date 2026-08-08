@@ -32,6 +32,12 @@ const api = vi.hoisted(() => ({
 }));
 
 const applyTheme = vi.hoisted(() => vi.fn());
+const currentStores = vi.hoisted(() => ({
+  current: null as {
+    settingsLoaded: () => boolean;
+    registryLoaded: () => boolean;
+  } | null,
+}));
 
 const stubs = vi.hoisted(() => ({
   marker: (id: string) => () => {
@@ -53,7 +59,19 @@ vi.mock("~/api/client", async (importOriginal) => {
 });
 vi.mock("~/lib/theme", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, applyTheme };
+  return {
+    ...actual,
+    applyTheme,
+    // The importOriginal spread is captured once per file, but loadShell
+    // rebuilds the stores per test — the real themeReady would read a stale
+    // first-generation store whose flags never flip (probe-verified: every
+    // full-file read saw false/false). Delegate to the generation the test
+    // is actually driving.
+    themeReady: () =>
+      currentStores.current !== null &&
+      currentStores.current.settingsLoaded() &&
+      currentStores.current.registryLoaded(),
+  };
 });
 vi.mock("~/routes/Login", () => ({ default: stubs.marker("login") }));
 vi.mock("~/routes/Library", () => ({ default: stubs.marker("library") }));
@@ -93,6 +111,10 @@ async function loadShell() {
     import("~/lib/library"),
     import("~/lib/router"),
   ]);
+  currentStores.current = {
+    settingsLoaded: () => settingsMod.settings.loaded,
+    registryLoaded: () => themesMod.customThemes.loaded,
+  };
   return {
     App: app.default,
     ui: uiMod.ui,

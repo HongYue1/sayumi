@@ -16,7 +16,7 @@ import { session } from "~/lib/session";
 import { router } from "~/lib/router";
 import { ui } from "~/lib/ui";
 import { settings } from "~/lib/settings";
-import { applyTheme, getCachedThemeId } from "~/lib/theme";
+import { applyTheme, getCachedThemeId, themeReady } from "~/lib/theme";
 import { customThemes } from "~/lib/customThemes";
 import { library } from "~/lib/library";
 import Login from "~/routes/Login";
@@ -79,21 +79,11 @@ async function syncProfileOwnedState(profile: string | null): Promise<void> {
   // this tied to activation rather than a global theme effect: Library and Read
   // still own normal theme changes.
   //
-  // Both loads must have SUCCEEDED, not merely finished. settings.load()
-  // resolves on its failure path too (settings.ts:290-294) and leaves
-  // settings.value at the compile-time defaults, so applying it here paints
-  // `catppuccin` -- and because applyTheme persists whatever it paints into
-  // localStorage["sayumi:theme"] (theme.ts:117), that guess becomes what the
-  // pre-paint bootstrap in index.html replays on every later load. The user's
-  // real theme is gone from the only place that survives a failed request.
-  // Library.tsx:205-212 fixed exactly this on its own boot path; the copy here
-  // was left behind.
-  if (
-    profile !== null &&
-    session.profile === profile &&
-    customThemes.loaded &&
-    settings.loaded
-  ) {
+  // themeReady() (lib/theme.ts) carries the why: both loads must have
+  // SUCCEEDED, not merely finished, or the apply paints and persists the
+  // compile-time default over the user's saved theme. Library.tsx fixed this
+  // on its own boot path first; the copy here was left behind until b50.
+  if (profile !== null && session.profile === profile && themeReady()) {
     applyTheme(settings.value.theme);
   }
 }

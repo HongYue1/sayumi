@@ -17,7 +17,7 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { settings } from "~/lib/settings";
 import { THEMES } from "~/lib/themes";
-import { applyTheme, getTheme } from "~/lib/theme";
+import { applyTheme, getTheme, themeReady } from "~/lib/theme";
 import { customThemes } from "~/lib/customThemes";
 import Icon from "~/lib/Icon";
 import { Check, ChevronDown } from "~/lib/icons";
@@ -30,12 +30,9 @@ const darkThemes = THEMES.filter((t) => t.group === "dark");
 // explicit (the App.tsx precedent).
 async function retryThemeLoad(): Promise<void> {
   await customThemes.load();
-  // Both stores have to have loaded successfully. settings.load() resolves on
-  // its failure path and leaves the compile-time defaults in place, and
-  // applyTheme persists whatever it paints (theme.ts:117) -- so retrying here
-  // while settings is unloaded would write `catppuccin` over the user's saved
-  // theme. Same guard as App.tsx:59 and SettingsPanel.tsx:328.
-  if (customThemes.loaded && settings.loaded) applyTheme(settings.value.theme);
+  // themeReady() (lib/theme.ts) carries the why: retrying before both stores
+  // have loaded would write the compile-time default over the saved theme.
+  if (themeReady()) applyTheme(settings.value.theme);
 }
 
 export default function ThemeDropdown() {

@@ -368,6 +368,20 @@ describe("ThemeDropdown", () => {
     expect(stubs.applyTheme).not.toHaveBeenCalled();
   });
 
+  it("leaves the theme alone when the registry load itself fails", async () => {
+    // The other half of the conjunct: settings loaded fine, but the registry
+    // load resolves without its flag, so the saved id cannot be resolved
+    // against it — applying it would paint and persist the fallback.
+    stubs.state.customLoaded = false;
+    stubs.loadCustom.mockImplementation(async () => {});
+    await mount();
+    await openMenu();
+    await settle();
+
+    expect(stubs.loadCustom).toHaveBeenCalledTimes(1);
+    expect(stubs.applyTheme).not.toHaveBeenCalled();
+  });
+
   it("does not re-fetch the registry when it is already loaded", async () => {
     await mount();
     await openMenu();
