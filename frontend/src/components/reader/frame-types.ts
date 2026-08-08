@@ -10,23 +10,22 @@ import type { IframeSettings } from "~/lib/settings";
  *  dispatch the one site that fails to compile. */
 export type KeyEvent = Omit<FrameKeyMessage, "type" | "seq">;
 
+/** Named chapter-load contract. Boundary facts are required: defaulting either
+ *  one to true can turn a missing field into a silent cross-chapter handoff. */
+export interface ChapterLoadOptions {
+  data: ChapterData;
+  settings: IframeSettings;
+  scrollTarget?: "top" | "end";
+  fragment?: string;
+  hasPrev: boolean;
+  hasNext: boolean;
+  restore?: { percent: number; cfi?: string };
+  language?: string;
+}
+
 /** Imperative handle the ChapterFrame exposes to its parent (routes/Read.tsx). */
 export interface ChapterFrameAPI {
-  loadChapter: (
-    data: ChapterData,
-    settings: IframeSettings,
-    scrollTo?: "top" | "end",
-    fragment?: string,
-    // The wire declares these the other way round (hasNext then hasPrev, see
-    // LoadMessage in frameMessages.ts). They are the only adjacent same-typed
-    // pair here and no test pins the mapping, so a transposition would reach
-    // the frame silently: ChapterFrame must keep passing them through by name.
-    hasPrev?: boolean,
-    hasNext?: boolean,
-    restorePercent?: number,
-    restoreCfi?: string,
-    language?: string,
-  ) => void;
+  loadChapter: (options: ChapterLoadOptions) => void;
   applySettings: (settings: IframeSettings) => void;
   scrollTo: (percent: number) => void;
   scrollToEnd: () => void;

@@ -42,9 +42,13 @@ import {
 } from "~/api/client";
 import Icon from "~/lib/Icon";
 import { X, Plus, Pencil } from "~/lib/icons";
+import type { FrameModeFallback } from "~/lib/frameMessages";
 
 interface Props {
   onclose: () => void;
+  /** Mode the frame is actually rendering, not merely the saved preference. */
+  effectiveMode: UserSettings["displayMode"];
+  modeFallback: FrameModeFallback;
 }
 
 const MODES: { id: UserSettings["displayMode"]; label: string }[] = [
@@ -586,6 +590,12 @@ export default function SettingsPanel(props: Props) {
               )}
             </For>
           </div>
+          <Show when={props.modeFallback === "vertical-writing"}>
+            <p class="stp-hint stp-mode-note" role="status">
+              Vertical writing uses Scroll for this chapter. Your paged
+              preference remains active for horizontal chapters.
+            </p>
+          </Show>
         </section>
 
         <section class="stp-section">
@@ -869,7 +879,7 @@ export default function SettingsPanel(props: Props) {
             unit="%"
             apply={(v) => set("contentWidth", v)}
             disabledReason={
-              s().displayMode === "scroll" ? null : "Scroll mode only"
+              props.effectiveMode === "scroll" ? null : "Scroll mode only"
             }
           />
         </section>

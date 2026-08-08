@@ -3,6 +3,7 @@ import type {
   LoadMessage,
   ParentToFrameMessage,
   FrameToParentMessage,
+  FrameModeState,
 } from "~/lib/frameMessages";
 import {
   splitBookCSS,
@@ -193,6 +194,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   });
 
   let isPagedMode = false;
+  let lastReportedMode: (FrameModeState & { seq: number }) | null = null;
   let reportPositionRafHandle: number | null = null;
   let scrollRafHandle: number | null = null;
   // Wheel/touch boundary pulls read layout and then write indicator styles, so
@@ -683,7 +685,29 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     pagedRelayoutRafHandle = null;
   }
 
+  function reportEffectiveMode(
+    mode: FrameModeState["mode"],
+    fallback: FrameModeState["fallback"],
+  ): void {
+    if (
+      lastReportedMode?.seq === activeSeq &&
+      lastReportedMode.mode === mode &&
+      lastReportedMode.fallback === fallback
+    ) {
+      return;
+    }
+    lastReportedMode = { seq: activeSeq, mode, fallback };
+    sendMessage({ type: "effective-mode", seq: activeSeq, mode, fallback });
+  }
+
   function applySettings(settings: IframeSettings): void {
+    // Resolve the mode once and use it for every side of the layout contract:
+    // generated CSS, root classes, JS pagination, and the parent report. A
+    // vertical chapter cannot use the horizontal-only multicol paginator.
+    const effectiveMode = verticalWriting ? "scroll" : settings.mode;
+    const modeFallback =
+      verticalWriting && settings.mode !== "scroll" ? "vertical-writing" : null;
+
     let fontFaceContent: string;
     if (settings.preserveBookFonts && preparedFontFaceCSS) {
       fontFaceContent =
@@ -716,7 +740,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       "body { margin: 0 !important; }",
     ];
 
-    if (settings.mode === "paged" || settings.mode === "paged-two") {
+    if (effectiveMode === "paged" || effectiveMode === "paged-two") {
       // paged and paged-two share identical layout CSS; only the margin inputs
       // differ. paged-two clamps the vertical margin to a stable minimum and
       // pins the side inset; paged uses the raw margins with a 40px side
@@ -726,7 +750,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       let pt: string;
       let pb: string;
       let ps: string;
-      if (settings.mode === "paged-two") {
+      if (effectiveMode === "paged-two") {
         const MIN_TWO_MARGIN = 24;
         pt = `${Math.max(settings.margins.top ?? 24, MIN_TWO_MARGIN)}px`;
         pb = `${Math.max(settings.margins.bottom ?? 24, MIN_TWO_MARGIN)}px`;
@@ -938,9 +962,9 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     // of reading it. Fall back to scroll for vertical chapters, and derive the
     // root classes from the same effective mode so CSS can't claim a layout that
     // JS isn't driving.
-    const effectiveMode = verticalWriting ? "scroll" : settings.mode;
     isPagedMode = effectiveMode === "paged" || effectiveMode === "paged-two";
     applyRootClasses(settings.theme, effectiveMode);
+    reportEffectiveMode(effectiveMode, modeFallback);
 
     if (!isPagedMode) {
       // Paged mode insets the column box by setting inline height/marginTop on

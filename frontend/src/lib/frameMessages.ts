@@ -19,6 +19,14 @@ import type { IframeSettings } from "~/lib/settings";
 
 export type { IframeSettings };
 
+/** Display mode currently active inside the frame. */
+export type FrameDisplayMode = IframeSettings["mode"];
+export type FrameModeFallback = "vertical-writing" | null;
+export interface FrameModeState {
+  mode: FrameDisplayMode;
+  fallback: FrameModeFallback;
+}
+
 /** Reading direction. Mirrors the Go enum: internal/epub/parser.go emits
  *  exactly "ltr" or "rtl", defaulting to "ltr" -- never a raw OPF string. */
 export type ReadingDirection = "ltr" | "rtl";
@@ -115,6 +123,7 @@ export interface FrameKeyMessage {
 export type FrameToParentMessage =
   | { type: "ready" }
   | { type: "loaded"; seq: number }
+  | ({ type: "effective-mode"; seq: number } & FrameModeState)
   | {
       type: "position";
       seq: number;

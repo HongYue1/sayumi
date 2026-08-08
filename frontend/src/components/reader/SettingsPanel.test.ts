@@ -207,10 +207,16 @@ let dispose: (() => void) | undefined;
 let container: HTMLDivElement;
 const onclose = vi.fn();
 
-function mount(): void {
+function mount(
+  effectiveMode: ApiClient.UserSettings["displayMode"] = "scroll",
+  modeFallback: "vertical-writing" | null = null,
+): void {
   container = document.createElement("div");
   document.body.appendChild(container);
-  dispose = render(() => SettingsPanel({ onclose }), container);
+  dispose = render(
+    () => SettingsPanel({ onclose, effectiveMode, modeFallback }),
+    container,
+  );
   flush();
 }
 
@@ -473,6 +479,17 @@ describe("reader settings panel", () => {
     flush();
     expect(userGroups()).toHaveLength(2);
     expect(userOptions()).toHaveLength(4);
+  });
+
+  it("explains a vertical fallback and enables effective-scroll controls", async () => {
+    world.setSettings({ displayMode: "paged", contentWidth: 65 });
+    mount("scroll", "vertical-writing");
+    await settle();
+    expect(text(el(".stp-mode-note"))).toContain(
+      "Vertical writing uses Scroll for this chapter",
+    );
+    const width = el('input[aria-label="Content width"]') as HTMLInputElement;
+    expect(width.disabled).toBe(false);
   });
 
   it("reports a bottom margin that has diverged from the top", async () => {

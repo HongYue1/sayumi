@@ -9,6 +9,7 @@ import { buildReaderFontFaces } from "~/lib/readerFontFaces";
 import type { ChapterFrameAPI, KeyEvent } from "./frame-types";
 import type {
   FrameToParentMessage,
+  FrameModeState,
   ParentToFrameMessage,
   ReadingDirection,
   WritingMode,
@@ -30,6 +31,10 @@ const isBoundary = (v: unknown): v is "start" | "end" =>
   v === "start" || v === "end";
 const isRegion = (v: unknown): v is "left" | "center" | "right" =>
   v === "left" || v === "center" || v === "right";
+const isDisplayMode = (v: unknown): v is FrameModeState["mode"] =>
+  v === "scroll" || v === "paged" || v === "paged-two";
+const isModeFallback = (v: unknown): v is FrameModeState["fallback"] =>
+  v === null || v === "vertical-writing";
 
 // ChapterData carries these as plain strings off the wire. The Go side emits a
 // closed set (internal/epub/parser.go, internal/epub/chapter.go), so this is
@@ -47,6 +52,10 @@ function isInbound(v: unknown): v is FrameToParentMessage {
       return true;
     case "loaded":
       return isNum(v.seq);
+    case "effective-mode":
+      return (
+        isNum(v.seq) && isDisplayMode(v.mode) && isModeFallback(v.fallback)
+      );
     case "position":
       return (
         isNum(v.seq) &&
@@ -94,6 +103,7 @@ interface Props {
   onapi?: (api: ChapterFrameAPI) => void;
   onready?: () => void;
   onloaded?: (seq: number) => void;
+  onmodechange?: (state: FrameModeState) => void;
   onposition?: (chapterIndex: number, percent: number, cfi?: string) => void;
   onboundary?: (boundary: "start" | "end") => void;
   onlinkclicked?: (href: string) => void;
@@ -172,6 +182,10 @@ export default function ChapterFrame(props: Props) {
       case "loaded":
         if (m.seq === seq) props.onloaded?.(m.seq);
         break;
+      case "effective-mode":
+        if (m.seq === seq)
+          props.onmodechange?.({ mode: m.mode, fallback: m.fallback });
+        break;
       case "position":
         if (m.seq === seq)
           props.onposition?.(m.chapterIndex, m.percent, m.cfi ?? undefined);
@@ -212,17 +226,17 @@ export default function ChapterFrame(props: Props) {
   }
 
   const api: ChapterFrameAPI = {
-    loadChapter(
-      data,
-      settings,
-      scrollTo,
-      fragment,
-      hasPrev,
-      hasNext,
-      restorePercent,
-      restoreCfi,
-      language,
-    ) {
+    loadChapter(options) {
+      const {
+        data,
+        settings,
+        scrollTarget,
+        fragment,
+        hasPrev,
+        hasNext,
+        restore,
+        language,
+      } = options;
       const nextSeq = ++seq;
       sendToFrame({
         type: "load",
@@ -236,12 +250,12 @@ export default function ChapterFrame(props: Props) {
         writingMode: toWritingMode(data.writingMode),
         language: language || undefined,
         resourceBase: data.resourceBase ?? null,
-        scrollTo: scrollTo || "top",
+        scrollTo: scrollTarget || "top",
         fragment: fragment || null,
-        hasPrev: hasPrev !== false,
-        hasNext: hasNext !== false,
-        restorePercent: restorePercent ?? null,
-        restoreCfi: restoreCfi ?? null,
+        hasPrev,
+        hasNext,
+        restorePercent: restore?.percent ?? null,
+        restoreCfi: restore?.cfi ?? null,
       });
       sendToFrame({ type: "apply-settings", settings });
     },

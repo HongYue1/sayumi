@@ -78,6 +78,7 @@ import type {
   ChapterFrameAPI,
   KeyEvent,
 } from "~/components/reader/frame-types";
+import type { FrameModeState } from "~/lib/frameMessages";
 import Icon from "~/lib/Icon";
 import { trap } from "~/lib/focusTrap";
 import {
@@ -171,6 +172,9 @@ export default function Read(props: Props) {
     undefined,
   );
   const [chapterDirection, setChapterDirection] = createSignal("ltr");
+  // Null until the frame applies its first settings payload. Afterwards this is
+  // the authoritative mode actually rendering, including vertical fallbacks.
+  const [frameMode, setFrameMode] = createSignal<FrameModeState | null>(null);
   const [chapterLoading, setChapterLoading] = createSignal(false);
   const [error, setError] = createSignal("");
   // True when the book itself (not just a chapter) failed to load, so Retry
@@ -181,7 +185,10 @@ export default function Read(props: Props) {
   const [chromeVisible, setChromeVisible] = createSignal(true);
   const [moreOpen, setMoreOpen] = createSignal(false);
 
-  const isPaged = createMemo(() => settings.value.displayMode !== "scroll");
+  const effectiveDisplayMode = createMemo(
+    () => frameMode()?.mode ?? settings.value.displayMode,
+  );
+  const isPaged = createMemo(() => effectiveDisplayMode() !== "scroll");
   const isRTL = createMemo(() => chapterDirection() === "rtl");
   // When a modal panel (toc/settings/search/bookmarks) is open, the reader
   // chrome + iframe behind it must leave the tab + AT order. focusTrap only
@@ -905,31 +912,16 @@ export default function Read(props: Props) {
 
       // Ensure the iframe has the current font faces before it applies settings.
       pushFontFaces();
-      if (restore) {
-        api.loadChapter(
-          data,
-          settings.iframe,
-          "top",
-          undefined,
-          hasPrev,
-          hasNext,
-          restore.percent,
-          restore.cfi,
-          b.language,
-        );
-      } else {
-        api.loadChapter(
-          data,
-          settings.iframe,
-          scrollTo,
-          fragment,
-          hasPrev,
-          hasNext,
-          undefined,
-          undefined,
-          b.language,
-        );
-      }
+      api.loadChapter({
+        data,
+        settings: settings.iframe,
+        scrollTarget: restore ? "top" : scrollTo,
+        fragment: restore ? undefined : fragment,
+        hasPrev,
+        hasNext,
+        restore,
+        language: b.language,
+      });
 
       setCurrentChapter(index);
       setChapterPercent(nextPercent);
@@ -1043,6 +1035,9 @@ export default function Read(props: Props) {
   function handleReady(): void {
     frameReady = true;
     tryInitialLoad();
+  }
+  function handleModeChange(state: FrameModeState): void {
+    setFrameMode(state);
   }
   function handleLoaded(seq: number): void {
     // Apply a pending search highlight once the new chapter has settled.
@@ -1737,6 +1732,7 @@ export default function Read(props: Props) {
               onapi={handleApi}
               onready={handleReady}
               onloaded={handleLoaded}
+              onmodechange={handleModeChange}
               onposition={handlePosition}
               onboundary={handleBoundary}
               onlinkclicked={handleLinkClicked}
@@ -1884,7 +1880,12 @@ export default function Read(props: Props) {
             aria-label="Settings"
             ref={trap()}
           >
-            <SettingsPanel fallback={null} onclose={closePanel} />
+            <SettingsPanel
+              fallback={null}
+              onclose={closePanel}
+              effectiveMode={effectiveDisplayMode()}
+              modeFallback={frameMode()?.fallback ?? null}
+            />
           </div>
           {/* Settings only: an invisible click-catcher instead of the veil, so
               the typography controls live-preview against the undimmed page. */}

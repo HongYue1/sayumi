@@ -4,9 +4,11 @@ import { render } from "@solidjs/web";
 import type * as ApiClient from "~/api/client";
 import type {
   ChapterFrameAPI,
+  ChapterLoadOptions,
   KeyEvent,
 } from "~/components/reader/frame-types";
 import type ChapterFrameReal from "~/components/reader/ChapterFrame";
+import type { FrameModeFallback } from "~/lib/frameMessages";
 import Read from "~/routes/Read";
 import { settings } from "~/lib/settings";
 import { ui } from "~/lib/ui";
@@ -29,6 +31,10 @@ let searchPanelLatest: {
 let bookmarksPanelLatest: {
   bookmarks: ApiClient.Bookmark[];
   ondelete: (id: string) => void;
+} | null = null;
+let settingsPanelLatest: {
+  effectiveMode: ApiClient.UserSettings["displayMode"];
+  modeFallback: FrameModeFallback;
 } | null = null;
 
 function latestFrame(): FrameProps {
@@ -93,7 +99,15 @@ vi.mock("~/components/reader/TocPanel", () => ({
     return null;
   },
 }));
-vi.mock("~/components/reader/SettingsPanel", () => ({ default: () => null }));
+vi.mock("~/components/reader/SettingsPanel", () => ({
+  default: (props: {
+    effectiveMode: ApiClient.UserSettings["displayMode"];
+    modeFallback: FrameModeFallback;
+  }) => {
+    settingsPanelLatest = props;
+    return null;
+  },
+}));
 vi.mock("~/components/reader/SearchPanel", () => ({
   default: (props: { onresultclick: (r: unknown, q: string) => void }) => {
     searchPanelLatest = props;
@@ -195,8 +209,10 @@ function key(
   };
 }
 
-function loadChapterCalls(): ApiClient.ChapterData[][] {
-  return (frame.api.loadChapter as ReturnType<typeof vi.fn>).mock.calls;
+function loadChapterCalls(): ChapterLoadOptions[] {
+  return (frame.api.loadChapter as ReturnType<typeof vi.fn>).mock.calls.map(
+    (call) => call[0] as ChapterLoadOptions,
+  );
 }
 
 async function settle(): Promise<void> {
@@ -234,6 +250,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.useRealTimers();
   localStorage.clear();
+  settingsPanelLatest = null;
   reachable.mockReturnValue(true);
   api.getSettings.mockResolvedValue({});
   api.saveSettings.mockResolvedValue({});
@@ -288,12 +305,11 @@ describe("Read boot and restore", () => {
     api.getProgress.mockResolvedValue({ chapter: 2, percent: 0.5 });
     await bootReader();
     expect(frame.api.loadChapter).toHaveBeenCalledTimes(1);
-    const [data, , scrollTo, , , , restorePercent] = (
-      frame.api.loadChapter as ReturnType<typeof vi.fn>
-    ).mock.calls[0];
-    expect(data.chapterIndex).toBe(2);
-    expect(scrollTo).toBe("top");
-    expect(restorePercent).toBe(0.5);
+    const options = loadChapterCalls()[0];
+    expect(options.data.chapterIndex).toBe(2);
+    expect(options.scrollTarget).toBe("top");
+    expect(options.restore).toEqual({ percent: 0.5, cfi: undefined });
+    expect(options).toMatchObject({ hasPrev: true, hasNext: true });
     // A duplicate ready never re-loads.
     frameHandler("onready")();
     await settle();
@@ -307,11 +323,9 @@ describe("Read boot and restore", () => {
     );
     api.getProgress.mockResolvedValue({ chapter: 1, percent: 0.1 });
     await bootReader();
-    const [data, , , , , , restorePercent] = (
-      frame.api.loadChapter as ReturnType<typeof vi.fn>
-    ).mock.calls[0];
-    expect(data.chapterIndex).toBe(3);
-    expect(restorePercent).toBe(0.8);
+    const options = loadChapterCalls()[0];
+    expect(options.data.chapterIndex).toBe(3);
+    expect(options.restore).toEqual({ percent: 0.8 });
   });
 
   it("removes the legacy pre-profile cache key during boot", async () => {
@@ -323,7 +337,7 @@ describe("Read boot and restore", () => {
     expect(localStorage.getItem("sayumi:progress:book1")).toBeNull();
     // …and the legacy value never wins the boot.
     expect(
-      (frame.api.loadChapter as ReturnType<typeof vi.fn>).mock.calls[0][0]
+      (frame.api.loadChapter as ReturnType<typeof vi.fn>).mock.calls[0][0].data
         .chapterIndex,
     ).toBe(0);
   });
@@ -333,7 +347,7 @@ describe("Read boot and restore", () => {
     api.getProgress.mockResolvedValue({ chapter: 1, percent: 0.25 });
     await bootReader();
     expect(
-      (frame.api.loadChapter as ReturnType<typeof vi.fn>).mock.calls[0][0]
+      (frame.api.loadChapter as ReturnType<typeof vi.fn>).mock.calls[0][0].data
         .chapterIndex,
     ).toBe(1);
   });
@@ -348,7 +362,7 @@ describe("Read boot and restore", () => {
     // The cache fails validation, so the server value wins — and no NaN ever
     // reaches a fetch URL.
     expect(
-      (frame.api.loadChapter as ReturnType<typeof vi.fn>).mock.calls[0][0]
+      (frame.api.loadChapter as ReturnType<typeof vi.fn>).mock.calls[0][0].data
         .chapterIndex,
     ).toBe(1);
     expect(
@@ -361,7 +375,7 @@ describe("Read boot and restore", () => {
     await bootReader();
     expect(document.querySelector('[role="alert"]')).toBeNull();
     expect(
-      (frame.api.loadChapter as ReturnType<typeof vi.fn>).mock.calls[0][0]
+      (frame.api.loadChapter as ReturnType<typeof vi.fn>).mock.calls[0][0].data
         .chapterIndex,
     ).toBe(0);
   });
@@ -416,7 +430,7 @@ describe("Read navigation", () => {
     now = 11500;
     frameHandler("onboundary")("end");
     await vi.waitFor(() => expect(loadChapterCalls().length).toBe(2));
-    expect(loadChapterCalls()[1][0].chapterIndex).toBe(1);
+    expect(loadChapterCalls()[1].data.chapterIndex).toBe(1);
   });
 
   it("swallows boundary events inside the cooldown and post-swap grace windows", async () => {
@@ -440,7 +454,7 @@ describe("Read navigation", () => {
     now = 11800;
     frameHandler("onboundary")("end");
     await vi.waitFor(() => expect(loadChapterCalls().length).toBe(3));
-    expect(loadChapterCalls()[2][0].chapterIndex).toBe(2);
+    expect(loadChapterCalls()[2].data.chapterIndex).toBe(2);
   });
 
   it("aborts a superseded navigation and loads only the pending chapter", async () => {
@@ -471,12 +485,14 @@ describe("Read navigation", () => {
     if (!tocPanelLatest) throw new Error("toc panel did not open");
     tocPanelLatest.onnavigate("ch2.xhtml"); // queues pendingNav for chapter 2
     await vi.waitFor(() =>
-      expect(loadChapterCalls().some((c) => c[0].chapterIndex === 2)).toBe(
+      expect(loadChapterCalls().some((c) => c.data.chapterIndex === 2)).toBe(
         true,
       ),
     );
     // The superseded chapter never reaches the frame…
-    expect(loadChapterCalls().some((c) => c[0].chapterIndex === 1)).toBe(false);
+    expect(loadChapterCalls().some((c) => c.data.chapterIndex === 1)).toBe(
+      false,
+    );
     // …and its hung prefetch was joined, not duplicated.
     expect(api.fetchChapter.mock.calls.filter((c) => c[1] === 1).length).toBe(
       1,
@@ -494,7 +510,7 @@ describe("Read navigation", () => {
     ).length;
     frameHandler("onkey")(key("ArrowLeft")); // back to chapter 1: cache hit
     await vi.waitFor(() => expect(loadChapterCalls().length).toBe(4));
-    expect(loadChapterCalls()[3][0].chapterIndex).toBe(1);
+    expect(loadChapterCalls()[3].data.chapterIndex).toBe(1);
     expect(api.fetchChapter.mock.calls.filter((c) => c[1] === 1).length).toBe(
       1,
     );
@@ -525,9 +541,38 @@ describe("Read navigation", () => {
 describe("Read keyboard", () => {
   it("ArrowRight loads the next chapter in scroll mode", async () => {
     await bootReader();
+    expect(loadChapterCalls()[0]).toMatchObject({
+      hasPrev: false,
+      hasNext: true,
+    });
     frameHandler("onkey")(key("ArrowRight"));
     await vi.waitFor(() => expect(loadChapterCalls().length).toBe(2));
-    expect(loadChapterCalls()[1][0].chapterIndex).toBe(1);
+    expect(loadChapterCalls()[1].data.chapterIndex).toBe(1);
+  });
+
+  it("uses the frame-reported scroll fallback for navigation and settings", async () => {
+    settings.update({ displayMode: "paged" });
+    api.fetchChapter.mockImplementation((_: string, i: number) =>
+      Promise.resolve({ ...chapter(i), writingMode: "vertical-rl" }),
+    );
+    await bootReader();
+    frameHandler("onmodechange")({
+      mode: "scroll",
+      fallback: "vertical-writing",
+    });
+    await settle();
+
+    frameHandler("onkey")(key("ArrowRight"));
+    await vi.waitFor(() => expect(loadChapterCalls().length).toBe(2));
+    expect(loadChapterCalls()[1].data.chapterIndex).toBe(1);
+    expect(frame.api.nextPage).not.toHaveBeenCalled();
+
+    frameHandler("onkey")(key("s"));
+    await vi.waitFor(() => expect(settingsPanelLatest).not.toBeNull());
+    expect(settingsPanelLatest).toMatchObject({
+      effectiveMode: "scroll",
+      modeFallback: "vertical-writing",
+    });
   });
 
   it("maps the frame-suppressed paged keys: Space/PageDown forward, Shift+Space/PageUp back", async () => {
@@ -840,7 +885,7 @@ describe("Read search highlights", () => {
       "q",
     );
     await vi.waitFor(() => expect(loadChapterCalls().length).toBe(2));
-    expect(loadChapterCalls()[1][0].chapterIndex).toBe(2);
+    expect(loadChapterCalls()[1].data.chapterIndex).toBe(2);
     // Nothing highlighted before the frame reports the chapter loaded.
     expect(frame.api.highlightSearch).not.toHaveBeenCalled();
     frameHandler("onloaded")(9);
