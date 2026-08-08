@@ -10,6 +10,8 @@
 //     value (batched). On FIRST run both reads are [] so the bug cannot show
 //     there; the reachable case is a RETURNING user, where the stale [] would
 //     send a profile owner to the create form instead of the picker.
+//   - A <For> index accessor stays inside JSX. The row factory is untracked, so
+//     reading i() there snapshots the index and emits STRICT_READ_UNTRACKED.
 //   - {@attach focusOnMount} -> ref callbacks (run on every mount, unlike the
 //     one-shot HTML autofocus attribute).
 //   - The if/else-if chain -> Switch/Match with the create form as fallback;
@@ -536,38 +538,25 @@ export default function Login() {
               {/* eslint-disable jsx-a11y/no-redundant-roles -- Safari and VoiceOver drop list semantics from a ul styled list-style: none, which .login-profiles is; the role keeps the aria-label attached to a list. */}
               <ul class="login-profiles" role="list" aria-label="Profiles">
                 <For each={profiles()}>
-                  {(p, i) => {
-                    // Read the index ONCE. createMemo is eager and i() in the
-                    // style binding would re-render the row on a reorder the
-                    // picker never performs.
-                    const stagger = String(i());
-                    return (
-                      <li style={{ "--i": stagger }}>
-                        <button
-                          class="login-profile"
-                          onClick={() => void pick(p)}
-                          disabled={busy()}
-                        >
-                          <span
-                            class="login-initial display"
-                            aria-hidden="true"
-                          >
-                            {p.name.slice(0, 1).toUpperCase()}
+                  {(p, i) => (
+                    <li style={{ "--i": String(i()) }}>
+                      <button
+                        class="login-profile"
+                        onClick={() => void pick(p)}
+                        disabled={busy()}
+                      >
+                        <span class="login-initial display" aria-hidden="true">
+                          {p.name.slice(0, 1).toUpperCase()}
+                        </span>
+                        <span class="login-name">{p.name}</span>
+                        <Show when={p.hasPin}>
+                          <span class="login-lock">
+                            <Icon icon={Lock} size={15} label="PIN protected" />
                           </span>
-                          <span class="login-name">{p.name}</span>
-                          <Show when={p.hasPin}>
-                            <span class="login-lock">
-                              <Icon
-                                icon={Lock}
-                                size={15}
-                                label="PIN protected"
-                              />
-                            </span>
-                          </Show>
-                        </button>
-                      </li>
-                    );
-                  }}
+                        </Show>
+                      </button>
+                    </li>
+                  )}
                 </For>
               </ul>
               {/* Gated on busy() like every other control here: an ungated

@@ -69,6 +69,9 @@ global, and vite's node-shebang bin would otherwise spawn real node.
   and `labelFromParent` only for an icon-only control that owns a non-empty
   `aria-label` or `aria-labelledby`. The development audit warns when the declared
   parent contract and the rendered accessible-name source disagree.
+- **Read `<For>` index accessors inside JSX.** Its row factory is deliberately
+  untracked: reading `i()` while constructing the row snapshots the index and emits
+  `STRICT_READ_UNTRACKED`; a JSX binding such as `String(i())` owns the reactive read.
 
 ## Testing
 

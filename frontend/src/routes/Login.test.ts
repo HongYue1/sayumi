@@ -322,6 +322,32 @@ describe("Login route", () => {
     expect(q('svg[aria-label="PIN protected"]')).not.toBeNull();
   });
 
+  it("Login route: profile rows track their index without dev diagnostics (X60)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      api.listProfiles.mockResolvedValue([
+        { name: "Ann", hasPin: false },
+        { name: "Bea", hasPin: true },
+      ]);
+      mount();
+
+      await vi.waitFor(() => expect(profileButtons()).toHaveLength(2));
+      expect(
+        Array.from(
+          container.querySelectorAll<HTMLElement>("ul.login-profiles > li"),
+          (row) => row.style.getPropertyValue("--i"),
+        ),
+      ).toEqual(["0", "1"]);
+      expect(
+        warn.mock.calls
+          .flat()
+          .filter((value) => String(value).includes("STRICT_READ_UNTRACKED")),
+      ).toEqual([]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("Login route: Back returns to the picker and drops the flag (T11, H5, M10)", async () => {
     api.listProfiles.mockResolvedValue([{ name: "Bea", hasPin: true }]);
     mount();
