@@ -103,6 +103,14 @@ describe("profile deletion reconciliation", () => {
 });
 
 describe("boot status probe", () => {
+  it("starts in the checking state before the probe runs", async () => {
+    const { session } = await import("~/lib/session");
+
+    expect(session.status).toBe("checking");
+    expect(session.authenticated).toBe(false);
+    expect(session.profile).toBeNull();
+  });
+
   it("signs in from an existing cookie session", async () => {
     const { session } = await import("~/lib/session");
     const { flush } = await import("solid-js");
@@ -110,11 +118,11 @@ describe("boot status probe", () => {
     await session.init();
     flush();
 
-    expect(session.ready).toBe(true);
+    expect(session.status).toBe("authenticated");
     expect(session.profile).toBe("Alice");
   });
 
-  it("does not report signed out when the server is unreachable", async () => {
+  it("publishes unavailable instead of signed out when the server is unreachable", async () => {
     const { ApiError } = await import("~/api/client");
     const { session } = await import("~/lib/session");
     const { flush } = await import("solid-js");
@@ -125,10 +133,44 @@ describe("boot status probe", () => {
     await session.init();
     flush();
 
-    // Ready so the UI stops spinning, but nothing was torn down and nothing
-    // claimed the user is signed out.
-    expect(session.ready).toBe(true);
+    expect(session.status).toBe("unavailable");
+    expect(session.authenticated).toBe(false);
     expect(session.profile).toBeNull();
+    expect(resetSettings).not.toHaveBeenCalled();
+  });
+
+  it("treats every auth-status error as unavailable, including a 4xx", async () => {
+    const { ApiError } = await import("~/api/client");
+    const { session } = await import("~/lib/session");
+    const { flush } = await import("solid-js");
+    api.getAuthStatus.mockRejectedValue(
+      new ApiError("unexpected route response", 404, "not_found"),
+    );
+
+    await session.init();
+    flush();
+
+    expect(session.status).toBe("unavailable");
+    expect(session.profile).toBeNull();
+    expect(resetSettings).not.toHaveBeenCalled();
+  });
+
+  it("keeps a known profile while a later status probe is unavailable", async () => {
+    const { ApiError } = await import("~/api/client");
+    const { session } = await import("~/lib/session");
+    const { flush } = await import("solid-js");
+    await session.login("Alice", "", false);
+    resetSettings.mockClear();
+    api.getAuthStatus.mockRejectedValue(
+      new ApiError("Could not reach the server.", undefined, "network_error"),
+    );
+
+    await session.init();
+    flush();
+
+    expect(session.status).toBe("unavailable");
+    expect(session.authenticated).toBe(false);
+    expect(session.profile).toBe("Alice");
     expect(resetSettings).not.toHaveBeenCalled();
   });
 
@@ -150,7 +192,42 @@ describe("boot status probe", () => {
     await vi.waitFor(() => {
       flush();
       expect(session.profile).toBe("Alice");
+      expect(session.status).toBe("authenticated");
     });
+  });
+
+  it("cancels the armed recovery probe when a login wins the race", async () => {
+    const { ApiError } = await import("~/api/client");
+    const reachability = await import("~/lib/reachability");
+    const { session } = await import("~/lib/session");
+    const { flush } = await import("solid-js");
+    api.getAuthStatus.mockRejectedValueOnce(
+      new ApiError("Could not reach the server.", undefined, "network_error"),
+    );
+
+    await session.init();
+    await session.login("Alice", "", false);
+    api.getAuthStatus.mockClear();
+    reachability.reportUnreachable();
+    reachability.reportReachable();
+    await Promise.resolve();
+    flush();
+
+    expect(session.status).toBe("authenticated");
+    expect(session.profile).toBe("Alice");
+    expect(api.getAuthStatus).not.toHaveBeenCalled();
+  });
+
+  it("publishes signed out on a determinate first boot", async () => {
+    const { session } = await import("~/lib/session");
+    const { flush } = await import("solid-js");
+    api.getAuthStatus.mockResolvedValue({ authenticated: false, profile: "" });
+
+    await session.init();
+    flush();
+
+    expect(session.status).toBe("signed-out");
+    expect(session.profile).toBeNull();
   });
 
   it("tears down through the shared path when the server says signed out", async () => {
@@ -165,6 +242,7 @@ describe("boot status probe", () => {
     await session.init();
     flush();
 
+    expect(session.status).toBe("signed-out");
     expect(session.profile).toBeNull();
     expect(resetSettings).toHaveBeenCalledOnce();
     expect(gate.currentSessionEpoch()).not.toBe(epoch);
@@ -242,6 +320,7 @@ describe("profile deletion", () => {
     flush();
 
     expect(api.getAuthStatus).not.toHaveBeenCalled();
+    expect(session.status).toBe("signed-out");
     expect(session.profile).toBeNull();
     expect(resetSettings).toHaveBeenCalledOnce();
   });

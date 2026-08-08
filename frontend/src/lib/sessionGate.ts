@@ -12,6 +12,17 @@
 // when an earlier one advances it while tearing the session down.
 type Listener = (epoch: number) => void;
 
+/** The one client-side owner of the server's lost-session wire code. */
+export const UNAUTHENTICATED_CODE = "unauthenticated";
+
+/** Distinguishes a lost session from credential failures that also use 401. */
+export function isSessionAccessError(
+  status: number,
+  code: string | undefined,
+): boolean {
+  return status === 401 && code === UNAUTHENTICATED_CODE;
+}
+
 const listeners = new Set<Listener>();
 
 // Generation 0 is "before any login": nothing has been authenticated yet, so a

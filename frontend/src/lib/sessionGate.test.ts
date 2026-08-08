@@ -16,6 +16,17 @@ describe("session generation", () => {
   });
 });
 
+describe("session access error", () => {
+  it("owns the exact status and code pair that proves a session was lost", async () => {
+    const gate = await import("~/lib/sessionGate");
+
+    expect(gate.isSessionAccessError(401, "unauthenticated")).toBe(true);
+    expect(gate.isSessionAccessError(401, "invalid_credentials")).toBe(false);
+    expect(gate.isSessionAccessError(403, "unauthenticated")).toBe(false);
+    expect(gate.isSessionAccessError(401, undefined)).toBe(false);
+  });
+});
+
 describe("unauthenticated dispatch", () => {
   it("hands every listener the generation that started the request", async () => {
     const gate = await import("~/lib/sessionGate");

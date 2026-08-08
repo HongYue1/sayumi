@@ -224,28 +224,38 @@ describe("App shell", () => {
     release();
     await settle();
 
-    expect(shell.session.ready).toBe(true);
+    expect(shell.session.status).toBe("signed-out");
     expect(host.querySelector(".boot")).toBeNull();
     expect(stub("login")).not.toBeNull();
   });
 
-  it("lands on the login form when boot could not reach the server", async () => {
-    // Documented, not endorsed: ready flips in init()'s finally clause even on
-    // the transport path (session.ts:125-137), so an indeterminate session is
-    // indistinguishable from a signed-out one here. The offline banner is the
-    // only cue, and the armed boot retry can sign the user in from underneath
-    // this form. Giving the session a real tri-state is session.ts's call.
+  it("shows a blocking retry surface while sign-in status is unknown", async () => {
     const { ApiError } = await import("~/api/client");
-    api.getAuthStatus.mockRejectedValue(
+    api.getAuthStatus.mockRejectedValueOnce(
       new ApiError("Could not reach the server.", undefined, "network_error"),
     );
 
     const shell = await boot();
 
-    expect(shell.session.ready).toBe(true);
+    expect(shell.session.status).toBe("unavailable");
     expect(shell.session.authenticated).toBe(false);
-    expect(stub("login")).not.toBeNull();
+    expect(stub("login")).toBeNull();
+    expect(stub("library")).toBeNull();
     expect(stub("offline")).not.toBeNull();
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+      "Your sign-in status is unknown",
+    );
+
+    const retry = Array.from(host.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Try again",
+    );
+    expect(retry).toBeDefined();
+    retry?.click();
+    await settle();
+
+    expect(api.getAuthStatus).toHaveBeenCalledTimes(2);
+    expect(shell.session.status).toBe("signed-out");
+    expect(stub("login")).not.toBeNull();
   });
 
   it("re-applies the cached theme on mount", async () => {

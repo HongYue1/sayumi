@@ -14,25 +14,18 @@ import {
   advanceSessionEpoch,
   currentSessionEpoch,
   subscribeUnauthenticated,
+  UNAUTHENTICATED_CODE,
 } from "~/lib/sessionGate";
-
-/**
- * True when a failed request proves nothing about the session: the server was
- * unreachable, or it answered with an error that is not about authentication.
- * /auth/status answers 200 whether or not a session exists, so anything else
- * leaves the boot state indeterminate and must not be shown as "signed out".
- */
-function isTransportFailure(error: unknown): boolean {
-  if (!(error instanceof ApiError)) return false;
-  return error.code === "network_error" || (error.status ?? 0) >= 500;
-}
 
 // Holds the currently authenticated profile. Replaces the legacy lib/profile.ts
 // module-level state. The real session lives server-side in the `sayumi_session`
 // cookie; this is the client-side mirror.
+export type SessionStatus =
+  "checking" | "authenticated" | "signed-out" | "unavailable";
+
 class Session {
   readonly #profileSignal = createSignal<string | null>(null);
-  readonly #readySignal = createSignal(false);
+  readonly #statusSignal = createSignal<SessionStatus>("checking");
 
   /**
    * Plain mirror of `profile`, read by synchronous control flow.
@@ -51,6 +44,9 @@ class Session {
    */
   #profilePlain: string | null = null;
 
+  /** Plain status mirror for same-tick retry and authentication guards. */
+  #statusPlain: SessionStatus = "checking";
+
   /** Guards re-entrant init(): boot plus any later reachability re-probe. */
   #initInFlight = false;
 
@@ -59,8 +55,9 @@ class Session {
 
   constructor() {
     // When the API layer detects the server-side session is gone (e.g. a
-    // restart dropped a non-remembered session, or it expired), fall back to
-    // the login screen. No-op when already signed out.
+    // restart dropped a non-remembered session, or it expired), publish a
+    // determinate signed-out state. A status-probe failure takes a separate
+    // unavailable path and never reaches this callback.
     //
     // The unsubscribe is deliberately discarded: `session` is an app-lifetime
     // singleton created at module evaluation and never torn down, the same
@@ -73,13 +70,13 @@ class Session {
     return this.#profileSignal[0]();
   }
 
-  /** True once the initial server status check has completed. */
-  get ready(): boolean {
-    return this.#readySignal[0]();
+  /** What the latest authoritative status probe established. */
+  get status(): SessionStatus {
+    return this.#statusSignal[0]();
   }
 
   get authenticated(): boolean {
-    return this.profile !== null;
+    return this.status === "authenticated";
   }
 
   #setProfile(value: string | null): void {
@@ -87,12 +84,20 @@ class Session {
     this.#profileSignal[1](value);
   }
 
-  /** Clears the current profile and invalidates requests from its generation. */
+  #setStatus(value: SessionStatus): void {
+    this.#statusPlain = value;
+    this.#statusSignal[1](value);
+  }
+
+  /** Clears the current profile and publishes a determinate signed-out state. */
   #clearLocalSession(): void {
-    if (this.#profilePlain === null) return;
-    advanceSessionEpoch();
-    this.#setProfile(null);
-    settings.reset();
+    this.#cancelBootRetry();
+    if (this.#profilePlain !== null) {
+      advanceSessionEpoch();
+      this.#setProfile(null);
+      settings.reset();
+    }
+    this.#setStatus("signed-out");
   }
 
   /** Clears local state only when the 401 belongs to the current login. */
@@ -109,39 +114,38 @@ class Session {
   async init(): Promise<void> {
     if (this.#initInFlight) return;
     this.#initInFlight = true;
+    if (this.#statusPlain !== "authenticated") this.#setStatus("checking");
     try {
       const status = await getAuthStatus();
       this.#cancelBootRetry();
       if (status.authenticated) {
         advanceSessionEpoch();
         this.#setProfile(status.profile);
+        this.#setStatus("authenticated");
       } else {
         // Route through the shared teardown rather than blanking the name: a
         // re-probe that follows a real session must also advance the epoch and
         // drop that profile's settings. No-ops on first boot.
         this.#clearLocalSession();
       }
-    } catch (error) {
-      if (isTransportFailure(error)) {
-        // Indeterminate, not signed out. Leave local state alone and re-probe
-        // when the server answers again (OfflineBanner polls /health from
-        // outside the boot gate), so a server that starts late signs the user
-        // in instead of stranding them on a login screen with no retry.
-        this.#armBootRetry();
-      } else {
-        this.#clearLocalSession();
-      }
+    } catch {
+      // /auth/status answers 200 for both authenticated and signed-out users.
+      // Every error is therefore indeterminate, including an unexpected 4xx:
+      // never turn a server/protocol failure into a claim that the user signed
+      // out. Keep any known profile and retry automatically on recovery.
+      this.#setStatus("unavailable");
+      this.#armBootRetry();
     } finally {
       this.#initInFlight = false;
-      this.#readySignal[1](true);
     }
   }
 
   #armBootRetry(): void {
     if (this.#bootRetry !== null) return;
     this.#bootRetry = subscribeReachability((reachable) => {
-      // Only while still signed out - a login in the meantime owns the session.
-      if (!reachable || this.#profilePlain !== null) return;
+      // Only while the status is still unknown - a login or explicit logout
+      // in the meantime owns the session and cancels this subscription.
+      if (!reachable || this.#statusPlain !== "unavailable") return;
       void this.init();
     });
   }
@@ -155,8 +159,10 @@ class Session {
 
   async login(name: string, pin: string, remember: boolean): Promise<void> {
     const res = await apiLogin(name, pin, remember);
+    this.#cancelBootRetry();
     advanceSessionEpoch();
     this.#setProfile(res.profile);
+    this.#setStatus("authenticated");
   }
 
   /**
@@ -242,7 +248,7 @@ class Session {
     // in the same tick as a teardown, before the signal write has flushed.
     const name = this.#profilePlain;
     if (name === null) {
-      throw new ApiError("Not signed in.", undefined, "unauthenticated");
+      throw new ApiError("Not signed in.", undefined, UNAUTHENTICATED_CODE);
     }
     const profiles = await listProfiles();
     const entry = profiles.find((p) => p.name === name);

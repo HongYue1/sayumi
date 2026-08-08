@@ -124,20 +124,37 @@ export default function App() {
 
       <main>
         <Switch fallback={<Library />}>
-          <Match when={!session.ready}>
+          <Match when={session.status === "checking"}>
             <div class="boot" role="status" aria-busy="true">
-              <span class="sr-only">Loading…</span>
+              <span class="sr-only">Checking sign-in status…</span>
             </div>
           </Match>
-          {/* Two states standing in for three. `ready` flips in init()'s
-              finally clause even when the status request never reached the
-              server (session.ts:125-137), so a transport failure lands on the
-              login form rather than on a distinguishable "cannot tell" screen,
-              and the armed boot retry can then sign the user in from underneath
-              whoever is mid-PIN. OfflineBanner above is the only cue. Fixing it
-              means giving the session a real tri-state, which is session.ts's
-              call, not the shell's. */}
-          <Match when={!session.authenticated}>
+          <Match when={session.status === "unavailable"}>
+            <div class="boot boot-unavailable">
+              <section
+                class="boot-card paper"
+                role="alert"
+                aria-labelledby="boot-unavailable-title"
+              >
+                <p class="eyebrow">Connection</p>
+                <h1 id="boot-unavailable-title" class="display">
+                  Sayumi is unavailable
+                </h1>
+                <p>
+                  Your sign-in status is unknown because the server could not be
+                  reached.
+                </p>
+                <button
+                  class="btn press"
+                  type="button"
+                  onClick={() => void session.init()}
+                >
+                  Try again
+                </button>
+              </section>
+            </div>
+          </Match>
+          <Match when={session.status === "signed-out"}>
             <Login />
           </Match>
           <Match when={router.route.path === "/read/:id"}>

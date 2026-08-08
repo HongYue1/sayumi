@@ -260,6 +260,31 @@ describe("session authentication generation", () => {
     expect(reported).toEqual([startedAt]);
     unsubscribe();
   });
+
+  it("does not report a credential 401 as a lost session", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          jsonResponse(
+            { error: "incorrect PIN", code: "invalid_credentials" },
+            401,
+          ),
+        ),
+      ),
+    );
+    const reported: number[] = [];
+    const unsubscribe = subscribeUnauthenticated((epoch) =>
+      reported.push(epoch),
+    );
+
+    await expect(getAuthStatus()).rejects.toMatchObject({
+      status: 401,
+      code: "invalid_credentials",
+    });
+    expect(reported).toEqual([]);
+    unsubscribe();
+  });
 });
 
 describe("user font access token", () => {

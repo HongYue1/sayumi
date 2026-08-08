@@ -3,7 +3,11 @@ import {
   reportUnreachable,
   isReachable,
 } from "~/lib/reachability";
-import { currentSessionEpoch, reportUnauthenticated } from "~/lib/sessionGate";
+import {
+  currentSessionEpoch,
+  isSessionAccessError,
+  reportUnauthenticated,
+} from "~/lib/sessionGate";
 
 const BASE = "/api";
 
@@ -250,7 +254,7 @@ async function request<T>(
       // screen instead of looking broken. Credential failures use other codes
       // ("invalid_credentials") and /auth/status returns 200, so neither trips
       // this.
-      if (res.status === 401 && parsed.code === "unauthenticated") {
+      if (isSessionAccessError(res.status, parsed.code)) {
         reportUnauthenticated(sessionEpoch);
       }
       throw new ApiError(parsed.message, res.status, parsed.code);

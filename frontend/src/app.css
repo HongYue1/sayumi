@@ -576,6 +576,26 @@ main {
 .boot {
   min-height: calc(100vh - var(--offline-banner-h, 0px));
 }
+.boot-unavailable {
+  display: grid;
+  place-items: center;
+  padding: 32px 20px;
+}
+.boot-card {
+  width: min(100%, 420px);
+  padding: 32px;
+  text-align: center;
+}
+.boot-card h1 {
+  margin: 6px 0 12px;
+  font-size: clamp(1.75rem, 6vw, 2.5rem);
+}
+.boot-card > p:not(.eyebrow) {
+  margin: 0 auto 24px;
+  max-width: 34ch;
+  color: var(--muted);
+  line-height: 1.6;
+}
 /* Visually hidden but announced by AT. The single global utility — boot,
    loading states, and permanently-mounted live regions all share it. */
 .sr-only {
