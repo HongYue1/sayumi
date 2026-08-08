@@ -324,6 +324,36 @@ export default function Library() {
     },
   );
 
+  // Move focus into the sort menu on open. The items' self-focusing ref could
+  // never do it: Solid runs element refs while the node is still detached, so
+  // .focus() no-oped and the active element stayed on the trigger -- which
+  // left the roving arrow keys unreachable (they listen on the menu, and key
+  // events never bubble UP to it) and made aria-expanded assert a focus move
+  // that never happened. One microtask after open, matching ThemeDropdown and
+  // ProfileMenu; the tabindex="0" item -- the active sort -- is the entry
+  // point the markup nominates.
+  let sortGen = 0;
+  createEffect(
+    () => sortOpen(),
+    (open) => {
+      const gen = ++sortGen;
+      if (!open) return undefined;
+      queueMicrotask(() => {
+        if (gen !== sortGen) return;
+        const el = sortMenuEl;
+        if (!el) return;
+        const items = Array.from(
+          el.querySelectorAll<HTMLButtonElement>(".lib-sort-item"),
+        );
+        const preferred = items.find(
+          (it) => it.getAttribute("tabindex") === "0",
+        );
+        (preferred ?? items[0] ?? el).focus();
+      });
+      return undefined;
+    },
+  );
+
   return (
     <div
       class="lib-page"
@@ -394,10 +424,6 @@ export default function Library() {
                     role="menuitemradio"
                     aria-checked={active() ? "true" : "false"}
                     tabindex={active() ? "0" : "-1"}
-                    ref={(el) => {
-                      // Focus the current sort on open (menuitemradio model).
-                      if (active()) el.focus();
-                    }}
                     onClick={() => chooseSort(opt.key)}
                   >
                     <span class="lib-sort-item-label">{opt.label}</span>

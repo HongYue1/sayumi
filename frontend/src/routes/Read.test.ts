@@ -925,3 +925,19 @@ describe("Read bookmarks", () => {
     expect(api.createBookmark).not.toHaveBeenCalled();
   });
 });
+
+describe("Read more menu", () => {
+  it("moves focus to the first row when the menu opens", async () => {
+    await bootReader();
+    // The row's old self-focusing ref fired while the node was still detached
+    // (a silent no-op), so focus stayed on the trigger and the roving keys
+    // were unreachable.
+    const trigger = document.querySelector<HTMLButtonElement>(".rdp-more");
+    if (!trigger) throw new Error("more-tools trigger did not render");
+    trigger.click();
+    await settle();
+    const firstRow = document.querySelector<HTMLElement>(".rdp-mrow");
+    if (!firstRow) throw new Error("more menu did not open");
+    expect(document.activeElement).toBe(firstRow);
+  });
+});

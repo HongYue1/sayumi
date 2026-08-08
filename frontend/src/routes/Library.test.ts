@@ -301,6 +301,34 @@ describe("Library route: sort menu (H4, L1)", () => {
       SORT_OPTIONS.length,
     );
   });
+
+  it("moves focus to the active sort item on open", async () => {
+    const host = await mount();
+    const menu = openMenu(host);
+    await Promise.resolve();
+    const activeItem = menu.querySelector('[aria-checked="true"]');
+    if (!activeItem) throw new Error("no active sort item rendered");
+    expect(document.activeElement).toBe(activeItem);
+  });
+
+  it("focuses the active sort item even when it is not the first option", async () => {
+    const host = await mount();
+    const first = openMenu(host);
+    await Promise.resolve();
+    const third = first.querySelectorAll<HTMLButtonElement>(
+      '[role="menuitemradio"]',
+    )[2];
+    third.click();
+    flush();
+    const menu = openMenu(host);
+    await Promise.resolve();
+    const activeItem = menu.querySelector('[aria-checked="true"]');
+    if (!activeItem) throw new Error("no active sort item rendered");
+    // The nomination logic carries focus, not DOM order: the active sort is
+    // genuinely not the first option here.
+    expect(activeItem).not.toBe(menu.querySelector('[role="menuitemradio"]'));
+    expect(document.activeElement).toBe(activeItem);
+  });
 });
 
 describe("Library route: live regions (M4)", () => {

@@ -356,6 +356,35 @@ export default function Read(props: Props) {
     // Re-arm the chrome auto-hide that toggleMore paused while the menu was up.
     resetChromeTimer();
   }
+  // Move focus into the more-tools menu on open. The first row's
+  // self-focusing ref could never do it: refs run while the node is still
+  // detached, so .focus() no-oped and the active element stayed on the
+  // trigger -- leaving the roving keys in onMoreKeydown unreachable and
+  // aria-expanded asserting a focus move that never happened. One microtask
+  // after open, matching ThemeDropdown and ProfileMenu; the first row carries
+  // the markup's tabindex="0" nomination.
+  let moreGen = 0;
+  createEffect(
+    () => moreOpen(),
+    (open) => {
+      const gen = ++moreGen;
+      if (!open) return undefined;
+      queueMicrotask(() => {
+        if (gen !== moreGen) return;
+        const el = moreMenuEl;
+        if (!el) return;
+        const items = Array.from(
+          el.querySelectorAll<HTMLButtonElement>(".rdp-mrow"),
+        );
+        const preferred = items.find(
+          (it) => it.getAttribute("tabindex") === "0",
+        );
+        (preferred ?? items[0] ?? el).focus();
+      });
+      return undefined;
+    },
+  );
+
   function toggleMore(): void {
     if (moreOpen()) {
       closeMore();
@@ -1659,9 +1688,6 @@ export default function Read(props: Props) {
                     class="rdp-mrow"
                     role="menuitem"
                     tabindex="0"
-                    ref={(el) => {
-                      el.focus();
-                    }}
                     onClick={() => pickMore(() => togglePanel("search"))}
                   >
                     <Icon icon={Search} size={16} />
