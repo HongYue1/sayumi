@@ -50,7 +50,9 @@ function choose(cmd: Command | undefined): void {
 // and before App's/Read's bubble listeners, so registration order can't
 // strand an Esc in the reader (the ShortcutsHelp pattern).
 function onPaletteEscape(e: KeyboardEvent): void {
-  if (e.key !== "Escape") return;
+  // This capture listener runs before the query field. A composing Escape
+  // belongs to the IME candidate window, not to the palette.
+  if (e.key !== "Escape" || e.isComposing) return;
   e.preventDefault();
   e.stopImmediatePropagation();
   close();
@@ -153,6 +155,9 @@ export default function CommandPalette() {
   }
 
   function onKeydown(e: KeyboardEvent): void {
+    // Enter and the arrows control the candidate window during composition;
+    // never navigate or choose a command with those same keystrokes.
+    if (e.isComposing) return;
     switch (e.key) {
       case "ArrowDown": {
         e.preventDefault();

@@ -21,6 +21,7 @@
 //     instead of delegating it to an unmount deleteCurrent does not promise.
 //   - The mount fetch is aborted on dispose, and a PIN-probe failure fails
 //     closed: no PIN field, no enabled delete, a visible retry.
+//   - Capture-phase Escape leaves an active IME composition untouched.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@solidjs/web";
 import { flush } from "solid-js";
@@ -230,6 +231,52 @@ describe("ProfileDialog", () => {
     expect(container.textContent).toContain("Disk is full");
     expect(stubs.toasts).toEqual([]);
     expect(closes).toBe(0);
+  });
+
+  it("closes and consumes an ordinary Escape", async () => {
+    await mount("clone");
+    let bubbled = false;
+    const bubbleSpy = (): void => {
+      bubbled = true;
+    };
+    window.addEventListener("keydown", bubbleSpy);
+    const escape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+
+    nameInput().dispatchEvent(escape);
+    await settle();
+    window.removeEventListener("keydown", bubbleSpy);
+
+    expect(closes).toBe(1);
+    expect(escape.defaultPrevented).toBe(true);
+    expect(bubbled).toBe(false);
+  });
+
+  it("leaves a composing Escape with the profile field", async () => {
+    await mount("clone");
+    let bubbled = false;
+    const bubbleSpy = (): void => {
+      bubbled = true;
+    };
+    window.addEventListener("keydown", bubbleSpy);
+    const composing = new KeyboardEvent("keydown", {
+      key: "Escape",
+      isComposing: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    expect(composing.isComposing).toBe(true);
+
+    nameInput().dispatchEvent(composing);
+    await settle();
+    window.removeEventListener("keydown", bubbleSpy);
+
+    expect(closes).toBe(0);
+    expect(composing.defaultPrevented).toBe(false);
+    expect(bubbled).toBe(true);
   });
 
   it("aborts the names fetch when the dialog unmounts mid-flight", async () => {

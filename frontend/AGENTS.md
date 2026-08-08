@@ -72,6 +72,10 @@ global, and vite's node-shebang bin would otherwise spawn real node.
 - **Read `<For>` index accessors inside JSX.** Its row factory is deliberately
   untracked: reading `i()` while constructing the row snapshots the index and emits
   `STRICT_READ_UNTRACKED`; a JSX binding such as `String(i())` owns the reactive read.
+- **IME composition owns Escape inside overlays.** Modal and panel Escape handlers
+  return on `event.isComposing` before preventing default, stopping propagation, or
+  dismissing. Ancestor panels must guard too; a nested dialog cannot protect the event
+  after its capture listener deliberately stands down.
 
 ## Testing
 

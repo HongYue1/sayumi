@@ -8,6 +8,8 @@
 // is the contract under test, and the real store is a two-signal module
 // with no network. No fake timers: the palette arms none (queueMicrotask
 // only), and rescan is the boundary mock itself, not a debounced real one.
+// Composition owns Escape, Enter, and candidate-navigation keys before either
+// the window capture listener or the query's command handler can consume them.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@solidjs/web";
 import { flush } from "solid-js";
@@ -335,13 +337,74 @@ describe("command palette", () => {
       otherHandlerSaw = true;
     };
     window.addEventListener("keydown", spy, true);
-    input().dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-    );
+    const escape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    input().dispatchEvent(escape);
     flush();
     window.removeEventListener("keydown", spy, true);
     expect(ui.palette).toBe(false);
+    expect(escape.defaultPrevented).toBe(true);
     expect(otherHandlerSaw).toBe(false);
+  });
+
+  it("leaves a composing Escape with the palette query", async () => {
+    mount();
+    open();
+    await settle();
+    let captured = false;
+    const captureSpy = (): void => {
+      captured = true;
+    };
+    window.addEventListener("keydown", captureSpy, true);
+    const composing = new KeyboardEvent("keydown", {
+      key: "Escape",
+      isComposing: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    expect(composing.isComposing).toBe(true);
+
+    input().dispatchEvent(composing);
+    flush();
+    window.removeEventListener("keydown", captureSpy, true);
+
+    expect(ui.palette).toBe(true);
+    expect(composing.defaultPrevented).toBe(false);
+    expect(captured).toBe(true);
+  });
+
+  it("does not navigate or choose on composing query keys", async () => {
+    mount();
+    open();
+    await settle();
+    const arrow = new KeyboardEvent("keydown", {
+      key: "ArrowDown",
+      isComposing: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    expect(arrow.isComposing).toBe(true);
+    input().dispatchEvent(arrow);
+    flush();
+    expect(activeIndex()).toBe(0);
+    expect(arrow.defaultPrevented).toBe(false);
+
+    const enter = new KeyboardEvent("keydown", {
+      key: "Enter",
+      isComposing: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    expect(enter.isComposing).toBe(true);
+    input().dispatchEvent(enter);
+    flush();
+
+    expect(ui.palette).toBe(true);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(enter.defaultPrevented).toBe(false);
   });
 
   it("closes on the backdrop dismiss button", async () => {

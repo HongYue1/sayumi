@@ -483,7 +483,9 @@ export default function SettingsPanel(props: Props) {
     <div
       class="stp"
       onKeyDown={(e) => {
-        if (e.key !== "Escape") return;
+        // The custom-theme dialog is a descendant. Its capture listener stands
+        // down for composition, so this ancestor must not dismiss underneath it.
+        if (e.key !== "Escape" || e.isComposing) return;
         e.preventDefault();
         e.stopPropagation();
         props.onclose();

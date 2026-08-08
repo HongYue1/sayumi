@@ -74,13 +74,14 @@ function close(): void {
 }
 
 function onKeydown(e: KeyboardEvent): void {
-  if (e.key === "Escape") {
-    e.preventDefault();
-    // Consume the event so the reader's separate window key handler doesn't
-    // also act on this Esc and navigate back to the library.
-    e.stopImmediatePropagation();
-    close();
-  }
+  // The listener is window-capture, so do not consume the Escape that belongs
+  // to an active IME composition elsewhere in the document.
+  if (e.key !== "Escape" || e.isComposing) return;
+  e.preventDefault();
+  // Consume the event so the reader's separate window key handler doesn't
+  // also act on this Esc and navigate back to the library.
+  e.stopImmediatePropagation();
+  close();
 }
 
 export default function ShortcutsHelp() {

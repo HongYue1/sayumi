@@ -587,18 +587,46 @@ describe("reader settings panel", () => {
     expect(onclose).toHaveBeenCalledTimes(1);
   });
 
-  it("closes on Escape from inside the panel", async () => {
+  it("leaves a composing Escape with the panel's text field", async () => {
     mount();
     await settle();
-    el(".stp").dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "Escape",
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
+    openNaming("");
+    const name = el(".stp-preset-name");
+    const composing = new KeyboardEvent("keydown", {
+      key: "Escape",
+      isComposing: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    expect(composing.isComposing).toBe(true);
+
+    name.dispatchEvent(composing);
+    await settle();
+
+    expect(onclose).not.toHaveBeenCalled();
+    expect(composing.defaultPrevented).toBe(false);
+    expect(container.querySelector(".stp-preset-name")).toBe(name);
+  });
+
+  it("closes and consumes Escape from inside the panel", async () => {
+    mount();
+    await settle();
+    let bubbled = false;
+    const bubbleSpy = (): void => {
+      bubbled = true;
+    };
+    window.addEventListener("keydown", bubbleSpy);
+    const escape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    el(".stp").dispatchEvent(escape);
     flush();
+    window.removeEventListener("keydown", bubbleSpy);
     expect(onclose).toHaveBeenCalledTimes(1);
+    expect(escape.defaultPrevented).toBe(true);
+    expect(bubbled).toBe(false);
   });
 
   it("arms the reset button, disarms it after three seconds", async () => {

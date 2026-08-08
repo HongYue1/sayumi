@@ -9,7 +9,8 @@
 //     regression to bubble -- or a dropped stopImmediatePropagation -- would
 //     let one Esc close the sheet AND navigate the reader back to the library.
 //     Every test registers its bubble listener BEFORE the sheet opens, which
-//     is the arrangement a bubble-phase implementation cannot win.
+//     is the arrangement a bubble-phase implementation cannot win. A composing
+//     Escape is the exception: it remains open and lets the event pass through.
 //   - The dotted leader lives inside <dd>, because a div row inside a <dl> may
 //     contain only <dt>s followed by <dd>s.
 //   - Focus placement belongs to focusTrap, in a queued microtask. Refs fire
@@ -59,14 +60,14 @@ describe("ShortcutsHelp", () => {
     );
   }
 
-  function press(key: string): void {
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key,
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
+  function press(key: string): KeyboardEvent {
+    const event = new KeyboardEvent("keydown", {
+      key,
+      bubbles: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(event);
+    return event;
   }
 
   beforeEach(() => {
@@ -142,10 +143,31 @@ describe("ShortcutsHelp", () => {
     ui.openShortcuts();
     await settle();
 
-    press("Escape");
+    const escape = press("Escape");
     await settle();
     expect(sheet()).toBeNull();
+    expect(escape.defaultPrevented).toBe(true);
     expect(bubbled).toEqual([]);
+  });
+
+  it("does not consume a composing Escape", async () => {
+    mount();
+    ui.openShortcuts();
+    await settle();
+    const composing = new KeyboardEvent("keydown", {
+      key: "Escape",
+      isComposing: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    expect(composing.isComposing).toBe(true);
+
+    window.dispatchEvent(composing);
+    await settle();
+
+    expect(sheet()).not.toBeNull();
+    expect(composing.defaultPrevented).toBe(false);
+    expect(bubbled).toEqual(["Escape"]);
   });
 
   it("leaves other keys alone while open", async () => {

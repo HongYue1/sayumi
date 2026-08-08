@@ -239,6 +239,9 @@ export default function ProfileDialog(props: Props) {
   }
 
   function onKeydown(e: KeyboardEvent): void {
+    // Capture beats the focused field, but a composing Escape belongs to the
+    // IME candidate window and must remain entirely untouched.
+    if (e.isComposing) return;
     if (e.key === "Escape") {
       e.preventDefault();
       // Consume so the reader/library window key handlers don't also act on it.
