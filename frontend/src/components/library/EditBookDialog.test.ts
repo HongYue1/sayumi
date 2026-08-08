@@ -276,6 +276,29 @@ describe("EditBookDialog", () => {
     expect(closes).toBe(0);
   });
 
+  it("reports a cover failure after the details stage saved, without closing", async () => {
+    await mount();
+    type(titleInput(), "Tehanu");
+    pick([new File(["png"], "cover.png", { type: "image/png" })]);
+    await settle();
+
+    stubs.replaceCover.mockRejectedValue(
+      new ApiError("cover exploded", 500, "db_error"),
+    );
+
+    saveButton().click();
+    await settle();
+
+    // The details stage committed, so the message says which half failed
+    // rather than reporting a blanket failure.
+    expect(container.textContent).toContain(
+      "Book details were saved, but the cover could not be replaced",
+    );
+    expect(container.textContent).toContain("cover exploded");
+    expect(stubs.toasts).toEqual([]);
+    expect(closes).toBe(0);
+  });
+
   it("ignores Escape that belongs to an IME composition", async () => {
     await mount();
 

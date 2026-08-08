@@ -59,6 +59,13 @@ async function seed(books: BookMeta[]): Promise<InstanceType<typeof Library>> {
   return store;
 }
 
+/** Awaits a fire-and-forget refresh() chain: microtasks only, no timers. */
+async function settleStore(): Promise<void> {
+  for (let i = 0; i < 8; i += 1) {
+    await Promise.resolve();
+  }
+}
+
 // Fake timers throughout: setQuery's 140ms debounce is the only way to reach
 // debouncedQuery, which is the field `visible` actually filters on.
 beforeEach(() => {
@@ -381,6 +388,70 @@ describe("library.editMetadata", () => {
       updatedAt: "2024-06-01 00:00:00",
     });
   });
+
+  it("does not roll back over a newer overlapping edit", async () => {
+    const store = await seed([book({ id: "a", title: "Old", author: "X" })]);
+    const first = deferred<BookMeta>();
+    const second = deferred<BookMeta>();
+    mocks.updateBookMeta
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+
+    const m1 = store.editMetadata("a", { title: "First" });
+    const m2 = store.editMetadata("a", { title: "Second" });
+    flush();
+    expect(store.books[0].title).toBe("Second");
+
+    second.resolve(book({ id: "a", title: "Second", author: "X" }));
+    await m2;
+    flush();
+
+    first.reject(new ApiError("bad", 400, "invalid"));
+    await expect(m1).rejects.toThrow("bad");
+    flush();
+
+    // The failed call's rollback must not clobber the newer edit, and a known
+    // pre-commit rejection never triggers a reconcile refetch.
+    expect(store.books[0].title).toBe("Second");
+    expect(mocks.getBooks).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconciles from the server when a failure may have landed after commit", async () => {
+    const store = await seed([book({ id: "a", title: "Old", author: "X" })]);
+    mocks.updateBookMeta.mockRejectedValue(
+      new ApiError("Could not reach the server.", undefined, "network_error"),
+    );
+    // The server committed despite the dropped connection; the failure
+    // triggers a refresh and the store heals from the server's own list.
+    mocks.getBooks.mockResolvedValue([
+      book({ id: "a", title: "Committed", author: "X" }),
+    ]);
+
+    await expect(store.editMetadata("a", { title: "New" })).rejects.toThrow(
+      "Could not reach the server.",
+    );
+    await settleStore();
+    flush();
+
+    expect(mocks.getBooks).toHaveBeenCalledTimes(2);
+    expect(store.books[0].title).toBe("Committed");
+  });
+
+  it("does not refetch on a known pre-commit rejection", async () => {
+    const store = await seed([book({ id: "a", title: "Old", author: "X" })]);
+    mocks.updateBookMeta.mockRejectedValue(
+      new ApiError("title must not be empty", 400, "invalid"),
+    );
+
+    await expect(store.editMetadata("a", { title: " " })).rejects.toThrow(
+      "title must not be empty",
+    );
+    await settleStore();
+    flush();
+
+    expect(store.books[0].title).toBe("Old");
+    expect(mocks.getBooks).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("library.replaceCover", () => {
@@ -408,6 +479,51 @@ describe("library.replaceCover", () => {
       flairId: "reading",
       updatedAt: "2024-06-02 00:00:00",
     });
+  });
+
+  it("leaves the shelf untouched while in flight and on rejection", async () => {
+    const store = await seed([book({ id: "a", title: "A" })]);
+    const upload = deferred<BookMeta>();
+    mocks.uploadCover.mockImplementation(() => upload.promise);
+
+    const mutation = store.replaceCover("a", new File(["x"], "cover.png"));
+    flush();
+    // No optimistic write: the grid keeps showing the true cover state until
+    // the server's enriched record arrives.
+    expect(store.books[0].hasCover).toBe(false);
+
+    upload.reject(new ApiError("image too large", 413, "too_large"));
+    await expect(mutation).rejects.toThrow("image too large");
+    await settleStore();
+    flush();
+
+    expect(store.books[0].hasCover).toBe(false);
+    expect(mocks.getBooks).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconciles from the server when a cover failure may have landed", async () => {
+    const store = await seed([book({ id: "a", title: "A" })]);
+    mocks.uploadCover.mockRejectedValue(
+      new ApiError("Could not reach the server.", undefined, "network_error"),
+    );
+    mocks.getBooks.mockResolvedValue([
+      book({
+        id: "a",
+        title: "A",
+        hasCover: true,
+        updatedAt: "2024-06-03 00:00:00",
+      }),
+    ]);
+
+    await expect(
+      store.replaceCover("a", new File(["x"], "cover.png")),
+    ).rejects.toThrow("Could not reach the server.");
+    await settleStore();
+    flush();
+
+    expect(mocks.getBooks).toHaveBeenCalledTimes(2);
+    expect(store.books[0].hasCover).toBe(true);
+    expect(store.books[0].updatedAt).toBe("2024-06-03 00:00:00");
   });
 });
 

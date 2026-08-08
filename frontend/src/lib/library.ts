@@ -665,6 +665,16 @@ export class Library {
       );
   }
 
+  // Mutation doctrine for this store: a mutator writes optimistically only
+  // when the client can compute the post-image itself (editMetadata,
+  // setFlair, removeCustomFlair), then rolls back surgically on failure. When
+  // the post-image is server-computed (replaceCover) or the operation is
+  // already a grid-level refetch (upload, rescan), the write instead waits for
+  // the server's enriched record. `remove` stays pessimistic although its
+  // post-image is known: a false optimistic removal re-shows a book the user
+  // just deleted, which reads worse than a delayed one. And whatever the
+  // shape, a failure that is not a known pre-commit rejection leaves the
+  // commit state ambiguous - see #reconcileAfterAmbiguousFailure.
   /** Edits a book's title/author with an optimistic update + rollback. On
    *  success the server's canonical record is reconciled into the store;
    *  rejects (after rollback) so the caller dialog can surface the error
@@ -716,6 +726,10 @@ export class Library {
           }
         });
       }
+      // The rollback restores the likely case (a pre-commit rejection); the
+      // reconcile heals the ambiguous one. The caller's view is unchanged:
+      // the rejection still propagates to the dialog.
+      this.#reconcileAfterAmbiguousFailure(e);
       throw e;
     }
   }
@@ -728,7 +742,18 @@ export class Library {
     const profile = this.#profile;
     if (profile === null) return;
     const generation = this.#generation;
-    const updated = await uploadCover(id, file);
+    let updated: BookMeta;
+    try {
+      updated = await uploadCover(id, file);
+    } catch (e) {
+      // No optimistic write means nothing local to roll back; the reconcile
+      // covers a failure that arrived after the server had already committed
+      // (the row update runs on a detached context server-side).
+      if (this.#isCurrent(profile, generation)) {
+        this.#reconcileAfterAmbiguousFailure(e);
+      }
+      throw e;
+    }
     if (!this.#isCurrent(profile, generation)) return;
     // Same enriched response shape as editMetadata: it already carries the
     // reader-owned fields alongside the new updatedAt (which busts the cover
@@ -738,6 +763,28 @@ export class Library {
       if (index === -1) return;
       s[index] = updated;
     });
+  }
+
+  /**
+   * Best-effort reconcile after a mutator fails with the commit state
+   * ambiguous. The book-edit handlers commit on a context detached from the
+   * request (bookEditCommitTimeout), so a network_error - or the post-commit
+   * "updated but failed to reload" 500 - can mean the server holds a change
+   * this side reported as failed. A 4xx is always a pre-commit rejection from
+   * these handlers (validation, conflict, size), so it skips the round trip.
+   * refresh() is deduped and never rejects; on a genuinely dead server its
+   * load() defers to the offline banner instead of stacking an inline error.
+   */
+  #reconcileAfterAmbiguousFailure(e: unknown): void {
+    if (
+      e instanceof ApiError &&
+      e.status !== undefined &&
+      e.status >= 400 &&
+      e.status < 500
+    ) {
+      return;
+    }
+    void this.refresh();
   }
 
   async remove(id: string): Promise<void> {
