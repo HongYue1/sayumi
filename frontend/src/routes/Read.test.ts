@@ -899,4 +899,29 @@ describe("Read bookmarks", () => {
     expect(ids).toContain("a");
     expect(ids).toContain("b");
   });
+
+  it("creates instead of deleting when the nearest bookmark is a page away in a long chapter", async () => {
+    api.getBookmarks.mockResolvedValue([{ ...bm("a", 0, 0.5), cfi: "cfi:a" }]);
+    api.createBookmark.mockResolvedValue(bm("new"));
+    await bootReader();
+    // One page away in a 100-page chapter: the 0.0101 delta sits inside the
+    // legacy bucket, but the anchor moved -- the toggle must create.
+    frameHandler("onposition")(0, 0.5101, "cfi:b");
+    await settle();
+    frameHandler("onkey")(key("b"));
+    await vi.waitFor(() => expect(api.createBookmark).toHaveBeenCalledTimes(1));
+    expect(api.deleteBookmark).not.toHaveBeenCalled();
+  });
+
+  it("deletes the bookmark at the exact current anchor", async () => {
+    api.getBookmarks.mockResolvedValue([{ ...bm("a", 0, 0.5), cfi: "cfi:a" }]);
+    api.deleteBookmark.mockResolvedValue(undefined);
+    await bootReader();
+    frameHandler("onposition")(0, 0.5, "cfi:a");
+    await settle();
+    frameHandler("onkey")(key("b"));
+    await vi.waitFor(() => expect(api.deleteBookmark).toHaveBeenCalledTimes(1));
+    expect(api.deleteBookmark).toHaveBeenCalledWith("book1", "a");
+    expect(api.createBookmark).not.toHaveBeenCalled();
+  });
 });

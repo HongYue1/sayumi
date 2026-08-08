@@ -73,23 +73,70 @@ export function chooseBootProgress(
 }
 
 /**
- * Below this percent delta a bookmark counts as "at the current position".
+ * Below this percent delta a bookmark counts as "at the current position" in
+ * the LEGACY path, where at least one side carries no cfi anchor.
  *
  * Chapter-relative, NOT page-relative: paged percent is page/(totalPages-1),
  * so this spans more than a whole page in any chapter past roughly fifty
- * pages -- and the toggle DELETES whatever it matches. A length-aware epsilon
- * plus nearest-match instead of first-match is deferred.
+ * pages -- and the toggle DELETES whatever it matches. That is why
+ * anchor-carrying pairs take the exact-cfi path in isBookmarkAtPosition
+ * instead, and why nearest-match (not first-match) picks within the bucket.
  */
 export const BOOKMARK_EPSILON = 0.02;
 
-/** True when a bookmark sits at (or very near) the given chapter + percent. */
+/**
+ * True when a bookmark sits at the given position. Two paths: when BOTH sides
+ * carry a cfi the match is exact-anchor -- the cfis must agree AND the
+ * percents must sit inside a tight same-spot bucket (paged quantization makes
+ * same-page percents identical, so the bucket only absorbs float noise). The
+ * tight guard matters for the degenerate chapter whose one giant element
+ * anchors several pages to the same cfi: there a page of travel shares the
+ * anchor, and the percent is the only tell. When either side lacks a cfi
+ * (legacy bookmarks, or the pre-first-report boot state) the legacy percent
+ * bucket decides. Deletes flow from this predicate, so every doubt resolves
+ * to NO match -- a wrong create is recoverable with a second tap; a wrong
+ * delete loses the label and note.
+ */
 export function isBookmarkAtPosition(
-  bookmark: { chapter: number; percent: number },
+  bookmark: { chapter: number; percent: number; cfi?: string },
   chapter: number,
   percent: number,
+  cfi?: string,
   eps: number = BOOKMARK_EPSILON,
 ): boolean {
-  return (
-    bookmark.chapter === chapter && Math.abs(bookmark.percent - percent) < eps
-  );
+  if (bookmark.chapter !== chapter) return false;
+  const delta = Math.abs(bookmark.percent - percent);
+  if (bookmark.cfi !== undefined && cfi !== undefined) {
+    return bookmark.cfi === cfi && delta < PROGRESS_EPSILON;
+  }
+  return delta < eps;
+}
+
+/**
+ * The bookmark at the given position, if any -- the NEAREST match, not the
+ * first. Two bookmarks can land in the same bucket (a legacy duplicate pair,
+ * or anchorless rows in the fallback path), and first-match picked whichever
+ * the server returned first; the toggle deletes the winner, so the nearest
+ * one is the only honest choice.
+ */
+export function findBookmarkAtPosition<
+  T extends { chapter: number; percent: number; cfi?: string },
+>(
+  bookmarks: T[],
+  chapter: number,
+  percent: number,
+  cfi?: string,
+  eps: number = BOOKMARK_EPSILON,
+): T | null {
+  let best: T | null = null;
+  let bestDelta = Infinity;
+  for (const b of bookmarks) {
+    if (!isBookmarkAtPosition(b, chapter, percent, cfi, eps)) continue;
+    const delta = Math.abs(b.percent - percent);
+    if (delta < bestDelta) {
+      best = b;
+      bestDelta = delta;
+    }
+  }
+  return best;
 }

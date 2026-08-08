@@ -37,7 +37,7 @@ import { clientOnly } from "@solidjs/web";
 import {
   isProgressDuplicate,
   chooseBootProgress,
-  isBookmarkAtPosition,
+  findBookmarkAtPosition,
   PROGRESS_UNSET,
 } from "~/lib/progress";
 import {
@@ -163,6 +163,13 @@ export default function Read(props: Props) {
   const [book, setBook] = createSignal<BookDetail | null>(null);
   const [currentChapter, setCurrentChapter] = createSignal(0);
   const [chapterPercent, setChapterPercent] = createSignal(0);
+  // The current position's anchor as a REACTIVE value: currentBookmarkId is a
+  // memo, and memos compute eagerly at setup — reading saveData.cfi there hit
+  // the TDZ (saveData is declared hundreds of lines below the memo), and a
+  // plain-let read would also miss a cfi-only change at an unchanged percent.
+  const [currentCfi, setCurrentCfi] = createSignal<string | undefined>(
+    undefined,
+  );
   const [chapterDirection, setChapterDirection] = createSignal("ltr");
   const [chapterLoading, setChapterLoading] = createSignal(false);
   const [error, setError] = createSignal("");
@@ -199,11 +206,16 @@ export default function Read(props: Props) {
     }
     return byChapter;
   });
-  // A bookmark at (or very near) the current reading position, if any.
+  // A bookmark at the current reading position, if any: exact-anchor
+  // match when both sides carry a cfi, the legacy percent bucket otherwise,
+  // and the nearest match wins -- the toggle deletes what this returns.
   const currentBookmarkId = createMemo(
     () =>
-      (bookmarksByChapter().get(currentChapter()) ?? []).find((b) =>
-        isBookmarkAtPosition(b, currentChapter(), chapterPercent()),
+      findBookmarkAtPosition(
+        bookmarksByChapter().get(currentChapter()) ?? [],
+        currentChapter(),
+        chapterPercent(),
+        currentCfi(),
       )?.id ?? null,
   );
   // Active TOC entry to highlight per chapter. Built once per book
@@ -1041,6 +1053,7 @@ export default function Read(props: Props) {
     // chapter — only overwrite when the report actually carries one.
     const keptCfi =
       cfi ?? (chapterIndex === saveData.chapter ? saveData.cfi : undefined);
+    setCurrentCfi(keptCfi);
     saveData = { chapter: chapterIndex, percent: safePercent, cfi: keptCfi };
   }
   function handleBoundary(boundary: "start" | "end"): void {
