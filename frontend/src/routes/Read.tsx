@@ -69,6 +69,7 @@ import {
   specimenChapter,
 } from "~/lib/specimen";
 import { ui } from "~/lib/ui";
+import { keyboardEventIsOwnedByTarget } from "~/lib/keyboard";
 import { resolveHref, buildTocChapterEntries } from "~/lib/href";
 import { getErrorMessage } from "~/lib/errors";
 import { isReachable } from "~/lib/reachability";
@@ -1504,22 +1505,6 @@ export default function Read(props: Props) {
     return false;
   }
 
-  // True when the focused element consumes ordinary keystrokes, so reader
-  // shortcuts must stand down. Deliberately NOT a blanket tagName check:
-  // checkbox/button-flavored inputs don't type or use arrows, and swallowing
-  // there left Escape/letters dead after clicking a settings toggle. Radio and
-  // range DO consume arrows natively (group nav / slider), so they stay
-  // guarded along with all text-entry types.
-  function isKeyboardConsumer(el: Element | null): boolean {
-    if (!el) return false;
-    if (el instanceof HTMLElement && el.isContentEditable) return true;
-    const tag = el.tagName;
-    if (tag === "TEXTAREA" || tag === "SELECT") return true;
-    if (tag !== "INPUT") return false;
-    const type = (el as HTMLInputElement).type;
-    return !["checkbox", "button", "submit", "reset", "file"].includes(type);
-  }
-
   function handleWindowKey(e: KeyboardEvent): void {
     // App's window handler owns Ctrl/Cmd+K on this path, and single ownership
     // is deliberate -- but the justification that used to sit here (that
@@ -1533,8 +1518,8 @@ export default function Read(props: Props) {
     // fails there instead of here.
     // handleKeyAction keeps its palette branch for iframe-forwarded keys,
     // which App never sees.
+    if (keyboardEventIsOwnedByTarget(e, document.activeElement)) return;
     if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) return;
-    if (isKeyboardConsumer(document.activeElement)) return;
     // Cancel the default for keys we handle so a letter shortcut (f/s/t/b)
     // isn't also typed into a panel input that opens and grabs focus during
     // this same keystroke.
@@ -1542,6 +1527,14 @@ export default function Read(props: Props) {
   }
 
   function handleFrameKey(e: KeyEvent): void {
+    // Parent capture listeners cannot observe an event raised in the iframe.
+    // If focus ever reaches the book beneath a global overlay, the forwarded
+    // Escape is therefore the overlay's only dismissal path. Close only the
+    // overlay; a second Escape can then close a reader panel or leave the book.
+    if (e.key === "Escape" && ui.anyOverlayOpen) {
+      ui.closeOverlays();
+      return;
+    }
     handleKeyAction(e);
   }
 

@@ -653,6 +653,68 @@ describe("Read keyboard", () => {
   });
 });
 
+describe("Read keyboard: parent-document ownership", () => {
+  function dispatchKey(
+    target: EventTarget,
+    init: KeyboardEventInit,
+  ): KeyboardEvent {
+    const event = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      ...init,
+    });
+    target.dispatchEvent(event);
+    flush();
+    return event;
+  }
+
+  it("leaves reader shortcuts with a contenteditable region", async () => {
+    await bootReader();
+    const editor = document.createElement("div");
+    editor.contentEditable = "true";
+    editor.tabIndex = 0;
+    document.body.append(editor);
+    editor.focus();
+
+    const event = dispatchKey(editor, { key: "s" });
+
+    expect(settingsPanelLatest).toBeNull();
+    expect(event.defaultPrevented).toBe(false);
+    editor.remove();
+  });
+
+  it("leaves composing reader shortcuts untouched", async () => {
+    await bootReader();
+    const button = document.createElement("button");
+    document.body.append(button);
+    button.focus();
+
+    const event = dispatchKey(button, { key: "s", isComposing: true });
+
+    expect(settingsPanelLatest).toBeNull();
+    expect(event.defaultPrevented).toBe(false);
+    button.remove();
+  });
+
+  it("preserves native activation and ordinary reader shortcuts", async () => {
+    settings.update({ displayMode: "paged" });
+    await bootReader();
+    const button = document.createElement("button");
+    document.body.append(button);
+    button.focus();
+
+    const activation = dispatchKey(button, { key: " " });
+    expect(settingsPanelLatest).toBeNull();
+    expect(frame.api.nextPage).not.toHaveBeenCalled();
+    expect(activation.defaultPrevented).toBe(false);
+
+    const shortcut = dispatchKey(button, { key: "s" });
+    expect(settingsPanelLatest).not.toBeNull();
+    expect(shortcut.defaultPrevented).toBe(true);
+    button.remove();
+  });
+});
+
 describe("Read keyboard: forwarded modifier facts", () => {
   // The ui store is the real singleton in this file (not mocked): the palette
   // and shortcuts branches are asserted on its state, and each test closes
@@ -683,6 +745,20 @@ describe("Read keyboard: forwarded modifier facts", () => {
     frameHandler("onkey")(key("?", false, { altKey: true }));
     await settle();
     expect(ui.shortcuts).toBe(true);
+  });
+
+  it("dismisses a global overlay on frame-forwarded Escape", async () => {
+    await bootReader();
+    ui.openShortcuts();
+    await settle();
+
+    frameHandler("onkey")(key("Escape"));
+    await settle();
+
+    expect(ui.anyOverlayOpen).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(frame.api.nextPage).not.toHaveBeenCalled();
+    expect(frame.api.prevPage).not.toHaveBeenCalled();
   });
 
   it("stands reader shortcuts down while a global overlay is open", async () => {

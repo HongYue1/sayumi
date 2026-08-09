@@ -76,6 +76,12 @@ global, and vite's node-shebang bin would otherwise spawn real node.
   return on `event.isComposing` before preventing default, stopping propagation, or
   dismissing. Ancestor panels must guard too; a nested dialog cannot protect the event
   after its capture listener deliberately stands down.
+- **Keyboard ownership is one shared contract.** `lib/keyboard.ts` is used by `App`,
+  `Read`, and `iframe/frame.ts`: composition and editable/native consumers keep their
+  keys before any shortcut is forwarded or suppressed, while button-like controls keep
+  letter shortcuts but retain Space activation. The frame is the only boundary that can
+  classify book-content targets. A frame-forwarded Escape closes a global overlay first,
+  because parent-document capture listeners cannot observe events from an iframe.
 
 ## Testing
 

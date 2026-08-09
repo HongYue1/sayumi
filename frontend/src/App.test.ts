@@ -467,11 +467,7 @@ describe("App shell", () => {
     }
   });
 
-  it("ignores ? inside a contenteditable region", async () => {
-    // The shell has no editable region today, so this is the tag list's
-    // missing half rather than a live bug -- but Read.tsx:1449-1457 already
-    // checks isContentEditable for its own listener, and a guard that only
-    // half-agrees with the other guard is the kind that stays wrong quietly.
+  it("leaves shell shortcuts with a contenteditable region", async () => {
     const shell = await signedIn();
     const region = document.createElement("div");
     region.setAttribute("contenteditable", "true");
@@ -481,11 +477,26 @@ describe("App shell", () => {
     expect(document.activeElement).toBe(region);
     expect(region.isContentEditable).toBe(true);
 
-    const e = press({ key: "?" });
+    const question = press({ key: "?" });
+    const palette = press({ key: "k", ctrlKey: true });
 
     expect(shell.ui.shortcuts).toBe(false);
-    expect(e.defaultPrevented).toBe(false);
+    expect(shell.ui.palette).toBe(false);
+    expect(question.defaultPrevented).toBe(false);
+    expect(palette.defaultPrevented).toBe(false);
     region.remove();
+  });
+
+  it("leaves composing shell shortcuts untouched", async () => {
+    const shell = await signedIn();
+
+    const palette = press({ key: "k", ctrlKey: true, isComposing: true });
+    const question = press({ key: "?", isComposing: true });
+
+    expect(shell.ui.palette).toBe(false);
+    expect(shell.ui.shortcuts).toBe(false);
+    expect(palette.defaultPrevented).toBe(false);
+    expect(question.defaultPrevented).toBe(false);
   });
 
   it("leaves modified ? to whoever owns that chord", async () => {

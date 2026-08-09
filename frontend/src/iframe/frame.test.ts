@@ -16,6 +16,16 @@ function incoming(data: unknown): void {
   window.dispatchEvent(event);
 }
 
+function press(target: Element, init: KeyboardEventInit): KeyboardEvent {
+  const event = new KeyboardEvent("keydown", {
+    bubbles: true,
+    cancelable: true,
+    ...init,
+  });
+  target.dispatchEvent(event);
+  return event;
+}
+
 function iframeSettings(mode: IframeSettings["mode"]): IframeSettings {
   return {
     mode,
@@ -130,6 +140,82 @@ it("uses and reports one effective scroll mode for a vertical paged request", as
       mode: "scroll",
       fallback: null,
     });
+
+    // The sanitizer deliberately preserves contenteditable. Re-enter paged
+    // mode with horizontal content so this arm can pin both target ownership
+    // and the defaults the frame must still suppress for ordinary shortcuts.
+    incoming({
+      ...verticalLoad,
+      seq: 2,
+      writingMode: "horizontal-tb",
+      html: '<div contenteditable="true"><span id="editor">edit</span><span contenteditable="false" id="locked">locked</span></div><details><summary id="disclosure">More</summary><p>Details</p></details><p id="reader-text">read</p>',
+    });
+    incoming({ type: "apply-settings", settings: iframeSettings("paged") });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(root.classList.contains("paged")).toBe(true);
+
+    const editor = document.getElementById("editor");
+    const locked = document.getElementById("locked");
+    const disclosure = document.getElementById("disclosure");
+    const readerText = document.getElementById("reader-text");
+    expect(editor?.isContentEditable).toBe(true);
+    expect(locked?.isContentEditable).toBe(false);
+    expect(readerText).not.toBeNull();
+    if (!editor || !locked || !disclosure || !readerText)
+      throw new Error("keyboard fixture missing");
+    sent.length = 0;
+
+    const editableChord = press(editor, {
+      key: "k",
+      code: "KeyK",
+      ctrlKey: true,
+    });
+    expect(sent.filter((m) => m.type === "key")).toHaveLength(0);
+    expect(editableChord.defaultPrevented).toBe(false);
+
+    const composingEscape = press(readerText, {
+      key: "Escape",
+      code: "Escape",
+      isComposing: true,
+    });
+    expect(sent.filter((m) => m.type === "key")).toHaveLength(0);
+    expect(composingEscape.defaultPrevented).toBe(false);
+
+    const disclosureSpace = press(disclosure, { key: " ", code: "Space" });
+    expect(sent.filter((m) => m.type === "key")).toHaveLength(0);
+    expect(disclosureSpace.defaultPrevented).toBe(false);
+
+    // contenteditable=false opts this nested island back out. Treating every
+    // descendant of an editable host as owned would suppress real shortcuts.
+    const lockedChord = press(locked, {
+      key: "k",
+      code: "KeyK",
+      ctrlKey: true,
+    });
+    expect(lockedChord.defaultPrevented).toBe(true);
+
+    const altGr = press(readerText, {
+      key: "k",
+      code: "KeyK",
+      ctrlKey: true,
+      altKey: true,
+    });
+    expect(altGr.defaultPrevented).toBe(false);
+
+    const pageTurn = press(readerText, {
+      key: "ArrowRight",
+      code: "ArrowRight",
+    });
+    expect(pageTurn.defaultPrevented).toBe(true);
+
+    const ordinary = press(readerText, { key: "t", code: "KeyT" });
+    expect(ordinary.defaultPrevented).toBe(false);
+    expect(sent.filter((m) => m.type === "key").map((m) => m.key)).toEqual([
+      "k",
+      "k",
+      "ArrowRight",
+      "t",
+    ]);
   } finally {
     incoming({ type: "destroy" });
   }

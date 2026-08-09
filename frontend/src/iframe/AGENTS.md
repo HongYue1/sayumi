@@ -46,6 +46,10 @@ decision and `buildFrameHtml.ts` holds nothing but the two imports. Two conseque
   the one place in the iframe where escaping protects the _shell_ rather than the book.
 - **Book content is untrusted.** Sanitizing is fail-closed and depth-bounded, remote URLs
   become `about:invalid`, and local ones route through the book's resources endpoint.
+- **Keyboard ownership is decided before postMessage.** The sanitizer preserves
+  `[contenteditable]`, disclosure widgets, and media, so `frame.ts` must call the shared
+  `lib/keyboard.ts` guard before preventing a default or forwarding a key. Composition
+  and target facts cannot be reconstructed in the parent document.
 - **The sanitizer is a deny-list, so book markup keeps its own classes and attributes.**
   `sanitizeAttributes` (`internal/epub/sanitize.go`) drops `on*` handlers and dangerous
   URI schemes and preserves everything else. Anything the reader injects into chapter

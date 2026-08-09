@@ -15,6 +15,7 @@ import { createEffect, Match, onSettled, Show, Switch } from "solid-js";
 import { session } from "~/lib/session";
 import { router } from "~/lib/router";
 import { ui } from "~/lib/ui";
+import { keyboardEventIsOwnedByTarget } from "~/lib/keyboard";
 import { settings } from "~/lib/settings";
 import { applyTheme, getCachedThemeId, themeReady } from "~/lib/theme";
 import { customThemes } from "~/lib/customThemes";
@@ -27,10 +28,15 @@ import OfflineBanner from "~/components/OfflineBanner";
 import CommandPalette from "~/components/CommandPalette";
 import ShortcutsHelp from "~/components/ShortcutsHelp";
 
-// Global shortcuts. Only active once signed in; ignored while typing so the
-// palette doesn't hijack normal text entry.
+// Global shortcuts. Only active once signed in. Composition and controls
+// that own the key stand down through the same contract as Read and frame.ts.
 function onWindowKey(e: KeyboardEvent): void {
-  if (!session.authenticated) return;
+  if (
+    !session.authenticated ||
+    keyboardEventIsOwnedByTarget(e, document.activeElement)
+  ) {
+    return;
+  }
   // AltGr arrives as ctrlKey+altKey on Windows and most Linux layouts, where
   // it is an ordinary character modifier: AltGr+K types a character on Polish,
   // Croatian and Vietnamese layouts, and claiming it here would open the
@@ -48,23 +54,7 @@ function onWindowKey(e: KeyboardEvent): void {
     ui.togglePalette();
     return;
   }
-  // Narrowed with instanceof rather than the Svelte version's cast: .svelte
-  // files were never linted, but .tsx is, and no-unsafe-type-assertion is an
-  // error here.
-  const active = document.activeElement;
-  const el = active instanceof HTMLElement ? active : null;
-  const tag = el === null ? "" : el.tagName;
-  // isContentEditable as well as the tag list: a rich-text region is a typing
-  // context under any tag name. Read.tsx:1449-1457 owns the same rule for the
-  // reader's own listener and already includes it. The shell has no editable
-  // region today, so this closes a divergence rather than a live bug -- but the
-  // divergence is the kind that only shows up once someone adds one.
-  const typing =
-    tag === "INPUT" ||
-    tag === "TEXTAREA" ||
-    tag === "SELECT" ||
-    (el !== null && el.isContentEditable);
-  if (e.key === "?" && !typing && !e.ctrlKey && !e.metaKey) {
+  if (e.key === "?" && !e.ctrlKey && !e.metaKey) {
     e.preventDefault();
     ui.openShortcuts();
   }

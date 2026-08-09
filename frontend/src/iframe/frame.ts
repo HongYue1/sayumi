@@ -1,3 +1,4 @@
+import { keyboardEventIsOwnedByTarget } from "~/lib/keyboard";
 import type {
   IframeSettings,
   LoadMessage,
@@ -1295,6 +1296,9 @@ const PAGED_SCROLL_KEYS = new Set<string>([
 
   function handleKeyDown(e: KeyboardEvent): void {
     if (destroyed) return;
+    // This is the last boundary that still has the real target and composition
+    // state. Never forward or suppress a key owned by editable/native content.
+    if (keyboardEventIsOwnedByTarget(e, document.activeElement)) return;
 
     // !e.altKey: AltGr arrives as ctrl+alt on Windows and most Linux
     // layouts, where it types an ordinary character — suppressing the default
