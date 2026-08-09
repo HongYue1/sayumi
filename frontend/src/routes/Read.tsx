@@ -1777,7 +1777,7 @@ export default function Read(props: Props) {
                   class="rdp-panel rdp-left"
                   role="dialog"
                   aria-modal="true"
-                  aria-label="Table of contents"
+                  aria-labelledby="toc-panel-title"
                   ref={trap()}
                 >
                   <TocPanel

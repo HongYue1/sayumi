@@ -184,6 +184,15 @@ describe("TocPanel", () => {
     expect(onclose).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps distinct dialog and navigation naming hooks", async () => {
+    const toc = book(3);
+    await mount(toc, toc[0]!);
+
+    const title = container.querySelector("#toc-panel-title");
+    expect(title?.textContent).toBe("Contents");
+    expect(scroller().getAttribute("aria-label")).toBe("Table of contents");
+  });
+
   it("marks the virtualized window as a list", async () => {
     const toc = book(3);
     await mount(toc, toc[0]!);

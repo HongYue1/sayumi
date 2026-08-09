@@ -21,6 +21,8 @@ function pressTab(target: HTMLElement, shiftKey = false): KeyboardEvent {
 
 afterEach(() => {
   document.body.replaceChildren();
+  document.documentElement.removeAttribute("style");
+  document.body.removeAttribute("style");
 });
 
 describe("focusTrap", () => {
@@ -40,6 +42,210 @@ describe("focusTrap", () => {
 
     expect(dialog.hasAttribute("tabindex")).toBe(false);
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("locks document scrolling until the final nested trap releases it", async () => {
+    document.documentElement.style.overflow = "clip";
+    document.body.style.position = "relative";
+    const outer = document.createElement("div");
+    const inner = document.createElement("div");
+    outer.append(inner);
+    document.body.append(outer);
+
+    const disposeOuter = focusTrap(outer);
+    const disposeInner = focusTrap(inner);
+    try {
+      expect(document.documentElement.style.overflow).toBe("hidden");
+      expect(document.body.style.position).toBe("fixed");
+
+      disposeInner();
+      expect(document.documentElement.style.overflow).toBe("hidden");
+      expect(document.body.style.position).toBe("fixed");
+    } finally {
+      disposeInner();
+      disposeOuter();
+    }
+
+    expect(document.documentElement.style.overflow).toBe("clip");
+    expect(document.body.style.position).toBe("relative");
+    document.documentElement.removeAttribute("style");
+    document.body.removeAttribute("style");
+  });
+
+  it("includes summary, frames, media controls, and editors in the tab ring", async () => {
+    const dialog = document.createElement("div");
+    const inertEditor = document.createElement("div");
+    inertEditor.setAttribute("contenteditable", "FALSE");
+    const invalidEditor = document.createElement("div");
+    invalidEditor.setAttribute("contenteditable", "bogus");
+    const inertAudio = document.createElement("audio");
+    const details = document.createElement("details");
+    details.open = true;
+    const summary = document.createElement("summary");
+    details.append(summary);
+    const frame = document.createElement("iframe");
+    const audio = document.createElement("audio");
+    audio.controls = true;
+    const video = document.createElement("video");
+    video.controls = true;
+    const editor = document.createElement("div");
+    editor.setAttribute("contenteditable", "plaintext-only");
+    for (const element of [
+      inertEditor,
+      invalidEditor,
+      inertAudio,
+      summary,
+      frame,
+      audio,
+      video,
+      editor,
+    ]) {
+      markVisible(element);
+    }
+    dialog.append(
+      inertEditor,
+      invalidEditor,
+      inertAudio,
+      details,
+      frame,
+      audio,
+      video,
+      editor,
+    );
+    document.body.append(dialog);
+
+    const dispose = focusTrap(dialog);
+    try {
+      await Promise.resolve();
+      expect(document.activeElement).toBe(summary);
+
+      editor.focus();
+      const forward = pressTab(editor);
+      expect(forward.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(summary);
+
+      summary.focus();
+      const backward = pressTab(summary, true);
+      expect(backward.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(editor);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("recognizes every added native surface as a sole tab stop", async () => {
+    const cases: Array<{
+      name: string;
+      create: () => { root: HTMLElement; target: HTMLElement };
+    }> = [
+      {
+        name: "summary",
+        create: () => {
+          const root = document.createElement("details");
+          root.open = true;
+          const target = document.createElement("summary");
+          root.append(target);
+          return { root, target };
+        },
+      },
+      {
+        name: "iframe",
+        create: () => {
+          const target = document.createElement("iframe");
+          return { root: target, target };
+        },
+      },
+      {
+        name: "audio controls",
+        create: () => {
+          const target = document.createElement("audio");
+          target.controls = true;
+          return { root: target, target };
+        },
+      },
+      {
+        name: "video controls",
+        create: () => {
+          const target = document.createElement("video");
+          target.controls = true;
+          return { root: target, target };
+        },
+      },
+      {
+        name: "editing host",
+        create: () => {
+          const target = document.createElement("div");
+          target.setAttribute("contenteditable", "TRUE");
+          return { root: target, target };
+        },
+      },
+    ];
+
+    for (const { name, create } of cases) {
+      document.body.replaceChildren();
+      const dialog = document.createElement("div");
+      const { root, target } = create();
+      markVisible(target);
+      dialog.append(root);
+      document.body.append(dialog);
+
+      const dispose = focusTrap(dialog);
+      try {
+        await Promise.resolve();
+        expect(document.activeElement, name).toBe(target);
+        const forward = pressTab(target);
+        expect(forward.defaultPrevented, name).toBe(true);
+        expect(document.activeElement, name).toBe(target);
+      } finally {
+        dispose();
+      }
+    }
+  });
+
+  it("rejects false, invalid, non-control, hidden, and negative candidates", async () => {
+    const dialog = document.createElement("div");
+    const inertAudio = document.createElement("audio");
+    const falseEditor = document.createElement("div");
+    falseEditor.setAttribute("contenteditable", "FALSE");
+    const invalidEditor = document.createElement("div");
+    invalidEditor.setAttribute("contenteditable", "bogus");
+    const negativeSummary = document.createElement("summary");
+    negativeSummary.tabIndex = -1;
+    const hiddenButton = document.createElement("button");
+    Object.defineProperty(hiddenButton, "getClientRects", {
+      configurable: true,
+      value: () => [],
+    });
+    const validButton = document.createElement("button");
+    for (const element of [
+      inertAudio,
+      falseEditor,
+      invalidEditor,
+      negativeSummary,
+      validButton,
+    ]) {
+      markVisible(element);
+    }
+    dialog.append(
+      inertAudio,
+      falseEditor,
+      invalidEditor,
+      negativeSummary,
+      hiddenButton,
+      validButton,
+    );
+    document.body.append(dialog);
+
+    const dispose = focusTrap(dialog);
+    try {
+      await Promise.resolve();
+      expect(document.activeElement).toBe(validButton);
+      const forward = pressTab(validButton);
+      expect(forward.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(validButton);
+    } finally {
+      dispose();
+    }
   });
 
   it("recovers Tab and Shift+Tab when focus has escaped", async () => {

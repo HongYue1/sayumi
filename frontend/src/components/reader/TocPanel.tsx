@@ -388,7 +388,9 @@ export default function TocPanel(props: Props) {
               <span class="tocp-pos-label tnum"> · {props.positionLabel}</span>
             </Show>
           </p>
-          <h2 class="display tocp-title">Contents</h2>
+          <h2 id="toc-panel-title" class="display tocp-title">
+            Contents
+          </h2>
         </div>
         <button
           class="icon-btn press tocp-close"

@@ -1,4 +1,5 @@
 import { onCleanup } from "solid-js";
+import { lockDocumentScroll } from "~/lib/scrollLock";
 
 /**
  * Focus trap for overlay / dialog / slide-over panels, per the
@@ -11,7 +12,8 @@ import { onCleanup } from "solid-js";
  *   - traps Tab / Shift+Tab within the node while it is mounted, counting only
  *     elements that are genuinely in the tab order,
  *   - restores focus to the previously-focused element when the node unmounts,
- *     but only while the node still owns focus.
+ *     but only while the node still owns focus,
+ *   - holds the shared, reference-counted document scroll lock for its lifetime.
  *
  * It deliberately does NOT handle Escape — each overlay owns its own Esc logic
  * (and the consume-vs-bubble semantics that go with it).
@@ -32,6 +34,11 @@ const FOCUSABLE = [
   "input:not([disabled])",
   "select:not([disabled])",
   "textarea:not([disabled])",
+  "summary",
+  "iframe",
+  "audio[controls]",
+  "video[controls]",
+  "[contenteditable]",
   '[tabindex]:not([tabindex="-1"])',
 ].join(",");
 
@@ -40,6 +47,7 @@ const ACTIVE_TRAPS = new WeakMap<Document, HTMLElement[]>();
 export function focusTrap(node: HTMLElement): () => void {
   const doc = node.ownerDocument;
   const previouslyFocused = doc.activeElement as HTMLElement | null;
+  const unlockScroll = lockDocumentScroll(doc);
   const traps = ACTIVE_TRAPS.get(doc) ?? [];
   if (traps.length === 0) ACTIVE_TRAPS.set(doc, traps);
   traps.push(node);
@@ -56,7 +64,25 @@ export function focusTrap(node: HTMLElement): () => void {
   // could not hand it back.
   function focusables(): HTMLElement[] {
     return Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-      (el) => el.tabIndex >= 0 && el.getClientRects().length > 0,
+      (el) => isInTabOrder(el) && el.getClientRects().length > 0,
+    );
+  }
+
+  function isInTabOrder(element: HTMLElement): boolean {
+    // An explicit negative tabindex always wins, including on native controls.
+    if (element.hasAttribute("tabindex")) return element.tabIndex >= 0;
+    if (element.tabIndex >= 0) return true;
+
+    // Chromium exposes sequentially focusable editing hosts with a reflected
+    // tabIndex of -1. happy-dom does the same for <summary>; model those
+    // platform tab stops explicitly. Invalid and false contenteditable values
+    // are not editing hosts and must not become accidental wrap points.
+    const editable = element.getAttribute("contenteditable")?.toLowerCase();
+    return (
+      element.localName === "summary" ||
+      editable === "" ||
+      editable === "true" ||
+      editable === "plaintext-only"
     );
   }
 
@@ -164,6 +190,7 @@ export function focusTrap(node: HTMLElement): () => void {
     const ownsFocus =
       active === null || active === doc.body || node.contains(active);
     if (ownsFocus && previouslyFocused?.isConnected) previouslyFocused.focus();
+    unlockScroll();
   };
 }
 

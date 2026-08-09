@@ -534,6 +534,26 @@ describe("Read navigation", () => {
   });
 });
 
+describe("Read panel semantics", () => {
+  it("names the TOC dialog from its heading without duplicating the nav label", async () => {
+    await bootReader();
+    const trigger = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Table of contents"]',
+    );
+    if (!trigger) throw new Error("TOC trigger missing");
+    trigger.click();
+    await vi.waitFor(() =>
+      expect(document.querySelector(".rdp-panel[role=dialog]")).not.toBeNull(),
+    );
+
+    const dialog = document.querySelector<HTMLElement>(
+      ".rdp-panel[role=dialog]",
+    );
+    expect(dialog?.hasAttribute("aria-label")).toBe(false);
+    expect(dialog?.getAttribute("aria-labelledby")).toBe("toc-panel-title");
+  });
+});
+
 describe("Read keyboard", () => {
   it("ArrowRight loads the next chapter in scroll mode", async () => {
     await bootReader();

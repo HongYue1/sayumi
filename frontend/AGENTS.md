@@ -76,6 +76,10 @@ global, and vite's node-shebang bin would otherwise spawn real node.
   return on `event.isComposing` before preventing default, stopping propagation, or
   dismissing. Ancestor panels must guard too; a nested dialog cannot protect the event
   after its capture listener deliberately stands down.
+- **Every modal boundary uses `trap()`.** The shared focus trap also owns the
+  reference-counted document scroll lock, so nested dialogs and reader panels cannot
+  wake the background page when an inner layer closes. Never add local `body` overflow
+  writes or mount a `role="dialog"` without the shared trap.
 - **Keyboard ownership is one shared contract.** `lib/keyboard.ts` is used by `App`,
   `Read`, and `iframe/frame.ts`: composition and editable/native consumers keep their
   keys before any shortcut is forwarded or suppressed, while button-like controls keep
