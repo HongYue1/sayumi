@@ -103,7 +103,6 @@ describe("ChapterFrame", () => {
   let dispose: (() => void) | undefined;
   let posts: ParentToFrameMessage[];
   let frameWindow: { postMessage: (m: ParentToFrameMessage) => void };
-  let onready: Mock<() => void>;
   let onloaded: Mock<(seq: number) => void>;
   let onmodechange: Mock<(state: FrameModeState) => void>;
   let onposition: Mock<
@@ -130,7 +129,6 @@ describe("ChapterFrame", () => {
         posts.push(m);
       },
     };
-    onready = vi.fn<() => void>();
     onloaded = vi.fn<(seq: number) => void>();
     onmodechange = vi.fn<(state: FrameModeState) => void>();
     onposition =
@@ -147,7 +145,6 @@ describe("ChapterFrame", () => {
           initialTheme: "catppuccin",
           initialThemeVars: null,
           initialLanguage: "en",
-          onready,
           onloaded,
           onmodechange,
           onposition,
@@ -181,9 +178,11 @@ describe("ChapterFrame", () => {
     container?.remove();
   });
 
-  it("mounts and delivers its imperative api without throwing", () => {
+  it("mounts the controller without dead page-jump methods", () => {
     mount();
     expect(typeof api.loadChapter).toBe("function");
+    expect(api).not.toHaveProperty("goToPage");
+    expect(api).not.toHaveProperty("goToLastPage");
     expect(srcdocCalls.options).toHaveLength(1);
     expect(srcdocCalls.options[0]).toMatchObject({
       theme: "catppuccin",
@@ -192,19 +191,19 @@ describe("ChapterFrame", () => {
     });
   });
 
-  it("queues a pre-ready load and flushes it behind set-font-faces on ready", () => {
+  it("queues one atomic pre-ready load behind the bootstrap font faces", () => {
     mount();
-    api.loadChapter(loadOptions(0));
+    const settings = iframeSettings();
+    api.loadChapter(loadOptions(0, settings));
     expect(posts).toHaveLength(0);
     ready();
-    expect(onready).toHaveBeenCalledTimes(1);
-    expect(posts.map((m) => m.type)).toEqual([
-      "set-font-faces",
-      "load",
-      "apply-settings",
-    ]);
+    expect(posts.map((m) => m.type)).toEqual(["set-font-faces", "load"]);
     expect(posts[0]).toMatchObject({ fontFaces: FONT_FACES });
-    expect(posts[1]).toMatchObject({ seq: 1, chapterIndex: 0 });
+    expect(posts[1]).toMatchObject({
+      seq: 1,
+      chapterIndex: 0,
+      settings,
+    });
   });
 
   it("coalesces two pre-ready loads: only the latest chapter flushes", () => {
@@ -217,14 +216,76 @@ describe("ChapterFrame", () => {
     expect(loads[0]).toMatchObject({ seq: 2, chapterIndex: 1 });
   });
 
-  it("pairs every load with an apply-settings (the frame never reveals without it)", () => {
+  it("holds chapter commands until the matching load settles", () => {
     mount();
     ready();
     posts.length = 0;
-    const settings = iframeSettings();
-    api.loadChapter(loadOptions(3, settings));
-    expect(posts.map((m) => m.type)).toEqual(["load", "apply-settings"]);
-    expect((posts[1] as { settings: unknown }).settings).toBe(settings);
+    api.loadChapter(loadOptions(3));
+    api.scrollToFragment("note-4");
+    api.highlightSearch(10, 5, "query");
+    api.nextPage();
+    api.requestPosition();
+
+    expect(posts.map((m) => m.type)).toEqual(["load"]);
+    fireFrameMessage({ type: "loaded", seq: 3 });
+    expect(posts.map((m) => m.type)).toEqual(["load"]);
+    fireFrameMessage({ type: "loaded", seq: 1 });
+    expect(posts.map((m) => m.type)).toEqual([
+      "load",
+      "scroll-to-fragment",
+      "highlight-search",
+      "next-page",
+      "get-position",
+    ]);
+  });
+
+  it("rejects stale and future explicit command sequences", () => {
+    mount();
+    ready();
+    api.loadChapter(loadOptions(0));
+    fireFrameMessage({ type: "loaded", seq: 1 });
+    posts.length = 0;
+
+    api.highlightSearch(1, 2, "future", 2);
+    api.highlightSearch(1, 2, "stale", 0);
+    expect(posts).toEqual([]);
+    api.highlightSearch(1, 2, "current", 1);
+    expect(posts).toMatchObject([
+      { type: "highlight-search", seq: 1, query: "current" },
+    ]);
+  });
+
+  it("cancels a queued highlight when highlights are cleared", () => {
+    mount();
+    ready();
+    posts.length = 0;
+    api.loadChapter(loadOptions(0));
+    api.highlightSearch(4, 3, "term");
+    api.clearHighlights();
+    expect(posts.map((message) => message.type)).toEqual([
+      "load",
+      "clear-highlights",
+    ]);
+    fireFrameMessage({ type: "loaded", seq: 1 });
+    expect(posts.map((message) => message.type)).toEqual([
+      "load",
+      "clear-highlights",
+    ]);
+  });
+
+  it("drops queued commands when a newer chapter supersedes their load", () => {
+    mount();
+    ready();
+    posts.length = 0;
+    api.loadChapter(loadOptions(0));
+    api.scrollToCfi("epubcfi(/old)");
+    api.loadChapter(loadOptions(1));
+    api.scrollTo(0.4);
+
+    fireFrameMessage({ type: "loaded", seq: 1 });
+    expect(posts.map((m) => m.type)).toEqual(["load", "load"]);
+    fireFrameMessage({ type: "loaded", seq: 2 });
+    expect(posts.map((m) => m.type)).toEqual(["load", "load", "scroll-to"]);
   });
 
   it("maps every named load option onto the wire without boundary transposition", () => {
@@ -347,28 +408,19 @@ describe("ChapterFrame", () => {
     expect(onloaded).toHaveBeenCalledTimes(1);
   });
 
-  it("stamps positional commands with the live seq at call time", () => {
+  it("stamps settled positional commands with the live seq", () => {
     mount();
     ready();
     posts.length = 0;
+    api.loadChapter(loadOptions(0));
+    fireFrameMessage({ type: "loaded", seq: 1 });
+    posts.length = 0;
     api.scrollTo(0.25);
-    expect(posts[0]).toMatchObject({
-      type: "scroll-to",
-      seq: 0,
-      percent: 0.25,
-    });
-    api.loadChapter(loadOptions(0)); // seq 1
     api.nextPage();
-    expect(posts[posts.length - 1]).toMatchObject({
-      type: "next-page",
-      seq: 1,
-    });
-    api.loadChapter(loadOptions(1)); // seq 2
-    api.prevPage();
-    expect(posts[posts.length - 1]).toMatchObject({
-      type: "prev-page",
-      seq: 2,
-    });
+    expect(posts).toMatchObject([
+      { type: "scroll-to", seq: 1, percent: 0.25 },
+      { type: "next-page", seq: 1 },
+    ]);
   });
 
   it("posts destroy and detaches the window listener on unmount", () => {

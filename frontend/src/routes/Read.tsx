@@ -270,9 +270,8 @@ export default function Read(props: Props) {
 
   // ---- non-reactive instance state ----------------------------------------
   let api: ChapterFrameAPI | null = null;
-  let frameReady = false;
   let bookLoaded = false;
-  let initialLoadDone = false;
+  let initialLoadRequested = false;
   let saveData: ProgressData = { chapter: 0, percent: 0 };
   const chapterCache = new Map<number, ChapterData>();
   // In-flight chapter fetches, so a navigation racing its own prefetch joins
@@ -556,7 +555,7 @@ export default function Read(props: Props) {
   createEffect(
     () => fontFaceCSS(),
     (faces) => {
-      if (api && initialLoadDone) {
+      if (api && initialLoadRequested) {
         api.setFontFaces(faces);
         scheduleApplySettings(lastIframe);
       }
@@ -571,7 +570,7 @@ export default function Read(props: Props) {
     () => settings.iframe,
     (s) => {
       lastIframe = s;
-      if (api && initialLoadDone) scheduleApplySettings(s);
+      if (api && initialLoadRequested) scheduleApplySettings(s);
       return undefined;
     },
   );
@@ -802,8 +801,8 @@ export default function Read(props: Props) {
   }
 
   function tryInitialLoad(): void {
-    if (initialLoadDone || !bookLoaded || !frameReady || !api) return;
-    initialLoadDone = true;
+    if (initialLoadRequested || !bookLoaded || !api) return;
+    initialLoadRequested = true;
     const { chapter, percent, cfi } = saveData;
     // Restore when we have either a meaningful percent OR a stored CFI. A saved
     // CFI at the very start of a chapter (percent ≈ 0) is still a real position
@@ -1032,10 +1031,9 @@ export default function Read(props: Props) {
   // ---- frame event handlers -----------------------------------------------
   function handleApi(a: ChapterFrameAPI): void {
     api = a;
-  }
-  function handleReady(): void {
-    frameReady = true;
-    tryInitialLoad();
+    // ChapterFrame owns the pre-ready queue. Defer the request out of the
+    // component callback's owned scope before it writes loading state.
+    queueMicrotask(tryInitialLoad);
   }
   function handleModeChange(state: FrameModeState): void {
     setFrameMode(state);
@@ -1473,9 +1471,9 @@ export default function Read(props: Props) {
         return false;
       case "Home":
       case "End":
-        // Suppressed frame-side in paged mode; no first/last-page command
-        // exists (X5's goToPage is unwired), so acknowledge the key with a
-        // chapter step instead of a silent swallow.
+        // Suppressed frame-side in paged mode; no first/last-page transport
+        // exists, so acknowledge the key with a chapter step instead of a
+        // silent swallow.
         if (isPaged()) {
           if (e.key === "Home") goPrev();
           else goNext();
@@ -1726,7 +1724,6 @@ export default function Read(props: Props) {
               initialThemeVars={settings.iframe.themeVars}
               initialLanguage={book()?.language ?? null}
               onapi={handleApi}
-              onready={handleReady}
               onloaded={handleLoaded}
               onmodechange={handleModeChange}
               onposition={handlePosition}

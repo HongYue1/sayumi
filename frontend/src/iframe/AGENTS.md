@@ -50,6 +50,11 @@ decision and `buildFrameHtml.ts` holds nothing but the two imports. Two conseque
   `[contenteditable]`, disclosure widgets, and media, so `frame.ts` must call the shared
   `lib/keyboard.ts` guard before preventing a default or forwarding a key. Composition
   and target facts cannot be reconstructed in the parent document.
+- **A chapter load is one atomic render transaction.** `LoadMessage` carries the settings
+  snapshot needed to reveal it; a standalone `apply-settings` received during the swap may
+  override that snapshot for a live update. `loaded` means settings, layout, and initial
+  position restore have settled. Chapter commands must match `activeSeq` exactly, so neither
+  stale nor future commands can act on the committed DOM.
 - **The sanitizer is a deny-list, so book markup keeps its own classes and attributes.**
   `sanitizeAttributes` (`internal/epub/sanitize.go`) drops `on*` handlers and dangerous
   URI schemes and preserves everything else. Anything the reader injects into chapter

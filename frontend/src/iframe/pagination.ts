@@ -63,7 +63,6 @@ export type PaginationController = {
   nextPage: () => void;
   prevPage: () => void;
   goToPage: (page: number, animated: boolean) => void;
-  goToLastPage: () => void;
   getElementPageIndex: (el: Element) => number;
   /** Turn to the page holding `id`; false when the anchor isn't in this chapter. */
   scrollToFragmentPaged: (id: string, animated?: boolean) => boolean;
@@ -803,9 +802,6 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     nextPage,
     prevPage,
     goToPage: goToPageInternal,
-    goToLastPage: () => {
-      if (totalPages > 0) goToPageInternal(totalPages - 1, false);
-    },
     getElementPageIndex,
     scrollToFragmentPaged,
     goToElementPaged,

@@ -40,6 +40,9 @@ export interface LoadMessage {
   type: "load";
   seq: number;
   chapterIndex: number;
+  // A chapter load is a complete render transaction. Keeping settings inside
+  // the load prevents message loss/reordering from stranding hidden content.
+  settings: IframeSettings;
   // These come straight from ChapterData, which the API client types as
   // required. Optional here would only invite defensive reads for a shape no
   // producer can build.
@@ -83,10 +86,6 @@ export type ParentToFrameMessage =
   | { type: "scroll-to-end"; seq: number }
   | { type: "next-page"; seq: number }
   | { type: "prev-page"; seq: number }
-  // page is 1-based on the wire; frame.ts converts to pagination's 0-based
-  // index. Keep the bases distinct: pagination.goToLastPage() is totalPages-1.
-  | { type: "go-to-page"; seq: number; page: number }
-  | { type: "go-to-last-page"; seq: number }
   | { type: "scroll-to-fragment"; seq: number; id: string }
   | { type: "scroll-to-cfi"; seq: number; cfi: string }
   // A query, not a positional command: the reply carries the frame's own
@@ -122,6 +121,7 @@ export interface FrameKeyMessage {
 /** Messages sent frame -> parent. */
 export type FrameToParentMessage =
   | { type: "ready" }
+  // Emitted only after settings, layout, and initial position restoration.
   | { type: "loaded"; seq: number }
   | ({ type: "effective-mode"; seq: number } & FrameModeState)
   | {

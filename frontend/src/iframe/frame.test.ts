@@ -77,6 +77,7 @@ const verticalLoad: LoadMessage = {
   restorePercent: null,
   restoreCfi: null,
   origin: parentOrigin,
+  settings: iframeSettings("paged"),
 };
 
 afterEach(() => {
@@ -86,6 +87,7 @@ afterEach(() => {
   document.documentElement.removeAttribute("style");
   document.head.innerHTML = "";
   document.body.innerHTML = "";
+  Reflect.deleteProperty(document, "fonts");
 });
 
 it("uses and reports one effective scroll mode for a vertical paged request", async () => {
@@ -96,6 +98,10 @@ it("uses and reports one effective scroll mode for a vertical paged request", as
     <style id="override-css"></style>`;
   document.body.innerHTML =
     '<div id="paged-clip"><div id="content"><div id="content-inner"></div></div></div>';
+  Object.defineProperty(document, "fonts", {
+    configurable: true,
+    value: { ready: Promise.resolve() },
+  });
 
   const sent: FrameToParentMessage[] = [];
   vi.spyOn(window, "postMessage").mockImplementation((message) => {
@@ -106,8 +112,14 @@ it("uses and reports one effective scroll mode for a vertical paged request", as
   try {
     incoming({ type: "set-font-faces", fontFaces: "" });
     incoming(verticalLoad);
-    incoming({ type: "apply-settings", settings: iframeSettings("paged") });
     await vi.advanceTimersByTimeAsync(0);
+    // "loaded" means the settings-driven layout and initial restore finished,
+    // not merely that innerHTML was assigned.
+    expect(sent.filter((m) => m.type === "loaded")).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(sent.filter((m) => m.type === "loaded")).toEqual([
+      { type: "loaded", seq: 1 },
+    ]);
 
     const root = document.documentElement;
     const css = document.getElementById("override-css")?.textContent ?? "";
@@ -123,6 +135,15 @@ it("uses and reports one effective scroll mode for a vertical paged request", as
         fallback: "vertical-writing",
       },
     ]);
+
+    // The frame rejects future sequence commands directly as a second boundary;
+    // the controller normally holds them until the matching load settles.
+    const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+    incoming({ type: "scroll-to-end", seq: 2 });
+    expect(scrollTo).not.toHaveBeenCalled();
+    incoming({ type: "scroll-to-end", seq: 1 });
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    scrollTo.mockRestore();
 
     // The parent must drive this chapter as scroll: paged commands are inert.
     const beforePageCommand = sent.length;
@@ -148,10 +169,12 @@ it("uses and reports one effective scroll mode for a vertical paged request", as
       ...verticalLoad,
       seq: 2,
       writingMode: "horizontal-tb",
+      // A live update racing this load must override its embedded snapshot.
+      settings: iframeSettings("scroll"),
       html: '<div contenteditable="true"><span id="editor">edit</span><span contenteditable="false" id="locked">locked</span></div><details><summary id="disclosure">More</summary><p>Details</p></details><p id="reader-text">read</p>',
     });
     incoming({ type: "apply-settings", settings: iframeSettings("paged") });
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
     expect(root.classList.contains("paged")).toBe(true);
 
     const editor = document.getElementById("editor");

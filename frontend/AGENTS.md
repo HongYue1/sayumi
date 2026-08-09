@@ -82,6 +82,10 @@ global, and vite's node-shebang bin would otherwise spawn real node.
   letter shortcuts but retain Space activation. The frame is the only boundary that can
   classify book-content targets. A frame-forwarded Escape closes a global overlay first,
   because parent-document capture listeners cannot observe events from an iframe.
+- **`ChapterFrame` owns reader-frame readiness.** `Read` requests the first chapter as soon
+  as the book and frame API exist; the component buffers across the iframe handshake, then
+  buffers chapter-scoped commands until the matching settled `loaded` event. Never recreate
+  a route-level ready gate or send commands around that controller.
 
 ## Testing
 

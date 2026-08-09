@@ -101,7 +101,6 @@ interface Props {
   /** Book language, so the document is tagged before the first chapter lands. */
   initialLanguage: string | null;
   onapi?: (api: ChapterFrameAPI) => void;
-  onready?: () => void;
   onloaded?: (seq: number) => void;
   onmodechange?: (state: FrameModeState) => void;
   onposition?: (chapterIndex: number, percent: number, cfi?: string) => void;
@@ -134,7 +133,9 @@ export default function ChapterFrame(props: Props) {
   let iframeEl: HTMLIFrameElement | undefined;
   let seq = 0;
   let ready = false;
+  let loadedSeq = -1;
   const messageQueue = createFrameMessageQueue();
+  const chapterMessageQueue = createFrameMessageQueue();
 
   function frameWindow(): Window | null {
     return iframeEl?.contentWindow ?? null;
@@ -149,12 +150,26 @@ export default function ChapterFrame(props: Props) {
     target.postMessage(message, FRAME_TARGET_ORIGIN);
   }
 
-  function flushQueue(): void {
+  function flushQueue(queue = messageQueue): void {
     const target = frameWindow();
     if (!target) return;
-    for (const message of messageQueue.drain()) {
+    for (const message of queue.drain()) {
       target.postMessage(message, FRAME_TARGET_ORIGIN);
     }
+  }
+
+  // Chapter-scoped commands wait for the matching load's settings, layout, and
+  // initial restore. This is the sole command-readiness owner; callers may issue
+  // a command immediately after loadChapter without racing the outgoing DOM.
+  function sendChapterCommand(message: ParentToFrameMessage): void {
+    // An explicit sequence (search highlights can supply one) must identify the
+    // controller's current load. Reject future as well as stale commands.
+    if ("seq" in message && message.seq !== seq) return;
+    if (loadedSeq !== seq) {
+      chapterMessageQueue.enqueue(message);
+      return;
+    }
+    sendToFrame(message);
   }
 
   function handleMessage(event: MessageEvent<unknown>): void {
@@ -177,10 +192,13 @@ export default function ChapterFrame(props: Props) {
           fontFaces: buildReaderFontFaces(),
         });
         flushQueue();
-        props.onready?.();
         break;
       case "loaded":
-        if (m.seq === seq) props.onloaded?.(m.seq);
+        if (m.seq === seq) {
+          loadedSeq = m.seq;
+          flushQueue(chapterMessageQueue);
+          props.onloaded?.(m.seq);
+        }
         break;
       case "effective-mode":
         if (m.seq === seq)
@@ -211,9 +229,12 @@ export default function ChapterFrame(props: Props) {
         if (m.seq === seq) props.onclickregion?.(m.region);
         break;
       case "load-error":
-        // frame.ts reports chapter render failures as "load-error"; surface
-        // them through the same callback so the reader can show its error UI.
-        if (m.seq === seq) props.onframeerror?.("load-error", m.error);
+        // A failed current load can never settle, so discard commands waiting
+        // for it before surfacing the error.
+        if (m.seq === seq) {
+          chapterMessageQueue.clear();
+          props.onframeerror?.("load-error", m.error);
+        }
         break;
       default: {
         // A new FrameToParentMessage kind that is not handled above fails
@@ -238,11 +259,14 @@ export default function ChapterFrame(props: Props) {
         language,
       } = options;
       const nextSeq = ++seq;
+      loadedSeq = -1;
+      chapterMessageQueue.clear();
       sendToFrame({
         type: "load",
         seq: nextSeq,
         origin: window.location.origin,
         chapterIndex: data.chapterIndex,
+        settings,
         html: data.html,
         css: data.css,
         fontFaceCSS: data.fontFaceCSS,
@@ -257,32 +281,34 @@ export default function ChapterFrame(props: Props) {
         restorePercent: restore?.percent ?? null,
         restoreCfi: restore?.cfi ?? null,
       });
-      sendToFrame({ type: "apply-settings", settings });
     },
     applySettings: (settings) =>
       sendToFrame({ type: "apply-settings", settings }),
     // seq is read at call time, so these stamp the chapter the caller was
     // looking at. A command issued just before a chapter turn is dropped by
     // the frame instead of moving the chapter that replaced it.
-    scrollTo: (percent) => sendToFrame({ type: "scroll-to", seq, percent }),
-    scrollToEnd: () => sendToFrame({ type: "scroll-to-end", seq }),
+    scrollTo: (percent) =>
+      sendChapterCommand({ type: "scroll-to", seq, percent }),
+    scrollToEnd: () => sendChapterCommand({ type: "scroll-to-end", seq }),
     scrollToFragment: (id) =>
-      sendToFrame({ type: "scroll-to-fragment", seq, id }),
-    scrollToCfi: (cfi) => sendToFrame({ type: "scroll-to-cfi", seq, cfi }),
-    requestPosition: () => sendToFrame({ type: "get-position" }),
-    nextPage: () => sendToFrame({ type: "next-page", seq }),
-    prevPage: () => sendToFrame({ type: "prev-page", seq }),
-    goToPage: (page) => sendToFrame({ type: "go-to-page", seq, page }),
-    goToLastPage: () => sendToFrame({ type: "go-to-last-page", seq }),
+      sendChapterCommand({ type: "scroll-to-fragment", seq, id }),
+    scrollToCfi: (cfi) =>
+      sendChapterCommand({ type: "scroll-to-cfi", seq, cfi }),
+    requestPosition: () => sendChapterCommand({ type: "get-position" }),
+    nextPage: () => sendChapterCommand({ type: "next-page", seq }),
+    prevPage: () => sendChapterCommand({ type: "prev-page", seq }),
     highlightSearch: (charOffset, matchLen, query, forSeq) =>
-      sendToFrame({
+      sendChapterCommand({
         type: "highlight-search",
         seq: forSeq ?? seq,
         charOffset,
         matchLen,
         query,
       }),
-    clearHighlights: () => sendToFrame({ type: "clear-highlights" }),
+    clearHighlights: () => {
+      chapterMessageQueue.discard("highlight-search");
+      sendToFrame({ type: "clear-highlights" });
+    },
     setFontFaces: (css) =>
       sendToFrame({ type: "set-font-faces", fontFaces: css }),
   };
@@ -340,7 +366,9 @@ export default function ChapterFrame(props: Props) {
   onCleanup(() => {
     const w = iframeEl?.contentWindow;
     ready = false;
+    loadedSeq = -1;
     messageQueue.clear();
+    chapterMessageQueue.clear();
     if (w) w.postMessage({ type: "destroy" }, FRAME_TARGET_ORIGIN);
     iframeEl = undefined;
   });

@@ -17,7 +17,7 @@ type FrameProps = Parameters<typeof ChapterFrameReal>[0];
 
 // The pivotal seam: ChapterFrame is a capturing stub. It records its props and
 // hands back a vi.fn()-backed ChapterFrameAPI at mount; tests drive the frame
-// by invoking the recorded handler props (onready, onloaded, onboundary, …).
+// by invoking the recorded handler props (onloaded, onboundary, …).
 const frame = vi.hoisted(() => ({
   latest: null as FrameProps | null,
   api: null as unknown as ChapterFrameAPI,
@@ -238,8 +238,6 @@ beforeEach(() => {
     requestPosition: vi.fn(),
     nextPage: vi.fn(),
     prevPage: vi.fn(),
-    goToPage: vi.fn(),
-    goToLastPage: vi.fn(),
     highlightSearch: vi.fn(),
     clearHighlights: vi.fn(),
     setFontFaces: vi.fn(),
@@ -276,17 +274,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/**
- * Mounts Read for book1, runs boot to the point where the frame stub has
- * mounted, then drives the frame-ready handshake so the initial chapter loads.
- */
+/** Mounts Read for book1 and lets the frame API own pre-ready buffering. */
 async function bootReader(): Promise<void> {
   const host = document.createElement("div");
   document.body.appendChild(host);
   dispose = render(() => createComponent(Read, { bookId: "book1" }), host);
   await settle();
   if (!frame.latest) await settle();
-  frameHandler("onready")();
   await settle();
 }
 
@@ -310,10 +304,8 @@ describe("Read boot and restore", () => {
     expect(options.scrollTarget).toBe("top");
     expect(options.restore).toEqual({ percent: 0.5, cfi: undefined });
     expect(options).toMatchObject({ hasPrev: true, hasNext: true });
-    // A duplicate ready never re-loads.
-    frameHandler("onready")();
-    await settle();
-    expect(frame.api.loadChapter).toHaveBeenCalledTimes(1);
+    // Read never observes frame readiness; ChapterFrame queues this load.
+    expect("onready" in latestFrame()).toBe(false);
   });
 
   it("prefers the page-hide cache over the server value", async () => {
@@ -392,9 +384,13 @@ describe("Read boot and restore", () => {
     if (!retryBtn) throw new Error("retry button missing");
     retryBtn.click();
     await settle();
-    // Retry re-opens the book (and re-fetches bookmarks), not a chapter.
+    // The recovered frame API owns pre-ready buffering, so retry can request
+    // the initial chapter immediately without waiting for another handshake.
     expect(api.getBook).toHaveBeenCalledTimes(2);
-    expect(api.fetchChapter).not.toHaveBeenCalled();
+    expect(frame.api.loadChapter).toHaveBeenCalledTimes(1);
+    expect(api.fetchChapter.mock.calls.some((call) => call[1] === 0)).toBe(
+      true,
+    );
     expect(api.getBookmarks).toHaveBeenCalledTimes(2);
   });
 

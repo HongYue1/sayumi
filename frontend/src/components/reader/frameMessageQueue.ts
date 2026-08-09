@@ -1,23 +1,11 @@
-// Pre-ready outbound message queue for ChapterFrame, extracted so its coalescing
-// + cap behaviour can be unit-tested without mounting the iframe component.
-// Single source of truth — ChapterFrame imports this; do NOT re-inline a copy.
+// Bounded outbound queue used by ChapterFrame for both iframe-handshake state
+// and commands waiting on a chapter's settled `loaded` event. Extracted so the
+// ordering, coalescing, cancellation, and cap are tested without mounting.
 import type { ParentToFrameMessage } from "~/lib/frameMessages";
 
-// Pre-ready, these carry "latest wins" state: a newer message of one of these
-// types makes any earlier queued message of the same type obsolete (a fresh
-// `load` replaces the chapter; for apply-settings/set-font-faces only the latest
-// value matters).
-//
-// What actually reaches this queue is NOT these three. routes/Read.tsx gates
-// every load / apply-settings / set-font-faces behind frameReady or
-// initialLoadDone, and both are only set from the onready handler that
-// ChapterFrame fires after it has already flushed. What can arrive pre-ready is
-// the ungated interaction commands -- scroll, page, fragment, highlight --
-// pressed between the api handoff and ready. Coalescing is therefore
-// defence-in-depth for a caller that does not gate, not a live path. Readiness
-// being solved twice, once by the parent's gate and once by this buffer, is the
-// X54 candidate; until an owner is picked this file still has to be correct for
-// the case it exists for.
+// These carry latest-wins state. A load already contains its settings snapshot;
+// standalone settings remain coalesced for live updates, and font CSS is state.
+// Replacing in place keeps the queue's causal slots stable.
 const COALESCE_TYPES = new Set<ParentToFrameMessage["type"]>([
   "load",
   "apply-settings",
@@ -32,6 +20,7 @@ export interface FrameMessageQueue {
   /** Returns the queued messages in order and empties the queue. */
   drain(): ParentToFrameMessage[];
   clear(): void;
+  discard(type: ParentToFrameMessage["type"]): void;
   readonly size: number;
 }
 
@@ -41,16 +30,7 @@ export function createFrameMessageQueue(
   let queue: ParentToFrameMessage[] = [];
   return {
     enqueue(message: ParentToFrameMessage): void {
-      // Coalesce IN PLACE: earliest position, newest payload. Dropping the old
-      // entry and pushing the newcomer to the tail reorders the queue, and
-      // (load, apply-settings) is order-critical. A settings message that beats
-      // its load into the frame is applied at once -- loadCommitTimer is still
-      // null -- writing #font-face-css and #book-css from prepared CSS that is
-      // still empty, and caching that in _lastFontFaceContent/_lastBookCSS.
-      // commitLoad re-applies settings only when pendingSettingsMessage is set,
-      // which it is not when the settings arrived first, so the chapter paints
-      // with no book styles and the memo suppresses the repair until a setting
-      // genuinely changes.
+      // Coalesce in place: earliest causal slot, newest payload.
       if (COALESCE_TYPES.has(message.type)) {
         const at = queue.findIndex((m) => m.type === message.type);
         if (at >= 0) {
@@ -80,6 +60,9 @@ export function createFrameMessageQueue(
     },
     clear(): void {
       queue = [];
+    },
+    discard(type): void {
+      queue = queue.filter((message) => message.type !== type);
     },
     get size(): number {
       return queue.length;

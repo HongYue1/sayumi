@@ -2,11 +2,8 @@ import { describe, it, expect } from "vitest";
 import { createFrameMessageQueue } from "~/components/reader/frameMessageQueue";
 import type { ParentToFrameMessage } from "~/lib/frameMessages";
 
-// The queue only ever inspects `type`, so `load` and `applySettings` cast
-// minimal shapes through rather than build a fourteen-field LoadMessage or a
-// whole IframeSettings. The two fixtures that CAN be built completely are
-// checked with `satisfies`, so a required field added to either wire member
-// fails this file instead of leaving it testing a shape no producer can send.
+// The queue only inspects `type`, so load/settings use minimal cast shapes.
+// Complete wire-shape coverage lives in frameMessages.test.ts.
 const load = (seq: number) =>
   ({ type: "load", seq }) as unknown as ParentToFrameMessage;
 const applySettings = () =>
@@ -51,15 +48,14 @@ describe("createFrameMessageQueue", () => {
     ).toBe("new");
   });
 
-  it("keeps a superseding load ahead of the settings queued behind it", () => {
+  it("keeps stable causal slots while coalescing latest state", () => {
     const q = createFrameMessageQueue();
     q.enqueue(load(1));
     q.enqueue(applySettings());
     q.enqueue(load(2));
 
-    // Order is the contract here, not just membership: a settings message that
-    // reaches the frame before its load is applied against CSS the frame has
-    // not prepared yet, and that empty result is memoised.
+    // The atomic load is independently complete; stable slots still make the
+    // effect of interleaved live updates deterministic.
     const drained = q.drain();
     expect(drained.map((m) => m.type)).toEqual(["load", "apply-settings"]);
     expect((drained[0] as { seq: number }).seq).toBe(2);
@@ -132,6 +128,24 @@ describe("createFrameMessageQueue", () => {
     expect(q.drain()).toHaveLength(1);
     expect(q.size).toBe(0);
     expect(q.drain()).toEqual([]);
+  });
+
+  it("discards one command kind without disturbing the rest", () => {
+    const q = createFrameMessageQueue();
+    q.enqueue(scrollTo(0.1));
+    q.enqueue({
+      type: "highlight-search",
+      seq: 2,
+      charOffset: 3,
+      matchLen: 4,
+      query: "term",
+    });
+    q.enqueue(scrollTo(0.2));
+    q.discard("highlight-search");
+    expect(q.drain().map((message) => message.type)).toEqual([
+      "scroll-to",
+      "scroll-to",
+    ]);
   });
 
   it("clear empties the queue", () => {
