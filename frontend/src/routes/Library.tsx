@@ -15,7 +15,6 @@ import type { FlairDef } from "~/api/client";
 import { library, SORT_OPTIONS, type SortKey } from "~/lib/library";
 import { session } from "~/lib/session";
 import { settings } from "~/lib/settings";
-import { applyTheme } from "~/lib/theme";
 import { router } from "~/lib/router";
 import BookCard from "~/components/library/BookCard";
 import ThemeDropdown from "~/components/library/ThemeDropdown";
@@ -205,18 +204,8 @@ export default function Library() {
     // store's initial null profile and silently no-op.
     void library.loadForProfile(session.profile);
 
-    // settings.load() never rejects (settings.ts:234) -- it resolves on both
-    // paths and flips `loaded` only on success. So the old .catch arm was dead
-    // code, and the .then arm ran after a FAILED GET too, where settings.value
-    // is still the compile-time default. applyTheme then wrote that default's
-    // CSS vars, set root.dataset.theme, and persisted "catppuccin" into
-    // localStorage["sayumi:theme"] -- overwriting the user's real theme with a
-    // guess because the network blipped. Gate on `loaded` and leave the theme
-    // untouched on failure.
-    let live = true;
-    void settings.load().then(() => {
-      if (live && settings.loaded) applyTheme(settings.value.theme);
-    });
+    // Match the App activation even if this child settles first after refresh.
+    void settings.activate(session.profile);
 
     // A drag that ends outside the window -- dropped on another application, or
     // cancelled with Escape -- fires neither dragleave nor drop, so the depth
@@ -228,7 +217,6 @@ export default function Library() {
     // (CLEANUP_IN_FORBIDDEN_SCOPE); returning the teardown is the sanctioned
     // form, and it is what makes the promise above owned rather than orphaned.
     return () => {
-      live = false;
       window.removeEventListener("dragend", resetDrag);
       window.removeEventListener("drop", resetDrag);
     };

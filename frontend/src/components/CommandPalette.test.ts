@@ -19,7 +19,6 @@ import type * as LibraryModule from "~/lib/library";
 import type * as RouterModule from "~/lib/router";
 import type * as SessionModule from "~/lib/session";
 import type * as SettingsModule from "~/lib/settings";
-import type * as ThemeModule from "~/lib/theme";
 import type { ThemeDef } from "~/lib/themes";
 import { THEMES } from "~/lib/themes";
 import { ui } from "~/lib/ui";
@@ -31,7 +30,7 @@ const loadForProfile = vi.hoisted(() =>
 const rescan = vi.hoisted(() => vi.fn<() => Promise<void>>());
 const navigate = vi.hoisted(() => vi.fn<(path: string) => void>());
 const logout = vi.hoisted(() => vi.fn<() => Promise<void>>());
-const applyTheme = vi.hoisted(() => vi.fn<(id: string) => void>());
+const showToast = vi.hoisted(() => vi.fn<(message: string) => void>());
 const updateSettings = vi.hoisted(() =>
   vi.fn<(patch: Partial<ApiClient.UserSettings>) => void>(),
 );
@@ -91,10 +90,7 @@ vi.mock("~/lib/session", async (importOriginal) => {
   };
 });
 
-vi.mock("~/lib/theme", async (importOriginal) => {
-  const actual = await importOriginal<typeof ThemeModule>();
-  return { ...actual, applyTheme };
-});
+vi.mock("~/lib/toast", () => ({ toast: { show: showToast } }));
 
 vi.mock("~/lib/customThemes", async (importOriginal) => {
   const actual = await importOriginal<typeof CustomThemesModule>();
@@ -200,6 +196,7 @@ function press(key: string): void {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  showToast.mockReset();
   world.profile = "alice";
   world.setBooks([]);
   world.setThemes([]);
@@ -425,7 +422,7 @@ describe("command palette", () => {
     expect(activeIndex()).toBe(2);
   });
 
-  it("runs a theme command against settings and the live painter", async () => {
+  it("runs a theme command through the settings owner", async () => {
     mount();
     open();
     await settle();
@@ -438,7 +435,6 @@ describe("command palette", () => {
     const id = THEMES.find((t) => t.label === "Sepia")?.id;
     expect(id).toBeTruthy();
     expect(updateSettings).toHaveBeenCalledWith({ theme: id });
-    expect(applyTheme).toHaveBeenCalledWith(id);
   });
 
   it("runs a book command with an encoded route", async () => {
@@ -471,14 +467,18 @@ describe("command palette", () => {
     expect(ui.shortcuts).toBe(true);
   });
 
-  it("sign out fires logout once, fire-and-forget (X19)", async () => {
+  it("reports a sign-out request that fails after local teardown", async () => {
+    logout.mockRejectedValue(new Error("network down"));
     mount();
     open();
     await settle();
     typeQuery("sign out");
     options()[0].click();
-    flush();
+    await settle();
     expect(logout).toHaveBeenCalledTimes(1);
+    expect(showToast).toHaveBeenCalledWith(
+      "Could not reach the server to sign out",
+    );
     expect(ui.palette).toBe(false);
   });
 

@@ -72,7 +72,6 @@ const api = vi.hoisted(() => ({
 }));
 const showToast = vi.hoisted(() => vi.fn());
 const navigate = vi.hoisted(() => vi.fn());
-const applyTheme = vi.hoisted(() => vi.fn());
 const reachable = vi.hoisted(() => vi.fn(() => true));
 
 // Spread the real module so ApiError stays the exact class the store's
@@ -131,7 +130,6 @@ vi.mock("~/lib/reachability", () => ({
   reportUnreachable: () => {},
   subscribeReachability: () => () => {},
 }));
-vi.mock("~/lib/theme", () => ({ applyTheme }));
 vi.mock("~/lib/toast", () => ({ toast: { show: showToast } }));
 
 /** A typed BookDetail fixture: chapterCount chapters, ltr, English. */

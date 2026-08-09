@@ -1,3 +1,5 @@
+import { createSignal } from "solid-js";
+
 export type ThemeGroup = "light" | "dark";
 
 export interface ThemeDef {
@@ -261,15 +263,25 @@ const FALLBACK: ThemeDef = THEME_MAP.get("light") ?? THEMES[0];
 // the app chrome (applyTheme) and, via the reader payload below, the frame —
 // without threading a store through every getTheme caller.
 const CUSTOM_THEMES = new Map<string, ThemeDef>();
+const CUSTOM_THEME_REVISION = createSignal(0);
+let customThemeRevision = 0;
 
 /** Replaces the custom-theme registry. Called by the customThemes store. */
 export function setCustomThemes(themes: ThemeDef[]): void {
   CUSTOM_THEMES.clear();
   for (const t of themes) CUSTOM_THEMES.set(t.id, t);
+  // The Map remains the synchronous source of truth: code immediately after a
+  // store write must see the new definition despite Solid's batched signals.
+  // The revision exists solely to invalidate tracked lookups after the flush.
+  customThemeRevision += 1;
+  CUSTOM_THEME_REVISION[1](customThemeRevision);
 }
 
 export function getTheme(id: string): ThemeDef {
-  return THEME_MAP.get(id) ?? CUSTOM_THEMES.get(id) ?? FALLBACK;
+  const builtIn = THEME_MAP.get(id);
+  if (builtIn) return builtIn;
+  CUSTOM_THEME_REVISION[0]();
+  return CUSTOM_THEMES.get(id) ?? FALLBACK;
 }
 
 /** True for a built-in theme id (one backed by a static frame.css class). */

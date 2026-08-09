@@ -6,9 +6,8 @@ import {
   deriveSurface,
   prefersBlackText,
   readableAccent,
+  type ThemeDef,
 } from "~/lib/themes";
-import { settings } from "~/lib/settings";
-import { customThemes } from "~/lib/customThemes";
 
 export { getTheme };
 
@@ -85,31 +84,12 @@ function applyCachedTheme(id: string): boolean {
 }
 
 /**
- * True only when both theme-owning stores have loaded SUCCESSFULLY — the one
- * question that makes applyTheme(settings.value.theme) safe. settings.load()
- * resolves on its failure path too and leaves the compile-time default in
- * place, and applyTheme persists whatever it paints into the localStorage
- * cache the pre-paint bootstrap replays — so applying the value before this
- * holds paints the default AND overwrites the user's real cached theme.
- * Reads both stores' guard-facing flags (a plain mirror on customThemes, a
- * signal on settings): call it point-in-time or in a compute phase, never in
- * an untracked effect apply phase (STRICT_READ_UNTRACKED, docs29 08).
- * Deliberately narrower than every theme gate: the early-apply layering in
- * Library.tsx and Read.tsx gates on settings.loaded alone so a custom saved
- * theme can paint from the palette cache while the registry is in flight —
- * do not unify those two into this predicate.
- */
-export function themeReady(): boolean {
-  return settings.loaded && customThemes.loaded;
-}
-
-/**
  * Applies a theme's tokens to the document root as CSS custom properties.
  * App chrome reads --bg / --fg / --accent; the reader iframe mirrors these
  * separately via its own override layer.
  */
-export function applyTheme(id: string): void {
-  const t = getTheme(id);
+export function applyTheme(id: string, resolved?: ThemeDef): void {
+  const t = resolved ?? getTheme(id);
   // getTheme falls back to the light theme for an unknown id. A custom theme
   // whose definitions haven't loaded yet (cold boot, before customThemes.load)
   // is "unknown" here — painting the fallback would flash the shell to light

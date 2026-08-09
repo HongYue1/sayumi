@@ -22,7 +22,6 @@ import type * as CustomThemesModule from "~/lib/customThemes";
 import type * as FontRegistryModule from "~/lib/fontRegistry";
 import type * as RouterModule from "~/lib/router";
 import type * as SettingsModule from "~/lib/settings";
-import type * as ThemeModule from "~/lib/theme";
 import type * as ToastModule from "~/lib/toast";
 import { DEFAULT_USER_SETTINGS, settings } from "~/lib/settings";
 import { SPECIMEN_BOOK_ID } from "~/lib/specimen";
@@ -39,7 +38,6 @@ const api = vi.hoisted(() => ({
     >(),
   deletePreset: vi.fn<(id: string) => Promise<void>>(),
 }));
-const applyTheme = vi.hoisted(() => vi.fn<(id: string) => void>());
 const showToast = vi.hoisted(() => vi.fn<(message: string) => void>());
 const navigate = vi.hoisted(() => vi.fn<(path: string) => boolean>());
 const rescanFonts = vi.hoisted(() => vi.fn<() => Promise<boolean>>());
@@ -130,11 +128,6 @@ vi.mock("~/lib/customThemes", async (importOriginal) => {
       load: loadCustomThemes,
     },
   };
-});
-
-vi.mock("~/lib/theme", async (importOriginal) => {
-  const actual = await importOriginal<typeof ThemeModule>();
-  return { ...actual, applyTheme };
 });
 
 vi.mock("~/lib/toast", async (importOriginal) => {
@@ -329,34 +322,11 @@ afterEach(() => {
 });
 
 describe("reader settings panel", () => {
-  it("does not apply a theme while settings are still unloaded", async () => {
-    // The panel paints the theme once the custom themes arrive. Before the
-    // settings load resolves, value.theme is the compile-time default, so
-    // applying it repaints the shell wrong AND poisons the localStorage
-    // palette cache the pre-paint bootstrap reads on the next reload.
-    world.settingsLoaded = false;
-    world.setSettings({ theme: "gruvbox" });
+  it("retries an unloaded custom-theme registry on mount", async () => {
+    world.themesLoaded = false;
     mount();
     await settle();
-    expect(applyTheme).not.toHaveBeenCalled();
-  });
-
-  it("applies the theme once settings and custom themes are both in", async () => {
-    world.setSettings({ theme: "gruvbox" });
-    mount();
-    await settle();
-    expect(applyTheme).toHaveBeenCalledWith("gruvbox");
-  });
-
-  it("leaves the theme alone when the registry load itself fails", async () => {
-    // The other half of the conjunct: settings loaded fine, but the registry
-    // load resolves without its flag, so the saved id cannot be resolved
-    // against it — applying it would paint and persist the fallback.
-    loadCustomThemes.mockImplementation(() => Promise.resolve(false));
-    world.setSettings({ theme: "gruvbox" });
-    mount();
-    await settle();
-    expect(applyTheme).not.toHaveBeenCalled();
+    expect(loadCustomThemes).toHaveBeenCalledOnce();
   });
 
   it("restores a failed delete at its original position", async () => {

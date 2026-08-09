@@ -9,7 +9,6 @@ import {
   logout as apiLogout,
 } from "~/api/client";
 import { subscribeReachability } from "~/lib/reachability";
-import { settings } from "~/lib/settings";
 import {
   advanceSessionEpoch,
   currentSessionEpoch,
@@ -95,7 +94,6 @@ class Session {
     if (this.#profilePlain !== null) {
       advanceSessionEpoch();
       this.#setProfile(null);
-      settings.reset();
     }
     this.#setStatus("signed-out");
   }
@@ -175,8 +173,8 @@ class Session {
     try {
       await apiLogout();
     } finally {
-      // Drop the previous profile's settings so the next login refetches its
-      // own from the server instead of inheriting this session's values.
+      // App observes the profile clear and deactivates every profile-owned
+      // store through its own lifecycle boundary.
       this.#clearLocalSession();
     }
   }

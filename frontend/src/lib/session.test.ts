@@ -9,8 +9,6 @@ const api = vi.hoisted(() => ({
   login: vi.fn(),
   logout: vi.fn(),
 }));
-const resetSettings = vi.hoisted(() => vi.fn());
-
 // Spread the real module so ApiError stays the exact class the store's
 // instanceof checks and the client's own throws use. A hand-rolled twin drifts:
 // the real constructor already takes a fourth `cause` argument.
@@ -18,10 +16,6 @@ vi.mock("~/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof ApiClient>();
   return { ...actual, ...api };
 });
-
-vi.mock("~/lib/settings", () => ({
-  settings: { reset: resetSettings },
-}));
 
 beforeEach(() => {
   vi.resetModules();
@@ -55,14 +49,12 @@ describe("session authentication generation", () => {
     gate.reportUnauthenticated(staleEpoch);
 
     expect(session.profile).toBe("Alice");
-    expect(resetSettings).not.toHaveBeenCalled();
 
     gate.reportUnauthenticated(gate.currentSessionEpoch());
     // The epoch-matched report clears the profile through a batched signal
     // write; flush before the synchronous read (Solid 2.0 batches writes).
     flush();
     expect(session.profile).toBeNull();
-    expect(resetSettings).toHaveBeenCalledOnce();
   });
 });
 
@@ -70,7 +62,6 @@ describe("profile deletion reconciliation", () => {
   it("clears local state when deletion fails after server revocation", async () => {
     const { session } = await import("~/lib/session");
     await session.login("Alice", "", false);
-    resetSettings.mockClear();
     api.deleteProfile.mockRejectedValue(new Error("delete failed"));
     api.getAuthStatus.mockResolvedValue({ authenticated: false, profile: "" });
 
@@ -80,14 +71,12 @@ describe("profile deletion reconciliation", () => {
 
     expect(api.getAuthStatus).toHaveBeenCalledOnce();
     expect(session.profile).toBeNull();
-    expect(resetSettings).toHaveBeenCalledOnce();
   });
 
   it("keeps the session on an invalid-credentials deletion failure", async () => {
     const { ApiError } = await import("~/api/client");
     const { session } = await import("~/lib/session");
     await session.login("Alice", "", false);
-    resetSettings.mockClear();
     api.deleteProfile.mockRejectedValue(
       new ApiError("incorrect PIN", 401, "invalid_credentials"),
     );
@@ -98,7 +87,6 @@ describe("profile deletion reconciliation", () => {
 
     expect(api.getAuthStatus).not.toHaveBeenCalled();
     expect(session.profile).toBe("Alice");
-    expect(resetSettings).not.toHaveBeenCalled();
   });
 });
 
@@ -136,7 +124,6 @@ describe("boot status probe", () => {
     expect(session.status).toBe("unavailable");
     expect(session.authenticated).toBe(false);
     expect(session.profile).toBeNull();
-    expect(resetSettings).not.toHaveBeenCalled();
   });
 
   it("treats every auth-status error as unavailable, including a 4xx", async () => {
@@ -152,7 +139,6 @@ describe("boot status probe", () => {
 
     expect(session.status).toBe("unavailable");
     expect(session.profile).toBeNull();
-    expect(resetSettings).not.toHaveBeenCalled();
   });
 
   it("keeps a known profile while a later status probe is unavailable", async () => {
@@ -160,7 +146,6 @@ describe("boot status probe", () => {
     const { session } = await import("~/lib/session");
     const { flush } = await import("solid-js");
     await session.login("Alice", "", false);
-    resetSettings.mockClear();
     api.getAuthStatus.mockRejectedValue(
       new ApiError("Could not reach the server.", undefined, "network_error"),
     );
@@ -171,7 +156,6 @@ describe("boot status probe", () => {
     expect(session.status).toBe("unavailable");
     expect(session.authenticated).toBe(false);
     expect(session.profile).toBe("Alice");
-    expect(resetSettings).not.toHaveBeenCalled();
   });
 
   it("re-probes when the server becomes reachable again", async () => {
@@ -235,7 +219,6 @@ describe("boot status probe", () => {
     const gate = await import("~/lib/sessionGate");
     const { flush } = await import("solid-js");
     await session.login("Alice", "", false);
-    resetSettings.mockClear();
     const epoch = gate.currentSessionEpoch();
     api.getAuthStatus.mockResolvedValue({ authenticated: false, profile: "" });
 
@@ -244,7 +227,6 @@ describe("boot status probe", () => {
 
     expect(session.status).toBe("signed-out");
     expect(session.profile).toBeNull();
-    expect(resetSettings).toHaveBeenCalledOnce();
     expect(gate.currentSessionEpoch()).not.toBe(epoch);
   });
 });
@@ -254,14 +236,12 @@ describe("sign-out", () => {
     const { session } = await import("~/lib/session");
     const { flush } = await import("solid-js");
     await session.login("Alice", "", false);
-    resetSettings.mockClear();
     api.logout.mockRejectedValue(new Error("network down"));
 
     await expect(session.logout()).rejects.toThrow("network down");
     flush();
 
     expect(session.profile).toBeNull();
-    expect(resetSettings).toHaveBeenCalledOnce();
   });
 });
 
@@ -270,20 +250,17 @@ describe("profile deletion", () => {
     const { session } = await import("~/lib/session");
     const { flush } = await import("solid-js");
     await session.login("Alice", "", false);
-    resetSettings.mockClear();
 
     await session.deleteCurrent("1234");
     flush();
 
     expect(session.profile).toBeNull();
-    expect(resetSettings).toHaveBeenCalledOnce();
   });
 
   it("leaves a session that was created while the request was in flight", async () => {
     const { session } = await import("~/lib/session");
     const { flush } = await import("solid-js");
     await session.login("Alice", "", false);
-    resetSettings.mockClear();
     // The server revokes every session for the profile before it takes the
     // delete lock, so the session can die and be replaced mid-request.
     api.deleteProfile.mockImplementation(async () => {
@@ -296,7 +273,6 @@ describe("profile deletion", () => {
     flush();
 
     expect(session.profile).toBe("Bob");
-    expect(resetSettings).toHaveBeenCalledOnce();
   });
 
   it("skips the reconciliation probe when the gate already signed us out", async () => {
@@ -305,7 +281,6 @@ describe("profile deletion", () => {
     const gate = await import("~/lib/sessionGate");
     const { flush } = await import("solid-js");
     await session.login("Alice", "", false);
-    resetSettings.mockClear();
     api.getAuthStatus.mockClear();
     api.deleteProfile.mockImplementation(() => {
       gate.reportUnauthenticated(gate.currentSessionEpoch());
@@ -322,7 +297,6 @@ describe("profile deletion", () => {
     expect(api.getAuthStatus).not.toHaveBeenCalled();
     expect(session.status).toBe("signed-out");
     expect(session.profile).toBeNull();
-    expect(resetSettings).toHaveBeenCalledOnce();
   });
 });
 
@@ -359,13 +333,11 @@ describe("profile cloning", () => {
     const { session } = await import("~/lib/session");
     const { flush } = await import("solid-js");
     await session.login("Alice", "", false);
-    resetSettings.mockClear();
 
     await session.clone("Alice copy", "");
     flush();
 
     expect(api.cloneProfile).toHaveBeenCalledWith("Alice copy", "");
     expect(session.profile).toBe("Alice");
-    expect(resetSettings).not.toHaveBeenCalled();
   });
 });

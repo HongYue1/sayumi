@@ -175,6 +175,8 @@ class Settings {
   #loadOk = false;
   /** Edits made before a successful load, re-applied over #load's merge. */
   #dirtyDuringLoad: Partial<UserSettings> = {};
+  /** Profile whose settings this instance currently represents. */
+  #profile: string | null = null;
   #loadGeneration = 0;
   #loadController: AbortController | undefined;
   #loadPromise: Promise<void> | undefined;
@@ -224,17 +226,40 @@ class Settings {
     return this.#loadedSignal[0]();
   }
 
+  /**
+   * Synchronous ownership guard for effects that also track `loaded`.
+   * activate() updates both plain fields before Solid flushes their signals,
+   * so a profile transition cannot pair the new identity with the previous
+   * profile's still-committed settings for one effect turn.
+   */
+  isReadyFor(profile: string): boolean {
+    return this.#profile === profile && this.#loaded;
+  }
+
   #setLoaded(value: boolean): void {
     this.#loaded = value;
     this.#loadedSignal[1](value);
   }
 
   /**
-   * Loads server settings once; keeps defaults on failure (non-fatal). Never
-   * rejects. A failure is NOT terminal: `loaded` flips only on success, so the
-   * next call refetches (Read boot, Library mount, and update()'s deferred
-   * save all call this), unlike a terminal failure that would strand the
-   * session on compile-time defaults.
+   * Aligns settings with one authenticated profile. A profile transition
+   * synchronously clears the previous profile's values, aborts its async work,
+   * and starts a generation-guarded load for the new identity. Re-activation is
+   * idempotent and doubles as the bounded retry path after a failed load.
+   */
+  activate(profile: string | null): Promise<void> {
+    if (this.#profile === profile) {
+      return profile === null ? Promise.resolve() : this.load();
+    }
+    this.#profile = profile;
+    this.reset();
+    return profile === null ? Promise.resolve() : this.load();
+  }
+
+  /**
+   * Loads the active profile's server settings once; keeps defaults on failure
+   * and never rejects. Kept public for explicit retry surfaces and focused store
+   * tests; application boot and routes must enter through activate(profile).
    */
   load(): Promise<void> {
     if (this.#loaded) return Promise.resolve();
@@ -329,7 +354,7 @@ class Settings {
     this.#scheduleSave();
   }
 
-  /** Call on logout so the next login gets fresh settings from the server. */
+  /** Clears the active profile state. Production callers use activate(). */
   reset(): void {
     this.#setLoaded(false);
     this.#loadGeneration += 1;

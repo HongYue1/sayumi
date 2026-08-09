@@ -14,26 +14,13 @@
 //     in the global sheet when ThemeDropdown/BookCard land.
 import { createEffect, createSignal, Show } from "solid-js";
 import { session } from "~/lib/session";
-import { toast } from "~/lib/toast";
-import { getErrorMessage } from "~/lib/errors";
+import { signOutWithFeedback } from "~/lib/signOut";
 import Icon from "~/lib/Icon";
 import { ChevronDown, Copy, LogOut, Trash2, User } from "~/lib/icons";
 
 interface Props {
   onclone: () => void;
   ondelete: () => void;
-}
-
-function signOut(): void {
-  // logout clears local session state in its finally block even if the request
-  // fails, then rethrows: a transport failure means the server-side session
-  // may still exist. The UI is signed out either way, so the only thing the
-  // user cannot see is that half of it did not land. Report it -- a failed
-  // request gets a toast everywhere else (ShareDialog, SettingsPanel, Read);
-  // consuming the rejection silently made this the one outlier.
-  void session.logout().catch((err: unknown) => {
-    toast.show(getErrorMessage(err, "Could not reach the server to sign out"));
-  });
 }
 
 export default function ProfileMenu(props: Props) {
@@ -250,7 +237,7 @@ export default function ProfileMenu(props: Props) {
             class="pm-item"
             role="menuitem"
             tabindex="-1"
-            onClick={() => pick(signOut)}
+            onClick={() => pick(signOutWithFeedback)}
           >
             <Icon icon={LogOut} size={16} decorative />
             Sign out

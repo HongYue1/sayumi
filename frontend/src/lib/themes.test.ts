@@ -4,6 +4,7 @@
  * assertion cannot inherit the bug it is meant to catch.
  */
 import { afterEach, describe, expect, it } from "vitest";
+import { createEffect, createRoot, flush } from "solid-js";
 import { readFileSync } from "node:fs";
 import {
   autoAccent,
@@ -56,6 +57,31 @@ afterEach(() => {
 });
 
 describe("getTheme", () => {
+  it("invalidates a tracked lookup when the custom registry changes", () => {
+    const seen: string[] = [];
+    const dispose = createRoot((stop) => {
+      createEffect(
+        () => getTheme(CUSTOM.id),
+        (theme) => {
+          seen.push(theme.bg);
+          return undefined;
+        },
+      );
+      return stop;
+    });
+
+    flush();
+    setCustomThemes([CUSTOM]);
+    flush();
+    setCustomThemes([{ ...CUSTOM, bg: "#202020" }]);
+    flush();
+    setCustomThemes([]);
+    flush();
+    dispose();
+
+    expect(seen).toEqual(["#ffffff", "#101010", "#202020", "#ffffff"]);
+  });
+
   it("resolves a built-in id", () => {
     expect(getTheme("dark").id).toBe("dark");
   });

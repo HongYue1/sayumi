@@ -17,7 +17,8 @@ import { router } from "~/lib/router";
 import { ui } from "~/lib/ui";
 import { keyboardEventIsOwnedByTarget } from "~/lib/keyboard";
 import { settings } from "~/lib/settings";
-import { applyTheme, getCachedThemeId, themeReady } from "~/lib/theme";
+import { applyTheme, getCachedThemeId } from "~/lib/theme";
+import { getTheme } from "~/lib/themes";
 import { customThemes } from "~/lib/customThemes";
 import { library } from "~/lib/library";
 import Login from "~/routes/Login";
@@ -60,25 +61,9 @@ function onWindowKey(e: KeyboardEvent): void {
   }
 }
 
-// Extracted from the Svelte $effect's .then() callback so the promise chain has
-// no callback to lint (promise/always-return) and the await point is explicit.
-async function syncProfileOwnedState(profile: string | null): Promise<void> {
-  await customThemes.activate(profile);
-  // Whichever profile-owned request finishes last (settings or custom themes)
-  // gets a chance to resolve the saved id against the complete registry. Keep
-  // this tied to activation rather than a global theme effect: Library and Read
-  // still own normal theme changes.
-  //
-  // themeReady() (lib/theme.ts) carries the why: both loads must have
-  // SUCCEEDED, not merely finished, or the apply paints and persists the
-  // compile-time default over the user's saved theme. Library.tsx fixed this
-  // on its own boot path first; the copy here was left behind until b50.
-  if (profile !== null && session.profile === profile && themeReady()) {
-    applyTheme(settings.value.theme);
-  }
-}
-
 export default function App() {
+  let appliedThemeKey: string | null = null;
+
   onSettled(() => {
     // Re-apply the cached theme (already set pre-paint by the index.html
     // bootstrap) so SPA state and data-theme stay in sync; falls back to light
@@ -103,8 +88,51 @@ export default function App() {
     () => session.profile,
     (profile) => {
       library.activate(profile);
+      void settings.activate(profile);
+      void customThemes.activate(profile);
       if (profile === null) ui.closeOverlays();
-      void syncProfileOwnedState(profile);
+    },
+  );
+
+  // One tracked resolver owns app-chrome repainting. The settings gate protects
+  // the pre-paint cache from compile-time defaults after a failed GET; getTheme
+  // subscribes to custom-registry revisions, so loading or editing the active
+  // custom theme repaints even though its id did not change. Passing the
+  // definition into applyTheme keeps every reactive read in the compute phase.
+  createEffect(
+    () => {
+      const profile = session.profile;
+      if (
+        profile === null ||
+        !settings.loaded ||
+        !settings.isReadyFor(profile)
+      ) {
+        return null;
+      }
+      const id = settings.value.theme;
+      return { profile, id, theme: getTheme(id) };
+    },
+    (active) => {
+      if (active === null) {
+        appliedThemeKey = null;
+        return undefined;
+      }
+      const { profile, id, theme } = active;
+      const key = [
+        profile,
+        id,
+        theme.id,
+        theme.group,
+        theme.bg,
+        theme.fg,
+        theme.accent,
+        theme.surface ?? "",
+      ].join("\u0000");
+      if (key !== appliedThemeKey) {
+        appliedThemeKey = key;
+        applyTheme(id, theme);
+      }
+      return undefined;
     },
   );
 

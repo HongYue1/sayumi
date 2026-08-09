@@ -111,6 +111,43 @@ afterEach(() => {
 });
 
 describe("settings profile lifecycle", () => {
+  it("does not fetch settings while no profile is active", async () => {
+    const { settings } = await import("~/lib/settings");
+
+    await settings.activate(null);
+
+    expect(api.getSettings).not.toHaveBeenCalled();
+    expect(settings.loaded).toBe(false);
+  });
+
+  it("activates, clears, and reloads state by profile identity", async () => {
+    api.getSettings
+      .mockResolvedValueOnce(full({ fontSize: 36 }))
+      .mockResolvedValueOnce(full({ fontSize: 42 }));
+    const { settings } = await import("~/lib/settings");
+    const { flush } = await import("solid-js");
+
+    await settings.activate("ada");
+    flush();
+    expect(settings.loaded).toBe(true);
+    expect(settings.isReadyFor("ada")).toBe(true);
+    expect(settings.isReadyFor("bo")).toBe(false);
+    expect(settings.value.fontSize).toBe(36);
+
+    await settings.activate(null);
+    flush();
+    expect(settings.loaded).toBe(false);
+    expect(settings.isReadyFor("ada")).toBe(false);
+    expect(settings.value.fontSize).toBe(30);
+
+    await settings.activate("bo");
+    flush();
+    expect(settings.loaded).toBe(true);
+    expect(settings.isReadyFor("bo")).toBe(true);
+    expect(settings.value.fontSize).toBe(42);
+    expect(api.getSettings).toHaveBeenCalledTimes(2);
+  });
+
   it("ignores a previous profile's load after reset", async () => {
     let resolveFirst!: (value: {
       fontSize: number;

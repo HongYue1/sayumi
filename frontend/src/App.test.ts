@@ -32,13 +32,6 @@ const api = vi.hoisted(() => ({
 }));
 
 const applyTheme = vi.hoisted(() => vi.fn());
-const currentStores = vi.hoisted(() => ({
-  current: null as {
-    settingsLoaded: () => boolean;
-    registryLoaded: () => boolean;
-  } | null,
-}));
-
 const stubs = vi.hoisted(() => ({
   marker: (id: string) => () => {
     const el = document.createElement("div");
@@ -62,15 +55,6 @@ vi.mock("~/lib/theme", async (importOriginal) => {
   return {
     ...actual,
     applyTheme,
-    // The importOriginal spread is captured once per file, but loadShell
-    // rebuilds the stores per test — the real themeReady would read a stale
-    // first-generation store whose flags never flip (probe-verified: every
-    // full-file read saw false/false). Delegate to the generation the test
-    // is actually driving.
-    themeReady: () =>
-      currentStores.current !== null &&
-      currentStores.current.settingsLoaded() &&
-      currentStores.current.registryLoaded(),
   };
 });
 vi.mock("~/routes/Login", () => ({ default: stubs.marker("login") }));
@@ -99,6 +83,7 @@ async function loadShell() {
     uiMod,
     sessionMod,
     settingsMod,
+    customThemesMod,
     themesMod,
     libraryMod,
     routerMod,
@@ -108,19 +93,17 @@ async function loadShell() {
     import("~/lib/session"),
     import("~/lib/settings"),
     import("~/lib/customThemes"),
+    import("~/lib/themes"),
     import("~/lib/library"),
     import("~/lib/router"),
   ]);
-  currentStores.current = {
-    settingsLoaded: () => settingsMod.settings.loaded,
-    registryLoaded: () => themesMod.customThemes.loaded,
-  };
   return {
     App: app.default,
     ui: uiMod.ui,
     session: sessionMod.session,
     settings: settingsMod.settings,
-    customThemes: themesMod.customThemes,
+    customThemes: customThemesMod.customThemes,
+    setCustomThemes: themesMod.setCustomThemes,
     library: libraryMod.library,
     router: routerMod.router,
   };
@@ -278,7 +261,15 @@ describe("App shell", () => {
     expect(api.getAuthStatus).toHaveBeenCalledTimes(1);
   });
 
-  it("applies the saved theme once both profile-owned loads succeed", async () => {
+  it("activates settings for the authenticated profile without route help", async () => {
+    const shell = await signedIn("ada");
+
+    expect(api.getSettings).toHaveBeenCalledTimes(1);
+    expect(shell.settings.loaded).toBe(true);
+    expect(shell.settings.value.theme).toBe("nord");
+  });
+
+  it("applies the saved theme through the centralized owner", async () => {
     localStorage.setItem("sayumi:theme", "light");
     api.getAuthStatus.mockResolvedValue({
       authenticated: true,
@@ -287,10 +278,6 @@ describe("App shell", () => {
     api.getSettings.mockResolvedValue({ theme: "nord" });
 
     const shell = await loadShell();
-    // Library owns settings.load() in production (Library.tsx:214); the route
-    // is a stub here, so the test plays that part.
-    await shell.settings.load();
-    expect(shell.settings.loaded).toBe(true);
     mount(shell);
 
     await vi.waitFor(() => {
@@ -299,16 +286,16 @@ describe("App shell", () => {
     });
     await settle();
 
-    expect(applyTheme.mock.calls).toEqual([["light"], ["nord"]]);
+    expect(applyTheme.mock.calls.map((call) => call[0])).toEqual([
+      "light",
+      "nord",
+    ]);
   });
 
   it("leaves the theme alone when the settings load failed", async () => {
-    // The regression this suite exists for. settings.load() resolves on its
-    // failure path and leaves the compile-time default in place, so an
-    // ungated re-apply here paints `catppuccin` AND persists it over the
-    // user's real theme, which the pre-paint bootstrap then replays forever.
-    // Library.tsx:205-212 fixed this on its own boot path; the shell's copy
-    // was missed.
+    // A failed activation leaves the compile-time default in place. Painting
+    // it would persist a guess over the cached server theme, so the centralized
+    // effect must stay gated on successful settings ownership.
     localStorage.setItem("sayumi:theme", "nord");
     api.getAuthStatus.mockResolvedValue({
       authenticated: true,
@@ -317,9 +304,6 @@ describe("App shell", () => {
     api.getSettings.mockRejectedValue(new Error("offline"));
 
     const shell = await loadShell();
-    await shell.settings.load();
-    expect(shell.settings.loaded).toBe(false);
-    expect(shell.settings.value.theme).toBe("catppuccin");
     mount(shell);
 
     await vi.waitFor(() => {
@@ -328,7 +312,7 @@ describe("App shell", () => {
     });
     await settle();
 
-    expect(applyTheme.mock.calls).toEqual([["nord"]]);
+    expect(applyTheme.mock.calls.map((call) => call[0])).toEqual(["nord"]);
     expect(localStorage.getItem("sayumi:theme")).toBe("nord");
   });
 
@@ -341,8 +325,6 @@ describe("App shell", () => {
     api.getCustomThemes.mockRejectedValue(new Error("offline"));
 
     const shell = await loadShell();
-    await shell.settings.load();
-    expect(shell.settings.loaded).toBe(true);
     mount(shell);
 
     await vi.waitFor(() => {
@@ -352,7 +334,74 @@ describe("App shell", () => {
     await settle();
 
     expect(shell.customThemes.loaded).toBe(false);
-    expect(applyTheme.mock.calls).toEqual([["nord"]]);
+    expect(applyTheme.mock.calls.map((call) => call[0])).toEqual([
+      "nord",
+      "nord",
+    ]);
+  });
+
+  it("repaints a saved custom theme when its registry definition arrives", async () => {
+    let releaseThemes = (_themes: ApiClient.CustomTheme[]): void => {};
+    api.getSettings.mockResolvedValue({ theme: "custom:ink" });
+    api.getCustomThemes.mockImplementation(
+      () =>
+        new Promise<ApiClient.CustomTheme[]>((resolve) => {
+          releaseThemes = resolve;
+        }),
+    );
+
+    const shell = await signedIn("ada");
+    await vi.waitFor(() => {
+      flush();
+      expect(shell.settings.loaded).toBe(true);
+      expect(
+        applyTheme.mock.calls.some((call) => call[0] === "custom:ink"),
+      ).toBe(true);
+    });
+
+    releaseThemes([
+      {
+        id: "custom:ink",
+        name: "Ink",
+        group: "dark",
+        bg: "#101820",
+        fg: "#f4f1ea",
+        accent: "#ef8354",
+        createdAt: "2026-08-09T00:00:00Z",
+        updatedAt: "2026-08-09T00:00:00Z",
+      },
+    ]);
+    await vi.waitFor(() => {
+      flush();
+      expect(shell.customThemes.loaded).toBe(true);
+      const calls = applyTheme.mock.calls.filter(
+        (call) => call[0] === "custom:ink",
+      );
+      expect(calls.at(-1)?.[1]).toMatchObject({
+        id: "custom:ink",
+        bg: "#101820",
+        fg: "#f4f1ea",
+      });
+    });
+
+    const beforeEdit = applyTheme.mock.calls.length;
+    shell.setCustomThemes([
+      {
+        id: "custom:ink",
+        label: "Ink edited",
+        group: "dark",
+        bg: "#202830",
+        fg: "#f8f5ef",
+        accent: "#7dd3fc",
+      },
+    ]);
+    await settle();
+    expect(applyTheme.mock.calls).toHaveLength(beforeEdit + 1);
+    expect(applyTheme.mock.calls.at(-1)?.[1]).toMatchObject({
+      id: "custom:ink",
+      bg: "#202830",
+      fg: "#f8f5ef",
+    });
   });
 
   it("does not let a superseded profile's load paint the theme", async () => {
@@ -373,7 +422,6 @@ describe("App shell", () => {
     });
 
     const shell = await loadShell();
-    await shell.settings.load();
     mount(shell);
     await vi.waitFor(() => {
       flush();
@@ -391,7 +439,11 @@ describe("App shell", () => {
     await settle();
 
     expect(shell.session.profile).toBe("bo");
-    expect(applyTheme.mock.calls).toEqual([["light"], ["nord"]]);
+    expect(applyTheme.mock.calls.map((call) => call[0])).toEqual([
+      "light",
+      "nord",
+      "nord",
+    ]);
   });
 
   it("toggles the command palette on the ctrl chord and swallows it", async () => {

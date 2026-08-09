@@ -73,7 +73,6 @@ import { keyboardEventIsOwnedByTarget } from "~/lib/keyboard";
 import { resolveHref, buildTocChapterEntries } from "~/lib/href";
 import { getErrorMessage } from "~/lib/errors";
 import { isReachable } from "~/lib/reachability";
-import { applyTheme } from "~/lib/theme";
 import ChapterFrame from "~/components/reader/ChapterFrame";
 import type {
   ChapterFrameAPI,
@@ -575,23 +574,6 @@ export default function Read(props: Props) {
     },
   );
 
-  // Keep the app chrome (reader bar, panels) in sync with the reading theme.
-  // Gated on settings.loaded: before a successful load, value.theme is the
-  // compile-time default ("catppuccin" — dark Mocha), and applying it would
-  // repaint the shell with the wrong palette AND overwrite the localStorage
-  // palette cache the pre-paint bootstrap relies on. The cached theme from
-  // index.html stays up instead. The conjunction lives in the compute phase:
-  // reading settings.loaded in the untracked apply phase trips
-  // STRICT_READ_UNTRACKED (docs29 08), and a load resolving the SAME theme id
-  // must still re-run the effect when loaded flips.
-  createEffect(
-    () => (settings.loaded ? settings.value.theme : null),
-    (id) => {
-      if (id !== null) applyTheme(id);
-      return undefined;
-    },
-  );
-
   // Defer non-critical prewarming to idle time, with a setTimeout fallback for
   // browsers without requestIdleCallback. Returns a canceller for cleanup.
   function schedulePrewarm(fn: () => void): { cancel: () => void } {
@@ -681,11 +663,7 @@ export default function Read(props: Props) {
   );
 
   async function boot(): Promise<void> {
-    try {
-      await settings.load();
-    } catch {
-      // keep defaults
-    }
+    await settings.activate(bootProfile);
 
     // User font families are non-blocking for startup; faces re-push on load.
     void fontRegistry.load();

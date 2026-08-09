@@ -17,23 +17,13 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { settings } from "~/lib/settings";
 import { THEMES } from "~/lib/themes";
-import { applyTheme, getTheme, themeReady } from "~/lib/theme";
+import { getTheme } from "~/lib/theme";
 import { customThemes } from "~/lib/customThemes";
 import Icon from "~/lib/Icon";
 import { Check, ChevronDown } from "~/lib/icons";
 
 const lightThemes = THEMES.filter((t) => t.group === "light");
 const darkThemes = THEMES.filter((t) => t.group === "dark");
-
-// The retry promise chain lives in an async function, not a .then callback,
-// so promise/always-return has nothing to lint and the await point is
-// explicit (the App.tsx precedent).
-async function retryThemeLoad(): Promise<void> {
-  await customThemes.load();
-  // themeReady() (lib/theme.ts) carries the why: retrying before both stores
-  // have loaded would write the compile-time default over the saved theme.
-  if (themeReady()) applyTheme(settings.value.theme);
-}
 
 export default function ThemeDropdown() {
   const [open, setOpen] = createSignal(false);
@@ -60,7 +50,7 @@ export default function ThemeDropdown() {
     setOpen(next);
     // App boot normally loads the profile registry. If that non-fatal request
     // failed, opening a theme selector is an explicit, bounded retry point.
-    if (next && !customThemes.loaded) void retryThemeLoad();
+    if (next && !customThemes.loaded) void customThemes.load();
   }
   function close(restoreFocus = true): void {
     setOpen(false);
@@ -68,7 +58,6 @@ export default function ThemeDropdown() {
   }
   function choose(id: string): void {
     settings.update({ theme: id });
-    applyTheme(id);
     close();
   }
 

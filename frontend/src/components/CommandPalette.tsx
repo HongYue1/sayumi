@@ -19,7 +19,7 @@ import { library } from "~/lib/library";
 import { settings } from "~/lib/settings";
 import { router } from "~/lib/router";
 import { session } from "~/lib/session";
-import { applyTheme } from "~/lib/theme";
+import { signOutWithFeedback } from "~/lib/signOut";
 import { THEMES } from "~/lib/themes";
 import { customThemes } from "~/lib/customThemes";
 import Icon from "~/lib/Icon";
@@ -90,7 +90,7 @@ export default function CommandPalette() {
         id: "act-signout",
         label: "Sign out",
         hint: "Account",
-        run: () => void session.logout(),
+        run: signOutWithFeedback,
       },
     ];
     for (const b of library.books) {
@@ -110,7 +110,6 @@ export default function CommandPalette() {
         }`,
         run: () => {
           settings.update({ theme: t.id });
-          applyTheme(t.id);
         },
       });
     };

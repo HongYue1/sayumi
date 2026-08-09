@@ -13,17 +13,11 @@ import {
 // row and the no-results branch all read real derived state, and stubbing the
 // store would make those assertions vacuous. It is driven through the mocked
 // transport instead.
-const applyTheme = vi.hoisted(() => vi.fn());
 const navigate = vi.hoisted(() => vi.fn());
 const showToast = vi.hoisted(() => vi.fn());
 
-// settings.load() resolves on both the success and the failure path and flips
-// `loaded` only on success -- that asymmetry is the whole of H1, so the stub
-// reproduces it exactly rather than rejecting.
 const settingsStub = vi.hoisted(() => ({
-  loaded: false,
-  value: { theme: "catppuccin" },
-  load: vi.fn(),
+  activate: vi.fn<(profile: string | null) => Promise<void>>(),
 }));
 
 const sessionStub = vi.hoisted(() => ({ profile: "p" as string | null }));
@@ -35,7 +29,6 @@ let profileSeq = 0;
 
 vi.mock("~/lib/settings", () => ({ settings: settingsStub }));
 vi.mock("~/lib/session", () => ({ session: sessionStub }));
-vi.mock("~/lib/theme", () => ({ applyTheme }));
 vi.mock("~/lib/router", () => ({ router: { navigate } }));
 vi.mock("~/lib/toast", () => ({ toast: { show: showToast } }));
 vi.mock("~/components/library/BookCard", () => ({ default: () => null }));
@@ -109,9 +102,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   localStorage.clear();
-  settingsStub.loaded = false;
-  settingsStub.value = { theme: "catppuccin" };
-  settingsStub.load.mockImplementation(async () => {});
+  settingsStub.activate.mockResolvedValue(undefined);
   profileSeq += 1;
   sessionStub.profile = `p${profileSeq}`;
   api.getBooks.mockResolvedValue([]);
@@ -128,44 +119,11 @@ afterEach(() => {
   restoreRealTimersWithoutLeaks();
 });
 
-describe("Library route: theme on boot (H1)", () => {
-  it("leaves the theme alone when the settings request failed", async () => {
-    // The failure path: load() resolves, `loaded` stays false, and
-    // settings.value is still the compile-time default. Applying it here would
-    // overwrite the user's real theme -- and persist the guess to localStorage
-    // -- because the network blipped.
+describe("Library route: profile settings activation", () => {
+  it("activates settings for the mounted profile", async () => {
     await mount();
-    expect(settingsStub.load).toHaveBeenCalledOnce();
-    expect(applyTheme).not.toHaveBeenCalled();
-  });
-
-  it("applies the loaded theme once settings genuinely loaded", async () => {
-    settingsStub.load.mockImplementation(async () => {
-      settingsStub.loaded = true;
-      settingsStub.value = { theme: "nord" };
-    });
-    await mount();
-    expect(applyTheme).toHaveBeenCalledWith("nord");
-  });
-
-  it("does not apply a theme that resolves after unmount", async () => {
-    let release = (): void => {};
-    settingsStub.load.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          release = () => {
-            settingsStub.loaded = true;
-            settingsStub.value = { theme: "nord" };
-            resolve();
-          };
-        }),
-    );
-    await mount();
-    dispose?.();
-    dispose = null;
-    release();
-    await settle();
-    expect(applyTheme).not.toHaveBeenCalled();
+    expect(settingsStub.activate).toHaveBeenCalledOnce();
+    expect(settingsStub.activate).toHaveBeenCalledWith(sessionStub.profile);
   });
 });
 

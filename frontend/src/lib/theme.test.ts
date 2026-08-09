@@ -1,29 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getCachedThemeId, onAccentColor, themeReady } from "~/lib/theme";
-
-// themeReady reads the two store singletons; these minimal fakes cover
-// exactly what theme.ts imports them for. The other describes never touch
-// the stores, so the fakes' narrow surface is all the graph needs.
-const world = vi.hoisted(() => ({
-  settingsLoaded: false,
-  registryLoaded: false,
-}));
-
-vi.mock("~/lib/settings", () => ({
-  settings: {
-    get loaded() {
-      return world.settingsLoaded;
-    },
-  },
-}));
-
-vi.mock("~/lib/customThemes", () => ({
-  customThemes: {
-    get loaded() {
-      return world.registryLoaded;
-    },
-  },
-}));
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { getCachedThemeId, onAccentColor } from "~/lib/theme";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -74,32 +50,5 @@ describe("getCachedThemeId", () => {
     });
 
     expect(getCachedThemeId()).toBe("light");
-  });
-});
-
-describe("themeReady", () => {
-  beforeEach(() => {
-    world.settingsLoaded = false;
-    world.registryLoaded = false;
-  });
-
-  it("is false when neither store has loaded", () => {
-    expect(themeReady()).toBe(false);
-  });
-
-  it("is false with settings loaded but the registry still out", () => {
-    world.settingsLoaded = true;
-    expect(themeReady()).toBe(false);
-  });
-
-  it("is false with the registry loaded but settings still out", () => {
-    world.registryLoaded = true;
-    expect(themeReady()).toBe(false);
-  });
-
-  it("is true only when both stores have loaded", () => {
-    world.settingsLoaded = true;
-    world.registryLoaded = true;
-    expect(themeReady()).toBe(true);
   });
 });

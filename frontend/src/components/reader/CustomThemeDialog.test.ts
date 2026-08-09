@@ -1,7 +1,6 @@
 // Suite for the custom theme create/edit dialog. Stubbed: the customThemes
 // store (network), settings (the store the dialog reads and writes), and
-// applyTheme (a DOM-wide side effect, spread over importOriginal so
-// onAccentColor stays the real contrast computation). THEMES, autoAccent and
+// theme state. THEMES, autoAccent and
 // themeGroupFor stay real -- the seeding assertions are statements about the
 // real catalogue. focusTrap is real: this dialog mounts inside its trap.
 //
@@ -27,7 +26,6 @@ const stubs = vi.hoisted(() => ({
   create: vi.fn(),
   update: vi.fn(),
   remove: vi.fn(),
-  applyTheme: vi.fn(),
   settingsUpdate: vi.fn(),
   state: {
     theme: "light",
@@ -50,13 +48,6 @@ vi.mock("~/lib/settings", () => ({
     update: stubs.settingsUpdate,
   },
 }));
-
-vi.mock("~/lib/theme", async (importOriginal) => {
-  // importOriginal + spread, per Login.test.ts: onAccentColor stays the real
-  // contrast computation; only the DOM-wide applier is stubbed.
-  const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, applyTheme: stubs.applyTheme };
-});
 
 import CustomThemeDialog from "~/components/reader/CustomThemeDialog";
 
@@ -98,7 +89,6 @@ describe("CustomThemeDialog", () => {
     stubs.create.mockReset();
     stubs.update.mockReset();
     stubs.remove.mockReset();
-    stubs.applyTheme.mockReset();
     stubs.settingsUpdate.mockReset();
   });
 
@@ -226,7 +216,6 @@ describe("CustomThemeDialog", () => {
     await settle();
     expect(onclose).toHaveBeenCalledTimes(1);
     expect(stubs.settingsUpdate).toHaveBeenCalledWith({ theme: "custom:new" });
-    expect(stubs.applyTheme).toHaveBeenCalledWith("custom:new");
   });
 
   it("shows the name-cap error live and a blocked submit is never silent", async () => {
@@ -290,7 +279,6 @@ describe("CustomThemeDialog", () => {
     await settle();
     const fallback = THEMES.find((th) => th.group === "dark")!.id;
     expect(stubs.settingsUpdate).toHaveBeenCalledWith({ theme: fallback });
-    expect(stubs.applyTheme).toHaveBeenCalledWith(fallback);
     expect(onclose).toHaveBeenCalledTimes(1);
   });
 

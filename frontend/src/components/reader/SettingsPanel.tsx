@@ -26,7 +26,6 @@ import {
 import { settings, DEFAULT_USER_SETTINGS } from "~/lib/settings";
 import { THEMES, getTheme, isBuiltInTheme, type ThemeDef } from "~/lib/themes";
 import { customThemes } from "~/lib/customThemes";
-import { applyTheme, themeReady } from "~/lib/theme";
 import CustomThemeDialog from "./CustomThemeDialog";
 import { READER_FONTS, getFontById } from "~/lib/fonts";
 import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry";
@@ -317,13 +316,7 @@ export default function SettingsPanel(props: Props) {
     void loadPresets();
     // Retry a non-fatal custom-theme boot failure when the user opens the
     // settings surface that consumes and edits those themes.
-    if (!customThemes.loaded) {
-      void customThemes.load().then(() => {
-        // themeReady() (lib/theme.ts) carries the why: applying the saved id
-        // before both stores have loaded paints and persists the default.
-        if (themeReady()) applyTheme(settings.value.theme);
-      });
-    }
+    if (!customThemes.loaded) void customThemes.load();
   });
 
   async function loadPresets(): Promise<void> {

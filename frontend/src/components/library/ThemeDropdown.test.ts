@@ -1,7 +1,6 @@
 // Suite for the masthead theme dropdown. Stubbed: settings (the store the
-// swatches read and write), applyTheme (a DOM-wide side effect, spread over
-// importOriginal so getTheme stays the real catalogue lookup), and the
-// custom-theme registry (network). THEMES stays real -- the focus-entry
+// swatches read and write) and the custom-theme registry (network). THEMES
+// stays real -- the focus-entry
 // tests are statements about the real catalogue. focusTrap is not in play
 // here: this menu has no trap, which is exactly why focus used to stay on
 // the trigger.
@@ -26,14 +25,12 @@ import { flush } from "solid-js";
 import { THEMES } from "~/lib/themes";
 
 const stubs = vi.hoisted(() => ({
-  applyTheme: vi.fn(),
   update: vi.fn(),
   loadCustom: vi.fn(),
   customGet: vi.fn(),
   state: {
     theme: "light",
     customLoaded: true,
-    settingsLoaded: true,
   },
 }));
 
@@ -41,12 +38,6 @@ vi.mock("~/lib/settings", () => ({
   settings: {
     get value() {
       return { theme: stubs.state.theme };
-    },
-    // The retry path gates on this as well as the registry's own flag: a
-    // settings load that failed leaves the defaults in place, and re-applying
-    // them would persist a guess (App.tsx:59, theme.ts:117).
-    get loaded(): boolean {
-      return stubs.state.settingsLoaded;
     },
     update: stubs.update,
   },
@@ -61,13 +52,6 @@ vi.mock("~/lib/customThemes", () => ({
     load: stubs.loadCustom,
   },
 }));
-
-vi.mock("~/lib/theme", async (importOriginal) => {
-  // importOriginal + spread, per Login.test.ts: getTheme stays the real
-  // catalogue lookup; only the DOM-wide applier is stubbed.
-  const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, applyTheme: stubs.applyTheme };
-});
 
 import ThemeDropdown from "~/components/library/ThemeDropdown";
 
@@ -93,8 +77,6 @@ describe("ThemeDropdown", () => {
     document.body.appendChild(outside);
     stubs.state.theme = "light";
     stubs.state.customLoaded = true;
-    stubs.state.settingsLoaded = true;
-    stubs.applyTheme.mockReset();
     stubs.update.mockReset();
     stubs.loadCustom.mockReset();
     stubs.loadCustom.mockResolvedValue(undefined);
@@ -311,7 +293,7 @@ describe("ThemeDropdown", () => {
     expect(menu()).not.toBeNull();
   });
 
-  it("picking a swatch updates settings, applies the theme, and closes", async () => {
+  it("picking a swatch updates settings and closes", async () => {
     await mount();
     await openMenu();
 
@@ -319,7 +301,6 @@ describe("ThemeDropdown", () => {
     await settle();
 
     expect(stubs.update).toHaveBeenCalledWith({ theme: "sepia" });
-    expect(stubs.applyTheme).toHaveBeenCalledWith("sepia");
     expect(menu()).toBeNull();
     expect(document.activeElement).toBe(trigger());
   });
@@ -336,7 +317,7 @@ describe("ThemeDropdown", () => {
     );
   });
 
-  it("retries a failed registry load on open, then re-applies the theme", async () => {
+  it("retries a failed registry load on open", async () => {
     stubs.state.customLoaded = false;
     stubs.loadCustom.mockImplementation(async () => {
       stubs.state.customLoaded = true;
@@ -346,40 +327,6 @@ describe("ThemeDropdown", () => {
     await settle();
 
     expect(stubs.loadCustom).toHaveBeenCalledTimes(1);
-    expect(stubs.applyTheme).toHaveBeenCalledWith("light");
-  });
-
-  it("retries the registry but leaves the theme alone when settings failed", async () => {
-    // The retry re-applies settings.value.theme, and applyTheme persists what
-    // it paints (theme.ts:117). A settings load that failed leaves the
-    // compile-time default in place, so re-applying it here would write that
-    // guess over the user's saved theme -- the App.tsx:59 defect, reachable
-    // from this button whenever one network blip took out both requests.
-    stubs.state.customLoaded = false;
-    stubs.state.settingsLoaded = false;
-    stubs.loadCustom.mockImplementation(async () => {
-      stubs.state.customLoaded = true;
-    });
-    await mount();
-    await openMenu();
-    await settle();
-
-    expect(stubs.loadCustom).toHaveBeenCalledTimes(1);
-    expect(stubs.applyTheme).not.toHaveBeenCalled();
-  });
-
-  it("leaves the theme alone when the registry load itself fails", async () => {
-    // The other half of the conjunct: settings loaded fine, but the registry
-    // load resolves without its flag, so the saved id cannot be resolved
-    // against it — applying it would paint and persist the fallback.
-    stubs.state.customLoaded = false;
-    stubs.loadCustom.mockImplementation(async () => {});
-    await mount();
-    await openMenu();
-    await settle();
-
-    expect(stubs.loadCustom).toHaveBeenCalledTimes(1);
-    expect(stubs.applyTheme).not.toHaveBeenCalled();
   });
 
   it("does not re-fetch the registry when it is already loaded", async () => {

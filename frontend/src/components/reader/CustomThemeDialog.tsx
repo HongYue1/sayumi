@@ -22,7 +22,7 @@
 import { createMemo, createSignal, onCleanup, onSettled, Show } from "solid-js";
 import { customThemes } from "~/lib/customThemes";
 import { settings } from "~/lib/settings";
-import { applyTheme, onAccentColor } from "~/lib/theme";
+import { onAccentColor } from "~/lib/theme";
 import { THEMES, autoAccent, themeGroupFor, type ThemeDef } from "~/lib/themes";
 import type { CustomThemeInput } from "~/api/client";
 import { trap } from "~/lib/focusTrap";
@@ -200,10 +200,6 @@ export default function CustomThemeDialog(props: Props) {
       const def = await customThemes.update(edit.id, input, controller.signal);
       if (controller.signal.aborted) return;
       if (def) {
-        // Its id is unchanged, so the settings effect won't re-fire; repaint
-        // the app chrome directly when the edited theme is the active one. The
-        // reader frame updates reactively via settings.iframe.
-        if (settings.value.theme === def.id) applyTheme(def.id);
         operationController = null;
         props.onclose();
         return;
@@ -214,7 +210,6 @@ export default function CustomThemeDialog(props: Props) {
       if (def) {
         // Apply the new theme immediately so the user sees their creation.
         settings.update({ theme: def.id });
-        applyTheme(def.id);
         operationController = null;
         props.onclose();
         return;
@@ -244,7 +239,6 @@ export default function CustomThemeDialog(props: Props) {
           THEMES.find((th) => th.group === themeGroupFor(edit.bg))?.id ??
           THEMES[0].id;
         settings.update({ theme: fallback });
-        applyTheme(fallback);
       }
       operationController = null;
       props.onclose();
