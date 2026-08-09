@@ -229,6 +229,20 @@ describe("TocPanel", () => {
     expect(current.getAttribute("aria-current")).toBe("location");
   });
 
+  it("keeps an astral TOC match on code-point boundaries", async () => {
+    const toc = [{ title: "Lead 🙂🙂 tail", href: "emoji.xhtml", depth: 0 }];
+    await mount(toc, toc[0]!);
+
+    typeFilter("🙂🙂");
+    await settle();
+
+    const mark = container.querySelector(".tocp-entry mark");
+    expect(mark?.textContent).toBe("🙂🙂");
+    expect(Array.from(mark?.textContent ?? "")).toHaveLength(2);
+    expect(mark?.previousSibling?.textContent).toBe("Lead ");
+    expect(mark?.nextSibling?.textContent).toBe(" tail");
+  });
+
   it("opens and filters without logging an untracked-read diagnostic", async () => {
     const toc = book(200);
     await mount(toc, toc[150]!);

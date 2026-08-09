@@ -58,13 +58,17 @@ decision and `buildFrameHtml.ts` holds nothing but the two imports. Two conseque
 - **The sanitizer is a deny-list, so book markup keeps its own classes and attributes.**
   `sanitizeAttributes` (`internal/epub/sanitize.go`) drops `on*` handlers and dangerous
   URI schemes and preserves everything else. Anything the reader injects into chapter
-  content must therefore be identified by a private attribute, never by a class name a
-  book could also use: search highlights are `mark[data-search-mark]` in both
-  `searchHighlight.ts` and `frame.css`, because a chapter shipping
-  `<mark class="search-highlight">` would otherwise paint permanently as the active hit.
-  The same reasoning applies to book CSS, which reaches the frame with its declarations
-  intact — `frame.css` sets no `scroll-snap-type`, so a book's own `scroll-snap-align`
-  cannot arm a snap container against the scrollLeft page turns.
+  content must therefore use the identity in `lib/searchMarks.ts`, never a class name a
+  book could also use: chapter commit strips authored `data-search-mark` attributes, then
+  reader highlights mint only `mark[data-search-mark="sayumi"]`; CFI, CSS, and clearing
+  consume that exact selector. The same reasoning applies to book CSS, which reaches the
+  frame with its declarations intact — `frame.css` sets no `scroll-snap-type`, so a book's
+  own `scroll-snap-align` cannot arm a snap container against the scrollLeft page turns.
+- **Book links have two owners.** The iframe handles same-document fragments and the closed
+  external allow-list (`http`, `https`, `mailto`, `tel`) with `noopener,noreferrer`; all
+  other explicit schemes fail closed. Relative book links cross the wire and are decoded
+  once per segment by `lib/href.ts`. Keep every runtime `src/lib` import reachable from
+  `frame.ts` in vite.config.ts's static frame-graph HMR list.
 - **Chapter CSS arrives flat.** The backend splices in-EPUB `@import` targets into the
   chapter stylesheet (`internal/epub/chapter.go`, `inlineCSSImports`) because this
   code parses CSS through a constructed `CSSStyleSheet`, and `replaceSync` drops

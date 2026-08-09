@@ -4,6 +4,7 @@ import type {
   SearchHighlighter,
   SearchTextIndex,
 } from "./searchHighlight";
+import { SEARCH_MARK_SELECTOR } from "~/lib/searchMarks";
 import {
   buildSearchTextIndex,
   createSearchHighlight,
@@ -76,7 +77,7 @@ function setup(html: string, over: Partial<SearchHighlightDeps> = {}): Harness {
 
 function markTexts(content: HTMLElement): string[] {
   return Array.from(
-    content.querySelectorAll("mark[data-search-mark]"),
+    content.querySelectorAll(SEARCH_MARK_SELECTOR),
     (mark) => mark.textContent ?? "",
   );
 }
@@ -290,5 +291,22 @@ describe("clearSearchHighlights", () => {
     expect(markTexts(h.content)).toEqual(["text"]);
     h.highlighter.clearSearchHighlights();
     expect(h.content.innerHTML).toBe(before);
+  });
+
+  it("never adopts or unwraps a book-authored search marker", () => {
+    const h = setup(
+      '<p><mark id="authored" data-search-mark="book-owned">book</mark> text</p>',
+    );
+    const authored = h.content.querySelector<HTMLElement>("#authored");
+    expect(authored).not.toBeNull();
+
+    h.highlighter.highlightSearchMatch(5, 4, "text");
+    expect(authored?.isConnected).toBe(true);
+    expect(authored?.getAttribute("data-search-mark")).toBe("book-owned");
+    h.highlighter.clearSearchHighlights();
+    expect(authored?.isConnected).toBe(true);
+    expect(authored?.outerHTML).toBe(
+      '<mark id="authored" data-search-mark="book-owned">book</mark>',
+    );
   });
 });

@@ -506,8 +506,9 @@ th {
    with its own class names intact. A chapter that ships
    <mark class="search-highlight"> would otherwise paint permanently as the
    active hit. searchHighlight.ts keys every lookup off this same attribute
-   (SEARCH_MARK_SELECTOR, searchHighlight.ts:122). */
-mark[data-search-mark] {
+   (SEARCH_MARK_SELECTOR in lib/searchMarks.ts). Authored copies of the
+   reserved attribute are stripped when chapter HTML is committed. */
+mark[data-search-mark="sayumi"] {
   background: var(--accent);
   color: var(--bg-primary);
   border-radius: 2px;

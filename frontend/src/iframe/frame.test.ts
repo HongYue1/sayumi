@@ -26,6 +26,15 @@ function press(target: Element, init: KeyboardEventInit): KeyboardEvent {
   return event;
 }
 
+function click(target: Element): MouseEvent {
+  const event = new MouseEvent("click", {
+    bubbles: true,
+    cancelable: true,
+  });
+  target.dispatchEvent(event);
+  return event;
+}
+
 function iframeSettings(mode: IframeSettings["mode"]): IframeSettings {
   return {
     mode,
@@ -171,7 +180,7 @@ it("uses and reports one effective scroll mode for a vertical paged request", as
       writingMode: "horizontal-tb",
       // A live update racing this load must override its embedded snapshot.
       settings: iframeSettings("scroll"),
-      html: '<div contenteditable="true"><span id="editor">edit</span><span contenteditable="false" id="locked">locked</span></div><details><summary id="disclosure">More</summary><p>Details</p></details><p id="reader-text">read</p>',
+      html: '<div contenteditable="true"><span id="editor">edit</span><span contenteditable="false" id="locked">locked</span></div><details><summary id="disclosure">More</summary><p>Details</p></details><p id="reader-text">read</p><mark id="authored-search-mark" data-search-mark="book-owned">book mark</mark><a id="mail-link" href="mailto:reader@example.com">mail</a><a id="tel-link" href="tel:+123456">telephone</a><a id="web-link" href="https://example.com/read">web</a><a id="blocked-link" href="ftp://example.com/book">blocked</a><a id="script-link" href="javascript:alert(1)">script</a><span id="part 1">target</span><a id="fragment-link" href="#part%201">fragment</a><a id="book-link" href="chapter%20two.xhtml#target">book</a>',
     });
     incoming({ type: "apply-settings", settings: iframeSettings("paged") });
     await vi.advanceTimersByTimeAsync(1_000);
@@ -186,6 +195,52 @@ it("uses and reports one effective scroll mode for a vertical paged request", as
     expect(readerText).not.toBeNull();
     if (!editor || !locked || !disclosure || !readerText)
       throw new Error("keyboard fixture missing");
+
+    // The frame owns two security-sensitive chapter-content boundaries. A
+    // book cannot mint the private marker used by search, and only the narrow
+    // external-scheme allow-list may escape the reader document.
+    const authoredMark = document.getElementById("authored-search-mark");
+    expect(authoredMark?.hasAttribute("data-search-mark")).toBe(false);
+
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    sent.length = 0;
+    for (const id of ["mail-link", "tel-link", "web-link"]) {
+      const link = document.getElementById(id);
+      if (!link) throw new Error(`link fixture missing: ${id}`);
+      expect(click(link).defaultPrevented).toBe(true);
+    }
+    expect(open.mock.calls).toEqual([
+      ["mailto:reader@example.com", "_blank", "noopener,noreferrer"],
+      ["tel:+123456", "_blank", "noopener,noreferrer"],
+      ["https://example.com/read", "_blank", "noopener,noreferrer"],
+    ]);
+
+    for (const id of ["blocked-link", "script-link"]) {
+      const link = document.getElementById(id);
+      if (!link) throw new Error(`link fixture missing: ${id}`);
+      expect(click(link).defaultPrevented).toBe(true);
+    }
+    expect(open).toHaveBeenCalledTimes(3);
+    expect(sent.filter((m) => m.type === "link-clicked")).toEqual([]);
+
+    const fragmentLink = document.getElementById("fragment-link");
+    if (!fragmentLink) throw new Error("fragment link fixture missing");
+    const getById = vi.spyOn(document, "getElementById");
+    expect(click(fragmentLink).defaultPrevented).toBe(true);
+    expect(getById).toHaveBeenCalledWith("part 1");
+    expect(sent.filter((m) => m.type === "link-clicked")).toEqual([]);
+    getById.mockRestore();
+
+    const bookLink = document.getElementById("book-link");
+    if (!bookLink) throw new Error("book link fixture missing");
+    expect(click(bookLink).defaultPrevented).toBe(true);
+    expect(sent.filter((m) => m.type === "link-clicked")).toEqual([
+      {
+        type: "link-clicked",
+        seq: 2,
+        href: "chapter%20two.xhtml#target",
+      },
+    ]);
     sent.length = 0;
 
     const editableChord = press(editor, {

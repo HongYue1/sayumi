@@ -42,12 +42,17 @@ function frameScriptPlugin(): Plugin {
   const virtualId = "virtual:frame-script";
   const resolvedId = "\0" + virtualId;
   // Static frame-graph watch list (Bun.build has no metafile). Covers
-  // frame.ts's runtime imports: everything in src/iframe plus the two lib
-  // modules it pulls in (frameMessages, cfi).
+  // frame.ts's runtime graph: everything in src/iframe plus every lib module
+  // reached directly or transitively from that graph.
   const iframeDir = normalizePath(resolve(root, "src/iframe")) + "/";
-  const frameGraphLibs = ["src/lib/frameMessages.ts", "src/lib/cfi.ts"].map(
-    (p) => normalizePath(resolve(root, p)),
-  );
+  const frameGraphLibs = [
+    "src/lib/cfi.ts",
+    "src/lib/frameMessages.ts",
+    "src/lib/href.ts",
+    "src/lib/keyboard.ts",
+    "src/lib/searchMarks.ts",
+    "src/lib/searchText.ts",
+  ].map((p) => normalizePath(resolve(root, p)));
   const isFrameInput = (file: string): boolean => {
     const f = normalizePath(file);
     return f.startsWith(iframeDir) || frameGraphLibs.includes(f);

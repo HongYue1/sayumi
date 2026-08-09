@@ -36,6 +36,7 @@ import {
 import { searchBook, type SearchResult } from "~/api/client";
 import { getErrorMessage } from "~/lib/errors";
 import Icon from "~/lib/Icon";
+import { codePointLength, toCodePoints } from "~/lib/searchText";
 import { X } from "~/lib/icons";
 
 interface Props {
@@ -93,17 +94,13 @@ function isSafeInteger(value: unknown): value is number {
 }
 
 // Snippet offsets from the API are code-point counts, not UTF-16 lengths.
-function codePointLength(value: string): number {
-  return Array.from(value).length;
-}
-
 function toItem(r: SearchResult, globalIdx: number): SearchResultItem {
   // snippetStart/snippetLen are CODE POINT offsets: internal/epub/search.go
   // slices []rune, and iframe/searchHighlight.ts pins the same code-point
   // contract for charOffset. String#slice counts UTF-16 units, so one astral
   // character ahead of the match would slide <mark> a unit per surrogate pair,
   // and a boundary landing inside a pair would render a lone surrogate.
-  const chars = Array.from(r.snippet);
+  const chars = toCodePoints(r.snippet);
   const snippetStart = Number.isSafeInteger(r.snippetStart)
     ? Math.min(Math.max(r.snippetStart, 0), chars.length)
     : 0;

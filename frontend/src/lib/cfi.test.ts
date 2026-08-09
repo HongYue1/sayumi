@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { generateCFI, resolveCFI } from "~/lib/cfi";
+import {
+  SEARCH_MARK_ATTRIBUTE,
+  SEARCH_MARK_SELECTOR,
+  SEARCH_MARK_VALUE,
+} from "~/lib/searchMarks";
 
 function setBody(html: string): void {
   document.body.innerHTML = html;
@@ -11,7 +16,7 @@ function wrapMark(container: Element, start: number, length: number): Element {
   const text = container.firstChild as Text;
   const mark = document.createElement("mark");
   mark.className = "search-highlight";
-  mark.setAttribute("data-search-mark", "");
+  mark.setAttribute(SEARCH_MARK_ATTRIBUTE, SEARCH_MARK_VALUE);
   const range = document.createRange();
   range.setStart(text, start);
   range.setEnd(text, start + length);
@@ -21,7 +26,7 @@ function wrapMark(container: Element, start: number, length: number): Element {
 
 function clearSearchMarks(): void {
   const marks = Array.from(
-    document.body.querySelectorAll("mark[data-search-mark]"),
+    document.body.querySelectorAll(SEARCH_MARK_SELECTOR),
   );
   for (const mark of marks) {
     const parent = mark.parentNode as Element;
@@ -114,6 +119,16 @@ describe("generateCFI / resolveCFI", () => {
     // <mark> shipped by the book is permanent structure and must be counted.
     setBody(
       `<div><mark class="search-highlight">quoted</mark><p id="t">x</p></div>`,
+    );
+    const target = document.getElementById("t")!;
+
+    expect(generateCFI(target, document)).toBe("cfi:1/2");
+    expect(resolveCFI("cfi:1/2", document)).toBe(target);
+  });
+
+  it("counts an authored marker lookalike that lacks the private value", () => {
+    setBody(
+      `<div><mark data-search-mark="book-owned">quoted</mark><p id="t">x</p></div>`,
     );
     const target = document.getElementById("t")!;
 

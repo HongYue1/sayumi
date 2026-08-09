@@ -86,6 +86,13 @@ global, and vite's node-shebang bin would otherwise spawn real node.
   as the book and frame API exist; the component buffers across the iframe handshake, then
   buffers chapter-scoped commands until the matching settled `loaded` event. Never recreate
   a route-level ready gate or send commands around that controller.
+- **Reader hrefs decode exactly once in `lib/href.ts`.** Split query/fragment delimiters
+  first, canonicalize archive paths per segment, keep `+` literal, and preserve encoded
+  separators. The iframe opens only explicit `http`, `https`, `mailto`, and `tel` schemes;
+  every other explicit scheme fails closed before in-book resolution.
+- **Search text uses code-point boundaries.** `lib/searchText.ts` owns one-code-point case
+  folding and slicing for TOC filtering, result snippets, and iframe fallback matching.
+  Never use UTF-16 `slice` offsets for backend rune positions or copy a local fold helper.
 
 ## Testing
 

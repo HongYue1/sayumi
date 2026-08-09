@@ -21,6 +21,12 @@
 // indexes the sanitized DOM, so an element internal/epub/sanitize.go unwraps
 // must not be a boundary on either side (see TEXT_BOUNDARY_TAGS).
 
+import {
+  SEARCH_MARK_ATTRIBUTE,
+  SEARCH_MARK_SELECTOR,
+  SEARCH_MARK_VALUE,
+} from "~/lib/searchMarks";
+import { foldSearchCodePoint, foldSearchText } from "~/lib/searchText";
 import { prefersReducedMotion } from "./reduceMotion";
 
 export interface SearchHighlightDeps {
@@ -107,9 +113,6 @@ export interface SearchTextIndex {
 }
 
 const UNICODE_SPACE_RE = /\p{White_Space}/u;
-const ASCII_LOWER = "abcdefghijklmnopqrstuvwxyz";
-const SEARCH_MARK_ATTR = "data-search-mark";
-const SEARCH_MARK_SELECTOR = "mark[data-search-mark]";
 
 function isSpaceLike(char: string): boolean {
   // Go's unicode.IsSpace follows the Unicode White_Space property. JavaScript
@@ -129,26 +132,9 @@ function isAllSpaceLike(text: string): boolean {
   return true;
 }
 
-function foldCodePoint(char: string): string {
-  const code = char.charCodeAt(0);
-  // ASCII fast path: A-Z is the only case mapping below U+0080 and it is one
-  // code point wide, so ordinary prose skips both allocations below.
-  if (code < 0x80) {
-    return code >= 0x41 && code <= 0x5a
-      ? ASCII_LOWER.charAt(code - 0x41)
-      : char;
-  }
-  const lowered = char.toLowerCase();
-  // String#toLowerCase applies full mappings and can expand one code point
-  // (notably İ -> i + combining dot). The backend deliberately uses Go's
-  // one-rune unicode.ToLower mapping so offsets stay one-to-one. Keep only the
-  // corresponding first code point when JavaScript returns an expansion.
-  return Array.from(lowered)[0] ?? char;
-}
-
 export function foldQuery(query: string): string[] {
   const trimmed = query.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, "");
-  return Array.from(trimmed, foldCodePoint);
+  return foldSearchText(trimmed);
 }
 
 function isTextBoundaryElement(node: Element): boolean {
@@ -208,7 +194,7 @@ export function buildSearchTextIndex(
       emitPendingSpace();
       if (length >= limit) return;
       segments[length] = { node, start: startOffset, end: endOffset };
-      foldedChars[length] = foldCodePoint(char);
+      foldedChars[length] = foldSearchCodePoint(char);
       length += 1;
     }
   }
@@ -258,7 +244,7 @@ function createSearchMark(): HTMLElement {
   // Book content may ship its own <mark class="search-highlight">. Ours are
   // identified by attribute so clearing never unwraps — and normalize()s — a
   // piece of the chapter that was authored that way.
-  mark.setAttribute(SEARCH_MARK_ATTR, "");
+  mark.setAttribute(SEARCH_MARK_ATTRIBUTE, SEARCH_MARK_VALUE);
   return mark;
 }
 

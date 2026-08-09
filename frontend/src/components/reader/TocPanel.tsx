@@ -31,6 +31,11 @@ import {
 import type { TocEntry } from "~/api/client";
 import Icon from "~/lib/Icon";
 import { X } from "~/lib/icons";
+import {
+  findFoldedCodePointRange,
+  foldSearchText,
+  splitFoldedCodePointMatch,
+} from "~/lib/searchText";
 
 interface Props {
   toc: TocEntry[];
@@ -99,11 +104,14 @@ export default function TocPanel(props: Props) {
   // through untouched so the virtual-list math below is identical to the
   // unfiltered case. The filtered list (not the full list) is what the window
   // renders, so every memo below keys off it.
-  const normalizedQuery = createMemo(() => query().trim().toLowerCase());
+  const normalizedQuery = createMemo(() => query().trim());
+  const foldedQuery = createMemo(() => foldSearchText(normalizedQuery()));
   const filteredRows = createMemo<Row[]>(() => {
-    const q = normalizedQuery();
-    if (!q) return rows();
-    return rows().filter((r) => r.entry.title.toLowerCase().includes(q));
+    const q = foldedQuery();
+    if (q.length === 0) return rows();
+    return rows().filter(
+      (r) => findFoldedCodePointRange(r.entry.title, q) !== null,
+    );
   });
 
   /** True when the entry's own chapter lies behind the reading position. */
@@ -134,37 +142,10 @@ export default function TocPanel(props: Props) {
   function highlight(
     title: string,
   ): { before: string; match: string; after: string } | null {
-    const q = normalizedQuery();
-    if (!q) return null;
+    const q = foldedQuery();
+    if (q.length === 0) return null;
 
-    let folded = "";
-    const sourceStarts: number[] = [];
-    const sourceEnds: number[] = [];
-    let sourceOffset = 0;
-
-    for (const char of title) {
-      const lower = char.toLowerCase();
-      const sourceEnd = sourceOffset + char.length;
-      for (let i = 0; i < lower.length; i += 1) {
-        sourceStarts.push(sourceOffset);
-        sourceEnds.push(sourceEnd);
-      }
-      folded += lower;
-      sourceOffset = sourceEnd;
-    }
-
-    const idx = folded.indexOf(q);
-    if (idx < 0) return null;
-
-    const sourceStart = sourceStarts[idx];
-    const sourceEnd = sourceEnds[idx + q.length - 1];
-    if (sourceStart === undefined || sourceEnd === undefined) return null;
-
-    return {
-      before: title.slice(0, sourceStart),
-      match: title.slice(sourceStart, sourceEnd),
-      after: title.slice(sourceEnd),
-    };
+    return splitFoldedCodePointMatch(title, q);
   }
 
   // Match on reference identity (not href) so exactly one row is current even

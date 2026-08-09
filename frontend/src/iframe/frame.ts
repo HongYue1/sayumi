@@ -1,4 +1,6 @@
+import { decodeHrefComponent } from "~/lib/href";
 import { keyboardEventIsOwnedByTarget } from "~/lib/keyboard";
+import { reserveSearchMarkAttribute } from "~/lib/searchMarks";
 import type {
   IframeSettings,
   LoadMessage,
@@ -24,6 +26,8 @@ import { prefersReducedMotion } from "./reduceMotion";
 // fade and makes the turn flicker. Their default is prevented in paged mode
 // while the parent still drives discrete page navigation from the forwarded
 // key event.
+const EXTERNAL_BOOK_LINK_SCHEMES = new Set(["http", "https", "mailto", "tel"]);
+
 const PAGED_SCROLL_KEYS = new Set<string>([
   "ArrowLeft",
   "ArrowRight",
@@ -1426,15 +1430,20 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     }
 
     e.preventDefault();
-    if (/^(javascript|data|vbscript):/i.test(href)) return;
 
-    if (/^https?:\/\//i.test(href)) {
-      window.open(href, "_blank", "noopener,noreferrer");
+    const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(href)?.[1]?.toLowerCase();
+    if (scheme) {
+      if (EXTERNAL_BOOK_LINK_SCHEMES.has(scheme)) {
+        window.open(href, "_blank", "noopener,noreferrer");
+      }
+      // Every explicit scheme is terminal here: four are deliberately opened,
+      // while script, data, file, ftp, and unknown schemes fail closed instead
+      // of leaking into in-book resolution.
       return;
     }
 
     if (href.startsWith("#")) {
-      scrollToFragmentById(href.slice(1));
+      scrollToFragmentById(decodeHrefComponent(href.slice(1)));
       return;
     }
 
@@ -1516,6 +1525,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     }
 
     rawContentInnerEl.innerHTML = absolutifyHTML(msg.html || "");
+    reserveSearchMarkAttribute(rawContentInnerEl);
     if (msg.direction) document.documentElement.dir = msg.direction;
     // Applied unconditionally so a vertical chapter can never leak its writing
     // mode into a following horizontal one. Vertical modes flip all scroll

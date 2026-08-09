@@ -5,6 +5,16 @@ interface ParsedHref {
   fragment: string;
 }
 
+export function decodeHrefComponent(hrefPart: string): string {
+  try {
+    return decodeURIComponent(hrefPart);
+  } catch {
+    // A literal or malformed percent escape is still a valid authored file or
+    // fragment spelling. Identity fallback keeps navigation fail-soft.
+    return hrefPart;
+  }
+}
+
 function parseHref(href: string): ParsedHref {
   const hashIdx = href.indexOf("#");
   const beforeFragment = hashIdx >= 0 ? href.slice(0, hashIdx) : href;
@@ -12,30 +22,33 @@ function parseHref(href: string): ParsedHref {
   const queryIdx = beforeFragment.indexOf("?");
   return {
     path: queryIdx >= 0 ? beforeFragment.slice(0, queryIdx) : beforeFragment,
-    fragment,
+    fragment: decodeHrefComponent(fragment),
   };
 }
 
 /**
- * Canonicalizes an archive path: backslashes become slashes, empty and "."
- * segments drop out, ".." pops. It deliberately does NOT percent-decode. The
- * server hands us OPF-joined paths exactly as authored (parser.go resolvePath)
- * and the frame hands us the raw href attribute, so both sides are compared in
- * whichever space the book was authored in. A book that encodes one side and
- * not the other will not match here and the click becomes a silent no-op;
- * closing that needs both sides decoded with a per-segment identity fallback
- * (decodeURIComponent throws on a stray percent), which is deliberately out of
- * scope for this pass and tracked as its own review item.
+ * Canonicalizes an archive path one segment at a time. Splitting before decode
+ * keeps an encoded slash inside its authored segment; re-encoding gives raw
+ * and encoded spellings one key without treating '+' as form-space or decoding
+ * a doubly encoded value twice. A malformed escape falls back to its literal
+ * spelling and is then encoded normally.
  */
 function normalizeArchivePath(path: string): string {
   const parts: string[] = [];
-  for (const part of path.replaceAll("\\", "/").split("/")) {
+  for (const rawPart of path.replaceAll("\\", "/").split("/")) {
+    const part = decodeHrefComponent(rawPart);
     if (!part || part === ".") continue;
     if (part === "..") {
       parts.pop();
       continue;
     }
-    parts.push(part);
+    try {
+      parts.push(encodeURIComponent(part));
+    } catch {
+      // Lone UTF-16 surrogates make encodeURIComponent throw. Keep that one
+      // malformed segment literal rather than crashing the whole reader.
+      parts.push(rawPart);
+    }
   }
   return parts.join("/");
 }

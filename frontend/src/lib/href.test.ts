@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { SpineEntry, TocEntry } from "~/api/client";
-import { buildTocChapterEntries, resolveHref } from "~/lib/href";
+import {
+  buildTocChapterEntries,
+  decodeHrefComponent,
+  resolveHref,
+} from "~/lib/href";
 
 function spine(...hrefs: string[]): SpineEntry[] {
   return hrefs.map((href, index) => ({
@@ -151,6 +155,85 @@ describe("resolveHref", () => {
       ),
     ).toEqual({ chapterIndex: 1, fragment: "" });
   });
+
+  it("matches raw and percent-encoded path segments in either direction", () => {
+    expect(
+      resolveHref(
+        "chapter two.xhtml",
+        spine("OPS/current.xhtml", "OPS/chapter%20two.xhtml"),
+        0,
+      ),
+    ).toEqual({ chapterIndex: 1, fragment: "" });
+    expect(
+      resolveHref(
+        "chapter%20two.xhtml",
+        spine("OPS/current.xhtml", "OPS/chapter two.xhtml"),
+        0,
+      ),
+    ).toEqual({ chapterIndex: 1, fragment: "" });
+  });
+
+  it("keeps plus literal while decoding fragments exactly once", () => {
+    const entries = spine(
+      "OPS/current.xhtml",
+      "OPS/a+b.xhtml",
+      "OPS/a b.xhtml",
+    );
+    expect(resolveHref("a+b.xhtml#part%201%23note", entries, 0)).toEqual({
+      chapterIndex: 1,
+      fragment: "part 1#note",
+    });
+    expect(resolveHref("a%20b.xhtml", entries, 0)).toEqual({
+      chapterIndex: 2,
+      fragment: "",
+    });
+  });
+
+  it("matches an encoded literal percent without throwing on the raw form", () => {
+    expect(
+      resolveHref(
+        "100%.xhtml",
+        spine("OPS/current.xhtml", "OPS/100%25.xhtml"),
+        0,
+      ),
+    ).toEqual({ chapterIndex: 1, fragment: "" });
+  });
+
+  it("does not double-decode path segments", () => {
+    expect(
+      resolveHref(
+        "chapter%20two.xhtml",
+        spine("OPS/current.xhtml", "OPS/chapter%2520two.xhtml"),
+        0,
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps encoded separators inside their authored segment", () => {
+    expect(
+      resolveHref(
+        "a%2Fb.xhtml",
+        spine("OPS/current.xhtml", "OPS/a%2Fb.xhtml", "OPS/a/b.xhtml"),
+        0,
+      ),
+    ).toEqual({ chapterIndex: 1, fragment: "" });
+  });
+
+  it("matches raw Unicode to its UTF-8 percent encoding", () => {
+    expect(
+      resolveHref(
+        "café.xhtml",
+        spine("OPS/current.xhtml", "OPS/caf%C3%A9.xhtml"),
+        0,
+      ),
+    ).toEqual({ chapterIndex: 1, fragment: "" });
+  });
+
+  it("decodes a component once and leaves malformed escapes literal", () => {
+    expect(decodeHrefComponent("part%201%23note")).toBe("part 1#note");
+    expect(decodeHrefComponent("100% ready")).toBe("100% ready");
+    expect(decodeHrefComponent("%2520")).toBe("%20");
+  });
 });
 
 describe("buildTocChapterEntries", () => {
@@ -205,5 +288,15 @@ describe("buildTocChapterEntries", () => {
       spine("OPS/ch1.xhtml", "OPS/ch2.xhtml"),
     );
     expect(result[0]).toBe(first);
+  });
+
+  it("matches encoded TOC paths to raw spine paths", () => {
+    const entry = toc("OPS/chapter%20two.xhtml#start", "Second");
+    expect(
+      buildTocChapterEntries(
+        [entry],
+        spine("OPS/chapter one.xhtml", "OPS/chapter two.xhtml"),
+      ),
+    ).toEqual([null, entry]);
   });
 });

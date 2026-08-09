@@ -17,24 +17,23 @@
 // frame-graph watch list names it there, and it must not import from src/iframe.
 //
 // SEARCH MARK CONTRACT. Search highlights wrap matched text in
-// <mark data-search-mark> nodes (iframe/searchHighlight.ts owns the attribute)
-// that appear and vanish under a chapter that is otherwise unchanged. Counting
+// <mark data-search-mark="sayumi"> nodes appear and vanish under a chapter
+// that is otherwise unchanged. Their identity lives in searchMarks.ts. Counting
 // them as siblings shifts every element after the marked text by one, so a path
 // minted under a live highlight resolves to a DIFFERENT REAL ELEMENT once the
 // highlight is cleared — silently, because a wrong-but-existing element yields
 // no null for the caller to fall back from. Both directions below therefore
 // index as if no search mark were present. Book-authored <mark> elements carry
 // no such attribute and are permanent chapter structure, so they still count;
-// searchHighlight.ts relies on the same distinction when it unwraps. The
-// attribute is duplicated rather than imported to keep src/lib free of
-// src/iframe, and searchHighlight.ts carries the matching note.
+// searchHighlight.ts relies on the same distinction when it unwraps.
+// searchMarks.ts also strips authored copies before a chapter becomes ready.
 //
+import { SEARCH_MARK_SELECTOR } from "~/lib/searchMarks";
+
 // Paths are rooted at <body>, so they also encode the frame shell skeleton
 // (#paged-clip > #content > #content-inner). Every dynamic body mutation in the
 // frame appends (boundary.ts, pagination.ts), which leaves stored paths valid;
 // inserting a body child before #paged-clip would invalidate all of them.
-
-const SEARCH_MARK_SELECTOR = "mark[data-search-mark]";
 
 function isSearchMark(el: Element): boolean {
   return el.matches(SEARCH_MARK_SELECTOR);
