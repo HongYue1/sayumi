@@ -392,9 +392,15 @@ describe("Login route", () => {
     flush();
 
     await vi.waitFor(() => {
-      expect(qb("button.login-new")!.disabled).toBe(true);
+      expect(qb("button.login-new")!.getAttribute("aria-disabled")).toBe(
+        "true",
+      );
     });
-    expect(profileButtons()[0].disabled).toBe(true);
+    // aria-disabled, never disabled: a busy control keeps its tab-order
+    // place, and the refusal lives in the handler guards.
+    expect(qb("button.login-new")!.disabled).toBe(false);
+    expect(profileButtons()[0].getAttribute("aria-disabled")).toBe("true");
+    expect(profileButtons()[0].disabled).toBe(false);
     expect(q("output.login-live")!.textContent).toBe("Signing in…");
 
     // The plain in-flight flag also rejects a second submit in the same tick,
@@ -496,5 +502,168 @@ describe("Login route", () => {
     dispose?.();
     dispose = undefined;
     expect(bootSignal!.aborted).toBe(true);
+  });
+
+  it("Login route: picker rows stay focusable and ignore clicks while signing in", async () => {
+    api.listProfiles.mockResolvedValue([
+      { name: "Ann", hasPin: false },
+      { name: "Bo", hasPin: true },
+    ]);
+    let releaseLogin!: () => void;
+    api.login.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseLogin = () => resolve();
+        }),
+    );
+    mount();
+
+    await vi.waitFor(() => expect(profileButtons()).toHaveLength(2));
+    profileButtons()[0].click();
+    flush();
+    expect(api.login).toHaveBeenCalledTimes(1);
+
+    const row = profileButtons()[0];
+    expect(row.getAttribute("aria-disabled")).toBe("true");
+    expect(row.disabled).toBe(false);
+    row.click();
+    row.click();
+    flush();
+    expect(api.login).toHaveBeenCalledTimes(1);
+
+    // A locked row is guarded too: activating it mid-flight must not swap
+    // the in-flight sign-in's screen out for the PIN prompt.
+    profileButtons()[1].click();
+    flush();
+    expect(qi("input.login-pin")).toBeNull();
+
+    releaseLogin();
+    await Promise.resolve();
+    flush();
+  });
+
+  it("Login route: the create form sweeps to readonly fields and guarded exits", async () => {
+    api.listProfiles.mockResolvedValue([{ name: "Ann", hasPin: false }]);
+    mount();
+    await vi.waitFor(() => expect(profileButtons()).toHaveLength(1));
+
+    qb("button.login-new")!.click();
+    flush();
+    const name = qi('input[aria-label="Profile name"]')!;
+    const pinField = qi('input[aria-label="PIN (optional)"]')!;
+    const submit = qb("button.login-primary")!;
+    const back = qb("button.login-back")!;
+
+    // Validation and busy share the one aria-disabled channel.
+    expect(submit.getAttribute("aria-disabled")).toBe("true");
+    typeInto(name, "Bobby");
+    expect(submit.getAttribute("aria-disabled")).toBe("false");
+
+    let releaseCreate!: (value: { name: string }) => void;
+    api.createProfile.mockImplementation(
+      () =>
+        new Promise<{ name: string }>((resolve) => {
+          releaseCreate = resolve;
+        }),
+    );
+    api.login.mockImplementation(() => new Promise<void>(() => {}));
+
+    submitForm();
+    flush();
+    expect(api.createProfile).toHaveBeenCalledTimes(1);
+
+    expect(name.readOnly).toBe(true);
+    expect(name.disabled).toBe(false);
+    expect(name.getAttribute("aria-disabled")).toBe("true");
+    expect(pinField.readOnly).toBe(true);
+    expect(pinField.getAttribute("aria-disabled")).toBe("true");
+    expect(submit.getAttribute("aria-disabled")).toBe("true");
+    expect(submit.disabled).toBe(false);
+    expect(back.getAttribute("aria-disabled")).toBe("true");
+    expect(back.disabled).toBe(false);
+
+    // The guarded exit refuses to strand the in-flight create.
+    back.click();
+    flush();
+    expect(qi('input[aria-label="Profile name"]')).not.toBeNull();
+
+    releaseCreate({ name: "Bobby" });
+    await vi.waitFor(() => expect(api.login).toHaveBeenCalledTimes(1));
+  });
+
+  it("Login route: the PIN form sweeps to a readonly field and a guarded Back", async () => {
+    api.listProfiles.mockResolvedValue([{ name: "Ann", hasPin: true }]);
+    mount();
+    await vi.waitFor(() => expect(profileButtons()).toHaveLength(1));
+
+    profileButtons()[0].click();
+    flush();
+    const pinInput = qi("input.login-pin")!;
+    const signIn = qb("button.login-primary")!;
+    const back = qb("button.login-back")!;
+
+    expect(signIn.getAttribute("aria-disabled")).toBe("true");
+    typeInto(pinInput, "1234");
+    expect(signIn.getAttribute("aria-disabled")).toBe("false");
+
+    api.login.mockImplementation(() => new Promise<void>(() => {}));
+    submitForm();
+    flush();
+    expect(api.login).toHaveBeenCalledTimes(1);
+
+    expect(pinInput.readOnly).toBe(true);
+    expect(pinInput.disabled).toBe(false);
+    expect(pinInput.getAttribute("aria-disabled")).toBe("true");
+    expect(signIn.getAttribute("aria-disabled")).toBe("true");
+    expect(back.getAttribute("aria-disabled")).toBe("true");
+
+    back.click();
+    flush();
+    expect(qi("input.login-pin")).not.toBeNull();
+  });
+
+  it("Login route: the remember checkbox ignores changes while signing in", async () => {
+    // The signal's value is only observable as the next login's third
+    // argument: the controlled binding writes the node only when the signal
+    // changes, so a refused change leaves the test's own DOM assignment in
+    // place and box.checked can prove nothing here.
+    api.listProfiles.mockResolvedValue([{ name: "Ann", hasPin: false }]);
+    let rejectLogin!: (reason: unknown) => void;
+    api.login.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectLogin = reject;
+        }),
+    );
+    api.login.mockResolvedValueOnce(undefined);
+    mount();
+    await vi.waitFor(() => expect(profileButtons()).toHaveLength(1));
+
+    // Idle, the checkbox works.
+    const box = qi('input[type="checkbox"]')!;
+    box.checked = true;
+    box.dispatchEvent(new Event("change", { bubbles: true }));
+    flush();
+    expect(box.checked).toBe(true);
+
+    profileButtons()[0].click();
+    flush();
+    expect(api.login).toHaveBeenNthCalledWith(1, "Ann", "", true);
+    expect(box.getAttribute("aria-disabled")).toBe("true");
+    expect(box.disabled).toBe(false);
+
+    // Mid-flight, the guard refuses the untick...
+    box.checked = false;
+    box.dispatchEvent(new Event("change", { bubbles: true }));
+    flush();
+
+    // ...so the next attempt still carries the remembered choice.
+    rejectLogin(new ApiError("nope", 500, "server_error"));
+    await vi.waitFor(() =>
+      expect(box.getAttribute("aria-disabled")).toBe("false"),
+    );
+    profileButtons()[0].click();
+    flush();
+    expect(api.login).toHaveBeenNthCalledWith(2, "Ann", "", true);
   });
 });

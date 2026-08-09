@@ -338,3 +338,175 @@ describe("Library route: custom flair delete (M1)", () => {
     expect(api.deleteFlair).toHaveBeenCalled();
   });
 });
+
+describe("Library route: flair chip clear affordance", () => {
+  it("marks the active chip with a remove affordance and states its action", async () => {
+    api.getBooks.mockResolvedValue([book({ id: "1", title: "Dune" })]);
+    const host = await mount();
+    const reading = Array.from(
+      host.querySelectorAll<HTMLButtonElement>(".lib-chip-toggle"),
+    ).find((b) => b.textContent?.includes("Reading"));
+    if (!reading) throw new Error("Reading chip did not render");
+
+    expect(reading.getAttribute("aria-pressed")).toBe("false");
+    expect(reading.title).toBe("Show only books with the Reading flair");
+    expect(reading.querySelector(".lib-chip-remove")).toBeNull();
+
+    reading.click();
+    flush();
+
+    // The check marks the active filter at rest; on hover/focus it swaps to
+    // the remove mark via CSS, so both live in the markup.
+    expect(reading.getAttribute("aria-pressed")).toBe("true");
+    expect(reading.title).toBe("Remove the Reading filter");
+    expect(reading.querySelector(".lib-chip-check")).not.toBeNull();
+    expect(reading.querySelector(".lib-chip-remove")).not.toBeNull();
+
+    // And the toggle itself still clears the filter on a second activation.
+    reading.click();
+    flush();
+    expect(reading.getAttribute("aria-pressed")).toBe("false");
+    expect(library.flairFilters).toHaveLength(0);
+  });
+});
+
+describe("Library route: busy controls stay focusable", () => {
+  function filePicker(host: HTMLElement): HTMLInputElement {
+    const el = host.querySelector<HTMLInputElement>('input[type="file"]');
+    if (!el) throw new Error("file input did not render");
+    return el;
+  }
+
+  function pickEpub(host: HTMLElement): void {
+    const input = filePicker(host);
+    Object.defineProperty(input, "files", {
+      value: [new File(["x"], "new.epub", { type: "application/epub+zip" })],
+      configurable: true,
+    });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  it("keeps the rescan button focusable and ignores re-entry while scanning", async () => {
+    api.getBooks.mockResolvedValue([book({ id: "1", title: "Dune" })]);
+    let release!: () => void;
+    api.rescanLibrary.mockImplementation(
+      () =>
+        new Promise<{ imported: number; refreshed: number; partial: boolean }>(
+          (resolve) => {
+            release = () =>
+              resolve({ imported: 0, refreshed: 0, partial: false });
+          },
+        ),
+    );
+    const host = await mount();
+    const rescan = host.querySelector<HTMLButtonElement>(
+      'button[aria-label^="Rescan"]',
+    );
+    if (!rescan) throw new Error("rescan button did not render");
+
+    rescan.click();
+    flush();
+
+    // aria-disabled, never disabled: the button keeps its tab-order place and
+    // the refusal lives in the handler guard.
+    expect(rescan.disabled).toBe(false);
+    expect(rescan.getAttribute("aria-disabled")).toBe("true");
+    rescan.click();
+    flush();
+    expect(api.rescanLibrary).toHaveBeenCalledTimes(1);
+
+    release();
+    await settle();
+    expect(rescan.getAttribute("aria-disabled")).toBe("false");
+  });
+
+  it("keeps upload buttons focusable and does not re-open the picker mid-upload", async () => {
+    api.getBooks.mockResolvedValue([book({ id: "1", title: "Dune" })]);
+    let release!: (value: { duplicate: boolean }) => void;
+    api.uploadBook.mockImplementation(
+      () =>
+        new Promise<{ duplicate: boolean }>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const host = await mount();
+    const upload = host.querySelector<HTMLButtonElement>(".lib-upload");
+    if (!upload) throw new Error("upload button did not render");
+    const openSpy = vi.fn();
+    filePicker(host).addEventListener("click", openSpy);
+
+    pickEpub(host);
+    flush();
+    expect(library.uploading).toBe(true);
+    expect(upload.disabled).toBe(false);
+    expect(upload.getAttribute("aria-disabled")).toBe("true");
+
+    openSpy.mockClear();
+    upload.click();
+    flush();
+    expect(openSpy).not.toHaveBeenCalled();
+
+    release({ duplicate: false });
+    await settle();
+    expect(upload.getAttribute("aria-disabled")).toBe("false");
+  });
+
+  it("marks the empty-state upload button aria-disabled mid-upload", async () => {
+    let release!: (value: { duplicate: boolean }) => void;
+    api.uploadBook.mockImplementation(
+      () =>
+        new Promise<{ duplicate: boolean }>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const host = await mount();
+    pickEpub(host);
+    flush();
+    expect(library.uploading).toBe(true);
+
+    const cta = host.querySelector<HTMLButtonElement>(".lib-empty .btn");
+    if (!cta) throw new Error("empty-state CTA did not render");
+    expect(cta.disabled).toBe(false);
+    expect(cta.getAttribute("aria-disabled")).toBe("true");
+
+    release({ duplicate: false });
+    await settle();
+  });
+
+  it("keeps the Add flair button focusable, guarded by the handler", async () => {
+    api.getBooks.mockResolvedValue([book({ id: "1", title: "Dune" })]);
+    let release!: (value: FlairDef) => void;
+    api.createFlair.mockImplementation(
+      () =>
+        new Promise<FlairDef>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const host = await mount();
+    const name = host.querySelector<HTMLInputElement>(".lib-addflair input");
+    const add = host.querySelector<HTMLButtonElement>(".lib-addflair button");
+    if (!name || !add) throw new Error("add-flair controls did not render");
+
+    // Empty name: marked and focusable, inert through the handler guard.
+    expect(add.disabled).toBe(false);
+    expect(add.getAttribute("aria-disabled")).toBe("true");
+    add.click();
+    flush();
+    expect(api.createFlair).not.toHaveBeenCalled();
+
+    name.value = "Favourites";
+    name.dispatchEvent(new Event("input", { bubbles: true }));
+    flush();
+    expect(add.getAttribute("aria-disabled")).toBe("false");
+
+    add.click();
+    flush();
+    expect(add.getAttribute("aria-disabled")).toBe("true");
+    add.click();
+    flush();
+    expect(api.createFlair).toHaveBeenCalledTimes(1);
+
+    release({ id: "cf1", label: "Favourites", color: "#3b82f6" });
+    await settle();
+  });
+});

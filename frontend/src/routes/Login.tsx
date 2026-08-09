@@ -137,7 +137,9 @@ export default function Login() {
   let disposed = false;
   // Newest create request wins; a superseded one must not write state.
   let createController: AbortController | null = null;
-  // Whatever had focus before a submit disabled it.
+  // Whatever had focus when a submit began. Nothing blurs on busy any more
+  // (aria-disabled keeps every control focusable); the memory still covers
+  // the failure paths that remount the focused control.
   let lastFocused: HTMLElement | null = null;
 
   onSettled(() => {
@@ -210,6 +212,9 @@ export default function Login() {
   }
 
   async function pick(p: ProfileInfo): Promise<void> {
+    // aria-disabled rows stay clickable; the guard refuses to switch targets
+    // (or start a second request) while a sign-in is in flight.
+    if (busy()) return;
     setError("");
     if (p.hasPin) {
       returning = false;
@@ -221,6 +226,9 @@ export default function Login() {
   }
 
   function backToList(): void {
+    // Guarded like every control here: leaving mid-request would unmount the
+    // form whose request is still running.
+    if (busy()) return;
     // FIRST: the ref callback on the re-created picker heading reads this flag
     // during the render that the writes below trigger, so setting it last
     // leaves focus on <body>.
@@ -235,12 +243,14 @@ export default function Login() {
   }
 
   function openCreate(): void {
+    if (busy()) return;
     returning = false;
     setMode("create");
     setError("");
   }
 
   function leaveCreate(): void {
+    if (busy()) return;
     // Same ordering contract as backToList.
     returning = true;
     setMode("pick");
@@ -436,7 +446,8 @@ export default function Login() {
                   value={newName()}
                   onInput={(e) => setNewName(e.currentTarget.value)}
                   placeholder="Profile name"
-                  disabled={busy()}
+                  readonly={busy()}
+                  aria-disabled={busy() ? "true" : "false"}
                 />
                 <Show
                   when={
@@ -454,7 +465,8 @@ export default function Login() {
                   value={newPin()}
                   onInput={(e) => setNewPin(e.currentTarget.value)}
                   placeholder="PIN (optional)"
-                  disabled={busy()}
+                  readonly={busy()}
+                  aria-disabled={busy() ? "true" : "false"}
                 />
                 {/* Same reason as the sentence above, demonstrated here: this
                     one starts true on an empty PIN, and the Show never took it
@@ -470,9 +482,8 @@ export default function Login() {
                   class="btn press login-primary"
                   type="submit"
                   aria-disabled={
-                    nameProblem(newName()) !== "" ? "true" : "false"
+                    busy() || nameProblem(newName()) !== "" ? "true" : "false"
                   }
-                  disabled={busy()}
                 >
                   {busy() ? "Creating…" : "Create & sign in"}
                 </button>
@@ -481,7 +492,7 @@ export default function Login() {
                     class="btn-quiet press login-back"
                     type="button"
                     onClick={leaveCreate}
-                    disabled={busy()}
+                    aria-disabled={busy() ? "true" : "false"}
                   >
                     <Icon icon={ArrowLeft} size={16} decorative />
                     Back
@@ -514,10 +525,11 @@ export default function Login() {
                 class="btn press login-primary"
                 type="button"
                 onClick={() => {
+                  if (busy()) return;
                   setError("");
                   void loadProfiles();
                 }}
-                disabled={busy()}
+                aria-disabled={busy() ? "true" : "false"}
               >
                 Try again
               </button>
@@ -525,7 +537,7 @@ export default function Login() {
                 class="btn-quiet press login-new"
                 type="button"
                 onClick={openCreate}
-                disabled={busy()}
+                aria-disabled={busy() ? "true" : "false"}
               >
                 <Icon icon={Plus} size={16} decorative />
                 New profile
@@ -543,7 +555,7 @@ export default function Login() {
                       <button
                         class="login-profile"
                         onClick={() => void pick(p)}
-                        disabled={busy()}
+                        aria-disabled={busy() ? "true" : "false"}
                       >
                         <span class="login-initial display" aria-hidden="true">
                           {p.name.slice(0, 1).toUpperCase()}
@@ -566,7 +578,7 @@ export default function Login() {
                 class="btn-quiet press login-new"
                 type="button"
                 onClick={openCreate}
-                disabled={busy()}
+                aria-disabled={busy() ? "true" : "false"}
               >
                 <Icon icon={Plus} size={16} decorative />
                 New profile
@@ -603,13 +615,13 @@ export default function Login() {
                       value={pin()}
                       onInput={(e) => setPin(e.currentTarget.value)}
                       placeholder="PIN"
-                      disabled={busy()}
+                      readonly={busy()}
+                      aria-disabled={busy() ? "true" : "false"}
                     />
                     <button
                       class="btn press login-primary"
                       type="submit"
-                      aria-disabled={pin() === "" ? "true" : "false"}
-                      disabled={busy()}
+                      aria-disabled={busy() || pin() === "" ? "true" : "false"}
                     >
                       {busy() ? "Signing in…" : "Sign in"}
                     </button>
@@ -617,7 +629,7 @@ export default function Login() {
                       class="btn-quiet press login-back"
                       type="button"
                       onClick={backToList}
-                      disabled={busy()}
+                      aria-disabled={busy() ? "true" : "false"}
                     >
                       <Icon icon={ArrowLeft} size={16} decorative />
                       Back
@@ -637,8 +649,13 @@ export default function Login() {
               <input
                 type="checkbox"
                 checked={remember()}
-                onChange={(e) => setRemember(e.currentTarget.checked)}
-                disabled={busy()}
+                onChange={(e) => {
+                  // aria-disabled + guard, not disabled: a busy checkbox would
+                  // otherwise drop out of the tab order mid-sign-in.
+                  if (busy()) return;
+                  setRemember(e.currentTarget.checked);
+                }}
+                aria-disabled={busy() ? "true" : "false"}
               />
               Keep me signed in on this device for 30 days
             </label>

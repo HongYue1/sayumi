@@ -385,6 +385,31 @@ select optgroup {
   pointer-events: none;
 }
 
+/* aria-disabled, never :disabled, on long-request controls (login, profile
+   dialog, library bar): a real disabled attribute blurs the control
+   mid-request and drops it from the tab order. Same dimming, but the control
+   keeps pointer and focus so the handler guard owns the refusal. */
+.login-primary[aria-disabled="true"],
+.login-back[aria-disabled="true"],
+.login-new[aria-disabled="true"],
+.pd-close[aria-disabled="true"],
+.pd-retry[aria-disabled="true"],
+.pd-actions button[aria-disabled="true"],
+.lib-upload[aria-disabled="true"],
+.lib-empty .btn[aria-disabled="true"],
+.lib-bar .icon-btn[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: default;
+}
+.login-body .field[aria-disabled="true"] {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+.login-remember input[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* Filled accent button — the one loud thing on any surface. */
 .btn {
   background: var(--accent);
@@ -1088,7 +1113,7 @@ main {
     box-shadow var(--dur) var(--ease-out),
     transform var(--dur) var(--ease-out);
 }
-.login-profile:hover:not(:disabled),
+.login-profile:hover:not([aria-disabled="true"]),
 .login-profile:focus-visible {
   background: var(--surface);
   box-shadow: inset 3px 0 0 0 var(--accent);
@@ -1099,10 +1124,10 @@ main {
     inset 3px 0 0 0 var(--accent),
     var(--focus);
 }
-.login-profile:active:not(:disabled) {
+.login-profile:active:not([aria-disabled="true"]) {
   transform: translateX(4px) scale(0.99);
 }
-.login-profile:disabled {
+.login-profile[aria-disabled="true"] {
   opacity: 0.55;
   cursor: not-allowed;
 }
@@ -2004,7 +2029,7 @@ main {
 .pd-frow input {
   height: 2.5rem;
 }
-.pd-frow input:disabled {
+.pd-frow input[aria-disabled="true"] {
   opacity: 0.7;
   cursor: not-allowed;
 }
@@ -2066,11 +2091,11 @@ main {
     filter var(--dur-fast) var(--ease-out),
     box-shadow var(--dur) var(--ease-out);
 }
-.pd-btn-del:hover:not(:disabled) {
+.pd-btn-del:hover:not([aria-disabled="true"]) {
   filter: brightness(1.08);
   box-shadow: var(--shadow-2);
 }
-.pd-btn-del:disabled {
+.pd-btn-del[aria-disabled="true"] {
   opacity: 0.45;
   cursor: default;
 }
@@ -2420,6 +2445,10 @@ main {
   height: 0.65rem;
   border-radius: 50%;
   flex-shrink: 0;
+}
+.bc-menu-item .bc-dot.bc-dot-none {
+  background: transparent;
+  border: 1.5px dashed var(--muted);
 }
 .bc-menu-item .bc-menu-label {
   flex: 1;
@@ -2784,6 +2813,20 @@ main {
   display: inline-flex;
   flex-shrink: 0;
 }
+.lib-chip-remove {
+  display: none;
+  flex-shrink: 0;
+}
+/* An active chip telegraphs its clear affordance: hover/focus swaps the
+   check for the remove mark. Both spans stay in the markup either way. */
+.lib-chip-toggle:hover .lib-chip-check,
+.lib-chip-toggle:focus-visible .lib-chip-check {
+  display: none;
+}
+.lib-chip-toggle:hover .lib-chip-remove,
+.lib-chip-toggle:focus-visible .lib-chip-remove {
+  display: inline-flex;
+}
 .lib-chip-del {
   display: inline-flex;
   align-items: center;
@@ -2845,14 +2888,14 @@ main {
     color var(--dur-fast) var(--ease-out),
     transform var(--dur-fast) var(--ease-out);
 }
-.lib-addflair button:hover:not(:disabled) {
+.lib-addflair button:hover:not([aria-disabled="true"]) {
   background: var(--surface-hover);
   color: var(--fg);
 }
-.lib-addflair button:active:not(:disabled) {
+.lib-addflair button:active:not([aria-disabled="true"]) {
   transform: scale(0.96);
 }
-.lib-addflair button:disabled {
+.lib-addflair button[aria-disabled="true"] {
   opacity: 0.5;
   cursor: default;
 }

@@ -448,3 +448,69 @@ describe("reader search panel", () => {
     expect(rows()[0].getAttribute("aria-selected")).toBe("false");
   });
 });
+
+describe("reader search panel: paging from the empty arm", () => {
+  it("keeps Load more reachable when a whole first page is rejected", async () => {
+    // The validator drops every row of page one, but the server still holds
+    // matches: the empty arm must not hide the only way to reach them.
+    api.searchBook
+      .mockResolvedValueOnce(page([result({ chapterIndex: 99 })], true, "c1"))
+      .mockResolvedValueOnce(page([result({ charOffset: 300 })], false));
+    mount();
+    await settle();
+    typeQuery("needle");
+    advance(300);
+    await settle();
+    expect(rows()).toHaveLength(0);
+    const more = el(".srp-more");
+    more.click();
+    await settle();
+    expect(api.searchBook).toHaveBeenNthCalledWith(
+      2,
+      "book-1",
+      "needle",
+      "c1",
+      100,
+      expect.any(AbortSignal),
+    );
+    expect(rows()).toHaveLength(1);
+    expect(all(".srp-more")).toHaveLength(0);
+  });
+
+  it("surfaces a load-more failure in the empty arm and retries", async () => {
+    api.searchBook
+      .mockResolvedValueOnce(page([result({ chapterIndex: 99 })], true, "c1"))
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockResolvedValueOnce(page([result({ charOffset: 300 })], false));
+    mount();
+    await settle();
+    typeQuery("needle");
+    advance(300);
+    await settle();
+    expect(rows()).toHaveLength(0);
+    el(".srp-more").click();
+    await settle();
+    expect(el(".srp-inline-error").textContent?.trim()).toBe(
+      "Failed to load more.",
+    );
+    expect(rows()).toHaveLength(0);
+    // The affordance stays put after the failure, and the retry pages on.
+    el(".srp-more").click();
+    await settle();
+    expect(rows()).toHaveLength(1);
+    expect(all(".srp-inline-error")).toHaveLength(0);
+  });
+
+  it("does not claim the book has no matches while more pages remain", async () => {
+    api.searchBook.mockResolvedValueOnce(
+      page([result({ chapterIndex: 99 })], true, "c1"),
+    );
+    mount();
+    await settle();
+    typeQuery("needle");
+    advance(300);
+    await settle();
+    expect(stateText()).not.toBe("No results for “needle”.");
+    expect(stateText()).toContain("more matches may follow");
+  });
+});

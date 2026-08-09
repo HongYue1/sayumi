@@ -175,12 +175,13 @@ describe("ProfileDialog", () => {
 
     expect(nameNote()!.textContent).toContain("Windows reserves");
     expect(nameInput().getAttribute("aria-invalid")).toBe("true");
-    expect(submitButton().hasAttribute("disabled")).toBe(true);
+    expect(submitButton().getAttribute("aria-disabled")).toBe("true");
+    expect(submitButton().hasAttribute("disabled")).toBe(false);
 
     type(nameInput(), "copy of Alice");
     await settle();
     expect(nameNote()).toBeNull();
-    expect(submitButton().hasAttribute("disabled")).toBe(false);
+    expect(submitButton().getAttribute("aria-disabled")).toBe("false");
   });
 
   it("rejects a case-only duplicate of an existing profile", async () => {
@@ -190,7 +191,8 @@ describe("ProfileDialog", () => {
     await settle();
 
     expect(nameNote()!.textContent).toContain("already taken");
-    expect(submitButton().hasAttribute("disabled")).toBe(true);
+    expect(submitButton().getAttribute("aria-disabled")).toBe("true");
+    expect(submitButton().hasAttribute("disabled")).toBe(false);
   });
 
   it("closes and unblocks itself after a successful delete", async () => {
@@ -198,7 +200,7 @@ describe("ProfileDialog", () => {
 
     type(confirmInput(), "Alice");
     await settle();
-    expect(submitButton().hasAttribute("disabled")).toBe(false);
+    expect(submitButton().getAttribute("aria-disabled")).toBe("false");
 
     submitButton().click();
     await settle();
@@ -208,8 +210,8 @@ describe("ProfileDialog", () => {
     // The dialog owns its teardown: deleteCurrent resolving is not a promise
     // that the session cleared or that anything unmounts this dialog.
     expect(closes).toBe(1);
-    expect(submitButton().hasAttribute("disabled")).toBe(false);
-    expect(closeButton().hasAttribute("disabled")).toBe(false);
+    expect(submitButton().getAttribute("aria-disabled")).toBe("false");
+    expect(closeButton().getAttribute("aria-disabled")).toBe("false");
   });
 
   // A failed clone has to show what the server said, not a house fallback that
@@ -310,7 +312,8 @@ describe("ProfileDialog", () => {
 
     type(confirmInput(), "Alice");
     await settle();
-    expect(submitButton().hasAttribute("disabled")).toBe(true);
+    expect(submitButton().getAttribute("aria-disabled")).toBe("true");
+    expect(submitButton().hasAttribute("disabled")).toBe(false);
 
     stubs.currentHasPin.mockResolvedValue(true);
     retryButton()!.click();
@@ -318,5 +321,69 @@ describe("ProfileDialog", () => {
 
     expect(container.querySelectorAll('input[type="password"]').length).toBe(1);
     expect(liveRegion()!.textContent).toBe("");
+  });
+
+  it("keeps busy controls focusable and inert while a clone is in flight", async () => {
+    let releaseClone!: () => void;
+    stubs.clone.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseClone = () => resolve();
+        }),
+    );
+    await mount("clone");
+    type(nameInput(), "Alina");
+    await settle();
+    expect(submitButton().getAttribute("aria-disabled")).toBe("false");
+
+    submitButton().click();
+    await settle();
+    expect(stubs.clone).toHaveBeenCalledTimes(1);
+
+    // aria-disabled + readonly, never disabled: every control keeps its
+    // tab-order place for the whole request, and the guards do the refusing.
+    expect(nameInput().readOnly).toBe(true);
+    expect(nameInput().disabled).toBe(false);
+    expect(nameInput().getAttribute("aria-disabled")).toBe("true");
+    expect(submitButton().getAttribute("aria-disabled")).toBe("true");
+    expect(submitButton().hasAttribute("disabled")).toBe(false);
+    expect(closeButton().getAttribute("aria-disabled")).toBe("true");
+    const cancel = container.querySelector<HTMLButtonElement>(
+      ".pd-actions .btn-ghost",
+    )!;
+    expect(cancel.getAttribute("aria-disabled")).toBe("true");
+    cancel.click();
+    closeButton().click();
+    await settle();
+    expect(closes).toBe(0);
+
+    releaseClone();
+    await settle();
+    expect(closes).toBe(1);
+  });
+
+  it("marks the confirm field readonly, never disabled, while a delete runs", async () => {
+    let releaseDelete!: () => void;
+    stubs.deleteCurrent.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseDelete = () => resolve();
+        }),
+    );
+    await mount("delete");
+    type(confirmInput(), "Alice");
+    await settle();
+
+    submitButton().click();
+    await settle();
+    expect(stubs.deleteCurrent).toHaveBeenCalledTimes(1);
+    expect(confirmInput().readOnly).toBe(true);
+    expect(confirmInput().disabled).toBe(false);
+    expect(confirmInput().getAttribute("aria-disabled")).toBe("true");
+    expect(submitButton().getAttribute("aria-disabled")).toBe("true");
+
+    releaseDelete();
+    await settle();
+    expect(closes).toBe(1);
   });
 });

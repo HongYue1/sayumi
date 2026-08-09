@@ -305,8 +305,10 @@ export default function ProfileDialog(props: Props) {
           <button
             class="icon-btn press pd-close"
             aria-label="Close"
-            onClick={() => props.onclose()}
-            disabled={busy()}
+            onClick={() => {
+              if (!busy()) props.onclose();
+            }}
+            aria-disabled={busy() ? "true" : "false"}
           >
             <Icon icon={X} size={18} labelFromParent />
           </button>
@@ -340,7 +342,8 @@ export default function ProfileDialog(props: Props) {
                     autocomplete="off"
                     autocapitalize="off"
                     spellcheck="false"
-                    disabled={busy()}
+                    readonly={busy()}
+                    aria-disabled={busy() ? "true" : "false"}
                     ref={(el) => (confirmNameEl = el)}
                   />
                 </label>
@@ -355,7 +358,8 @@ export default function ProfileDialog(props: Props) {
                       inputmode="numeric"
                       maxlength="12"
                       autocomplete="current-password"
-                      disabled={busy()}
+                      readonly={busy()}
+                      aria-disabled={busy() ? "true" : "false"}
                     />
                   </label>
                 </Show>
@@ -381,7 +385,8 @@ export default function ProfileDialog(props: Props) {
                 aria-describedby={
                   nameError() ? "profile-name-error" : undefined
                 }
-                disabled={busy()}
+                readonly={busy()}
+                aria-disabled={busy() ? "true" : "false"}
                 ref={(el) => (newNameEl = el)}
               />
             </label>
@@ -409,7 +414,8 @@ export default function ProfileDialog(props: Props) {
                 aria-describedby={
                   newPinError() ? "profile-pin-error" : undefined
                 }
-                disabled={busy()}
+                readonly={busy()}
+                aria-disabled={busy() ? "true" : "false"}
               />
             </label>
             <Show when={newPinError()}>
@@ -435,8 +441,10 @@ export default function ProfileDialog(props: Props) {
                 <button
                   type="button"
                   class="btn-ghost press pd-retry"
-                  onClick={() => void loadPrerequisite()}
-                  disabled={busy()}
+                  onClick={() => {
+                    if (!busy()) void loadPrerequisite();
+                  }}
+                  aria-disabled={busy() ? "true" : "false"}
                 >
                   Retry
                 </button>
@@ -461,15 +469,17 @@ export default function ProfileDialog(props: Props) {
             <button
               type="button"
               class="btn-ghost press"
-              onClick={() => props.onclose()}
-              disabled={busy()}
+              onClick={() => {
+                if (!busy()) props.onclose();
+              }}
+              aria-disabled={busy() ? "true" : "false"}
             >
               Cancel
             </button>
             <button
               type="submit"
               class={props.mode === "delete" ? "pd-btn-del press" : "btn press"}
-              disabled={!canSubmit()}
+              aria-disabled={!canSubmit() ? "true" : "false"}
             >
               {props.mode === "clone"
                 ? busy()

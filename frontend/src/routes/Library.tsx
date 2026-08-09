@@ -249,6 +249,15 @@ export default function Library() {
     if (files.length) await library.uploadFiles(files);
   }
 
+  // aria-disabled, not disabled, while an upload runs: a real disabled
+  // attribute would blur the button the user just activated, so the picker
+  // opener guards instead. uploadFiles carries its own plain-flag reentry
+  // guard for the same-tick case.
+  function openFilePicker(): void {
+    if (library.uploading) return;
+    fileInput?.click();
+  }
+
   // Non-reactive in-flight guard, same doctrine as the drag counter above: a
   // signal read immediately after its own write still returns the pre-write
   // value, so a signal-based check would let two Enter presses in one flush
@@ -433,8 +442,14 @@ export default function Library() {
         <button
           type="button"
           class={["icon-btn press", library.rescanning ? "active" : ""]}
-          onClick={() => library.rescan()}
-          disabled={library.rescanning}
+          onClick={() => {
+            // aria-disabled, not disabled: a real disabled attribute would
+            // blur the button mid-scan. The guard refuses re-entry instead
+            // (the store's own plain-flag guard backs it same-tick).
+            if (library.rescanning) return;
+            void library.rescan();
+          }}
+          aria-disabled={library.rescanning ? "true" : "false"}
           aria-label={
             library.rescanning
               ? "Scanning library folder…"
@@ -453,8 +468,8 @@ export default function Library() {
         <button
           type="button"
           class="btn press lib-upload"
-          onClick={() => fileInput?.click()}
-          disabled={library.uploading}
+          onClick={openFilePicker}
+          aria-disabled={library.uploading ? "true" : "false"}
         >
           <Icon icon={Plus} size={16} decorative />
           <span class="lib-upload-label">
@@ -497,6 +512,11 @@ export default function Library() {
                     type="button"
                     class="lib-chip-toggle"
                     aria-pressed={active() ? "true" : "false"}
+                    title={
+                      active()
+                        ? `Remove the ${f.label} filter`
+                        : `Show only books with the ${f.label} flair`
+                    }
                     onClick={() => library.toggleFlairFilter(f.id)}
                   >
                     <Show
@@ -505,12 +525,18 @@ export default function Library() {
                         <span class="lib-dot" style={{ background: f.color }} />
                       }
                     >
+                      {/* The check marks the active filter at rest; on
+                          hover/focus CSS swaps it for the remove mark, so an
+                          active chip advertises its clear affordance. */}
                       <span
                         class="lib-chip-check"
                         style={{ color: f.color }}
                         aria-hidden="true"
                       >
                         <Icon icon={Check} size={13} decorative />
+                      </span>
+                      <span class="lib-chip-remove" aria-hidden="true">
+                        <Icon icon={X} size={13} decorative />
                       </span>
                     </Show>
                     {f.label}
@@ -546,7 +572,9 @@ export default function Library() {
             <button
               type="button"
               onClick={() => void addFlair()}
-              disabled={!newFlair().trim() || addingFlair()}
+              aria-disabled={
+                !newFlair().trim() || addingFlair() ? "true" : "false"
+              }
             >
               {addingFlair() ? "Adding…" : "Add"}
             </button>
@@ -589,8 +617,8 @@ export default function Library() {
           <button
             type="button"
             class="btn press"
-            onClick={() => fileInput?.click()}
-            disabled={library.uploading}
+            onClick={openFilePicker}
+            aria-disabled={library.uploading ? "true" : "false"}
           >
             <Icon icon={Plus} size={16} decorative />
             {library.uploading ? "Uploading…" : "Add your first book"}

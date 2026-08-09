@@ -56,8 +56,8 @@ export default function BookCard(props: Props) {
   );
   const flair = createMemo(() => findFlair(props.book.flairId, props.flairs));
   // Whether the book's current flair is one of the selectable options, so the
-  // menu can open with focus on the checked item and fall back to the first
-  // item only when nothing is set.
+  // menu can open with focus on the checked item. When none is, the "No
+  // flair" entry carries the nomination instead.
   const hasActiveFlair = createMemo(() =>
     props.flairs.some((f) => f.id === props.book.flairId),
   );
@@ -144,9 +144,20 @@ export default function BookCard(props: Props) {
     e.stopPropagation();
     // Re-picking the current flair clears it — a toggle, which is why the items
     // are menuitemcheckbox. A menuitemradio cannot be unchecked by activating
-    // it again, so the role has to match the behaviour. (A discoverable "No
-    // flair" entry would be a design change; tracked separately.)
+    // it again, so the role has to match the behaviour. The "No flair" entry
+    // at the top of the menu is the discoverable form of that same clear.
     props.onsetflair(props.book.id, props.book.flairId === id ? null : id);
+    closeMenu();
+  }
+
+  // The explicit clear affordance: checked exactly when the book carries no
+  // flair, and a close-only no-op in that state — the state of record, not a
+  // second toggle.
+  function clearFlair(e: MouseEvent): void {
+    e.stopPropagation();
+    if (props.book.flairId !== undefined) {
+      props.onsetflair(props.book.id, null);
+    }
     closeMenu();
   }
 
@@ -459,8 +470,27 @@ export default function BookCard(props: Props) {
           <p class="bc-menu-heading eyebrow" aria-hidden="true">
             Set flair
           </p>
+          <button
+            type="button"
+            class={[
+              "bc-menu-item bc-flair-none",
+              props.book.flairId === undefined ? "active" : "",
+            ]}
+            role="menuitemcheckbox"
+            aria-checked={props.book.flairId === undefined ? "true" : "false"}
+            tabindex={hasActiveFlair() ? "-1" : "0"}
+            onClick={clearFlair}
+          >
+            <span class="bc-dot bc-dot-none" aria-hidden="true" />
+            <span class="bc-menu-label">No flair</span>
+            <Show when={props.book.flairId === undefined}>
+              <span class="bc-check" aria-hidden="true">
+                <Icon icon={Check} size={15} decorative />
+              </span>
+            </Show>
+          </button>
           <For each={props.flairs}>
-            {(f, i) => {
+            {(f) => {
               const isActive = () => props.book.flairId === f.id;
               return (
                 <button
@@ -468,9 +498,7 @@ export default function BookCard(props: Props) {
                   class={["bc-menu-item", isActive() ? "active" : ""]}
                   role="menuitemcheckbox"
                   aria-checked={isActive() ? "true" : "false"}
-                  tabindex={
-                    isActive() || (i() === 0 && !hasActiveFlair()) ? "0" : "-1"
-                  }
+                  tabindex={isActive() ? "0" : "-1"}
                   onClick={(e) => pick(e, f.id)}
                 >
                   <span

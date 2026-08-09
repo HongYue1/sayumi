@@ -483,6 +483,32 @@ export default function SearchPanel(props: Props) {
     }
   }
 
+  // One affordance, both arms: the button pages on the server's hasMore +
+  // cursor alone, and the inline error is the load-more failure surface. The
+  // empty arm renders these too (see its Match below) — a page whose rows the
+  // validator dropped is not "no more matches", and hiding the control there
+  // would strand the rest of the book behind one bad page.
+  function loadMoreControls() {
+    return (
+      <>
+        <Show when={hasMore()}>
+          <button
+            class="srp-more btn-ghost press"
+            onClick={() => void loadMore()}
+            aria-disabled={loadingMore() ? "true" : "false"}
+          >
+            {loadingMore() ? "Loading…" : "Load more results"}
+          </button>
+        </Show>
+        <Show when={loadMoreError()}>
+          <p class="srp-state srp-inline-error" role="alert">
+            {loadMoreError()}
+          </p>
+        </Show>
+      </>
+    );
+  }
+
   return (
     // Keyboard handling lives on the wrapper (combobox pattern: focus stays on
     // the input; arrows walk aria-activedescendant). The list's click/mouse
@@ -559,8 +585,11 @@ export default function SearchPanel(props: Props) {
           </Match>
           <Match when={status() === "done" && resultItems().length === 0}>
             <p class="srp-state" role="status">
-              No results for “{query()}”.
+              {hasMore()
+                ? `No displayable results on this page for “${query()}” — more matches may follow.`
+                : `No results for “${query()}”.`}
             </p>
+            {loadMoreControls()}
           </Match>
           <Match when={status() === "done"}>
             <For each={groups()}>
@@ -595,20 +624,7 @@ export default function SearchPanel(props: Props) {
                 </div>
               )}
             </For>
-            <Show when={hasMore()}>
-              <button
-                class="srp-more btn-ghost press"
-                onClick={() => void loadMore()}
-                aria-disabled={loadingMore() ? "true" : "false"}
-              >
-                {loadingMore() ? "Loading…" : "Load more results"}
-              </button>
-            </Show>
-            <Show when={loadMoreError()}>
-              <p class="srp-state srp-inline-error" role="alert">
-                {loadMoreError()}
-              </p>
-            </Show>
+            {loadMoreControls()}
           </Match>
         </Switch>
       </div>

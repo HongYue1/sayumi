@@ -18,7 +18,10 @@
 //   - The swallow itself still has to hold for everything else on the card:
 //     one click dismisses, and only a second one opens the book.
 //   - Flair entries are menuitemcheckbox. Re-picking the current flair clears
-//     it, which is a toggle a menuitemradio may not perform.
+//     it, which is a toggle a menuitemradio may not perform. The explicit
+//     No flair entry is the discoverable half of that clear: checked exactly
+//     when the book carries no flair, and a close-only no-op when activated
+//     in that state.
 //   - Driving the menus must not log STRICT_READ_UNTRACKED. The dismiss
 //     effect's apply phase is an untracked scope, so it resolves its chips
 //     through a plain lookup rather than a memo (docs29 08).
@@ -243,6 +246,7 @@ describe("BookCard", () => {
     await settle();
 
     expect(labels()).toEqual([
+      "No flair",
       "Reading",
       "Finished",
       "Dropped",
@@ -253,15 +257,17 @@ describe("BookCard", () => {
     expect(item("Reading").getAttribute("aria-checked")).toBe("false");
   });
 
-  it("opens the flair menu on the first entry when no flair is set", async () => {
+  it("opens the flair menu on the No flair entry when no flair is set", async () => {
     mount();
     await settle();
 
     chip().click();
     await settle();
 
-    expect(focused()).toBe("Reading");
-    expect(container.querySelectorAll('[aria-checked="true"]')).toHaveLength(0);
+    // The explicit clear affordance doubles as the checked state of record
+    // when the book carries no flair, so the menu nominates it for focus.
+    expect(focused()).toBe("No flair");
+    expect(item("No flair").getAttribute("aria-checked")).toBe("true");
   });
 
   it("roves focus with the arrows, Home and End", async () => {
@@ -454,6 +460,7 @@ describe("BookCard", () => {
       "menuitemcheckbox",
       "menuitemcheckbox",
       "menuitemcheckbox",
+      "menuitemcheckbox",
     ]);
 
     item("Finished").click();
@@ -536,5 +543,36 @@ describe("BookCard", () => {
     expect(logged.filter((m) => m.includes("STRICT_READ_UNTRACKED"))).toEqual(
       [],
     );
+  });
+
+  it("clears the assignment from the explicit No flair entry", async () => {
+    mount(book({ flairId: "finished" }));
+    await settle();
+
+    chip().click();
+    await settle();
+    const none = item("No flair");
+    expect(none.getAttribute("aria-checked")).toBe("false");
+    none.click();
+    await settle();
+
+    expect(flaired).toEqual([["bk-1", null]]);
+    expect(menu()).toBeNull();
+  });
+
+  it("No flair closes without firing when nothing is set", async () => {
+    mount();
+    await settle();
+
+    chip().click();
+    await settle();
+    const none = item("No flair");
+    expect(none.getAttribute("aria-checked")).toBe("true");
+    none.click();
+    await settle();
+
+    // Already clear: the entry is the state of record, not another toggle.
+    expect(flaired).toEqual([]);
+    expect(menu()).toBeNull();
   });
 });
