@@ -1,7 +1,7 @@
 # Compiled binary
 /sayumi
 /sayumi.exe
-
+/
 # Portable runtime data (created next to the binary at runtime).
 # Note: only the runtime /Fonts/ is ignored; the tracked source for the drop-in
 # fonts that releases bundle lives in /fonts-bundle/ (intentionally committed).
@@ -33,3 +33,6 @@ node_modules/
 /skills-lock.json
 *.test
 *.test.exe
+
+# Docs
+/solid-docs-main/
