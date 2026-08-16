@@ -34,10 +34,11 @@ Legend: `[x]` done (reviewed, fixes committed) · `[-]` reviewed, clean
 - [-] b16 tests lib: fontRegistry · fonts · frameMessages · href · icons — reviewed, clean (fontRegistry's tick() hits are its own setTimeout helper)
 - [-] b17 tests lib: keyboard · library · libraryLifecycle · modalBoundary · profileState — reviewed, clean
 - [-] b18 tests lib: progress · reachability · readerFontFaces · router · scrollLock — reviewed, clean
+- [-] b19 tests lib: searchMarks · searchText · session.integration · session · sessionGate — reviewed, clean
 
 ## Not run (stopped after b09 per owner instruction)
 
-- b19–b26 test files (except the additions/fixes made inside reviewed batches)
+- b20–b26 test files (except the additions/fixes made inside reviewed batches)
 - b27 Tier-2 CSS (app.css · frame.css · searchHighlight.bench)
 - Tier 3 configs + AGENTS files
 
