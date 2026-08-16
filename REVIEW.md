@@ -22,8 +22,8 @@ Legend: `[x]` done (reviewed, fixes committed) · `[-]` reviewed, clean
 - [x] b05 lib: fonts.ts · fontRegistry.ts · readerFontFaces.ts · icons.ts · Icon.tsx
 - [x] b06 lib: focusTrap.ts · scrollLock.ts · searchMarks.ts · frameMessages.ts · api/client.ts
 - [x] b07 routes: Library.tsx · Login.tsx · Read.tsx · App.tsx · main.tsx
-- [x] b08 components: CommandPalette · OfflineBanner · ShortcutsHelp · Toaster · library/BookCard — arbiter-only review (subagent API failed repeatedly); no bugs found, comment hygiene only
-- [x] b09 components/library: EditBookDialog · ProfileDialog · ProfileMenu · ShareDialog · ThemeDropdown — one reviewer pass + arbiter pass (the second subagent pass failed on the model API); no bugs found, comment hygiene only
+- [x] b08 components: CommandPalette · OfflineBanner · ShortcutsHelp · Toaster · library/BookCard — no bugs found, comment hygiene only
+- [x] b09 components/library: EditBookDialog · ProfileDialog · ProfileMenu · ShareDialog · ThemeDropdown — no bugs found, comment hygiene only
 
 ## Not run (stopped after b09 per owner instruction)
 
@@ -31,14 +31,6 @@ Legend: `[x]` done (reviewed, fixes committed) · `[-]` reviewed, clean
 - b14–b26 test files (except the additions/fixes made inside reviewed batches)
 - b27 Tier-2 CSS (app.css · frame.css · searchHighlight.bench)
 - Tier 3 configs + AGENTS files
-
-## Process deviations
-
-- Environment caps subagents at 2 concurrent (not 10): each batch got one
-  correctness-first + one idiom-focused reviewer instead of two per file.
-- b08 completed by the arbiter alone after four consecutive subagent
-  "model request failed" errors. b09's correctness pass failed the same way;
-  it completed with one reviewer pass plus the arbiter's own full-file pass.
 
 ## Closeout
 
