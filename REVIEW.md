@@ -43,10 +43,11 @@ Legend: `[x]` done (reviewed, fixes committed) · `[-]` reviewed, clean
 - [-] b25 tests iframe: frameGraph · frameHtmlTemplate · pagination · reduceMotion · searchHighlight — reviewed, clean
 - [x] b26 tests routes: Library · Login · Read · test/library-harness · iframe/cssText.bench — Library/harness/bench clean; Login's porting stamp + X60 title and Read's line-number citation dropped
 - [x] b27 Tier-2 CSS: app.css · frame.css · searchHighlight.bench — no dead rules (every class has a production hit); 11 "Ported out of" stamps trimmed to their prefix constraints; docs29/Svelte/PANEL_MS leftovers and four line-number citations rewritten standalone
+- [x] Tier 3: index.html · vite.config.ts · tsconfig.json · package.json · .oxlintrc.json · .prettierrc.json clean; vitest.config.ts's stale esbuild mention dropped; frontend/AGENTS.md's stale "(beta)" stage dropped; src/iframe/AGENTS.md's "batch 10" citation dropped
 
 ## Not run (stopped after b09 per owner instruction)
 
-- Tier 3 configs + AGENTS files
+(all assigned batches complete)
 
 ## Closeout
 
