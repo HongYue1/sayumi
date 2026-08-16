@@ -24,10 +24,11 @@ Legend: `[x]` done (reviewed, fixes committed) · `[-]` reviewed, clean
 - [x] b07 routes: Library.tsx · Login.tsx · Read.tsx · App.tsx · main.tsx
 - [x] b08 components: CommandPalette · OfflineBanner · ShortcutsHelp · Toaster · library/BookCard — no bugs found, comment hygiene only
 - [x] b09 components/library: EditBookDialog · ProfileDialog · ProfileMenu · ShareDialog · ThemeDropdown — no bugs found, comment hygiene only
+- [x] b10 components/reader: BookmarksPanel · ChapterFrame · CustomThemeDialog · SearchPanel · SettingsPanel — no bugs found; comment hygiene + the <select> conditional-child comment re-anchored beta.29 → rc.0 (re-probed on the installed runtime, still holds)
 
 ## Not run (stopped after b09 per owner instruction)
 
-- b10–b13 components/reader and reader/iframe engine files
+- b11–b13 components/reader and reader/iframe engine files
 - b14–b26 test files (except the additions/fixes made inside reviewed batches)
 - b27 Tier-2 CSS (app.css · frame.css · searchHighlight.bench)
 - Tier 3 configs + AGENTS files
