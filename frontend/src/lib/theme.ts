@@ -1,5 +1,3 @@
-// getTheme now lives in lib/themes (single Map-backed source of truth). It's
-// re-exported here so existing importers using "~/lib/theme" keep working.
 import {
   getTheme,
   themeSurface,
@@ -8,8 +6,6 @@ import {
   readableAccent,
   type ThemeDef,
 } from "~/lib/themes";
-
-export { getTheme };
 
 /**
  * Picks the higher-contrast pure black or white for text/icons sitting on the

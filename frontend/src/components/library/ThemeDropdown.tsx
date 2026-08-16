@@ -16,8 +16,7 @@
 //     convention across the library subtree's scoped styles.
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { settings } from "~/lib/settings";
-import { THEMES } from "~/lib/themes";
-import { getTheme } from "~/lib/theme";
+import { THEMES, getTheme } from "~/lib/themes";
 import { customThemes } from "~/lib/customThemes";
 import Icon from "~/lib/Icon";
 import { Check, ChevronDown } from "~/lib/icons";
