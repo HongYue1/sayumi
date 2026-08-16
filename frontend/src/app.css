@@ -577,8 +577,8 @@ select optgroup {
    delay: a delayed animation with a fill mode would otherwise hold content in
    its hidden start state once duration collapsed. Because this is global,
    per-component prefers-reduced-motion blocks are redundant. JS-driven motion
-   is not covered -- Svelte transitions, imperative scrolls, and the reader
-   iframe must each check it themselves. */
+   is not covered -- imperative scrolls and the reader iframe must each check
+   it themselves. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -592,9 +592,8 @@ select optgroup {
 }
 
 /* ---- App shell --------------------------------------------------------- */
-/* Ported out of App.svelte's scoped <style>: Solid has no scoped styles. The
-   bare `main` selector is safe -- the shell renders the only <main> in the app
-   (verified: App.svelte was the sole occurrence). */
+/* The bare `main` selector is safe -- the shell renders the only <main> in
+   the app. */
 main {
   padding-top: var(--offline-banner-h, 0px);
 }
@@ -636,9 +635,8 @@ main {
 }
 
 /* ---- Toaster ------------------------------------------------------------ */
-/* Ported out of Toaster.svelte's scoped <style>: Solid has no scoped styles.
-   `.container` renamed to `.toaster` -- safe only under Svelte's scoping, too
-   collision-prone for the global sheet. */
+/* `.container` was renamed to `.toaster`: a bare name is too collision-prone
+   for the global sheet. */
 .toaster {
   position: fixed;
   bottom: 4rem;
@@ -691,10 +689,9 @@ main {
 }
 
 /* ---- Offline banner ----------------------------------------------------- */
-/* Ported out of OfflineBanner.svelte's scoped <style>: Solid has no scoped
-   styles. `.banner`/`.retry` renamed to `.offline-banner`/`-retry` -- safe
-   only under Svelte's scoping, too collision-prone for the global sheet. The
-   matching height reservation is the :root --offline-banner-h variable. */
+/* `.banner`/`.retry` were renamed to `.offline-banner`/`-retry`: bare names
+   are too collision-prone for the global sheet. The matching height
+   reservation is the :root --offline-banner-h variable. */
 .offline-banner {
   position: fixed;
   top: 0;
@@ -755,11 +752,10 @@ main {
 }
 
 /* ---- Shortcuts help ----------------------------------------------------- */
-/* Ported out of ShortcutsHelp.svelte's scoped <style>: Solid has no scoped
-   styles. Everything prefixed `.shortcuts-` -- the bare `.overlay`/`.sheet`
-   names only worked under Svelte scoping, and CommandPalette has its own pair
-   coming. `.eyebrow`, `.icon-btn`, `.kbd`, `.press` and the two keyframes are
-   the existing global design-system pieces and are reused, not duplicated. */
+/* Everything prefixed `.shortcuts-` -- bare `.overlay`/`.sheet` names would
+   collide with CommandPalette's pair in the global sheet. `.eyebrow`,
+   `.icon-btn`, `.kbd`, `.press` and the two keyframes are the existing global
+   design-system pieces and are reused, not duplicated. */
 .shortcuts-overlay {
   position: fixed;
   inset: 0;
@@ -867,10 +863,10 @@ main {
 }
 
 /* ---- Command palette ---------------------------------------------------- */
-/* Ported out of CommandPalette.svelte's scoped <style>: Solid has no scoped
-   styles. `.overlay`/`.palette` renamed to `.cmd-*` (Svelte-scoping-safe
-   names only); the veil + blur backdrop is the shared .backdrop-dismiss, and
-   `.paper`, `.kbd` are reused from the global design system. */
+/* `.overlay`/`.palette` were renamed to `.cmd-*`: bare names are too
+   collision-prone for the global sheet. The veil + blur backdrop is the
+   shared .backdrop-dismiss, and `.paper`, `.kbd` are reused from the global
+   design system. */
 .cmd-overlay {
   position: fixed;
   inset: 0;
@@ -991,10 +987,9 @@ main {
 }
 
 /* ---- Login screen ------------------------------------------------------- */
-/* Ported out of Login.svelte's scoped <style>: Solid has no scoped styles.
-   Everything prefixed `.login-` except the reused global design-system
+/* Everything prefixed `.login-` except the reused global design-system
    pieces (.display, .wordmark, .fleuron, .rule-double, .eyebrow, .btn,
-   .btn-quiet, .press, .field). `pulse` is new -- it only existed scoped. */
+   .btn-quiet, .press, .field). */
 .login-screen {
   position: relative;
   display: flex;
@@ -1297,11 +1292,9 @@ main {
 }
 
 /* ---- Profile menu ------------------------------------------------------- */
-/* Ported out of ProfileMenu.svelte's scoped <style>: Solid has no scoped
-   styles. `.trigger`/`.item`/`.menu` are shared by convention across the
-   library subtree (ThemeDropdown and BookCard have their own scoped copies
-   coming), so these get a .pm- prefix. `.paper` and app-menu-pop-in are the
-   existing global pieces. */
+/* `.trigger`/`.item`/`.menu` would collide across the library subtree
+   (ThemeDropdown and BookCard carry their own families), so these get a
+   .pm- prefix. `.paper` and app-menu-pop-in are the existing global pieces. */
 .profile-menu {
   position: relative;
   display: inline-flex;
@@ -1414,10 +1407,9 @@ main {
 }
 
 /* ---- Theme dropdown ----------------------------------------------------- */
-/* Ported out of ThemeDropdown.svelte's scoped <style>: Solid has no scoped
-   styles. `.trigger`/`.pick`/`.caret` are shared by convention across the
-   library subtree (ProfileMenu's family came first), so these get a .td-
-   prefix. `.paper`, `.eyebrow` and app-menu-pop-in are the global pieces. */
+/* `.trigger`/`.pick`/`.caret` would collide across the library subtree
+   (ProfileMenu's family exists), so these get a .td- prefix. `.paper`,
+   `.eyebrow` and app-menu-pop-in are the global pieces. */
 .theme-dd {
   position: relative;
   display: inline-flex;
@@ -1579,10 +1571,9 @@ main {
 }
 
 /* ---- Share dialog ------------------------------------------------------- */
-/* Ported out of ShareDialog.svelte's scoped <style>: Solid has no scoped
-   styles. Everything prefixed .sd-; the backdrop is the shared
-   .backdrop-dismiss, and .eyebrow/.display/.icon-btn/.press/.btn/.btn-ghost
-   are reused from the global design system. */
+/* Everything prefixed .sd-; the backdrop is the shared .backdrop-dismiss,
+   and .eyebrow/.display/.icon-btn/.press/.btn/.btn-ghost are reused from the
+   global design system. */
 .sd-overlay {
   position: fixed;
   inset: 0;
@@ -1717,10 +1708,9 @@ main {
 }
 
 /* ---- Edit book dialog --------------------------------------------------- */
-/* Ported out of EditBookDialog.svelte's scoped <style>: Solid has no scoped
-   styles. Everything prefixed .eb-; the backdrop is the shared
-   .backdrop-dismiss, and .eyebrow/.display/.icon-btn/.press/.btn/.btn-ghost/
-   .field are reused from the global design system. */
+/* Everything prefixed .eb-; the backdrop is the shared .backdrop-dismiss,
+   and .eyebrow/.display/.icon-btn/.press/.btn/.btn-ghost/.field are reused
+   from the global design system. */
 .eb-overlay {
   position: fixed;
   inset: 0;
@@ -1919,10 +1909,9 @@ main {
 }
 
 /* ---- Profile dialog ----------------------------------------------------- */
-/* Ported out of ProfileDialog.svelte's scoped <style>: Solid has no scoped
-   styles. Everything prefixed .pd-; the backdrop is the shared
-   .backdrop-dismiss, and .eyebrow/.display/.icon-btn/.press/.btn/.btn-ghost/
-   .field are reused from the global design system. */
+/* Everything prefixed .pd-; the backdrop is the shared .backdrop-dismiss,
+   and .eyebrow/.display/.icon-btn/.press/.btn/.btn-ghost/.field are reused
+   from the global design system. */
 .pd-overlay {
   position: fixed;
   inset: 0;
@@ -4560,10 +4549,9 @@ main {
   outline: none;
 }
 
-/* Side panels float as paper sheets over the page. Enter animation replaces
-   the Svelte fly transition (x: ∓24px, 280ms, cubicOut ≈ 0.215/0.61/0.355/1);
-   exit animation is dropped — Solid 2.0 has no transition directives and
-   docs29 has no Transition component. */
+/* Side panels float as paper sheets over the page. They animate in with a
+   280ms slide and have no exit animation: the panel unmounts at once, and
+   there is no framework transition layer to run one. */
 .rdp-panel {
   position: absolute;
   top: var(--sp-3);
@@ -4614,8 +4602,7 @@ main {
   }
 }
 /* Settings only: an invisible click-catcher instead of the veil, so the
-   typography controls live-preview against the real, undimmed page. (No fade
-   on the Svelte original either.) */
+   typography controls live-preview against the real, undimmed page. */
 .rdp-scrim.rdp-quiet {
   background: transparent;
   animation: none;
@@ -4674,9 +4661,9 @@ main {
 }
 
 /* Reduced motion: snap the progress fill instead of easing it, and skip the
-   panel/scrim enter animations (the Svelte version zeroed PANEL_MS/FADE_MS in
-   JS; CSS owns the kill switch now — and it also covers the exits that no
-   longer exist). */
+   panel/scrim enter animations. The global switch above already collapses
+   every duration; this block stops these animations outright so they never
+   start. */
 @media (prefers-reduced-motion: reduce) {
   .rdp-fill {
     transition: none;
