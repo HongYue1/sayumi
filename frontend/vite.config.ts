@@ -5,7 +5,7 @@ import {
   type ModuleNode,
   type Plugin,
 } from "vite";
-import solid from "vite-plugin-solid";
+import solid from "@solidjs/vite-plugin";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 

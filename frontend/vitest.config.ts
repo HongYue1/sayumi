@@ -1,5 +1,5 @@
 import { defineConfig } from "vitest/config";
-import solid from "vite-plugin-solid";
+import solid from "@solidjs/vite-plugin";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,11 +7,10 @@ const root = dirname(fileURLToPath(import.meta.url));
 
 // Standalone test config, kept separate from vite.config.ts so the build's
 // frameScriptPlugin/esbuild pipeline stays out of the test run. The solid plugin
-// is required even for non-JSX store tests: babel-preset-solid rewrites the
-// signal/store surface, and a plain esbuild transform would leave the tests
-// running against a different reactive graph than the app. `conditions:
-// ["browser"]` forces Solid's client build so effects flush as they do in the
-// app instead of taking the SSR no-op path.
+// compiles the .tsx suites and adds the `development` resolve condition, so the
+// tests run against the same solid-js dev build and reactive graph as the app.
+// `conditions: ["browser"]` forces Solid's client build so effects flush as
+// they do in the app instead of taking the SSR no-op path.
 export default defineConfig({
   plugins: [solid()],
   resolve: {
