@@ -5,7 +5,7 @@
 // matching accessor returns until the microtask flush. Every mutator below
 // therefore computes the next value once and reuses that local, rather than
 // writing and then re-reading (which would observe the pre-write value).
-// Measured at b49, not assumed: a write followed by an immediate read in
+// Measured, not assumed: a write followed by an immediate read in
 // the same tick returns the pre-write value, and only flush() publishes it.
 //
 // One consequence is load-bearing elsewhere. Two handlers toggling the
@@ -34,7 +34,9 @@ export interface UIState {
  * must use the `ui` singleton below, so every consumer shares one set of
  * flags. A suite that reset the singleton by calling closeOverlays() would
  * be deriving its fixture from a function under test -- which is exactly
- * what the three component suites that touch this store have to do.
+ * what the suites that reset via closeOverlays() (CommandPalette,
+ * ShortcutsHelp, Read) have to do. App.test.ts isolates by re-importing
+ * under vi.resetModules instead.
  */
 export function createUIState(): UIState {
   const [palette, setPalette] = createSignal(false);

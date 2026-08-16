@@ -2,12 +2,13 @@
 // overlay reads (CommandPalette, ShortcutsHelp) and the three mutators that
 // App.tsx and Read.tsx drive from the keyboard and from reader chrome.
 //
-// Every test builds its own instance through createUIState(). The three
-// suites that touch this store indirectly reset it by calling
+// Every test builds its own instance through createUIState(). The suites
+// that touch this store indirectly reset it by calling
 // ui.closeOverlays() (CommandPalette.test.ts, ShortcutsHelp.test.ts,
 // Read.test.ts) -- a
 // fixture derived from a function under test, which by construction cannot
-// detect that function changing. Fresh instances remove the ordering
+// detect that function changing. App.test.ts isolates by re-importing under
+// vi.resetModules instead. Fresh instances remove the ordering
 // dependency instead of documenting it.
 //
 // Two batching facts are pinned here because behaviour elsewhere leans on

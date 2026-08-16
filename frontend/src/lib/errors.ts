@@ -9,11 +9,8 @@ import { ApiError } from "~/api/client";
  * properties of undefined") in front of the user in place of the caller's
  * fallback. Every call site passes a serviceable fallback, so narrowing drops
  * no server-authored message -- only ones that were never fit to show.
- *
- * This is what the codebase had already settled independently. Before this
- * helper absorbed them, the library store and three dialogs each carried their
- * own `instanceof ApiError ? .message : fallback` copy, and both ShareDialog
- * and the library store pin the non-ApiError path to the fallback in tests.
+ * ShareDialog.test.ts and library.test.ts pin the non-ApiError path to the
+ * fallback.
  *
  * The empty-message guard is defensive rather than reachable:
  * parseErrorResponse substitutes a fallback for a blank body and every other

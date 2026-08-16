@@ -290,10 +290,11 @@ export function isBuiltInTheme(id: string): boolean {
 }
 
 // ── Color math ──
-// themes.ts imports nothing, which makes it the right home for the shared hex
-// helpers: theme.ts and flairs.ts both import from here, so the arrow only
-// ever points one way. Parsing and mixing stay private; the decisions callers
-// need (prefersBlackText, readableAccent, themeSurface) are exported.
+// themes.ts imports nothing from the app, which makes it the right home for
+// the shared hex helpers: theme.ts and flairs.ts both import from here, so the
+// arrow only ever points one way. Parsing and mixing stay private; the
+// decisions callers need (prefersBlackText, readableAccent, themeSurface) are
+// exported.
 
 function parseHex(hex: string): [number, number, number] | null {
   const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
