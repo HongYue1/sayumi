@@ -2,7 +2,8 @@ import { getErrorMessage } from "~/lib/errors";
 import { session } from "~/lib/session";
 import { toast } from "~/lib/toast";
 
-/** Signs out locally and surfaces a transport failure from the server request. */
+/** Signs out locally (teardown runs even when the request fails) and surfaces
+ *  any failure of the server request as a toast. */
 export function signOutWithFeedback(): void {
   void session.logout().catch((error: unknown) => {
     toast.show(

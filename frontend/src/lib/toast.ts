@@ -1,6 +1,6 @@
 // Global transient-feedback toasts. A single store instance is mounted once by
 // <Toaster /> in App.tsx; anything can call `toast.show(...)`.
-// Lifecycle is unchanged from the Svelte revision: enter -> exit -> remove.
+// Lifecycle: enter -> exit -> remove.
 //
 // Solid 2.0 note: this uses a draft-first `createStore` rather than replacing an
 // array signal. That is load-bearing, not stylistic -- writes are batched, so
