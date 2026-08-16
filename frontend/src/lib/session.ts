@@ -19,7 +19,10 @@ import {
 // Holds the currently authenticated profile. The real session lives server-side
 // in the `sayumi_session` cookie; this is the client-side mirror.
 export type SessionStatus =
-  "checking" | "authenticated" | "signed-out" | "unavailable";
+  | "checking"
+  | "authenticated"
+  | "signed-out"
+  | "unavailable";
 
 class Session {
   readonly #profileSignal = createSignal<string | null>(null);

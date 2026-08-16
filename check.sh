@@ -39,12 +39,12 @@ if have goimports; then
   if out="$(goimports -l -local sayumi cmd internal 2>&1)"; then [[ -z "$out" ]] && ok "goimports: imports organized" || fail "goimports: needs organizing:
 $(printf '%s\n' "$out"|indent)"; else fail "goimports failed:
 $(printf '%s\n' "$out"|indent)"; fi
-else skip "goimports (go install golang.org/x/tools/cmd/goimports@v0.46.0)"; fi
+else skip "goimports (go install golang.org/x/tools/cmd/goimports@v0.49.0)"; fi
 
 step "4. Frontend formatting"
-if [[ -z "$JS" ]]; then fail "prettier requires bun or npm"
-elif out="$(cd frontend && "$JS" run format:check 2>&1)"; then ok "prettier: all files formatted"
-else fail "prettier failed (run: cd frontend && $JS run format):
+if [[ -z "$JS" ]]; then fail "oxfmt requires bun or npm"
+elif out="$(cd frontend && "$JS" run format:check 2>&1)"; then ok "oxfmt: all files formatted"
+else fail "oxfmt failed (run: cd frontend && $JS run format):
 $(printf '%s\n' "$out"|indent)"; fi
 
 step "5. go vet"
@@ -61,7 +61,7 @@ step "7. govulncheck"
 if have govulncheck; then
   if out="$(govulncheck ./... 2>&1)"; then ok "no known vulnerabilities"; else fail "vulnerabilities or scan failure:
 $(printf '%s\n' "$out"|indent)"; fi
-else skip "govulncheck (go install golang.org/x/vuln/cmd/govulncheck@v1.3.0)"; fi
+else skip "govulncheck (go install golang.org/x/vuln/cmd/govulncheck@v1.7.0)"; fi
 
 step "8. go test (-race, -shuffle=on)"
 race_flag=""; if [[ "$(go env CGO_ENABLED)" == "1" ]] && { have cc || have gcc || have clang; }; then race_flag="-race"; else warn "race detector skipped (cgo unavailable); running plain go test"; fi

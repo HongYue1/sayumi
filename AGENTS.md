@@ -34,7 +34,7 @@ losing a rule, delete it.
 ## Before you finish
 
 `make check` must pass. Ten gates: frontend build, `go mod tidy -diff`, gofumpt +
-goimports, prettier, `go vet`, golangci-lint, govulncheck, `go test` (with `-race` when
+goimports, oxfmt, `go vet`, golangci-lint, govulncheck, `go test` (with `-race` when
 cgo is available), `bun run check` + `bun run test`, then both builds. Don't hand back work
 that hasn't passed it.
 
@@ -85,7 +85,7 @@ Nothing enforces these but a reviewer. Grep both sides before changing either.
 
 - Conventional commits with a package scope: backend `api|epub|fonts|library|storage`,
   frontend `reader|library|iframe|api|lib`, tooling `ci|build|release|make|lint`.
-- Go: gofumpt, imports grouped with `-local sayumi`. Frontend: prettier (spaces, width 80,
+- Go: gofumpt, imports grouped with `-local sayumi`. Frontend: oxfmt (spaces, width 80,
   double quotes).
 - Solid 2 (signals, split effects), TypeScript, plain CSS.
 - Tests live beside the code. Fix a bug, add the test that would have caught it.

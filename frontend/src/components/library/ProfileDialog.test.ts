@@ -288,7 +288,8 @@ describe("ProfileDialog", () => {
     await mount("clone");
 
     const signal = stubs.listProfiles.mock.calls[0]?.[0] as
-      AbortSignal | undefined;
+      | AbortSignal
+      | undefined;
     expect(signal).toBeInstanceOf(AbortSignal);
     expect(signal!.aborted).toBe(false);
 

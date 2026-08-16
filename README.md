@@ -81,7 +81,7 @@ The library path can also be set with the `SAYUMI_LIBRARY` environment variable.
 
 ## Development
 
-Building from source requires Go 1.26.5+ and bun (or npm) for the frontend.
+Building from source requires Go 1.26.6+ and bun (or npm) for the frontend.
 
 ```sh
 make build        # local optimized build (auto GOAMD64=v3 when supported)
@@ -97,13 +97,13 @@ For frontend work, run a dev server that proxies the API to a binary listening o
 cd frontend && bun install && bun run dev
 ```
 
-The quality gates use gofumpt and goimports for formatting, golangci-lint and `go vet` for static analysis, govulncheck for known vulnerabilities, `go test` for the backend, and `tsc` plus vitest for the frontend. Install the Go tools once:
+The quality gates use gofumpt and goimports for formatting, golangci-lint and `go vet` for static analysis, govulncheck for known vulnerabilities, `go test` for the backend, and oxfmt, oxlint, `tsc`, plus vitest for the frontend. Install the Go tools once:
 
 ```sh
 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
-go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
-go install mvdan.cc/gofumpt@v0.10.0
-go install golang.org/x/tools/cmd/goimports@v0.46.0
+go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+go install mvdan.cc/gofumpt@v0.11.0
+go install golang.org/x/tools/cmd/goimports@v0.49.0
 ```
 
 ## Architecture

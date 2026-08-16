@@ -28,7 +28,7 @@ global, and vite's node-shebang bin would otherwise spawn real node.
 - Icons come from `lib/icons.ts` glyphs via `lib/Icon.tsx`. No lucide dependency.
 - Side panels and other heavy UI split with `clientOnly(loader, { lazy: true })` from
   `@solidjs/web`; there is no `lazy` in Solid 2.0.
-- Formatting comes from `.prettierrc.json`; don't hand-format around it.
+- Formatting comes from `.oxfmtrc.json`; don't hand-format around it.
 
 ## Invariants
 

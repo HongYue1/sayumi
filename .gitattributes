@@ -1,5 +1,5 @@
 # Enforce LF line endings in the repo AND working tree on every OS (incl.
-# Windows / Git-Bash). gofmt, gofumpt, goimports, prettier, and the bash
+# Windows / Git-Bash). gofmt, gofumpt, goimports, oxfmt, and the bash
 # scripts all require LF; a CRLF checkout makes every Go/TS file fail
 # formatting and can break ./*.sh under Git Bash. eol=lf overrides
 # core.autocrlf, so contributors need no special local git config.
