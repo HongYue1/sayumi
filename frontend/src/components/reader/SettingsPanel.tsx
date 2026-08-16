@@ -28,6 +28,7 @@ import { READER_FONTS, getFontById } from "~/lib/fonts";
 import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry";
 import { toast } from "~/lib/toast";
 import { router } from "~/lib/router";
+import { ui } from "~/lib/ui";
 import { SPECIMEN_BOOK_ID } from "~/lib/specimen";
 import {
   getPresets,
@@ -37,7 +38,7 @@ import {
   type SettingsPreset,
 } from "~/api/client";
 import Icon from "~/lib/Icon";
-import { X, Plus, Pencil } from "~/lib/icons";
+import { X, Plus, Pencil, Info } from "~/lib/icons";
 import type { FrameModeFallback } from "~/lib/frameMessages";
 
 interface Props {
@@ -1041,6 +1042,14 @@ export default function SettingsPanel(props: Props) {
       </div>
 
       <footer class="stp-foot">
+        {/* The About dialog is mounted once at the App root and driven by the
+            ui store, so the reader opens it without owning it -- and without a
+            second focus trap inside this panel. Above the reset button so the
+            armed two-step destructive control stays last. */}
+        <button class="stp-about" onClick={() => ui.openAbout()}>
+          <Icon icon={Info} size={15} decorative />
+          About Sayumi
+        </button>
         <button
           class={["stp-reset", { armed: resetArmed() }]}
           onClick={resetToDefaults}

@@ -141,10 +141,15 @@ export default function ShortcutsHelp() {
                           {/* The leader sits inside <dd>: a div row inside a
                               <dl> may contain only <dt>s followed by <dd>s, so
                               a bare <span> between them broke the structure
-                              assistive tech reads off the list. */}
+                              assistive tech reads off the list.
+                              The description is wrapped too, rather than left
+                              as a bare text node: an anonymous flex item
+                              cannot be given min-width: 0, so the longest
+                              description overflowed the row and overlapped its
+                              own keys (see .shortcuts-desc in app.css). */}
                           <dd>
                             <span class="shortcuts-leader" aria-hidden="true" />
-                            {it.desc}
+                            <span class="shortcuts-desc">{it.desc}</span>
                           </dd>
                         </div>
                       )}

@@ -1,6 +1,7 @@
-// Suite for the global overlay store: the two flags every focus-trapped
-// overlay reads (CommandPalette, ShortcutsHelp) and the three mutators that
-// App.tsx and Read.tsx drive from the keyboard and from reader chrome.
+// Suite for the global overlay store: the three flags every focus-trapped
+// overlay reads (CommandPalette, ShortcutsHelp, AboutDialog) and the four
+// mutators that App.tsx, Read.tsx, the command palette and the library's
+// profile menu drive.
 //
 // Every test builds its own instance through createUIState(). The suites
 // that touch this store indirectly reset it by calling
@@ -23,13 +24,14 @@ import { render } from "@solidjs/web";
 import { createEffect, flush } from "solid-js";
 import { createUIState, ui } from "~/lib/ui";
 
-type Op = "togglePalette" | "openShortcuts" | "closeOverlays";
+type Op = "togglePalette" | "openShortcuts" | "openAbout" | "closeOverlays";
 
 describe("ui overlay state", () => {
-  it("starts with both overlays closed", () => {
+  it("starts with every overlay closed", () => {
     const u = createUIState();
     expect(u.palette).toBe(false);
     expect(u.shortcuts).toBe(false);
+    expect(u.about).toBe(false);
   });
 
   it("opens the palette from closed", () => {
@@ -104,8 +106,42 @@ describe("ui overlay state", () => {
     expect(u.palette).toBe(false);
   });
 
-  it("never leaves both overlays open, over every sequence up to four steps", () => {
-    const ops: Op[] = ["togglePalette", "openShortcuts", "closeOverlays"];
+  it("opens about, dismissing the palette, and hands over to the sheet", () => {
+    const u = createUIState();
+    u.togglePalette();
+    flush();
+    u.openAbout();
+    flush();
+    expect(u.about).toBe(true);
+    expect(u.palette).toBe(false);
+
+    // Handover, not stacking: the About dialog carries a "Keyboard shortcuts"
+    // button, so the sheet it opens has to replace it rather than trap focus
+    // on top of it.
+    u.openShortcuts();
+    flush();
+    expect(u.shortcuts).toBe(true);
+    expect(u.about).toBe(false);
+  });
+
+  it("closes an open about dialog", () => {
+    const u = createUIState();
+    u.openAbout();
+    flush();
+    u.closeOverlays();
+    flush();
+    expect(u.about).toBe(false);
+    expect(u.palette).toBe(false);
+    expect(u.shortcuts).toBe(false);
+  });
+
+  it("never leaves two overlays open, over every sequence up to four steps", () => {
+    const ops: Op[] = [
+      "togglePalette",
+      "openShortcuts",
+      "openAbout",
+      "closeOverlays",
+    ];
     const bad: string[] = [];
     const walk = (path: Op[]): void => {
       if (path.length > 0) {
@@ -113,7 +149,10 @@ describe("ui overlay state", () => {
         for (const op of path) {
           u[op]();
           flush();
-          if (u.palette && u.shortcuts) bad.push(path.join(" > "));
+          // Counted, not compared pairwise: with a third flag the pairwise
+          // form silently stops covering every combination.
+          const open = [u.palette, u.shortcuts, u.about].filter(Boolean).length;
+          if (open > 1) bad.push(path.join(" > "));
         }
       }
       if (path.length === 4) return;
@@ -173,7 +212,7 @@ describe("ui overlay state", () => {
     expect(u.palette).toBe(false);
   });
 
-  it("anyOverlayOpen starts false and reflects either flag", () => {
+  it("anyOverlayOpen starts false and reflects any flag", () => {
     const u = createUIState();
     expect(u.anyOverlayOpen).toBe(false);
     u.togglePalette();
@@ -183,6 +222,11 @@ describe("ui overlay state", () => {
     flush();
     expect(u.anyOverlayOpen).toBe(false);
     u.openShortcuts();
+    flush();
+    expect(u.anyOverlayOpen).toBe(true);
+    u.closeOverlays();
+    flush();
+    u.openAbout();
     flush();
     expect(u.anyOverlayOpen).toBe(true);
   });

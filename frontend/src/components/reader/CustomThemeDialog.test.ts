@@ -17,9 +17,20 @@
 //   - The two-click delete disarms on a 3s timer, mirroring SettingsPanel's
 //     resetArmed -- an indefinitely armed delete is one stray click from
 //     deleting a theme.
+//   - The sheet portals to document.body. Rendered in place it lands inside the
+//     settings panel, whose backdrop-filter blurs it AND makes the panel the
+//     containing block for the position: fixed overlay, so the "whole screen"
+//     veil covered the panel only. Nothing it renders is inside `container`.
+//   - Colors are typeable, not picker-only: Firefox's native color input has no
+//     hex/RGB entry at all. Only a COMPLETE color commits, so a half-typed
+//     "#12" is neither applied nor rewritten under the caret.
+//   - The picked palette publishes to lib/themePreview (the live preview both
+//     painters follow) and is cleared on unmount -- the one point every
+//     dismissal path (cancel, Escape, save, delete) converges on.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@solidjs/web";
 import { flush } from "solid-js";
+import { themePreview } from "~/lib/themePreview";
 import { THEMES, autoAccent, type ThemeDef } from "~/lib/themes";
 
 const stubs = vi.hoisted(() => ({
@@ -113,20 +124,34 @@ describe("CustomThemeDialog", () => {
     await settle();
   }
 
+  // Every query goes through `document`, not `container`: the dialog portals
+  // to document.body, so container only anchors the render root's owner.
   const nameField = (): HTMLInputElement =>
-    container.querySelector<HTMLInputElement>('.ctd-field input[type="text"]')!;
+    document.querySelector<HTMLInputElement>(
+      // :not(.ctd-color-text) keeps this unambiguous: each color row is a
+      // .ctd-field wrapper with a text input of its own now.
+      '.ctd-field input[type="text"]:not(.ctd-color-text)',
+    )!;
   const submitBtn = (): HTMLButtonElement =>
-    container.querySelector<HTMLButtonElement>(".ctd-actions .btn")!;
+    document.querySelector<HTMLButtonElement>(".ctd-actions .btn")!;
   const deleteBtn = (): HTMLButtonElement =>
-    container.querySelector<HTMLButtonElement>(".ctd-danger-ghost")!;
+    document.querySelector<HTMLButtonElement>(".ctd-danger-ghost")!;
   const autoCheck = (): HTMLInputElement =>
-    container.querySelector<HTMLInputElement>(".ctd-check input")!;
+    document.querySelector<HTMLInputElement>(".ctd-check input")!;
+  const picker = (label: string): HTMLInputElement =>
+    document.querySelector<HTMLInputElement>(
+      `input[aria-label="${label} color"]`,
+    )!;
+  const colorText = (label: string): HTMLInputElement =>
+    document.querySelector<HTMLInputElement>(
+      `input[aria-label="${label} color value, hex or rgb()"]`,
+    )!;
   const accentField = (): HTMLInputElement | null =>
-    container.querySelector<HTMLInputElement>(
+    document.querySelector<HTMLInputElement>(
       'input[aria-label="Accent color"]',
     );
   const errEl = (): HTMLElement | null =>
-    container.querySelector<HTMLElement>("#theme-name-error");
+    document.querySelector<HTMLElement>("#theme-name-error");
 
   function typeInto(field: HTMLInputElement, value: string): void {
     field.value = value;
@@ -291,5 +316,59 @@ describe("CustomThemeDialog", () => {
     expect(stubs.create).toHaveBeenCalledTimes(1);
     expect(onclose).not.toHaveBeenCalled();
     expect(submitBtn().getAttribute("aria-disabled")).not.toBe("true");
+  });
+
+  it("portals the overlay to document.body and cleans it up", async () => {
+    await mount();
+    const overlay = document.querySelector(".ctd-overlay");
+    expect(overlay).not.toBeNull();
+    // The point of the portal: the settings panel subtree (here, `container`)
+    // must not be an ancestor, or its backdrop-filter blurs this dialog and
+    // clips the fixed overlay to the panel's box.
+    expect(container.querySelector(".ctd-overlay")).toBeNull();
+    expect(container.contains(overlay)).toBe(false);
+    dispose?.();
+    dispose = undefined;
+    flush();
+    // The portal owns its mount point: no orphan left on body.
+    expect(document.querySelector(".ctd-overlay")).toBeNull();
+  });
+
+  it("accepts typed hex and rgb(), and ignores an incomplete value", async () => {
+    await mount();
+    const field = colorText("Background");
+    expect(field.value).toBe("#ffffff");
+    typeInto(field, "#0f0");
+    expect(picker("Background").value).toBe("#00ff00");
+    typeInto(field, "rgb(18, 52, 86)");
+    expect(picker("Background").value).toBe("#123456");
+    // Half-typed: nothing commits, and the field is NOT rewritten under the
+    // caret -- it only reports itself invalid.
+    typeInto(field, "#12");
+    expect(field.value).toBe("#12");
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(picker("Background").value).toBe("#123456");
+    // Blur is where it snaps back to the committed color.
+    field.dispatchEvent(new Event("blur", { bubbles: true }));
+    await settle();
+    expect(field.value).toBe("#123456");
+  });
+
+  it("publishes a live preview palette and clears it on unmount", async () => {
+    await mount();
+    expect(themePreview()?.bg).toBe(BASE.bg);
+    typeInto(colorText("Background"), "#101010");
+    await settle();
+    expect(themePreview()?.bg).toBe("#101010");
+    // The group follows the background, so the draft previews as a dark theme.
+    expect(themePreview()?.group).toBe("dark");
+    // The draft id is not a real theme id: it must not collide with a built-in
+    // (the reader derives html.theme-<id> from it) and must never be saved.
+    expect(THEMES.some((th) => th.id === themePreview()!.id)).toBe(false);
+    expect(stubs.settingsUpdate).not.toHaveBeenCalled();
+    dispose?.();
+    dispose = undefined;
+    flush();
+    expect(themePreview()).toBeNull();
   });
 });

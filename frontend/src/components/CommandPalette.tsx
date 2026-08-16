@@ -87,6 +87,12 @@ export default function CommandPalette() {
         run: () => ui.openShortcuts(),
       },
       {
+        id: "act-about",
+        label: "About Sayumi",
+        hint: "Help",
+        run: () => ui.openAbout(),
+      },
+      {
         id: "act-signout",
         label: "Sign out",
         hint: "Account",

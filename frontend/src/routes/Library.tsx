@@ -15,6 +15,7 @@ import { session } from "~/lib/session";
 import { settings } from "~/lib/settings";
 import { router } from "~/lib/router";
 import BookCard from "~/components/library/BookCard";
+import CardSizeControl from "~/components/library/CardSizeControl";
 import ThemeDropdown from "~/components/library/ThemeDropdown";
 import ProfileMenu from "~/components/library/ProfileMenu";
 import ProfileDialog from "~/components/library/ProfileDialog";
@@ -30,6 +31,7 @@ import {
   X,
 } from "~/lib/icons";
 import { DEFAULT_FLAIRS } from "~/lib/flairs";
+import { cardSizeCss } from "~/lib/cardSize";
 
 function hasFiles(e: DragEvent): boolean {
   return Array.from(e.dataTransfer?.types ?? []).includes("Files");
@@ -484,6 +486,7 @@ export default function Library() {
         />
 
         <span class="lib-bar-divider" aria-hidden="true" />
+        <CardSizeControl />
         <ThemeDropdown />
         <ProfileMenu
           onclone={() => setProfileDialog("clone")}
@@ -641,7 +644,14 @@ export default function Library() {
           </button>
         </div>
       ) : (
-        <div class="lib-grid" role="list">
+        // The shelf's column floor. cardSizeCss() always returns a valid
+        // value -- `initial` when no size has been chosen -- so app.css can
+        // fall back to its fluid default; see lib/cardSize.ts.
+        <div
+          class="lib-grid"
+          role="list"
+          style={{ "--card-size": cardSizeCss() }}
+        >
           <For each={library.visible}>
             {(book, i) => (
               <BookCard

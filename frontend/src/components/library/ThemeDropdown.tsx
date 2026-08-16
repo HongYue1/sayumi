@@ -1,5 +1,5 @@
-// Theme selector in the library masthead: light and dark built-ins as
-// swatches, custom themes resolved through the registry.
+// Theme selector in the library masthead: light and dark themes as swatches,
+// the built-ins plus the profile's own custom themes.
 //
 // Solid 2.0 notes:
 //   - The outside-dismiss window listener attaches only while the menu is
@@ -17,9 +17,6 @@ import { customThemes } from "~/lib/customThemes";
 import Icon from "~/lib/Icon";
 import { Check, ChevronDown } from "~/lib/icons";
 
-const lightThemes = THEMES.filter((t) => t.group === "light");
-const darkThemes = THEMES.filter((t) => t.group === "dark");
-
 export default function ThemeDropdown() {
   const [open, setOpen] = createSignal(false);
   let trigger: HTMLButtonElement | undefined;
@@ -32,12 +29,33 @@ export default function ThemeDropdown() {
     () =>
       customThemes.get(settings.value.theme) ?? getTheme(settings.value.theme),
   );
-  // When the active theme is a CUSTOM one, no built-in swatch is active — and
-  // with every item at tabindex -1 the menu would be a keyboard dead-end (no
-  // initial focus, arrows/Home/End find activeElement outside the menu). Fall
+  // Built-ins plus the profile's custom themes, split by group -- the same
+  // derivation the reader's SettingsPanel uses, so a theme created in the
+  // reader is offered here too.
+  //
+  // Memos, not module-level constants: customThemes.list is reactive and starts
+  // empty, so a module-level filter over THEMES alone could never grow. That is
+  // why a saved custom theme was resolvable by the trigger (which reads the
+  // registry) yet had no row to pick it from in this menu. Same derivation the
+  // reader's SettingsPanel uses, so a theme created there is offered here too.
+  const lightThemes = createMemo(() => [
+    ...THEMES.filter((t) => t.group === "light"),
+    ...customThemes.list.filter((t) => t.group === "light"),
+  ]);
+  const darkThemes = createMemo(() => [
+    ...THEMES.filter((t) => t.group === "dark"),
+    ...customThemes.list.filter((t) => t.group === "dark"),
+  ]);
+
+  // With every item at tabindex -1 the menu would be a keyboard dead-end (no
+  // initial focus, and arrows/Home/End find activeElement outside the menu).
+  // That is now only reachable when the saved id matches nothing on offer -- a
+  // theme deleted elsewhere, or customs that have not loaded yet -- so fall
   // back to treating the first light swatch as the roving-focus entry point.
-  const hasBuiltInActive = createMemo(() =>
-    THEMES.some((t) => t.id === settings.value.theme),
+  const hasActive = createMemo(() =>
+    [...lightThemes(), ...darkThemes()].some(
+      (t) => t.id === settings.value.theme,
+    ),
   );
 
   function toggle(): void {
@@ -229,11 +247,11 @@ export default function ThemeDropdown() {
             Light
           </p>
           <fieldset class="td-swatches" aria-labelledby="theme-grp-light">
-            <For each={lightThemes}>
+            <For each={lightThemes()}>
               {(t, i) => {
                 const active = () => settings.value.theme === t.id;
                 const focusEntry = () =>
-                  active() || (i() === 0 && !hasBuiltInActive());
+                  active() || (i() === 0 && !hasActive());
                 return (
                   <button
                     class={["td-pick", { active: active() }]}
@@ -266,7 +284,7 @@ export default function ThemeDropdown() {
             Dark
           </p>
           <fieldset class="td-swatches" aria-labelledby="theme-grp-dark">
-            <For each={darkThemes}>
+            <For each={darkThemes()}>
               {(t) => {
                 const active = () => settings.value.theme === t.id;
                 return (

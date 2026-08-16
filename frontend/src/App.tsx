@@ -14,8 +14,9 @@ import { router } from "~/lib/router";
 import { ui } from "~/lib/ui";
 import { keyboardEventIsOwnedByTarget } from "~/lib/keyboard";
 import { settings } from "~/lib/settings";
-import { applyTheme, getCachedThemeId } from "~/lib/theme";
+import { applyTheme, getCachedThemeId, previewTheme } from "~/lib/theme";
 import { getTheme } from "~/lib/themes";
+import { themePreview } from "~/lib/themePreview";
 import { customThemes } from "~/lib/customThemes";
 import { library } from "~/lib/library";
 import Login from "~/routes/Login";
@@ -25,6 +26,7 @@ import Toaster from "~/components/Toaster";
 import OfflineBanner from "~/components/OfflineBanner";
 import CommandPalette from "~/components/CommandPalette";
 import ShortcutsHelp from "~/components/ShortcutsHelp";
+import AboutDialog from "~/components/AboutDialog";
 
 // Global shortcuts. Only active once signed in. Composition and controls
 // that own the key stand down through the same contract as Read and frame.ts.
@@ -106,16 +108,27 @@ export default function App() {
       ) {
         return null;
       }
+      // An open custom-theme dialog publishes its unsaved palette to
+      // themePreview, so the chrome repaints on every color change and reverts
+      // the instant the draft clears -- without that dialog painting anything
+      // itself. This effect stays the only painter of app chrome.
+      const draft = themePreview();
+      if (draft !== null) {
+        return { profile, id: draft.id, theme: draft, draft: true };
+      }
       const id = settings.value.theme;
-      return { profile, id, theme: getTheme(id) };
+      return { profile, id, theme: getTheme(id), draft: false };
     },
     (active) => {
       if (active === null) {
         appliedThemeKey = null;
         return undefined;
       }
-      const { profile, id, theme } = active;
+      const { profile, id, theme, draft } = active;
       const key = [
+        // Part of the key so leaving preview repaints the saved theme even when
+        // the draft happened to resolve to the same id and colors.
+        draft ? "draft" : "saved",
         profile,
         id,
         theme.id,
@@ -127,7 +140,10 @@ export default function App() {
       ].join("\u0000");
       if (key !== appliedThemeKey) {
         appliedThemeKey = key;
-        applyTheme(id, theme);
+        // previewTheme paints without writing the pre-paint cache, so a draft
+        // cannot survive a reload.
+        if (draft) previewTheme(theme);
+        else applyTheme(id, theme);
       }
       return undefined;
     },
@@ -186,6 +202,7 @@ export default function App() {
 
       <CommandPalette />
       <ShortcutsHelp />
+      <AboutDialog />
       <Toaster />
     </>
   );

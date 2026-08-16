@@ -22,6 +22,9 @@
 //     document itself losing focus -- does not.
 //   - A sign-out whose request failed says so. Local teardown runs either
 //     way, so the silent catch made the failure invisible.
+//   - Every item goes through pick(), About included: the overlay it opens is
+//     focus-trapped and snapshots activeElement on mount, so the trigger has
+//     to be restored before the action runs.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@solidjs/web";
 import { flush } from "solid-js";
@@ -51,6 +54,7 @@ vi.mock("~/lib/toast", () => ({
 }));
 
 import ProfileMenu from "~/components/library/ProfileMenu";
+import { ui } from "~/lib/ui";
 
 async function settle(): Promise<void> {
   for (let i = 0; i < 4; i += 1) {
@@ -86,6 +90,10 @@ describe("ProfileMenu", () => {
     dispose = undefined;
     container.remove();
     outside.remove();
+    // The About item drives the real overlay store (a module singleton), so
+    // leave it closed for the next test and for every other suite.
+    ui.closeOverlays();
+    flush();
     vi.restoreAllMocks();
   });
 
@@ -138,7 +146,7 @@ describe("ProfileMenu", () => {
     await openMenu();
 
     const first = items()[0]!;
-    expect(items()).toHaveLength(3);
+    expect(items()).toHaveLength(4);
     expect(first.getAttribute("tabindex")).toBe("0");
     expect(document.activeElement).toBe(first);
     expect(document.activeElement).not.toBe(trigger());
@@ -154,7 +162,7 @@ describe("ProfileMenu", () => {
 
     key(document.activeElement!, { key: "End" });
     await settle();
-    expect(document.activeElement).toBe(items()[2]);
+    expect(document.activeElement).toBe(items()[3]);
 
     key(document.activeElement!, { key: "Home" });
     await settle();
@@ -302,7 +310,7 @@ describe("ProfileMenu", () => {
     await mount();
     await openMenu();
 
-    items()[2]!.click();
+    items()[3]!.click();
     await settle();
 
     expect(stubs.logout).toHaveBeenCalledTimes(1);
@@ -313,11 +321,26 @@ describe("ProfileMenu", () => {
     await mount();
     await openMenu();
 
-    items()[2]!.click();
+    items()[3]!.click();
     await settle();
 
     expect(stubs.logout).toHaveBeenCalledTimes(1);
     expect(stubs.toasts).toEqual([]);
+  });
+
+  it("opens the About dialog through pick(), not on top of the menu", async () => {
+    await mount();
+    await openMenu();
+
+    expect(ui.about).toBe(false);
+    items()[2]!.click();
+    await settle();
+
+    expect(ui.about).toBe(true);
+    expect(menu()).toBeNull();
+    // Same contract as clone/delete: AboutDialog traps focus and snapshots
+    // activeElement on mount, so the trigger is restored before the action.
+    expect(document.activeElement).toBe(trigger());
   });
 
   it("labels the menu with the trigger that names the profile", async () => {

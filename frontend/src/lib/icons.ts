@@ -119,6 +119,21 @@ export const ImageUp: IconNode = [
   ["circle", { cx: "9", cy: "9", r: "2" }],
 ];
 
+/** lucide `info` */
+export const Info: IconNode = [
+  ["circle", { cx: "12", cy: "12", r: "10" }],
+  ["path", { d: "M12 16v-4" }],
+  ["path", { d: "M12 8h.01" }],
+];
+
+/** lucide `layout-grid` */
+export const LayoutGrid: IconNode = [
+  ["rect", { width: "7", height: "7", x: "3", y: "3", rx: "1" }],
+  ["rect", { width: "7", height: "7", x: "14", y: "3", rx: "1" }],
+  ["rect", { width: "7", height: "7", x: "14", y: "14", rx: "1" }],
+  ["rect", { width: "7", height: "7", x: "3", y: "14", rx: "1" }],
+];
+
 /** lucide `list` */
 export const List: IconNode = [
   ["path", { d: "M3 5h.01" }],

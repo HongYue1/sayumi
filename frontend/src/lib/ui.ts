@@ -1,5 +1,6 @@
-// Tiny shared UI state for global overlays (command palette, shortcuts help)
-// so any component can open them without prop-drilling or event plumbing.
+// Tiny shared UI state for global overlays (command palette, shortcuts help,
+// about) so any component can open them without prop-drilling or event
+// plumbing.
 //
 // Solid 2.0 note: writes are batched, so a setter does NOT change what the
 // matching accessor returns until the microtask flush. Every mutator below
@@ -20,12 +21,14 @@ import { createSignal } from "solid-js";
 export interface UIState {
   readonly palette: boolean;
   readonly shortcuts: boolean;
-  /** True while either global overlay is open. The single place the conjunct
+  readonly about: boolean;
+  /** True while ANY global overlay is open. The single place the disjunct
    *  lives: a future overlay kind joins the store here, and readers (the
    *  reader's keyboard stand-down) never re-derive the list by hand. */
   readonly anyOverlayOpen: boolean;
   togglePalette(): void;
   openShortcuts(): void;
+  openAbout(): void;
   closeOverlays(): void;
 }
 
@@ -41,6 +44,7 @@ export interface UIState {
 export function createUIState(): UIState {
   const [palette, setPalette] = createSignal(false);
   const [shortcuts, setShortcuts] = createSignal(false);
+  const [about, setAbout] = createSignal(false);
 
   return {
     get palette(): boolean {
@@ -49,30 +53,47 @@ export function createUIState(): UIState {
     get shortcuts(): boolean {
       return shortcuts();
     },
+    get about(): boolean {
+      return about();
+    },
     get anyOverlayOpen(): boolean {
-      return palette() || shortcuts();
+      return palette() || shortcuts() || about();
     },
 
     togglePalette(): void {
       const next = !palette();
       setPalette(next);
-      // Opening the palette dismisses the shortcuts sheet so the two
-      // focus-trapped overlays can't stack (mirrors openShortcuts() closing the
-      // palette). Closing the palette leaves shortcuts untouched.
+      // Opening the palette dismisses the other sheets so no two
+      // focus-trapped overlays can stack (mirrors openShortcuts()/openAbout()
+      // closing the palette). Closing the palette leaves them untouched.
       //
       // `next` is used deliberately instead of re-reading palette(): under
       // Solid 2.0 batching the read would still return the old value here.
-      if (next) setShortcuts(false);
+      if (next) {
+        setShortcuts(false);
+        setAbout(false);
+      }
     },
 
     openShortcuts(): void {
       setPalette(false);
+      setAbout(false);
       setShortcuts(true);
+    },
+
+    // About is exclusive with the shortcuts sheet in both directions: the
+    // About dialog offers a "Keyboard shortcuts" button, so opening one from
+    // the other must hand over instead of stacking two traps.
+    openAbout(): void {
+      setPalette(false);
+      setShortcuts(false);
+      setAbout(true);
     },
 
     closeOverlays(): void {
       setPalette(false);
       setShortcuts(false);
+      setAbout(false);
     },
   };
 }

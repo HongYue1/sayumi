@@ -15,7 +15,8 @@ import { getFontById, getFontFamily } from "~/lib/fonts";
 import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry";
 import { toast } from "~/lib/toast";
 import { customThemes } from "~/lib/customThemes";
-import { readerThemeVars, type ThemeDef } from "~/lib/themes";
+import { themePreview } from "~/lib/themePreview";
+import { deriveReaderVars, readerThemeVars, type ThemeDef } from "~/lib/themes";
 
 // Shape the reader iframe expects (see iframe/frame.ts apply-settings handler).
 export interface IframeSettings {
@@ -110,6 +111,7 @@ function resolveFontFamily(id: string): string {
 export function toIframeSettings(
   s: UserSettings,
   customThemesList: ThemeDef[] = [],
+  preview: ThemeDef | null = null,
 ): IframeSettings {
   return {
     mode: s.displayMode,
@@ -125,8 +127,14 @@ export function toIframeSettings(
     margins: { top: s.marginTop, bottom: s.marginBottom, side: s.marginSide },
     justify: s.justify,
     hyphenation: s.hyphenation,
-    theme: s.theme,
-    themeVars: readerThemeVars(s.theme, customThemesList),
+    // An unsaved draft from CustomThemeDialog outranks the stored choice so
+    // the reader repaints live while the user picks colours. A draft id has no
+    // html.theme-<id> rule in frame.css, so the derived vars have to carry the
+    // whole palette — exactly how a stored custom theme already behaves.
+    theme: preview ? preview.id : s.theme,
+    themeVars: preview
+      ? deriveReaderVars(preview)
+      : readerThemeVars(s.theme, customThemesList),
     chapterTitleAlign: s.chapterTitleAlign,
     chapterTitleSize: s.chapterTitleSize,
     chapterTitleSpacing: s.chapterTitleSpacing,
@@ -190,7 +198,9 @@ class Settings {
     // mount. Safe here because the derivation is pure (no cleanup, no side
     // effects), and while unsubscribed it skips recompute on settings writes.
     this.#iframe = runWithOwner(null, () =>
-      createMemo(() => toIframeSettings(this.value, customThemes.list)),
+      createMemo(() =>
+        toIframeSettings(this.value, customThemes.list, themePreview()),
+      ),
     );
 
     // Flush a pending debounced save when the page hides: the trailing-only

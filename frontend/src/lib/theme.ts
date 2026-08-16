@@ -80,18 +80,16 @@ function applyCachedTheme(id: string): boolean {
 }
 
 /**
- * Applies a theme's tokens to the document root as CSS custom properties.
- * App chrome reads --bg / --fg / --accent; the reader iframe mirrors these
- * separately via its own override layer.
+ * Paints one palette's tokens onto the document root and hands back the derived
+ * tokens the caller may want to cache. Shared by applyTheme and previewTheme so
+ * a live preview can never drift from what saving that theme actually paints.
  */
-export function applyTheme(id: string, resolved?: ThemeDef): void {
-  const t = resolved ?? getTheme(id);
-  // getTheme falls back to the light theme for an unknown id. A custom theme
-  // whose definitions haven't loaded yet (cold boot, before customThemes.load)
-  // is "unknown" here — painting the fallback would flash the shell to light
-  // and overwrite the cached palette. Reuse the cached vars for that exact id
-  // until a later applyTheme (after the registry loads) paints the real one.
-  if (t.id !== id && applyCachedTheme(id)) return;
+function paintTheme(t: ThemeDef): {
+  accentFg: string;
+  elevated: string;
+  accentInk: string;
+  scheme: string;
+} {
   const accentFg = onAccentColor(t.accent);
   const scheme = t.group === "dark" ? "dark" : "light";
   const elevated = themeSurface(t);
@@ -107,6 +105,33 @@ export function applyTheme(id: string, resolved?: ThemeDef): void {
   root.style.setProperty("--accent-ink", accentInk);
   root.style.colorScheme = scheme;
   root.dataset.theme = t.id;
+  return { accentFg, elevated, accentInk, scheme };
+}
+
+/**
+ * Paints an UNSAVED palette -- the custom-theme dialog's draft, published
+ * through lib/themePreview.ts -- without touching the pre-paint cache. Skipping
+ * the cache is the whole point: a tab closed mid-edit must reopen on the saved
+ * theme, never on a palette the user never created.
+ */
+export function previewTheme(def: ThemeDef): void {
+  paintTheme(def);
+}
+
+/**
+ * Applies a theme's tokens to the document root as CSS custom properties.
+ * App chrome reads --bg / --fg / --accent; the reader iframe mirrors these
+ * separately via its own override layer.
+ */
+export function applyTheme(id: string, resolved?: ThemeDef): void {
+  const t = resolved ?? getTheme(id);
+  // getTheme falls back to the light theme for an unknown id. A custom theme
+  // whose definitions haven't loaded yet (cold boot, before customThemes.load)
+  // is "unknown" here — painting the fallback would flash the shell to light
+  // and overwrite the cached palette. Reuse the cached vars for that exact id
+  // until a later applyTheme (after the registry loads) paints the real one.
+  if (t.id !== id && applyCachedTheme(id)) return;
+  const { accentFg, elevated, accentInk, scheme } = paintTheme(t);
   // Cache the resolved tokens so the inline <head> bootstrap in index.html can
   // paint the saved theme before first paint, avoiding a flash of the default
   // light theme on reload (server settings arrive too late to prevent it).

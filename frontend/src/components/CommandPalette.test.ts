@@ -252,9 +252,9 @@ describe("command palette", () => {
     open();
     await settle();
     expect(options()).toHaveLength(50);
-    // 4 commands + 46 books: the themes are beyond the cap until typed.
+    // 5 commands + 45 books: the themes are beyond the cap until typed.
     expect(labels()[0]).toBe("Go to LibraryNavigate");
-    expect(labels()[49]).toBe("Book 45Open book");
+    expect(labels()[49]).toBe("Book 44Open book");
   });
 
   it("shows the empty fallback and ignores Enter when nothing matches", async () => {

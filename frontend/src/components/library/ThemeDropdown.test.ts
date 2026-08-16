@@ -19,10 +19,14 @@
 //   - Tab leaves the menu rather than wrapping inside it (WCAG 2.1.2 / APG).
 //   - Focus leaving the dropdown dismisses it, but a null relatedTarget --
 //     the document itself losing focus -- does not.
+//   - The profile's custom themes are offered as swatches next to the
+//     built-ins, in their own group: a theme created in the reader has to be
+//     pickable here too. The registry's list is reactive and starts empty, so
+//     the stub exposes it as a getter rather than a snapshot array.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@solidjs/web";
 import { flush } from "solid-js";
-import { THEMES } from "~/lib/themes";
+import { THEMES, type ThemeDef } from "~/lib/themes";
 
 const stubs = vi.hoisted(() => ({
   update: vi.fn(),
@@ -31,6 +35,7 @@ const stubs = vi.hoisted(() => ({
   state: {
     theme: "light",
     customLoaded: true,
+    customList: [] as ThemeDef[],
   },
 }));
 
@@ -48,6 +53,9 @@ vi.mock("~/lib/customThemes", () => ({
     get loaded(): boolean {
       return stubs.state.customLoaded;
     },
+    get list(): ThemeDef[] {
+      return stubs.state.customList;
+    },
     get: stubs.customGet,
     load: stubs.loadCustom,
   },
@@ -61,6 +69,17 @@ async function settle(): Promise<void> {
     flush();
   }
 }
+
+// A saved custom theme as the registry hands it over: the same ThemeDef shape
+// as a built-in, with a group that decides which fieldset it joins.
+const MINE: ThemeDef = {
+  id: "custom:mine",
+  label: "Mine",
+  group: "dark",
+  bg: "#000000",
+  fg: "#ffffff",
+  accent: "#ff00ff",
+};
 
 describe("ThemeDropdown", () => {
   let container: HTMLDivElement;
@@ -77,6 +96,7 @@ describe("ThemeDropdown", () => {
     document.body.appendChild(outside);
     stubs.state.theme = "light";
     stubs.state.customLoaded = true;
+    stubs.state.customList = [];
     stubs.update.mockReset();
     stubs.loadCustom.mockReset();
     stubs.loadCustom.mockResolvedValue(undefined);
@@ -143,21 +163,38 @@ describe("ThemeDropdown", () => {
 
   it("falls back to the first light swatch when a custom theme is active", async () => {
     stubs.state.theme = "custom:mine";
-    stubs.customGet.mockReturnValue({
-      id: "custom:mine",
-      label: "Mine",
-      group: "dark",
-      bg: "#000000",
-      fg: "#ffffff",
-      accent: "#ff00ff",
-    });
+    stubs.customGet.mockReturnValue(MINE);
+    // customList stays empty on purpose: the trigger resolves its label from
+    // the registry while the list itself has not arrived yet, which is now the
+    // one case where nothing on offer matches the saved id.
     await mount();
     await openMenu();
 
-    // No built-in swatch is active, so the markup nominates the first light
-    // swatch as the roving-focus entry point.
+    // No swatch is active, so the markup nominates the first light swatch as
+    // the roving-focus entry point.
     expect(document.activeElement).toBe(swatch("Light"));
     expect(document.activeElement).toBe(items()[0]);
+  });
+
+  it("offers a saved custom theme as a swatch in its own group", async () => {
+    stubs.state.customList = [MINE];
+    stubs.state.theme = MINE.id;
+    stubs.customGet.mockReturnValue(MINE);
+    await mount();
+    await openMenu();
+
+    // Appended after the built-ins of its own group, so a dark custom theme
+    // is the last swatch in the menu.
+    const mine = swatch("Mine");
+    expect(items()[items().length - 1]).toBe(mine);
+    // And since it is the active theme, it -- not the first light swatch --
+    // takes the roving-focus entry point.
+    expect(mine.getAttribute("aria-checked")).toBe("true");
+    expect(document.activeElement).toBe(mine);
+
+    swatch("Light").click();
+    await settle();
+    expect(stubs.update).toHaveBeenCalledWith({ theme: "light" });
   });
 
   it("roves focus with the arrow keys once focus is inside", async () => {

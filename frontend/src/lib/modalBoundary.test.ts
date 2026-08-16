@@ -21,7 +21,7 @@ describe("modal boundaries", () => {
       ),
     );
 
-    expect(dialogTags).toHaveLength(10);
+    expect(dialogTags).toHaveLength(11);
     for (const { path, tag } of dialogTags) {
       expect(tag, path).toContain('aria-modal="true"');
       expect(tag, path).toContain("ref={trap()}");

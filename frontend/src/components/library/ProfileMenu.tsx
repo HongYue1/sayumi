@@ -1,5 +1,5 @@
-// Profile menu in the library masthead: clone / delete / sign out behind a
-// single trigger.
+// Profile menu in the library masthead: clone / delete / about / sign out
+// behind a single trigger.
 //
 // Solid 2.0 notes:
 //   - The outside-dismiss window listener attaches only while the menu is
@@ -13,8 +13,9 @@
 import { createEffect, createSignal, Show } from "solid-js";
 import { session } from "~/lib/session";
 import { signOutWithFeedback } from "~/lib/signOut";
+import { ui } from "~/lib/ui";
 import Icon from "~/lib/Icon";
-import { ChevronDown, Copy, LogOut, Trash2, User } from "~/lib/icons";
+import { ChevronDown, Copy, Info, LogOut, Trash2, User } from "~/lib/icons";
 
 interface Props {
   onclone: () => void;
@@ -231,6 +232,18 @@ export default function ProfileMenu(props: Props) {
             Delete profile…
           </button>
           <hr class="pm-sep" aria-hidden="true" />
+          {/* About goes through pick() like every other item: the dialog it
+              opens is focus-trapped and snapshots activeElement on mount, so
+              focus has to be back on the trigger before it appears. */}
+          <button
+            class="pm-item"
+            role="menuitem"
+            tabindex="-1"
+            onClick={() => pick(() => ui.openAbout())}
+          >
+            <Icon icon={Info} size={16} decorative />
+            About Sayumi…
+          </button>
           <button
             class="pm-item"
             role="menuitem"

@@ -13,10 +13,31 @@
 //   - Busy state is aria-disabled + handler-side guards, never a real
 //     disabled attribute: a real disabled blurs the pressed control
 //     mid-request, Enter-in-field included.
-import { createMemo, createSignal, onCleanup, onSettled, Show } from "solid-js";
+//   - The overlay is portaled to document.body. Rendered in place it lands
+//     inside the settings panel, whose backdrop-filter blurs every descendant
+//     AND makes the panel the containing block for position: fixed, so the
+//     "whole screen" veil covered only the panel. The portal keeps the dialog
+//     inside the panel's reactive owner (props, onclose, trap) while moving it
+//     out of the panel's paint tree.
+//   - Each color is editable as text as well as with the native picker:
+//     Firefox's color picker has no hex/RGB entry field, so typing is the only
+//     way to enter an exact value there.
+//   - The picked palette publishes to lib/themePreview; App.tsx and the iframe
+//     settings mapping read it and repaint. This dialog never paints the
+//     document itself -- each surface keeps exactly one painter.
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onSettled,
+  Show,
+} from "solid-js";
+import { Portal } from "@solidjs/web";
 import { customThemes } from "~/lib/customThemes";
 import { settings } from "~/lib/settings";
 import { onAccentColor } from "~/lib/theme";
+import { PREVIEW_THEME_ID, setThemePreview } from "~/lib/themePreview";
 import { THEMES, autoAccent, themeGroupFor, type ThemeDef } from "~/lib/themes";
 import type { CustomThemeInput } from "~/api/client";
 import { trap } from "~/lib/focusTrap";
@@ -42,7 +63,90 @@ function norm(hex: string, fallback: string): string {
   return fallback;
 }
 
+// Parse typed text to #rrggbb, or null while it is not yet a complete color --
+// a half-typed "#ab" must neither commit nor be rewritten under the caret.
+// Accepts what people actually type or paste: #rgb, #rrggbb, a bare hex with no
+// "#", and rgb()/rgba() in both the legacy comma and the modern space syntax,
+// with 0-255 or percentage channels. Alpha parses but is dropped: a translucent
+// page background would show the app through the reader.
+function parseColorText(text: string): string | null {
+  const s = text.trim();
+  if (s === "") return null;
+  const hex = norm(s, "");
+  if (hex !== "") return hex;
+  const call = /^rgba?\(([^)]+)\)$/i.exec(s);
+  if (!call) return null;
+  const parts = call[1].split(/[\s,/]+/).filter((p) => p !== "");
+  if (parts.length < 3) return null;
+  let out = "#";
+  for (const part of parts.slice(0, 3)) {
+    const pct = part.endsWith("%");
+    const n = Number(pct ? part.slice(0, -1) : part);
+    if (!Number.isFinite(n)) return null;
+    const scaled = pct ? (n / 100) * 255 : n;
+    const byte = Math.max(0, Math.min(255, Math.round(scaled)));
+    out += byte.toString(16).padStart(2, "0");
+  }
+  return out;
+}
+
 const MAX_THEME_NAME_CHARS = 60;
+
+// One color control: the native picker plus a text field, kept in sync. Module
+// level so it closes over no dialog state. The draft signal holds raw
+// keystrokes -- committing only parses, and only blur snaps the field back to
+// the normalised value, so typing is never fought over by the formatter.
+function ColorRow(props: {
+  label: string;
+  value: string;
+  busy: boolean;
+  onchange: (hex: string) => void;
+}) {
+  const [draft, setDraft] = createSignal<string | null>(null);
+  const text = (): string => draft() ?? props.value;
+  const invalid = (): boolean => {
+    const raw = draft();
+    return raw !== null && parseColorText(raw) === null;
+  };
+
+  return (
+    <label class="ctd-field">
+      <span>{props.label}</span>
+      <div class="ctd-color-row">
+        <input
+          type="color"
+          value={props.value}
+          aria-label={`${props.label} color`}
+          aria-disabled={props.busy ? "true" : "false"}
+          onInput={(e) => {
+            // The picker is authoritative again: drop any stale typed draft.
+            setDraft(null);
+            props.onchange(e.currentTarget.value);
+          }}
+        />
+        <input
+          type="text"
+          class="ctd-color-text"
+          value={text()}
+          spellcheck={false}
+          autocapitalize="off"
+          autocomplete="off"
+          aria-label={`${props.label} color value, hex or rgb()`}
+          aria-invalid={invalid() ? "true" : undefined}
+          readonly={props.busy}
+          aria-disabled={props.busy ? "true" : "false"}
+          onInput={(e) => {
+            const raw = e.currentTarget.value;
+            setDraft(raw);
+            const parsed = parseColorText(raw);
+            if (parsed) props.onchange(parsed);
+          }}
+          onBlur={() => setDraft(null)}
+        />
+      </div>
+    </label>
+  );
+}
 
 export default function CustomThemeDialog(props: Props) {
   // The dialog is remounted per open, so seeding local editing state from
@@ -111,6 +215,23 @@ export default function CustomThemeDialog(props: Props) {
         : "Close",
   );
 
+  // Publish the in-progress palette so the app chrome (App.tsx) and the reader
+  // frame (settings.iframe) repaint live while the colors are being picked.
+  // The draft id never reaches settings.theme or the server. Clearing it on
+  // unmount restores the saved theme and covers cancel, Escape, save and
+  // delete alike: every one of those paths ends in props.onclose().
+  createEffect(
+    (): ThemeDef => ({
+      id: PREVIEW_THEME_ID,
+      label: trimmedName() || "Preview",
+      group: group(),
+      bg: bg(),
+      fg: fg(),
+      accent: resolvedAccent(),
+    }),
+    (def) => setThemePreview(def),
+  );
+
   function beginOperation(action: "save" | "delete"): AbortController {
     const controller = new AbortController();
     operationController = controller;
@@ -165,6 +286,9 @@ export default function CustomThemeDialog(props: Props) {
     operationController?.abort();
     operationController = null;
     if (deleteArmTimer !== undefined) clearTimeout(deleteArmTimer);
+    // Drop the live preview. The dialog is remounted per open, so unmount is
+    // the one point every dismissal path converges on.
+    setThemePreview(null);
   });
 
   function toggleAuto(e: Event): void {
@@ -241,184 +365,169 @@ export default function CustomThemeDialog(props: Props) {
   }
 
   return (
-    <div class="ctd-overlay" role="presentation">
-      <button
-        type="button"
-        class="backdrop-dismiss"
-        aria-label="Close"
-        tabindex="-1"
-        onClick={close}
-      />
-      <div
-        class="ctd-sheet"
-        role="dialog"
-        tabindex="-1"
-        aria-modal="true"
-        aria-label={editing() ? "Edit custom theme" : "New custom theme"}
-        ref={trap()}
-      >
-        <header class="ctd-head">
-          <div class="ctd-head-text">
-            <p class="eyebrow">Theme</p>
-            <h2 class="display ctd-title">
-              {editing() ? "Edit theme" : "New theme"}
-            </h2>
-          </div>
-          <button
-            class="icon-btn press ctd-close"
-            aria-label={closeLabel()}
-            onClick={close}
-          >
-            <Icon icon={X} size={18} labelFromParent />
-          </button>
-        </header>
-
-        <form class="ctd-form" onSubmit={(e) => void save(e)}>
-          <div
-            class="ctd-preview"
-            style={{ background: bg(), color: fg() }}
-            aria-hidden="true"
-          >
-            <span class="ctd-preview-aa">Aa</span>
-            <span class="ctd-preview-sample">The quick brown fox jumps.</span>
-            <span
-              class="ctd-preview-accent"
-              style={{ background: resolvedAccent(), color: accentText() }}
-            >
-              Accent
-            </span>
-          </div>
-          <p class="ctd-hint">
-            Appears in your{" "}
-            <strong>{group() === "light" ? "Light" : "Dark"}</strong> themes —
-            set automatically from the background.
-          </p>
-
-          <label class="ctd-field">
-            <span>Name</span>
-            <input
-              type="text"
-              value={name()}
-              maxlength={String(MAX_THEME_NAME_CHARS * 2)}
-              placeholder="My theme"
-              autocomplete="off"
-              readonly={busy()}
-              aria-disabled={busy() ? "true" : "false"}
-              aria-invalid={visibleNameError() ? "true" : undefined}
-              aria-describedby={
-                visibleNameError() ? "theme-name-error" : undefined
-              }
-              onInput={(e) => {
-                setName(e.currentTarget.value);
-                setNameDirty(true);
-              }}
-              ref={(el) => (nameEl = el)}
-            />
-            <Show when={visibleNameError()}>
-              <small id="theme-name-error" class="ctd-field-error" role="alert">
-                {visibleNameError()}
-              </small>
-            </Show>
-          </label>
-
-          <div class="ctd-colors">
-            <label class="ctd-field">
-              <span>Background</span>
-              <div class="ctd-color-row">
-                <input
-                  type="color"
-                  value={bg()}
-                  aria-label="Background color"
-                  aria-disabled={busy() ? "true" : "false"}
-                  onInput={(e) => setBg(e.currentTarget.value)}
-                />
-                <code>{bg()}</code>
-              </div>
-            </label>
-            <label class="ctd-field">
-              <span>Text</span>
-              <div class="ctd-color-row">
-                <input
-                  type="color"
-                  value={fg()}
-                  aria-label="Text color"
-                  aria-disabled={busy() ? "true" : "false"}
-                  onInput={(e) => setFg(e.currentTarget.value)}
-                />
-                <code>{fg()}</code>
-              </div>
-            </label>
-          </div>
-
-          <label class="ctd-check">
-            <input
-              type="checkbox"
-              checked={auto()}
-              onChange={toggleAuto}
-              aria-disabled={busy() ? "true" : "false"}
-            />
-            <span>
-              Auto accent <small>(derive from your colors)</small>
-            </span>
-          </label>
-          <Show when={!auto()}>
-            <label class="ctd-field">
-              <span>Accent</span>
-              <div class="ctd-color-row">
-                <input
-                  type="color"
-                  value={accent()}
-                  aria-label="Accent color"
-                  aria-disabled={busy() ? "true" : "false"}
-                  onInput={(e) => setAccent(e.currentTarget.value)}
-                />
-                <code>{accent()}</code>
-              </div>
-            </label>
-          </Show>
-
-          <div class="ctd-actions">
-            <Show when={editing()}>
-              <button
-                type="button"
-                class={[
-                  "btn-ghost press ctd-danger-ghost",
-                  { armed: deleteArmed() },
-                ]}
-                onClick={() => void remove()}
-                aria-disabled={busy() ? "true" : "false"}
-                aria-label={
-                  deleteArmed()
-                    ? `Confirm deleting ${trimmedName() || "custom theme"}`
-                    : `Delete ${trimmedName() || "custom theme"}`
-                }
-              >
-                <Icon icon={Trash2} size={16} decorative />
-                {deleteArmed() ? "Click again to delete" : "Delete"}
-              </button>
-            </Show>
-            <span class="ctd-spacer" />
-            <button type="button" class="btn-ghost press" onClick={close}>
-              {pendingAction() === "delete"
-                ? "Cancel delete"
-                : pendingAction() === "save"
-                  ? "Cancel save"
-                  : "Cancel"}
-            </button>
+    <Portal>
+      <div class="ctd-overlay" role="presentation">
+        <button
+          type="button"
+          class="backdrop-dismiss"
+          aria-label="Close"
+          tabindex="-1"
+          onClick={close}
+        />
+        <div
+          class="ctd-sheet"
+          role="dialog"
+          tabindex="-1"
+          aria-modal="true"
+          aria-label={editing() ? "Edit custom theme" : "New custom theme"}
+          ref={trap()}
+        >
+          <header class="ctd-head">
+            <div class="ctd-head-text">
+              <p class="eyebrow">Theme</p>
+              <h2 class="display ctd-title">
+                {editing() ? "Edit theme" : "New theme"}
+              </h2>
+            </div>
             <button
-              type="submit"
-              class="btn press"
-              aria-disabled={!canSave() ? "true" : "false"}
+              class="icon-btn press ctd-close"
+              aria-label={closeLabel()}
+              onClick={close}
             >
-              {pendingAction() === "save"
-                ? "Saving…"
-                : editing()
-                  ? "Save changes"
-                  : "Create theme"}
+              <Icon icon={X} size={18} labelFromParent />
             </button>
-          </div>
-        </form>
+          </header>
+
+          <form class="ctd-form" onSubmit={(e) => void save(e)}>
+            <div
+              class="ctd-preview"
+              style={{ background: bg(), color: fg() }}
+              aria-hidden="true"
+            >
+              <span class="ctd-preview-aa">Aa</span>
+              <span class="ctd-preview-sample">The quick brown fox jumps.</span>
+              <span
+                class="ctd-preview-accent"
+                style={{ background: resolvedAccent(), color: accentText() }}
+              >
+                Accent
+              </span>
+            </div>
+            <p class="ctd-hint">
+              Appears in your{" "}
+              <strong>{group() === "light" ? "Light" : "Dark"}</strong> themes —
+              set automatically from the background.
+            </p>
+
+            <label class="ctd-field">
+              <span>Name</span>
+              <input
+                type="text"
+                value={name()}
+                maxlength={String(MAX_THEME_NAME_CHARS * 2)}
+                placeholder="My theme"
+                autocomplete="off"
+                readonly={busy()}
+                aria-disabled={busy() ? "true" : "false"}
+                aria-invalid={visibleNameError() ? "true" : undefined}
+                aria-describedby={
+                  visibleNameError() ? "theme-name-error" : undefined
+                }
+                onInput={(e) => {
+                  setName(e.currentTarget.value);
+                  setNameDirty(true);
+                }}
+                ref={(el) => (nameEl = el)}
+              />
+              <Show when={visibleNameError()}>
+                <small
+                  id="theme-name-error"
+                  class="ctd-field-error"
+                  role="alert"
+                >
+                  {visibleNameError()}
+                </small>
+              </Show>
+            </label>
+
+            <div class="ctd-colors">
+              <ColorRow
+                label="Background"
+                value={bg()}
+                busy={busy()}
+                onchange={setBg}
+              />
+              <ColorRow
+                label="Text"
+                value={fg()}
+                busy={busy()}
+                onchange={setFg}
+              />
+            </div>
+
+            <label class="ctd-check">
+              <input
+                type="checkbox"
+                checked={auto()}
+                onChange={toggleAuto}
+                aria-disabled={busy() ? "true" : "false"}
+              />
+              <span>
+                Auto accent <small>(derive from your colors)</small>
+              </span>
+            </label>
+            <Show when={!auto()}>
+              <ColorRow
+                label="Accent"
+                value={accent()}
+                busy={busy()}
+                onchange={setAccent}
+              />
+            </Show>
+
+            <div class="ctd-actions">
+              <Show when={editing()}>
+                <button
+                  type="button"
+                  class={[
+                    "btn-ghost press ctd-danger-ghost",
+                    { armed: deleteArmed() },
+                  ]}
+                  onClick={() => void remove()}
+                  aria-disabled={busy() ? "true" : "false"}
+                  aria-label={
+                    deleteArmed()
+                      ? `Confirm deleting ${trimmedName() || "custom theme"}`
+                      : `Delete ${trimmedName() || "custom theme"}`
+                  }
+                >
+                  <Icon icon={Trash2} size={16} decorative />
+                  {deleteArmed() ? "Click again to delete" : "Delete"}
+                </button>
+              </Show>
+              <span class="ctd-spacer" />
+              <button type="button" class="btn-ghost press" onClick={close}>
+                {pendingAction() === "delete"
+                  ? "Cancel delete"
+                  : pendingAction() === "save"
+                    ? "Cancel save"
+                    : "Cancel"}
+              </button>
+              <button
+                type="submit"
+                class="btn press"
+                aria-disabled={!canSave() ? "true" : "false"}
+              >
+                {pendingAction() === "save"
+                  ? "Saving…"
+                  : editing()
+                    ? "Save changes"
+                    : "Create theme"}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
+    </Portal>
   );
 }
