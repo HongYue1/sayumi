@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const root = dirname(fileURLToPath(import.meta.url));
 
 // Standalone test config, kept separate from vite.config.ts so the build's
-// frameScriptPlugin/esbuild pipeline stays out of the test run. The solid plugin
+// frameScriptPlugin (Bun.build of the frame engine) stays out of the test run. The solid plugin
 // compiles the .tsx suites and adds the `development` resolve condition, so the
 // tests run against the same solid-js dev build and reactive graph as the app.
 // `conditions: ["browser"]` forces Solid's client build so effects flush as
