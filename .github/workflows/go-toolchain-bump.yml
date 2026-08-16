@@ -1,0 +1,100 @@
+# Keeps the go.mod `go` directive on the newest patch of the current minor,
+# because govulncheck fails the gate the moment the pinned toolchain has a
+# stdlib vulnerability with a fix available (dependabot only bumps the `go`
+# directive when a dependency demands it, so patch releases go unnoticed).
+#
+# The bump PR must be self-validating: PRs opened with GITHUB_TOKEN do not
+# trigger the ci.yml pull_request workflow, so this job runs check.sh itself
+# before proposing anything. Minor versions (1.26 -> 1.27) stay a manual,
+# deliberate bump — `go get go@patch` never crosses a minor.
+name: Go toolchain bump
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: go-toolchain-bump
+  cancel-in-progress: true
+
+jobs:
+  bump:
+    name: Bump go patch version
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The writer needs the newest Go to stamp the newest directive; CI itself
+      # stays on go-version-file: go.mod so this workflow is the only floater.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+          cache: true
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: canary
+
+      - name: Bump go directive to the newest patch
+        run: |
+          go get go@patch
+          go mod tidy
+          if git diff --quiet; then
+            echo "noop=1" >> "$GITHUB_ENV"
+            echo "Already on the newest patch release."
+          else
+            NEWGO="$(go mod edit -json | sed -n 's/.*"Go": *"\([^"]*\)".*/\1/p')"
+            echo "newgo=$NEWGO" >> "$GITHUB_ENV"
+          fi
+
+      # Same pinned tools as ci.yml: check.sh skips anything not on PATH, and
+      # the gates (govulncheck above all) are the point of the exercise.
+      - name: Install Go quality tools (pinned)
+        if: env.noop != '1'
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+          go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
+          go install mvdan.cc/gofumpt@v0.10.0
+          go install golang.org/x/tools/cmd/goimports@v0.46.0
+
+      # The Go gates need the embedded dist/ to exist; mirror ci.yml's build.
+      - name: Build frontend (populate //go:embed dist dir)
+        if: env.noop != '1'
+        working-directory: frontend
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Run checks on the bumped toolchain
+        if: env.noop != '1'
+        run: ./check.sh
+
+      - name: Open (or update) the bump PR
+        if: env.noop != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="deps/go-toolchain-patch"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add go.mod go.sum
+          git commit -m "build: bump go to ${NEWGO}"
+          # Force-push keeps one open PR even if last week's was never merged.
+          git push --force origin "$BRANCH"
+          BODY="Automated toolchain patch bump (\`go get go@patch\`) so the
+          govulncheck gate stays green. Validated by a full \`check.sh\` run in
+          the creating workflow (CI does not trigger on GITHUB_TOKEN PRs)."
+          gh pr create \
+            --base main --head "$BRANCH" \
+            --title "build: bump go to ${NEWGO}" \
+            --body "$BODY" \
+          || gh pr edit "$BRANCH" \
+            --title "build: bump go to ${NEWGO}" \
+            --body "$BODY"
