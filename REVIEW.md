@@ -42,10 +42,10 @@ Legend: `[x]` done (reviewed, fixes committed) · `[-]` reviewed, clean
 - [x] b24 tests: TocPanel · frameMessageQueue · iframe boundary · cssText · frame — no bad assertions; TocPanel's b37 citation dropped, the rest clean
 - [-] b25 tests iframe: frameGraph · frameHtmlTemplate · pagination · reduceMotion · searchHighlight — reviewed, clean
 - [x] b26 tests routes: Library · Login · Read · test/library-harness · iframe/cssText.bench — Library/harness/bench clean; Login's porting stamp + X60 title and Read's line-number citation dropped
+- [x] b27 Tier-2 CSS: app.css · frame.css · searchHighlight.bench — no dead rules (every class has a production hit); 11 "Ported out of" stamps trimmed to their prefix constraints; docs29/Svelte/PANEL_MS leftovers and four line-number citations rewritten standalone
 
 ## Not run (stopped after b09 per owner instruction)
 
-- b27 Tier-2 CSS (app.css · frame.css · searchHighlight.bench)
 - Tier 3 configs + AGENTS files
 
 ## Closeout
