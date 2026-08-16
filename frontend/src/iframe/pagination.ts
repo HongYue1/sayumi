@@ -161,8 +161,7 @@ export function elementLogicalX(m: {
 // fragment/position restore, the resize-driven relayout, and the page-number
 // indicator. Pulled out of frame.ts behind a createPagination(deps) factory so
 // frame.ts keeps only mode orchestration (isPagedMode flag, chapter swap,
-// settings, lifecycle). All behaviour is verbatim from the original inline
-// implementation; deps inject the small slice of frame state it needs.
+// settings, lifecycle); deps inject the small slice of frame state it needs.
 //
 // AXIS INVARIANT — horizontal-tb only. Every metric here (scrollLeft,
 // clientWidth, scrollWidth, column-gap) is physical-X, but a vertical-writing
