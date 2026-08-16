@@ -40,10 +40,11 @@ Legend: `[x]` done (reviewed, fixes committed) · `[-]` reviewed, clean
 - [x] b22 tests components/library: EditBookDialog · ProfileDialog · ProfileMenu · ShareDialog · ThemeDropdown — no bad assertions found; citation drops only
 - [x] b23 tests components/reader: BookmarksPanel · ChapterFrame · CustomThemeDialog · SearchPanel · SettingsPanel — no bad assertions; citation drops + the <select> comment re-anchored to rc.0 (matches the source comment, re-probed)
 - [x] b24 tests: TocPanel · frameMessageQueue · iframe boundary · cssText · frame — no bad assertions; TocPanel's b37 citation dropped, the rest clean
+- [-] b25 tests iframe: frameGraph · frameHtmlTemplate · pagination · reduceMotion · searchHighlight — reviewed, clean
 
 ## Not run (stopped after b09 per owner instruction)
 
-- b25–b26 test files (except the additions/fixes made inside reviewed batches)
+- b26 test files (except the additions/fixes made inside reviewed batches)
 - b27 Tier-2 CSS (app.css · frame.css · searchHighlight.bench)
 - Tier 3 configs + AGENTS files
 
