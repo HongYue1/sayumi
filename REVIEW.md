@@ -42,8 +42,8 @@ Legend: `[x]` done (reviewed, fixes committed) · `[-]` reviewed, clean
 
 - [x] `bun run check` + `bun run test` green after every fix batch (final: 833 passed / 1 skipped)
 - [x] prettier clean (one format commit)
-- [ ] root `./check.sh` — all ten gates
-- [ ] push branch, final chat report
+- [x] root `./check.sh` — all ten gates passed
+- [x] push branch, final chat report
 - Carried forward for a future review pass: artifact citations may remain in
   the unreviewed files (bNN/XNN/docsNN/batch-N family — e.g. components/
   library+reader dialogs, iframe/, app.css:4566, Read.tsx docs29 cleanups done).
