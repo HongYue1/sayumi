@@ -1,13 +1,12 @@
 // Offline banner: a fixed overlay shown when the sayumi server becomes
-// unreachable. Ported from OfflineBanner.svelte.
+// unreachable.
 //
 // Solid 2.0 notes:
-//   - onMount -> onSettled; its returned cleanup replaces the Svelte
-//     teardown, including the imperative listeners that stand in for
-//     <svelte:window>/<svelte:document> bindings.
-//   - The $effect that toggled .offline-banner-open on <html> becomes a
-//     compute/apply createEffect pair: only the compute phase tracks, and the
-//     apply phase's return value is the cleanup, matching $effect semantics.
+//   - onSettled's returned cleanup owns every listener this component
+//     attaches (window focus/online/offline, document visibility, the
+//     reachability subscription).
+//   - The html-class toggle is a compute/apply createEffect: only the compute
+//     phase tracks, and the apply phase's return value is the cleanup.
 //   - `offlinePlain` mirrors the signal for the scheduler: a signal read
 //     immediately after a write still returns the pre-write value (batched),
 //     so scheduleNext() would compute the wrong cadence off the accessor.
@@ -24,8 +23,8 @@
 //
 // The visible banner deliberately carries no role="alert". A live region that
 // is inserted in the same tick as its text is not announced by NVDA or JAWS
-// (WCAG 4.1.3) -- the trap batch 20 hit on .lib-live -- so the announcement
-// comes from the always-mounted .sr-only region instead.
+// (WCAG 4.1.3), so the announcement comes from the always-mounted .sr-only
+// region instead.
 import { createEffect, createSignal, onSettled, Show } from "solid-js";
 import { checkHealth } from "~/api/client";
 import Icon from "~/lib/Icon";

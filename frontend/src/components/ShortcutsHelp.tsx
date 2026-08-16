@@ -1,24 +1,19 @@
 // Modal keyboard-shortcut reference, toggled from anywhere via the ui store's
-// `shortcuts` flag. Ported from ShortcutsHelp.svelte.
+// `shortcuts` flag.
 //
 // Solid 2.0 notes:
-//   - {@attach focusTrap} -> ref={trap()} (two-phase factory — beta.29 ref callbacks are unowned, so the old ref + onCleanup(...) form never tore the trap down), registered with
-//     the Show branch's owner so the trap's cleanup runs when the sheet
-//     unmounts (restoring focus to whatever opened it).
-//   - The conditional <svelte:window onkeydown> becomes a compute/apply
-//     createEffect that attaches the listener only while the sheet is open,
-//     in the CAPTURE phase -- deliberately stronger than the Svelte original,
-//     whose conditionally attached bubble listener registered after App's and
-//     Read's, so its stopImmediatePropagation could not beat them. Capture
-//     runs before any window bubble listener: the modal consumes Esc first,
-//     always.
+//   - ref={trap()} (two-phase factory — ref callbacks run unowned, so a ref +
+//     onCleanup(...) form never tears the trap down); registered with the
+//     Show branch's owner so the trap's cleanup runs when the sheet unmounts
+//     (restoring focus to whatever opened it).
+//   - The keydown listener attaches only while the sheet is open, in the
+//     CAPTURE phase: this sheet mounts after App's and Read's window
+//     listeners, so a bubble listener registers after theirs and its
+//     stopImmediatePropagation could not beat them. Capture runs before any
+//     window bubble listener, so the modal consumes Esc first, always — one
+//     Esc never both closes the sheet and pages the reader.
 //   - close() is ui.closeOverlays(): palette and shortcuts are mutually
-//     exclusive in the ui store, so closing both is exactly the old
-//     `ui.shortcuts = false`.
-//   - Probed in-sandbox (b28): the capture listener does beat both window
-//     bubble handlers that would otherwise act on Esc -- App's global shortcut
-//     listener and Read's reader keys -- so this sheet always consumes Esc
-//     first, and one Esc never both closes the sheet and pages the reader.
+//     exclusive in the ui store, so closing both is exactly closing this one.
 //   - Focus is owned entirely by trap() on the sheet element below. The close
 //     button used to carry a self-focusing ref, but a probe showed that such a
 //     ref fires while the button is still DETACHED (connected=false), where
@@ -52,8 +47,8 @@ const groups: { title: string; items: { keys: string[]; desc: string }[] }[] = [
       { keys: ["←"], desc: "Navigate left" },
       { keys: ["→"], desc: "Navigate right" },
       // Paged mode binds six more keys in Read.tsx's handleKeyAction, and
-      // frame.ts suppresses their native scroll there, so the parent handler is
-      // the only thing that can act on them. They were undocumented until b28.
+      // frame.ts suppresses their native scroll there, so the parent handler
+      // is the only thing that can act on them.
       { keys: ["Space"], desc: "Page forward" },
       { keys: ["Shift", "Space"], desc: "Page back" },
       { keys: ["PageDown"], desc: "Page forward" },
@@ -107,7 +102,7 @@ export default function ShortcutsHelp() {
           tabindex="-1"
           onClick={close}
         />
-        {/* eslint-disable jsx-a11y/prefer-tag-over-role -- div+role kept over a native <dialog>: visual parity with the Svelte original is the port's contract. */}
+        {/* eslint-disable jsx-a11y/prefer-tag-over-role -- div+role kept over a native <dialog>: visual parity with the established design is the port's contract. */}
         <div
           class="shortcuts-sheet"
           role="dialog"

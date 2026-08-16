@@ -1,18 +1,18 @@
 // Fuzzy command palette (Ctrl+K / Cmd+K): navigation, actions, books, and
-// theme switching in one list. Ported from CommandPalette.svelte.
+// theme switching in one list.
 //
 // Solid 2.0 notes:
-//   - The open/reset $effect becomes a compute/apply createEffect pair. The
-//     Svelte version needed an explicit untrack() around the lazy loads; the
-//     apply phase here never tracks, which is exactly that guarantee.
+//   - The open/reset effect is a compute/apply createEffect pair; the apply
+//     phase never tracks, which is exactly the guarantee untrack() would give
+//     around the lazy loads.
 //   - Arrow-key stepping computes `next` in a local before setActive: reading
 //     active() right after writing would still return the pre-write value
 //     (batched), and scrollActiveIntoView would chase the previous row.
-//   - {@attach focusTrap} -> ref={trap()} (two-phase factory — beta.29 ref callbacks are unowned, so the old ref + onCleanup(...) form never tore the trap down); bind:this ->
-//     ref callbacks; bind:value -> value={query()} + onInput.
+//   - ref={trap()} (two-phase factory — ref callbacks run unowned, so a ref +
+//     onCleanup(...) form never tears the trap down).
 //   - The backdrop dismiss uses the shared untabbable-button pattern
-//     (.backdrop-dismiss) instead of the Svelte's stopPropagation-on-the-sheet
-//     trick, which jsx-a11y rejects.
+//     (.backdrop-dismiss); a stopPropagation-on-the-sheet trick is what
+//     jsx-a11y rejects.
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { ui } from "~/lib/ui";
 import { library } from "~/lib/library";
@@ -201,9 +201,8 @@ export default function CommandPalette() {
       setQuery("");
       setActive(0);
       // Trigger lazy/retry loads. The apply phase never tracks, so arriving
-      // data can't re-run this effect and wipe the user's query -- the job
-      // Svelte's explicit untrack() block did. Both stores dedupe
-      // current-profile requests.
+      // data can't re-run this effect and wipe the user's query. Both stores
+      // dedupe current-profile requests.
       void library.loadForProfile(session.profile);
       void customThemes.load();
       queueMicrotask(() => input?.focus());
@@ -222,10 +221,9 @@ export default function CommandPalette() {
           onClick={close}
         />
         {/* a11y suppressions, justified: div+role kept over a native <dialog>
-            for visual parity with the Svelte original; the listbox/option rows
-            are the WAI combobox pattern -- keyboard interaction lives on the
-            combobox input via aria-activedescendant, not on the rows (mirrors
-            the Svelte a11y ignores). */}
+            for visual parity with the established design; the listbox/option
+            rows are the WAI combobox pattern -- keyboard interaction lives on
+            the combobox input via aria-activedescendant, not on the rows. */}
         {/* eslint-disable jsx-a11y/prefer-tag-over-role, jsx-a11y/no-noninteractive-element-to-interactive-role, jsx-a11y/click-events-have-key-events */}
         <div
           class="cmd-palette paper"
