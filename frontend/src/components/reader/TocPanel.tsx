@@ -1,24 +1,18 @@
-// TocPanel: virtualised, filterable table-of-contents panel — Solid 2.0 port.
+// TocPanel: virtualised, filterable table-of-contents panel.
 //
-// Solid 2.0 notes:
 //   - Rendered state is signals (query/scrollTop/viewportH/focusedIndex, plus
 //     a scrollEl signal so the mount/ResizeObserver effect re-runs if the nav
 //     mounts late); padTop/lastQuery/composing/initialised stay plain `let`
 //     because nothing rendered reads them.
-//   - $derived -> createMemo; the two mount-time $effects become one
-//     compute/apply createEffect keyed on scrollEl() with an `initialised`
-//     guard for the open-time centering (the apply phase never tracks, so an
-//     arriving TOC can't re-run it).
-//   - The query-reset $effect becomes a compute/apply createEffect on
-//     normalizedQuery().
-//   - focusRow's `await tick()` -> flush(): setter results (and the shifted
+//   - The mount/ResizeObserver effect is one compute/apply createEffect keyed
+//     on scrollEl() with an `initialised` guard for the open-time centering
+//     (the apply phase never tracks, so an arriving TOC can't re-run it); the
+//     query reset is a second pair keyed on normalizedQuery().
+//   - focusRow flushes before focusing: setter results (and the shifted
 //     virtual window) are only visible after a flush, so apply synchronously
 //     before focusing the row's button.
-//   - keyed #each -> <For> keyed by Row identity: the flattened row objects
-//     are stable references, so DOM nodes follow their row across window
-//     shifts (the Svelte string key encoded the same identity).
-//   - style:/class: directives -> style objects / class={[...]}; bind:value
-//     -> value + onInput; bind:this -> ref callbacks.
+//   - <For> is keyed by Row identity: the flattened row objects are stable
+//     references, so DOM nodes follow their row across window shifts.
 import {
   createEffect,
   createMemo,
@@ -255,7 +249,7 @@ export default function TocPanel(props: Props) {
     setScrollTop(el.scrollTop);
     setFocusedIndex(nextIndex);
     // flush() applies the window shift synchronously so the row's button is in
-    // the DOM before we focus it (the Svelte original awaited tick()).
+    // the DOM before we focus it.
     flush();
     document.getElementById(rowId(nextIndex))?.focus({ preventScroll: true });
   }
