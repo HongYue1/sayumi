@@ -14,8 +14,8 @@ Legend: `[ ]` pending · `[~]` in flight · `[x]` done (reviewed, fixes committe
 - [x] b04 lib: toast.ts · progress.ts · reachability.ts · specimen.ts · signOut.ts
 - [x] b05 lib: fonts.ts · fontRegistry.ts · readerFontFaces.ts · icons.ts · Icon.tsx
 - [x] b06 lib: focusTrap.ts · scrollLock.ts · searchMarks.ts · frameMessages.ts · api/client.ts
-- [~] b07 routes: Library.tsx · Login.tsx · Read.tsx · App.tsx · main.tsx
-- [ ] b08 components: CommandPalette · OfflineBanner · ShortcutsHelp · Toaster · library/BookCard
+- [x] b07 routes: Library.tsx · Login.tsx · Read.tsx · App.tsx · main.tsx
+- [~] b08 components: CommandPalette · OfflineBanner · ShortcutsHelp · Toaster · library/BookCard
 - [ ] b09 components/library: EditBookDialog · ProfileDialog · ProfileMenu · ShareDialog · ThemeDropdown
 - [ ] b10 components/reader: BookmarksPanel · ChapterFrame · CustomThemeDialog · SearchPanel · SettingsPanel
 - [ ] b11 components/reader: TocPanel · frame-types · frameMessageQueue · iframe: reduceMotion · boundary
