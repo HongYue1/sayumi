@@ -30,10 +30,11 @@ Legend: `[x]` done (reviewed, fixes committed) · `[-]` reviewed, clean
 - [x] b13 iframe: frame.ts · test-setup.ts · test/library-harness.ts · vite-env.d.ts — no bugs found; frame.ts comment reattachment + citation drop only
 
 - [x] b14 tests: App · main · indexHtml · api/client · lib/ui — assertions all test what they claim; comment hygiene in App.test.ts + ui.test.ts only
+- [-] b15 tests lib: cfi · customThemes · errors · flairs · focusTrap — reviewed, clean
 
 ## Not run (stopped after b09 per owner instruction)
 
-- b15–b26 test files (except the additions/fixes made inside reviewed batches)
+- b16–b26 test files (except the additions/fixes made inside reviewed batches)
 - b27 Tier-2 CSS (app.css · frame.css · searchHighlight.bench)
 - Tier 3 configs + AGENTS files
 
