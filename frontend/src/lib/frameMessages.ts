@@ -20,7 +20,7 @@ import type { IframeSettings } from "~/lib/settings";
 export type { IframeSettings };
 
 /** Display mode currently active inside the frame. */
-export type FrameDisplayMode = IframeSettings["mode"];
+type FrameDisplayMode = IframeSettings["mode"];
 export type FrameModeFallback = "vertical-writing" | null;
 export interface FrameModeState {
   mode: FrameDisplayMode;
