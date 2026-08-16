@@ -47,12 +47,14 @@ TARGETS=(
 echo "▸ building frontend ($JS)…"
 ( cd frontend && "$JS" run build )
 
-# Windows resources (icon + version metadata). The repo ships prebuilt .syso for
-# 386/amd64; regenerate for all arches if go-winres is available so arm64 also
-# gets the icon. Either way the .syso are picked up automatically by `go build`.
+# Windows resources (icon + version metadata). The repo ships a prebuilt .syso
+# for amd64 only; releases regenerate it plus arm64's when go-winres is
+# available. Without it, windows/arm64 ships without icon/version metadata.
+# Either way the .syso are picked up automatically by `go build`.
 if command -v go-winres >/dev/null 2>&1; then
-  echo "▸ go-winres make (icon/metadata for all windows arches)…"
-  if ! ( cd cmd/sayumi && go-winres make --in winres/winres.json --file-version=git-tag --product-version=git-tag ); then
+  echo "▸ go-winres make (icon/metadata for windows amd64+arm64)…"
+  # --arch is explicit: go-winres defaults to amd64,386, and no target builds 386.
+  if ! ( cd cmd/sayumi && go-winres make --in winres/winres.json --arch amd64,arm64 --file-version=git-tag --product-version=git-tag ); then
     echo "error: go-winres is installed but resource generation failed" >&2; exit 1
   fi
 else
