@@ -14,8 +14,8 @@ html.theme-light {
   /* UA-drawn surfaces inside this document -- the default focus ring on
      chapter links, EPUB3 form controls, spellcheck underlines -- come from
      color-scheme, not from these variables. The shell keeps its own current
-     via applyTheme (lib/theme.ts:93) and custom themes carry one of their own
-     (deriveReaderVars, lib/themes.ts:389); built-in themes had no path into
+     via applyTheme (lib/theme.ts) and custom themes carry one of their own
+     (deriveReaderVars in lib/themes.ts); built-in themes had no path into
      this document at all, so they are classified here and below. */
   color-scheme: light;
   --bg-primary: #ffffff;
@@ -490,7 +490,7 @@ th {
   font-weight: 700;
 }
 
-/* Text selection carries the accent, mirroring the shell's rule (app.css:237)
+/* Text selection carries the accent, mirroring the shell's ::selection rule
    so a selection reads the same on both sides of the iframe boundary. */
 ::selection {
   background: color-mix(in srgb, var(--accent) 30%, transparent);
@@ -501,7 +501,7 @@ th {
    was unreachable. Computed style is unchanged.
 
    Matched by attribute, not by class. The Go sanitizer is a deny-list
-   (internal/epub/sanitize.go:164): it drops on* handlers and dangerous URI
+   (internal/epub/sanitize.go): it drops on* handlers and dangerous URI
    schemes and keeps every other attribute, so book content reaches the DOM
    with its own class names intact. A chapter that ships
    <mark class="search-highlight"> would otherwise paint permanently as the
