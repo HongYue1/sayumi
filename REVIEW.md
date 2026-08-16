@@ -9,7 +9,7 @@ Legend: `[ ]` pending · `[~]` in flight · `[x]` done (reviewed, fixes committe
 ## Tier 1 — source files (2 reviewers/file, arbiter confirms)
 
 - [x] b01 lib: router.ts · href.ts · searchText.ts · cfi.ts · keyboard.ts
-- [~] b02 lib: library.ts · session.ts · sessionGate.ts · settings.ts · theme.ts
+- [x] b02 lib: library.ts · session.ts · sessionGate.ts · settings.ts · theme.ts
 - [ ] b03 lib: customThemes.ts · themes.ts · flairs.ts · errors.ts · ui.ts
 - [ ] b04 lib: toast.ts · progress.ts · reachability.ts · specimen.ts · signOut.ts
 - [ ] b05 lib: fonts.ts · fontRegistry.ts · readerFontFaces.ts · icons.ts · Icon.tsx
