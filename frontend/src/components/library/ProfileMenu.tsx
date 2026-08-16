@@ -1,17 +1,15 @@
 // Profile menu in the library masthead: clone / delete / sign out behind a
-// single trigger. Ported from ProfileMenu.svelte.
+// single trigger.
 //
 // Solid 2.0 notes:
-//   - The conditional <svelte:window onpointerdown> becomes a compute/apply
-//     createEffect that attaches the outside-dismiss listener only while the
-//     menu is open (bubble phase: it must not consume the event, only
-//     observe it).
-//   - {@attach ...focus()} -> ref callbacks; bind:this -> ref assignments.
+//   - The outside-dismiss window listener attaches only while the menu is
+//     open (compute/apply effect), bubble phase: it must not consume the
+//     event, only observe it.
 //   - No `as` casts (lint errors here): e.target and activeElement are
 //     narrowed with instanceof instead.
 //   - Class names get a .pm- prefix: .trigger/.item/.menu are shared by
-//     convention across the library subtree's scoped styles and would collide
-//     in the global sheet when ThemeDropdown/BookCard land.
+//     convention across the library subtree and would collide in the one
+//     global sheet.
 import { createEffect, createSignal, Show } from "solid-js";
 import { session } from "~/lib/session";
 import { signOutWithFeedback } from "~/lib/signOut";

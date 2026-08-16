@@ -1,4 +1,4 @@
-// BookCard: library grid card — Solid 2.0 port.
+// BookCard: library grid card.
 // (Solid notes: the dismiss effect and the edge-flip measurement split into
 // compute→apply pairs; ref vars are assigned at mount and read only while a
 // menu is open, so plain `let` bindings stay intentionally non-reactive.

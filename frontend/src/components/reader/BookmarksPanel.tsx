@@ -1,22 +1,9 @@
-// BookmarksPanel: bookmark list with inline label/note editing — Solid 2.0 port.
+// BookmarksPanel: bookmark list with inline label/note editing.
 //
-// Solid 2.0 notes:
-//   - Rendered state is signals (editingId/editLabel/editComment/editError);
-//     returnFocusId stays a plain let — it's consumed only by the focus
-//     effect below, never rendered.
-//   - {@attach (el) => el.focus()} -> assignment refs plus a compute/apply
-//     createEffect on editingId that focuses through queueMicrotask: element
-//     refs run while the node is still detached (b28 probe), so a focusing ref
-//     is a silent no-op and focus dropped to body on every edit toggle. The
-//     trap's initial-focus microtask only runs at panel mount, so it never
-//     covers these mid-session mounts.
-//   - {@attach restoreEditFocus} -> the same effect's other branch: when
-//     editing ends the display branch remounts and focus returns to the row's
-//     edit button (preventScroll keeps the list position).
-//   - keyed #each (bm.id) -> <For> keyed by Bookmark object identity: the
-//     store hands us stable references, so rows keep their DOM nodes.
-//   - bind:value -> value + onInput (the error-clearing oninput folds into
-//     the same handler).
+// Rendered state is signals (editingId/editLabel/editComment/editError);
+// returnFocusId stays a plain let — it's consumed only by the focus effect
+// below, never rendered. <For> is keyed by Bookmark object identity: the
+// store hands us stable references, so rows keep their DOM nodes.
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { Bookmark } from "~/api/client";
 import Icon from "~/lib/Icon";
@@ -92,13 +79,13 @@ export default function BookmarksPanel(props: Props) {
   }
 
   // Focus across the edit toggle. A focusing ref cannot do it: refs run
-  // while the node is still detached (b28 probe), so the old self-focusing
-  // refs were silent no-ops and focus dropped to body entering AND leaving
-  // edit mode. focusTrap's initial-focus microtask only runs at panel mount
-  // (Read.tsx:1738), so it never covers these mid-session mounts. Assignment
-  // refs stash the nodes; this compute/apply pair focuses them one microtask
-  // after the DOM swap, generation-guarded so a focus queued for a toggle
-  // that has since flipped again is dropped (the b32 shape).
+  // while the node is still detached, so focusing in a ref is a silent no-op
+  // and focus drops to body entering AND leaving edit mode. focusTrap's
+  // initial-focus microtask only runs at panel mount, so it never covers
+  // these mid-session mounts. Assignment refs stash the nodes; this
+  // compute/apply pair focuses them one microtask after the DOM swap,
+  // generation-guarded so a focus queued for a toggle that has since flipped
+  // again is dropped.
   let labelEl: HTMLInputElement | undefined;
   const editButtons = new Map<string, HTMLButtonElement>();
   let focusGen = 0;

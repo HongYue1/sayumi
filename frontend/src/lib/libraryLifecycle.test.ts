@@ -109,6 +109,34 @@ describe("library profile lifecycle", () => {
     expect(mocks.getBooks).toHaveBeenCalledTimes(1);
   });
 
+  it("chains overlapping refreshes so each gets its own post-mutation read", async () => {
+    const first = deferred<BookMeta[]>();
+    const second = deferred<BookMeta[]>();
+    mocks.getBooks
+      .mockReturnValueOnce(Promise.resolve([book("a", "A")]))
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    const store = new Library();
+    await store.loadForProfile("p");
+    flush();
+
+    const r1 = store.refresh();
+    const r2 = store.refresh();
+    // r1's read predates whatever mutation r2's caller has committed, so r2
+    // must wait for r1 and then read again itself — deduping onto r1 would
+    // resolve r2 with the stale list and nothing would ever refetch.
+    first.resolve([book("a", "pre-mutation")]);
+    await r1;
+    flush();
+
+    second.resolve([book("a", "post-mutation"), book("b", "new")]);
+    await r2;
+    flush();
+
+    expect(mocks.getBooks).toHaveBeenCalledTimes(3);
+    expect(store.books.map((item) => item.id)).toEqual(["a", "b"]);
+  });
+
   it("does not let a stale mutation rollback the new profile", async () => {
     const request = deferred<void>();
     mocks.setBookFlair.mockReturnValueOnce(request.promise);

@@ -213,6 +213,41 @@ describe("per-attempt timeout", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("rethrows a timeout that fires while the body streams", async () => {
+    let calls = 0;
+    fetchMock.mockImplementation(
+      (_input: unknown, init?: { signal?: AbortSignal }) => {
+        calls += 1;
+        if (calls > 1) return Promise.resolve(jsonResponse({ ok: true }));
+        const signal = init?.signal;
+        // Headers answered, body stalls: res.json() waits on a stream that
+        // only ends when the attempt's timeout aborts it. The rejection is
+        // the signal's TimeoutError reason - wrapping it as ApiError(200,
+        // invalid_response) would spend the retry budget and misreport a
+        // stalled-but-answered body as malformed.
+        return Promise.resolve(
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                signal?.addEventListener("abort", () => {
+                  controller.error(signal.reason as Error);
+                });
+              },
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      },
+    );
+    const p = requestWithRetry<{ ok: boolean }>("GET", "/x", undefined, {
+      attempts: 2,
+      timeoutMs: 20_000,
+    });
+    await vi.runAllTimersAsync();
+    await expect(p).resolves.toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("releases the timeout timer as soon as the request settles", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ ok: true }));
     await expect(

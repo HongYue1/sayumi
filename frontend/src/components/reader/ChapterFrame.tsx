@@ -1,8 +1,6 @@
-// ChapterFrame: sandboxed srcdoc iframe + postMessage bridge — Solid 2.0 port.
-// (Solid notes: all instance state is non-reactive by design — nothing rendered
-// reads it, so plain `let` bindings replace $state. The Svelte {@attach}
-// teardown becomes a component-level onCleanup: the iframe lives exactly as
-// long as the component.)
+// ChapterFrame: sandboxed srcdoc iframe + postMessage bridge. Instance state
+// is plain `let` bindings by design — nothing rendered reads it. The iframe
+// lives exactly as long as the component, so teardown is component-level.
 import { onCleanup, onSettled } from "solid-js";
 import { buildFrameSrcdoc } from "~/iframe/buildFrameHtml";
 import { buildReaderFontFaces } from "~/lib/readerFontFaces";
@@ -339,11 +337,10 @@ export default function ChapterFrame(props: Props) {
   onSettled(() => props.onapi?.(api));
 
   onSettled(() => {
-    // Replaces <svelte:window onmessage={handleMessage} />. The teardown is
-    // returned, not registered via onCleanup: onCleanup inside an onSettled
-    // callback throws CLEANUP_IN_FORBIDDEN_SCOPE in dev builds (probe-verified
-    // against @solidjs/signals beta.29), leaking the listeners and the raster
-    // timer there. Every sibling settle handler uses this returned shape.
+    // The teardown is returned, not registered via onCleanup: onCleanup
+    // inside an onSettled callback throws CLEANUP_IN_FORBIDDEN_SCOPE in dev
+    // builds, leaking the listeners and the raster timer there. Every sibling
+    // settle handler uses this returned shape.
     window.addEventListener("message", handleMessage);
     const viewport = window.visualViewport;
     if (viewport) {
@@ -361,8 +358,8 @@ export default function ChapterFrame(props: Props) {
     };
   });
 
-  // The iframe is the component's root element, so the Svelte {@attach}
-  // teardown becomes a component-level cleanup.
+  // The iframe is the component's root element and lives exactly as long as
+  // the component, so its teardown is this component-level cleanup.
   onCleanup(() => {
     const w = iframeEl?.contentWindow;
     ready = false;
@@ -375,9 +372,9 @@ export default function ChapterFrame(props: Props) {
 
   // sandbox: allow-scripts runs frame.ts. allow-popups (+ escape-sandbox) let
   // an in-book link open in a real new tab via window.open() in frame.ts —
-  // without them the popup is silently blocked, so a left-click did nothing
-  // while a middle-click (the browser's native new-tab path) still worked
-  // (bug #8).
+  // without them the popup is silently blocked, so a left-click would do
+  // nothing while a middle-click (the browser's native new-tab path) still
+  // works.
   return (
     <iframe
       ref={(el) => {

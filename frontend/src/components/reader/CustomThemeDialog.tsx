@@ -1,24 +1,18 @@
-// CustomThemeDialog: create/edit a custom theme with live preview — Solid 2.0
-// port.
+// CustomThemeDialog: create/edit a custom theme with live preview.
 //
-// Solid 2.0 notes:
 //   - Rendered state is signals; operationController stays a plain let (never
 //     rendered). Seeding-from-props-once is intentional: the dialog is
 //     remounted per open (SettingsPanel gates it with a conditional), so the
 //     initial signal values read props exactly once.
-//   - <svelte:window onkeydowncapture> -> window.addEventListener with
-//     capture: true inside onSettled (this dialog mounts AFTER the reader
-//     route, so capture is what lets stopImmediatePropagation beat Read's
-//     bubble-phase Escape handler regardless of registration order).
-//   - onDestroy -> onCleanup; {@attach focusTrap} -> ref + onCleanup.
-//   - The overlay-click + stopPropagation-on-sheet trick becomes the shared
-//     .backdrop-dismiss button pattern (jsx-a11y rejects the Svelte version),
+//   - Escape is a capture-phase window keydown listener: this dialog mounts
+//     AFTER the reader route, so capture is what lets
+//     stopImmediatePropagation beat Read's bubble-phase Escape handler
+//     regardless of registration order.
+//   - The dismiss layer is the shared .backdrop-dismiss button pattern,
 //     matching CommandPalette and the library dialogs.
-//   - style: directives -> style objects; bind:value/checked -> value/checked
-//     + onInput/onChange.
 //   - Busy state is aria-disabled + handler-side guards, never a real
 //     disabled attribute: a real disabled blurs the pressed control
-//     mid-request, Enter-in-field included (the X46 doctrine).
+//     mid-request, Enter-in-field included.
 import { createMemo, createSignal, onCleanup, onSettled, Show } from "solid-js";
 import { customThemes } from "~/lib/customThemes";
 import { settings } from "~/lib/settings";
@@ -52,8 +46,7 @@ const MAX_THEME_NAME_CHARS = 60;
 
 export default function CustomThemeDialog(props: Props) {
   // The dialog is remounted per open, so seeding local editing state from
-  // props once is intentional (the Svelte original documented the same with
-  // state_referenced_locally ignores).
+  // props once is intentional.
   const seed = props.edit ?? props.base;
   const seedBg = norm(seed.bg, "#ffffff");
   const seedFg = norm(seed.fg, "#111111");
@@ -84,8 +77,8 @@ export default function CustomThemeDialog(props: Props) {
   let operationController: AbortController | null = null;
 
   // Focus the name field on open. A focusing ref cannot do it: refs run while
-  // the node is still detached (b28 probe), so the old ref was a silent no-op
-  // and focusTrap's fallback took the first focusable in the sheet -- the
+  // the node is still detached, so focusing in a ref is a silent no-op and
+  // focusTrap's fallback would take the first focusable in the sheet -- the
   // header close button, where Enter dismisses. Deferring one microtask lands
   // after the trap's own queueMicrotask; if this runs first instead, the
   // trap's !node.contains(activeElement) guard stands down.

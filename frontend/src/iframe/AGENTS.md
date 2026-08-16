@@ -25,7 +25,7 @@ decision and `buildFrameHtml.ts` holds nothing but the two imports. Two conseque
   `style-src` is `'unsafe-inline'` and nothing more: every sheet in the document is one
   of the `<style>` slots below, and book content carries inline `style=""` attributes
   that need the keyword. It also carried a `*`, which permitted nothing reachable —
-  `@import` never survives to the frame (see below) — so the `*` was dropped in batch 10.
+  `@import` never survives to the frame (see below) — so the `*` was dropped.
   That is a source for _stylesheet URLs_, not an asset source; it is not the loosening
   this bullet warns about.
 - **The `<style>` slots are a cascade contract.** In order: `base-css`,

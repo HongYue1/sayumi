@@ -1,20 +1,17 @@
 // SettingsPanel: reader settings surface — presets, themes, fonts, text,
-// layout, chapter titles, book styling — Solid 2.0 port.
+// layout, chapter titles, book styling.
 //
-// Solid 2.0 notes:
 //   - Rendered state is signals; resetTimer stays a plain let. `s` is a plain
 //     thunk over settings.value: that getter hands back the store node itself,
 //     a stable reference, so a memo over it could only ever compute once --
 //     the property reads at each s().foo call site are what track.
-//   - The two Svelte snippets become module-level components (AutoRow,
-//     Swatch): neither closes over panel state — everything arrives via props
-//     (unicorn consistent-function-scoping).
-//   - The CustomThemeDialog mount gate `{#if editor}` -> <Show when={editor()}>
-//     with a function child, so the dialog remounts per open and can seed its
-//     local state from props once (documented in that component).
-//   - onMount -> onSettled; bind:value -> value + onInput; class:active ->
-//     class={[...]}; style: -> style objects; aria-pressed gets "true"/"false"
-//     strings (EnumeratedPseudoBoolean).
+//   - AutoRow and Swatch are module-level components: neither closes over
+//     panel state — everything arrives via props (unicorn
+//     consistent-function-scoping).
+//   - The CustomThemeDialog gate is <Show when={editor()}> with a function
+//     child, so the dialog remounts per open and can seed its local state
+//     from props once (documented in that component).
+//   - aria-pressed gets "true"/"false" strings (EnumeratedPseudoBoolean).
 import {
   createMemo,
   createSignal,
@@ -77,6 +74,15 @@ const ROLES: {
   { key: "boldItalic", label: "Bold Italic" },
 ];
 
+// A variable family emits ONE 100-900 @font-face per axis (buildUserFontFaces
+// in lib/readerFontFaces): the upright file covers regular+bold and the italic
+// file covers italic+bold-italic, so a bold/bold-italic file pick would be
+// persisted and then silently dropped from the generated CSS. Offer only the
+// axis roles for those families.
+const AXIS_ROLES = ROLES.filter(
+  (r) => r.key === "regular" || r.key === "italic",
+);
+
 // Heading levels for the optional per-heading size overrides.
 const HEADERS: {
   key: "h1Size" | "h2Size" | "h3Size" | "h4Size" | "h5Size" | "h6Size";
@@ -120,7 +126,8 @@ function set<K extends keyof UserSettings>(
 // the open book the navigate is a no-op the router reports as false (no
 // hashchange fires — see lib/router.ts), so nothing remounts: close directly.
 function openSpecimen(onclose: () => void): void {
-  if (!router.navigate(`/read/${SPECIMEN_BOOK_ID}`)) onclose();
+  if (!router.navigate(`/read/${encodeURIComponent(SPECIMEN_BOOK_ID)}`))
+    onclose();
 }
 
 /** Numeric row with an "Auto" toggle for nullable settings. */
@@ -677,7 +684,7 @@ export default function SettingsPanel(props: Props) {
                 {(f) => <option value={f.id}>{f.label}</option>}
               </For>
             </optgroup>
-            {/* Always mounted, emptied by <For>: on 2.0.0-beta.29 a
+            {/* Always mounted, emptied by <For>: on 2.0.0-rc.0 a
                 conditional element child of a <select> is never removed once
                 the <select> has another element child (probe-verified for
                 <Show>, a ternary and a gated <For>, on either side of the
@@ -703,7 +710,7 @@ export default function SettingsPanel(props: Props) {
                 <p class="stp-roles-hint">
                   Pick which file to use for each style.
                 </p>
-                <For each={ROLES}>
+                <For each={fam().variable ? AXIS_ROLES : ROLES}>
                   {(role) => (
                     <label class="stp-role-row">
                       <span class="stp-role-label">{role.label}</span>
@@ -903,7 +910,7 @@ export default function SettingsPanel(props: Props) {
                 {(f) => <option value={f.id}>{f.label}</option>}
               </For>
             </optgroup>
-            {/* Always mounted for the same beta.29 reason as the body-font
+            {/* Always mounted for the same <select> reason as the body-font
                 group above. */}
             <optgroup
               label={

@@ -1,7 +1,7 @@
 // In-frame search-match highlighting.
 //
-// Extracted from frame.ts as the first stateful module of the #3 frame split.
-// Builds a flattened, whitespace-collapsed character index of the chapter body
+// The first stateful module extracted from frame.ts. Builds a flattened,
+// whitespace-collapsed character index of the chapter body
 // so a (charOffset, matchLen) pair from the parent search can be mapped back to
 // a DOM Range, wraps that range in a <mark>, and scrolls or pages it into view.
 // Falls back to a direct case-insensitive substring search when the indexed

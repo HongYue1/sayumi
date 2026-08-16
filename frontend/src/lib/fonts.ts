@@ -1,13 +1,14 @@
-export interface ReaderFont {
+interface ReaderFont {
   id: string;
   label: string;
   family: string;
   category: "serif" | "sans-serif";
 }
 
-// Only the two fonts embedded in the binary are listed here. The rest of the
-// catalogue ships as drop-in families in ./Fonts/ (see fonts-bundle/) and is
-// surfaced dynamically through the user-font registry.
+// Only the two READER fonts embedded in the binary are listed here. Two more
+// families (Fraunces, Hanken Grotesk) are embedded for the shell UI and never
+// enter this catalogue; the rest ships as drop-in families in ./Fonts/ (see
+// fonts-bundle/) and is surfaced dynamically through the user-font registry.
 export const READER_FONTS: ReaderFont[] = [
   {
     id: "literata",

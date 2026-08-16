@@ -1,21 +1,16 @@
 // Profile picker / first-run create form -- the whole pre-library experience.
-// Ported from Login.svelte.
 //
 // Solid 2.0 notes:
-//   - onMount -> onSettled for the initial profile fetch. Its teardown is
-//     RETURNED from the callback: onCleanup() inside onSettled throws
-//     CLEANUP_IN_FORBIDDEN_SCOPE under Solid 2.0.
+//   - onSettled's teardown is RETURNED from the callback: onCleanup() inside
+//     it throws CLEANUP_IN_FORBIDDEN_SCOPE.
 //   - loadProfiles computes the next mode off a LOCAL, not the profiles()
 //     accessor: a signal read right after a write still returns the pre-write
 //     value (batched). On FIRST run both reads are [] so the bug cannot show
 //     there; the reachable case is a RETURNING user, where the stale [] would
 //     send a profile owner to the create form instead of the picker.
-//   - A <For> index accessor stays inside JSX. The row factory is untracked, so
-//     reading i() there snapshots the index and emits STRICT_READ_UNTRACKED.
-//   - {@attach focusOnMount} -> ref callbacks (run on every mount, unlike the
-//     one-shot HTML autofocus attribute).
-//   - The if/else-if chain -> Switch/Match with the create form as fallback;
-//     the PIN form reads the selected profile through a keyed Show so the
+//   - A <For> index accessor stays inside JSX. The row factory is untracked,
+//     so reading i() there snapshots the index and emits STRICT_READ_UNTRACKED.
+//   - The PIN form reads the selected profile through a keyed Show so the
 //     value is narrowed and stable.
 import { createSignal, For, Match, onSettled, Show, Switch } from "solid-js";
 import {
@@ -129,7 +124,7 @@ export default function Login() {
   let returning = false;
 
   // busy() is a signal: two activations in the same tick both read the
-  // pre-write value, so it cannot serialise submits on its own (batch 20).
+  // pre-write value, so it cannot serialise submits on its own.
   let inFlight = false;
   // Flipped by the onSettled teardown. App.tsx unmounts this route the moment
   // the session authenticates, which can happen mid-request, so every
@@ -427,11 +422,10 @@ export default function Login() {
           <Switch
             fallback={
               <form onSubmit={submitCreate}>
-                {/* Content-toggled, not Show-toggled: a <Show> whose condition
-                    is already true when the Show is created never releases that
-                    first child, so a true -> false flip would leave the
-                    first-run sentence on screen beside its replacement (X35).
-                    Toggling text inside a stable element tracks correctly. */}
+                {/* Content-toggled, not Show-toggled: text swaps inside a
+                    stable element, the same mounted-region doctrine the live
+                    regions below rely on — a region (or sentence) inserted in
+                    the same tick as its text announces nothing. */}
                 <p class="login-muted">
                   {profiles().length === 0 && !loadFailed()
                     ? "Welcome — create a profile to start your library."

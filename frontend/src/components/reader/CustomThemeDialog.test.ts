@@ -4,9 +4,9 @@
 // themeGroupFor stay real -- the seeding assertions are statements about the
 // real catalogue. focusTrap is real: this dialog mounts inside its trap.
 //
-// The invariants, four of which regressed silently before b36:
-//   - Focus lands on the name field on open. The old self-focusing ref ran
-//     while the node was still detached (b28 probe), so the trap's fallback
+// The invariants, four of which regressed silently before this suite existed:
+//   - Focus lands on the name field on open. A self-focusing ref runs
+//     while the node is still detached, so the trap's fallback
 //     took the first focusable in the sheet -- the header close button, where
 //     Enter dismisses the dialog.
 //   - An Escape that ends an IME composition is not a dismissal, even though

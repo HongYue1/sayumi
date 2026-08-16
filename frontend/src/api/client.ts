@@ -120,7 +120,14 @@ async function parseSuccessResponse<T>(res: Response): Promise<T> {
     // An abort during body streaming is a cancellation, not a malformed body.
     // Wrapping it as ApiError would defeat callers' AbortError checks (e.g.
     // the reader treats aborted chapter fetches as "superseded", not errors).
-    if (error instanceof DOMException && error.name === "AbortError")
+    // The per-attempt timeout aborts with a TimeoutError and gets the same
+    // rethrow: wrapped, a stalled-but-answered 200 would masquerade as a
+    // malformed body, spend its retry budget, and lose the truthful
+    // "Request timed out" message a headers-phase timeout already gets.
+    if (
+      error instanceof DOMException &&
+      (error.name === "AbortError" || error.name === "TimeoutError")
+    )
       throw error;
     throw new ApiError(
       "Invalid server response",
@@ -649,15 +656,6 @@ export function deleteBook(id: string, signal?: AbortSignal): Promise<void> {
   return request<void>(
     "DELETE",
     `/books/${pathSegment(id)}`,
-    undefined,
-    signal,
-  );
-}
-
-export function getToc(id: string, signal?: AbortSignal): Promise<TocEntry[]> {
-  return request<TocEntry[]>(
-    "GET",
-    `/books/${pathSegment(id)}/toc`,
     undefined,
     signal,
   );

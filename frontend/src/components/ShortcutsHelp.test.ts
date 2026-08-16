@@ -14,8 +14,8 @@
 //   - The dotted leader lives inside <dd>, because a div row inside a <dl> may
 //     contain only <dt>s followed by <dd>s.
 //   - Focus placement belongs to focusTrap, in a queued microtask. Refs fire
-//     while their element is still detached, so a self-focusing ref (which the
-//     close button carried until b28) is a no-op. The focus test pins that
+//     while their element is still detached, so a self-focusing ref is a
+//     no-op. The focus test pins that
 //     ordering deliberately: the opener still holds focus synchronously after
 //     mount, the close button holds it one tick later, and the opener gets it
 //     back on close.
@@ -225,11 +225,9 @@ describe("ShortcutsHelp", () => {
     const closeBtn = container.querySelector(".shortcuts-close");
     expect(closeBtn).not.toBeNull();
     // Nothing in this component focuses during render, and that is deliberate:
-    // a ref runs while its element is still detached, where focus() is a no-op.
-    // That is exactly why the close button's old self-focusing ref was dead
-    // code and was removed in b28. Focus placement belongs to focusTrap's
-    // queued microtask, one tick later -- so at this instant focus is still on
-    // the opener.
+    // a ref runs while its element is still detached, where focus() is a
+    // no-op. Focus placement belongs to focusTrap's queued microtask, one tick
+    // later -- so at this instant focus is still on the opener.
     expect(document.activeElement).toBe(opener);
 
     await settle();

@@ -2,8 +2,7 @@ import { onCleanup } from "solid-js";
 import { lockDocumentScroll } from "~/lib/scrollLock";
 
 /**
- * Focus trap for overlay / dialog / slide-over panels, per the
- * fixing-accessibility skill (priority 3: focus & dialogs):
+ * Focus trap for overlay / dialog / slide-over panels:
  *
  *   - moves focus into the node on mount (first tab stop, or the node itself),
  *     unless the component already placed focus inside (e.g. a search input),

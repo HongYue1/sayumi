@@ -20,14 +20,14 @@ import { createBoundary } from "./boundary";
 import { createPagination } from "./pagination";
 import { prefersReducedMotion } from "./reduceMotion";
 
+const EXTERNAL_BOOK_LINK_SCHEMES = new Set(["http", "https", "mailto", "tel"]);
+
 // Keys whose browser default is to scroll the viewport / nearest scroller. In
 // paged mode the page turn is a JS opacity cross-fade plus a single scrollLeft
 // swap on #content, so letting these keys ALSO scroll it natively races the
 // fade and makes the turn flicker. Their default is prevented in paged mode
 // while the parent still drives discrete page navigation from the forwarded
 // key event.
-const EXTERNAL_BOOK_LINK_SCHEMES = new Set(["http", "https", "mailto", "tel"]);
-
 const PAGED_SCROLL_KEYS = new Set<string>([
   "ArrowLeft",
   "ArrowRight",
@@ -936,8 +936,8 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     // keep their natural weight from frame.css (h1–h6 { font-weight: 700 }) or
     // the book stylesheet. That direct rule already outranks the body weight
     // headings would otherwise inherit, so setting body weight alone no longer
-    // drags titles down to normal. (The old `revert` fallback here resolved to
-    // normal in some engines, un-bolding chapter titles — bug #1.)
+    // drags titles down to normal. (A `revert` fallback here resolved to
+    // normal in some engines, un-bolding chapter titles.)
     if (settings.textWeight != null) {
       css.push(`body { font-weight: ${settings.textWeight} !important; }`);
     }

@@ -1,8 +1,6 @@
-// Library route: the shelf — Solid 2.0 port.
-// (Solid notes: onMount → onSettled; the conditional svelte:window pointerdown
-// listener becomes a compute→apply effect with a cleanup; the sort menu reuses
-// the BookCard/ThemeDropdown roving-focus menuitemradio pattern; `library` is
-// the batch-2 store class — getters are reactive, `sort` has a setter.)
+// Library route: the shelf. The `library` store's getters are reactive and
+// `sort` is a settable property; the sort menu reuses the BookCard /
+// ThemeDropdown roving-focus menuitemradio pattern.
 import {
   createEffect,
   createMemo,
@@ -126,10 +124,11 @@ export default function Library() {
   // clip it to the bar box. A window listener is container-proof — and the
   // pass-through doctrine (an outside click closes the menu AND lands on its
   // target) is shared with every menu: ThemeDropdown, ProfileMenu, the
-  // reader's more menu, and since b59 BookCard (whose only swallow is its own
+  // reader's more menu, and BookCard (whose only swallow is its own
   // open-book overlay).
   function onSortOutside(e: PointerEvent): void {
-    // Narrow, don't cast -- ThemeDropdown.tsx:80 uses exactly this guard. The
+    // Narrow, don't cast -- ThemeDropdown's onOutside uses exactly this
+    // guard. The
     // cast form lied to the compiler: a non-Element target (shadow-DOM
     // retargeting, or a synthetic event with no target) made both contains()
     // calls return false, so this menu treated it as an outside click and
@@ -262,9 +261,9 @@ export default function Library() {
   // signal read immediately after its own write still returns the pre-write
   // value, so a signal-based check would let two Enter presses in one flush
   // window both through. That matters here because addCustomFlair reads
-  // getNextPaletteColor(customFlairs.length) BEFORE its await (library.ts:487),
-  // so the second call sees the pre-insert length and mints a duplicate chip in
-  // the same colour. The paired signal exists only to drive the disabled state.
+  // getNextPaletteColor(customFlairs.length) BEFORE its await, so the second
+  // call sees the pre-insert length and mints a duplicate chip in the same
+  // colour. The paired signal exists only to drive the disabled state.
   let adding = false;
   const [addingFlair, setAddingFlair] = createSignal(false);
 
@@ -310,11 +309,10 @@ export default function Library() {
         ? "No books match your search or filters."
         : "";
 
-  // Replaces <svelte:window onpointerdown={sortOpen ? onSortOutside : undefined}>:
-  // the listener lives only while the menu is open. Compute/apply pair:
-  // single-argument createEffect is a one-shot in Solid 2.0 and silently
-  // drops the returned cleanup (MISSING_EFFECT_FN), so this listener would
-  // never attach on open.
+  // The outside-pointerdown listener lives only while the menu is open.
+  // Compute/apply pair: the single-argument createEffect is a one-shot in
+  // Solid 2.0 and silently drops the returned cleanup (MISSING_EFFECT_FN),
+  // so this listener would never attach on open.
   createEffect(
     () => sortOpen(),
     (open) => {

@@ -5,7 +5,7 @@
 //
 // Only ~/api/client is mocked. checkHealth is the component's single
 // collaborator, so the real ~/lib/reachability is driven through
-// reportReachable/reportUnreachable instead of a hand-rolled twin (X22): its
+// reportReachable/reportUnreachable instead of a hand-rolled twin: its
 // notify-on-transition-only behaviour is part of what keeps the banner from
 // thrashing the timer, and a stub would quietly hide that.
 //

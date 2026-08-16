@@ -5,10 +5,10 @@
 // who wins between the trap's fallback and the dialog's own intent, so
 // stubbing it would assert nothing.
 //
-// The invariants, each of which regressed silently before b33:
+// The invariants, each of which regressed silently before this suite existed:
 //   - Focus opens on the download action -- never on the header close
 //     button, the first focusable in DOM order, where Enter dismisses the
-//     dialog the reader had just opened (the b30 EditBookDialog defect).
+//     dialog the reader had just opened.
 //   - An Escape that ends an IME composition is not a dismissal; any other
 //     Escape closes and is consumed before the page's own key handlers.
 //   - The upload button is aria-disabled while busy, never disabled: a real
@@ -252,7 +252,7 @@ describe("ShareDialog", () => {
     await mount();
 
     // The region exists from first paint, before there is anything to say --
-    // a region inserted in the same tick as its text is not announced (b27).
+    // a region inserted in the same tick as its text is not announced.
     expect(liveRegion().textContent).toBe("");
 
     uploadBtn().click();

@@ -1,12 +1,10 @@
 // Share dialog: direct .epub download, or anonymous gofile upload for a
-// shareable link. Ported from ShareDialog.svelte.
+// shareable link.
 //
 // Solid 2.0 notes:
-//   - onDestroy -> onCleanup; <svelte:window onkeydowncapture> -> an
-//     onSettled-scoped capture listener (the Svelte original already used
-//     capture for exactly the registration-order reason documented below).
-//   - {@attach focusTrap} -> ref={trap()} (two-phase factory — beta.29 ref callbacks are unowned, so the old ref + onCleanup(...) form never tore the trap down); bind:this is not
-//     needed -- the abort controller and timers are plain (non-reactive) vars.
+//   - ref={trap()} — see focusTrap.ts for why the two-phase factory is
+//     required; the abort controller and timers are plain (non-reactive)
+//     vars.
 //   - The backdrop dismiss is the shared .backdrop-dismiss button instead of
 //     the sheet stopPropagation trick, which jsx-a11y rejects.
 import { createMemo, createSignal, onCleanup, onSettled, Show } from "solid-js";
@@ -88,10 +86,10 @@ export default function ShareDialog(props: Props) {
   });
 
   // Focus the download action, the control this dialog exists for. A ref
-  // cannot do it: refs run while the node is still detached (b28 probe), so
+  // cannot do it: refs run while the node is still detached, so
   // a self-focusing ref would be a silent no-op and focusTrap's fallback
   // would take the first focusable in the sheet -- the header close button,
-  // where Enter dismisses (the b30 EditBookDialog defect). Deferring one
+  // where Enter dismisses. Deferring one
   // microtask lands after the trap's own queueMicrotask; if this runs first
   // instead, the trap's !node.contains(activeElement) guard stands down.
   let downloadEl: HTMLAnchorElement | undefined;
@@ -225,7 +223,7 @@ export default function ShareDialog(props: Props) {
 
           {/* Pre-mounted live region, same as EditBookDialog/ProfileDialog:
               the visible error above is inserted in the same tick as its
-              text, which NVDA and JAWS do not announce (b27, WCAG 4.1.3) --
+              text, which NVDA and JAWS do not announce (WCAG 4.1.3) --
               this region exists from first paint and only its text changes,
               so the paragraph carries no role="alert". */}
           <p class="sr-only" role="alert">

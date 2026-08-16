@@ -3,7 +3,7 @@
 // card's whole contract is DOM structure plus which handler fires.
 //
 // The invariants that carry the weight here are all keyboard/AT structural,
-// and each one regressed silently before b29:
+// and each one regressed silently before this suite existed:
 //   - Focus must enter the popover from the post-flush apply phase, deferred a
 //     microtask. Refs fire while their node is still detached, so the items'
 //     self-focusing refs were no-ops -- which in turn made the roving
@@ -24,7 +24,7 @@
 //     in that state.
 //   - Driving the menus must not log STRICT_READ_UNTRACKED. The dismiss
 //     effect's apply phase is an untracked scope, so it resolves its chips
-//     through a plain lookup rather than a memo (docs29 08).
+//     through a plain lookup rather than a memo.
 // The menuEl reset in closeMenu is hygiene with no observable behaviour today
 // (the ref is always reassigned on the next open), so nothing here asserts it.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";

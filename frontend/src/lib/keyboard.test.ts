@@ -30,7 +30,14 @@ describe("isKeyboardConsumer", () => {
   });
 
   it("leaves button-like inputs and ordinary elements shortcut-capable", () => {
-    for (const type of ["button", "checkbox", "file", "reset", "submit"]) {
+    for (const type of [
+      "button",
+      "checkbox",
+      "file",
+      "image",
+      "reset",
+      "submit",
+    ]) {
       const input = document.createElement("input");
       input.type = type;
       expect(isKeyboardConsumer(input), type).toBe(false);
@@ -96,14 +103,18 @@ describe("keyboardEventIsOwnedByTarget", () => {
     const button = document.createElement("button");
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
+    const image = document.createElement("input");
+    image.type = "image";
     const summary = document.createElement("summary");
     const video = document.createElement("video");
     video.controls = true;
 
     expect(keyboardEventIsOwnedByTarget(key(button, " "))).toBe(true);
     expect(keyboardEventIsOwnedByTarget(key(checkbox, " "))).toBe(true);
+    expect(keyboardEventIsOwnedByTarget(key(image, " "))).toBe(true);
     expect(keyboardEventIsOwnedByTarget(key(summary, " "))).toBe(true);
     expect(keyboardEventIsOwnedByTarget(key(video, "ArrowRight"))).toBe(true);
     expect(keyboardEventIsOwnedByTarget(key(button, "s"))).toBe(false);
+    expect(keyboardEventIsOwnedByTarget(key(image, "s"))).toBe(false);
   });
 });

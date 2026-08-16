@@ -145,7 +145,7 @@ describe("generateCFI / resolveCFI", () => {
 
   // Strict integer parse: a malformed/foreign segment must fail to null so
   // callers fall back to percent, rather than parseInt coercing it to a
-  // wrong-but-valid index. Mirrors the (now deleted) inlined resolveCFILocal.
+  // wrong-but-valid index.
   for (const bad of [
     "cfi:3x",
     "cfi:1/1.5",

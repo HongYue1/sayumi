@@ -109,7 +109,7 @@ function buildSpineIndex(spine: SpineEntry[]): SpineIndex {
 
 function matchSpinePath(path: string, index: SpineIndex): number | null {
   // Exact tier. An ambiguous exact key (null) falls through to the suffix
-  // tier, exactly like the original uniqueMatch-based scan did.
+  // tier rather than failing.
   const exact = index.byPath.get(path);
   if (exact !== undefined && exact !== null) return exact;
 

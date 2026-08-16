@@ -8,7 +8,7 @@ import { getFonts, rescanFonts, type UserFontFamily } from "~/api/client";
 import { subscribeReachability } from "~/lib/reachability";
 
 /** The "user:" prefix marks a family that lives in ./Fonts/ rather than embedded. */
-export const USER_FONT_PREFIX = "user:";
+const USER_FONT_PREFIX = "user:";
 
 export function isUserFamilyId(id: string): boolean {
   return id.startsWith(USER_FONT_PREFIX);

@@ -5,7 +5,7 @@
  *
  * Icons inherit `currentColor`, so they automatically take the active theme's
  * text colour (set `color: var(--accent)` on the parent to tint an active
- * control). Defaults match the redesign spec: 20px / stroke 1.75.
+ * control). The defaults (20px / stroke 1.75) are pinned by Icon.test.tsx.
  *
  * The <svg> shell lives here rather than in icons.ts so it exists once in the
  * bundle rather than once per glyph, and so the geometry file stays pure data.
