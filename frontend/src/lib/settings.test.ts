@@ -319,6 +319,66 @@ describe("settings save pipeline", () => {
     });
   });
 
+  it("does not schedule the deferred save when the load retry fails", async () => {
+    vi.useFakeTimers();
+    const { ApiError } = await import("~/api/client");
+    api.getSettings.mockRejectedValue(
+      new ApiError("unreachable", undefined, "network_error"),
+    );
+    const { settings } = await import("~/lib/settings");
+    const { flush } = await import("solid-js");
+
+    await settings.load();
+    flush();
+    settings.update({ fontSize: 31 });
+    flush();
+    await vi.advanceTimersByTimeAsync(1000);
+    await flushMicrotasks();
+
+    // The edit is kept locally (and in the dirty map) but no PUT may fire:
+    // the store still holds compile-time defaults, and PUTing would overwrite
+    // the whole server row with them. load() never rejects, so the chain
+    // after update() has to gate on the load having actually succeeded.
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(settings.value.fontSize).toBe(31);
+    expect(settings.loaded).toBe(false);
+  });
+
+  it("rolls a rejected in-flight-window edit back to the server value", async () => {
+    vi.useFakeTimers();
+    let resolveLoad!: (value: ReturnType<typeof full>) => void;
+    const loadPromise = new Promise<ReturnType<typeof full>>((resolve) => {
+      resolveLoad = resolve;
+    });
+    api.getSettings.mockReturnValueOnce(loadPromise);
+    const { ApiError } = await import("~/api/client");
+    api.saveSettings.mockRejectedValueOnce(
+      new ApiError("invalid settings", 400, "invalid"),
+    );
+    const { settings } = await import("~/lib/settings");
+    const { flush } = await import("solid-js");
+
+    void settings.load();
+    settings.update({ fontSize: 999 });
+    flush();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(api.saveSettings).not.toHaveBeenCalled();
+
+    resolveLoad(full({ fontSize: 36 }));
+    await flushMicrotasks();
+    flush();
+    // The deferred save PUTs the edit and the server rejects it; the rollback
+    // must restore the server-accepted 36. If #lastSaved had absorbed the
+    // dirty edit, the rollback would reinstate the rejected 999 and every
+    // later save would keep failing on it.
+    await vi.advanceTimersByTimeAsync(500);
+    await flushMicrotasks();
+    flush();
+    expect(api.saveSettings).toHaveBeenCalledTimes(1);
+    expect(settings.value.fontSize).toBe(36);
+    expect(showToast).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves fields a sparse response omitted when later edits save", async () => {
     vi.useFakeTimers();
     api.getSettings.mockResolvedValueOnce({ fontSize: 36 });

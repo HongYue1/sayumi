@@ -147,8 +147,8 @@ export function toIframeSettings(
 }
 
 class Settings {
-  // A store, not a signal: store drafts track at property level (docs29 04),
-  // so a per-field mutation wakes only the consumers reading that property — a
+  // A store, not a signal: store drafts track at property level, so a
+  // per-field mutation wakes only the consumers reading that property — a
   // font-size drag does not re-run isPaged, buildAllFontFaces, or the iframe
   // mapping. Replacing the whole object would invalidate every consumer.
   readonly #store = createStore<UserSettings>(freshDefaults());
@@ -158,21 +158,14 @@ class Settings {
   readonly #iframe: () => IframeSettings;
 
   /**
-   * Non-reactive mirror of `loaded`, used by load()'s guard.
+   * Non-reactive mirror of `loaded`, used by the synchronous guards: load's
+   * early return and update's save gate.
    *
-   * Solid 2.0 batches writes (docs29 01), so a signal read immediately after a
-   * write still returns the last committed value until the flush. Control flow
+   * Solid 2.0 batches writes, so a signal read immediately after a write
+   * still returns the last committed value until the flush. Control flow
    * reads this field; the signal exists only so gated consumers re-render.
    */
   #loaded = false;
-  /**
-   * True only after a load has SUCCEEDED. `loaded` gates consumers on server
-   * truth; this gates the save pipeline: a failed load keeps the defaults but
-   * stays retryable, and update() defers saves until server state is in hand —
-   * otherwise the next debounced save would PUT compile-time defaults plus one
-   * edit over the user's server row (the full object is PUT every time).
-   */
-  #loadOk = false;
   /** Edits made before a successful load, re-applied over #load's merge. */
   #dirtyDuringLoad: Partial<UserSettings> = {};
   /** Profile whose settings this instance currently represents. */
@@ -190,9 +183,9 @@ class Settings {
 
   constructor() {
     // Detached on purpose: in Solid 2.0 ownership is the default, so document
-    // lifetime is an explicit opt-in via runWithOwner(null, ...) (docs29 02).
-    // Unowned memos autodispose once they lose their last subscriber (docs29
-    // 01) — every settings.iframe subscriber is route-scoped in Read.tsx, so
+    // lifetime is an explicit opt-in via runWithOwner(null, ...). Unowned
+    // memos autodispose once they lose their last subscriber — every
+    // settings.iframe subscriber is route-scoped in Read.tsx, so
     // the memo tears down with the reader route and recomputes on the next
     // mount. Safe here because the derivation is pure (no cleanup, no side
     // effects), and while unsubscribed it skips recompute on settings writes.
@@ -301,6 +294,11 @@ class Settings {
       if (!isUserFamilyId(next.fontFamily) && !getFontById(next.fontFamily)) {
         next.fontFamily = DEFAULT_USER_SETTINGS.fontFamily;
       }
+      // The rollback snapshot holds only what the server has accepted: a
+      // dirty-during-load edit has not been PUT yet, and letting it into
+      // #lastSaved would make a 4xx rollback reinstate the rejected value and
+      // wedge every later save on it. Copied before the dirty merge re-applies.
+      this.#lastSaved = { ...next, fontRoles: { ...next.fontRoles } };
       // Edits made before this load landed survive the merge — a theme picked
       // while the GET was in flight is not clobbered by the server response.
       Object.assign(next, this.#dirtyDuringLoad);
@@ -308,29 +306,17 @@ class Settings {
       this.#store[1]((s) => {
         Object.assign(s, next);
       });
-      this.#lastSaved = { ...next, fontRoles: { ...next.fontRoles } };
       this.#revision += 1;
       this.#setLoaded(true);
-      this.#loadOk = true;
     } catch {
-      // Keep defaults and stay retryable: #loadOk/#loaded are only set on
-      // success, so the next load() refetches. A failed load must not mark the
-      // defaults as server truth — applyTheme would paint and cache them over
-      // the user's saved theme, and a save would PUT them over the server row.
+      // Keep defaults and stay retryable: `loaded` is only set on success, so
+      // the next load() refetches. A failed load must not mark the defaults as
+      // server truth — applyTheme would paint and cache them over the user's
+      // saved theme, and a save would PUT them over the server row.
     } finally {
       if (this.#loadController === controller) {
         this.#loadController = undefined;
         this.#loadPromise = undefined;
-      }
-      // An edit arrived while this load was in flight and its save was
-      // deferred. Retry now: a success republishes with the edits re-applied
-      // (generation/abort guards make a logout-race retry a no-op publish).
-      if (
-        this.#loaded &&
-        !this.#loadOk &&
-        Object.keys(this.#dirtyDuringLoad).length > 0
-      ) {
-        void this.load().then(() => this.#scheduleSave());
       }
     }
   }
@@ -343,12 +329,17 @@ class Settings {
       Object.assign(s, partial);
     });
     this.#revision += 1;
-    if (!this.#loadOk) {
+    if (!this.#loaded) {
       // The server row's state is not in hand (load pending or failed): record
       // the edit so #load's merge cannot clobber it, and defer the save —
       // PUTing now would persist defaults+edit over the user's saved settings.
+      // load() never rejects, so the chain must re-check: after a FAILED load
+      // the edit stays in #dirtyDuringLoad until a retry (activate, route
+      // remount, next edit) succeeds and re-applies and saves it.
       Object.assign(this.#dirtyDuringLoad, partial);
-      void this.load().then(() => this.#scheduleSave());
+      void this.load().then(() => {
+        if (this.#loaded) this.#scheduleSave();
+      });
       return;
     }
     this.#scheduleSave();
@@ -369,7 +360,6 @@ class Settings {
     this.#saveController?.abort();
     this.#saveController = undefined;
     this.#dirtyDuringLoad = {};
-    this.#loadOk = false;
     const defaults = freshDefaults();
     this.#store[1]((s) => {
       Object.assign(s, defaults);
@@ -415,12 +405,9 @@ class Settings {
     this.#saveController?.abort();
     const controller = new AbortController();
     this.#saveController = controller;
-    // snapshot() is the 2.0 replacement for unwrap(): a plain, non-tracking
-    // value. Read the raw store node, never this.value — that getter exists to
-    // create subscriptions, and reading it inside a tracked scope would
-    // subscribe where snapshot() is meant not to. Spread so the payload can't
-    // alias the live store; copy fontRoles so it shares no nested container
-    // with store state or #lastSaved.
+    // snapshot() returns a plain, non-tracking copy of the store. Spread it
+    // so the payload can't alias live state, and copy fontRoles so it shares
+    // no nested container with the store or #lastSaved.
     const snap = snapshot(this.#store[0]);
     const payload: UserSettings = {
       ...snap,
