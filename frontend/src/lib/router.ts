@@ -1,5 +1,4 @@
-// Tiny hash-based router. Reactivity uses a Solid signal; the route-matching
-// logic is unchanged from the Svelte revision it replaces.
+// Tiny hash-based router built on a Solid signal.
 //
 // Behaviour contract worth keeping: hash parsing treats malformed
 // percent-encoded book IDs as invalid routes and falls back to the library,

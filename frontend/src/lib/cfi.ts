@@ -12,15 +12,16 @@
 // The reader frame (src/iframe/frame.ts) is the only runtime consumer. The app
 // side never builds or resolves a path: it stores whatever the frame reports
 // and hands it back opaquely (Read.tsx, ChapterFrame.tsx). The frame is bundled
-// (Bun.build, iife) and can import at runtime, so the copy once inlined in
-// frame.ts is gone. This module stays under src/lib because vite.config.ts's
-// frame-graph watch list names it there, and it must not import from src/iframe.
+// (Bun.build, iife) and imports lib modules at runtime. This module stays under
+// src/lib because vite.config.ts's frame-graph watch list names it there, and
+// it must not import from src/iframe.
 //
 // SEARCH MARK CONTRACT. Search highlights wrap matched text in
-// <mark data-search-mark="sayumi"> nodes appear and vanish under a chapter
-// that is otherwise unchanged. Their identity lives in searchMarks.ts. Counting
-// them as siblings shifts every element after the marked text by one, so a path
-// minted under a live highlight resolves to a DIFFERENT REAL ELEMENT once the
+// <mark data-search-mark="sayumi"> nodes that appear and vanish under a
+// chapter that is otherwise unchanged. Their identity lives in searchMarks.ts.
+// Counting them as siblings shifts every element after the marked text by one,
+// so a path minted under a live highlight resolves to a DIFFERENT REAL ELEMENT
+// once the
 // highlight is cleared — silently, because a wrong-but-existing element yields
 // no null for the caller to fall back from. Both directions below therefore
 // index as if no search mark were present. Book-authored <mark> elements carry
@@ -104,8 +105,7 @@ export function resolveCFI(cfi: string, doc: Document): Element | null {
   for (const part of parts) {
     // Strict integer parse: a malformed/foreign segment (e.g. "3x", "", "1.5")
     // must fail to null so callers fall back to percent, rather than parseInt
-    // leniently coercing it to a wrong-but-valid index. The inlined
-    // resolveCFILocal this once mirrored is deleted; frame.ts calls this.
+    // leniently coercing it to a wrong-but-valid index.
     if (!/^\d+$/.test(part)) return null;
     const index = parseInt(part, 10);
     if (index < 1) return null;
