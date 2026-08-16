@@ -4,12 +4,12 @@ Working tracker for the Solid 2 frontend review on branch `review/frontend-solid
 Status only, not a changelog. Temporary scaffolding — delete before merging to
 main (root AGENTS.md bans standing review artifacts).
 
-Scope note: the owner stopped the review after batch 8. Batches b09–b27
-(components/library+reader suites, reader/iframe engine files, test files,
-Tier-2 CSS, Tier-3 configs) were NOT reviewed, except where earlier batches
-legitimately touched them (SettingsPanel/ThemeDropdown fixes, ui.test.ts and
-fonts.test.ts comment fixes, keyboard/searchText/library/settings/Read/client
-test additions).
+Scope note: the owner stopped the review after batch 9. Batches b10–b27
+(components/reader files, reader/iframe engine files, test files, Tier-2 CSS,
+Tier-3 configs) were NOT reviewed, except where earlier batches legitimately
+touched them (SettingsPanel/ThemeDropdown fixes, ui.test.ts and fonts.test.ts
+comment fixes, keyboard/searchText/library/settings/Read/client test
+additions).
 
 Legend: `[x]` done (reviewed, fixes committed) · `[-]` reviewed, clean
 
@@ -23,10 +23,11 @@ Legend: `[x]` done (reviewed, fixes committed) · `[-]` reviewed, clean
 - [x] b06 lib: focusTrap.ts · scrollLock.ts · searchMarks.ts · frameMessages.ts · api/client.ts
 - [x] b07 routes: Library.tsx · Login.tsx · Read.tsx · App.tsx · main.tsx
 - [x] b08 components: CommandPalette · OfflineBanner · ShortcutsHelp · Toaster · library/BookCard — arbiter-only review (subagent API failed repeatedly); no bugs found, comment hygiene only
+- [x] b09 components/library: EditBookDialog · ProfileDialog · ProfileMenu · ShareDialog · ThemeDropdown — one reviewer pass + arbiter pass (the second subagent pass failed on the model API); no bugs found, comment hygiene only
 
-## Not run (stopped after b08 per owner instruction)
+## Not run (stopped after b09 per owner instruction)
 
-- b09–b13 components/library+reader and reader/iframe engine files
+- b10–b13 components/reader and reader/iframe engine files
 - b14–b26 test files (except the additions/fixes made inside reviewed batches)
 - b27 Tier-2 CSS (app.css · frame.css · searchHighlight.bench)
 - Tier 3 configs + AGENTS files
@@ -36,7 +37,8 @@ Legend: `[x]` done (reviewed, fixes committed) · `[-]` reviewed, clean
 - Environment caps subagents at 2 concurrent (not 10): each batch got one
   correctness-first + one idiom-focused reviewer instead of two per file.
 - b08 completed by the arbiter alone after four consecutive subagent
-  "model request failed" errors.
+  "model request failed" errors. b09's correctness pass failed the same way;
+  it completed with one reviewer pass plus the arbiter's own full-file pass.
 
 ## Closeout
 
