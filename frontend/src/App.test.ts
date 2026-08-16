@@ -14,8 +14,8 @@
 //   - applyTheme is stubbed but getTheme/getCachedThemeId stay real (spread
 //     over importOriginal), so the cached-id path reads real localStorage.
 //     What applyTheme WRITES is the point of the theme tests: it persists
-//     whatever it paints into localStorage["sayumi:theme"] (theme.ts:117), so
-//     a call with the wrong id is not a repaint, it is data loss.
+//     whatever it paints into localStorage["sayumi:theme"], so a call with
+//     the wrong id is not a repaint, it is data loss.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createComponent, flush } from "solid-js";
 import { render } from "@solidjs/web";
@@ -470,8 +470,8 @@ describe("App shell", () => {
 
   it("leaves AltGr+K to the keyboard layout", async () => {
     // AltGr reaches the DOM as ctrl+alt on Windows and most Linux layouts,
-    // where AltGr+K is a character. frame.ts:1302 already excludes it inside
-    // the book iframe; this is the parent-document half.
+    // where AltGr+K is a character. frame.ts's key handler already excludes
+    // it inside the book iframe; this is the parent-document half.
     const shell = await signedIn();
 
     const e = press({ key: "k", ctrlKey: true, altKey: true });

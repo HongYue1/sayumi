@@ -166,10 +166,9 @@ describe("ui overlay state", () => {
 
   it("exposes the flags read-only", () => {
     const u = createUIState();
-    // Getter-only, so the Svelte-era assignment form that ShortcutsHelp's
-    // docblock still quotes (ui.shortcuts = false) is a TypeError rather than
-    // a silent no-op. Asserted through behaviour: reading the descriptor back
-    // would reference an unbound method.
+    // Getter-only, so assigning a flag (ui.shortcuts = false) is a TypeError
+    // rather than a silent no-op. Asserted through behaviour: reading the
+    // descriptor back would reference an unbound method.
     expect(() => Object.assign(u, { palette: true })).toThrow(TypeError);
     expect(u.palette).toBe(false);
   });
@@ -219,8 +218,8 @@ describe("ui overlay state", () => {
     expect(runs).toBe(1);
     // The swap re-runs the apply: both underlying signals change value, so the
     // compute re-executes even though the conjunction's value stays true.
-    // Probe-measured at b54, not assumed: Solid 2.0 keys the apply phase on
-    // compute re-execution, not on the compute's output.
+    // Measured, not assumed: Solid 2.0 keys the apply phase on compute
+    // re-execution, not on the compute's output.
     u.openShortcuts();
     flush();
     expect(runs).toBe(2);
