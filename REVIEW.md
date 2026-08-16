@@ -4,9 +4,16 @@ Working tracker for the Solid 2 frontend review on branch `review/frontend-solid
 Status only, not a changelog. Temporary scaffolding — delete before merging to
 main (root AGENTS.md bans standing review artifacts).
 
-Legend: `[ ]` pending · `[~]` in flight · `[x]` done (reviewed, fixes committed) · `[-]` reviewed, clean
+Scope note: the owner stopped the review after batch 8. Batches b09–b27
+(components/library+reader suites, reader/iframe engine files, test files,
+Tier-2 CSS, Tier-3 configs) were NOT reviewed, except where earlier batches
+legitimately touched them (SettingsPanel/ThemeDropdown fixes, ui.test.ts and
+fonts.test.ts comment fixes, keyboard/searchText/library/settings/Read/client
+test additions).
 
-## Tier 1 — source files (2 reviewers/file, arbiter confirms)
+Legend: `[x]` done (reviewed, fixes committed) · `[-]` reviewed, clean
+
+## Tier 1 — source files
 
 - [x] b01 lib: router.ts · href.ts · searchText.ts · cfi.ts · keyboard.ts
 - [x] b02 lib: library.ts · session.ts · sessionGate.ts · settings.ts · theme.ts
@@ -15,41 +22,30 @@ Legend: `[ ]` pending · `[~]` in flight · `[x]` done (reviewed, fixes committe
 - [x] b05 lib: fonts.ts · fontRegistry.ts · readerFontFaces.ts · icons.ts · Icon.tsx
 - [x] b06 lib: focusTrap.ts · scrollLock.ts · searchMarks.ts · frameMessages.ts · api/client.ts
 - [x] b07 routes: Library.tsx · Login.tsx · Read.tsx · App.tsx · main.tsx
-- [~] b08 components: CommandPalette · OfflineBanner · ShortcutsHelp · Toaster · library/BookCard
-- [ ] b09 components/library: EditBookDialog · ProfileDialog · ProfileMenu · ShareDialog · ThemeDropdown
-- [ ] b10 components/reader: BookmarksPanel · ChapterFrame · CustomThemeDialog · SearchPanel · SettingsPanel
-- [ ] b11 components/reader: TocPanel · frame-types · frameMessageQueue · iframe: reduceMotion · boundary
-- [ ] b12 iframe: buildFrameHtml · cssText · frameHtmlTemplate · pagination · searchHighlight
-- [ ] b13 iframe: frame.ts · test-setup.ts · test/library-harness.ts · vite-env.d.ts
+- [x] b08 components: CommandPalette · OfflineBanner · ShortcutsHelp · Toaster · library/BookCard — arbiter-only review (subagent API failed repeatedly); no bugs found, comment hygiene only
 
-## Tier 1 — test files (criteria: stale/wrong comments, dead helpers, Svelte leftovers, assertions that don't test what they claim)
+## Not run (stopped after b08 per owner instruction)
 
-- [ ] b14 App.test · main.test · indexHtml.test · api/client.test · lib/ui.test
-- [ ] b15 lib: cfi · customThemes · errors · flairs · focusTrap
-- [ ] b16 lib: fontRegistry · fonts · frameMessages · href · icons
-- [ ] b17 lib: keyboard · library · libraryLifecycle · modalBoundary · profileState
-- [ ] b18 lib: progress · reachability · readerFontFaces · router · scrollLock
-- [ ] b19 lib: searchMarks · searchText · session.integration · session · sessionGate
-- [ ] b20 lib: settings · specimen · theme · themes · toast
-- [ ] b21 lib/Icon.test.tsx · components: CommandPalette · OfflineBanner · ShortcutsHelp · library/BookCard
-- [ ] b22 components/library: EditBookDialog · ProfileDialog · ProfileMenu · ShareDialog · ThemeDropdown
-- [ ] b23 components/reader: BookmarksPanel · ChapterFrame · CustomThemeDialog · SearchPanel · SettingsPanel
-- [ ] b24 components/reader: TocPanel · frameMessageQueue · iframe: boundary · cssText · frame
-- [ ] b25 iframe: frameGraph · frameHtmlTemplate · pagination · reduceMotion · searchHighlight
-- [ ] b26 routes: Library · Login · Read · test/library-harness · iframe/cssText.bench
+- b09–b13 components/library+reader and reader/iframe engine files
+- b14–b26 test files (except the additions/fixes made inside reviewed batches)
+- b27 Tier-2 CSS (app.css · frame.css · searchHighlight.bench)
+- Tier 3 configs + AGENTS files
 
-## Tier 2 — CSS (2 reviewers/file)
+## Process deviations
 
-- [ ] b27 src/app.css · src/iframe/frame.css · iframe/searchHighlight.bench
-
-## Tier 3 — self-review (no subagents)
-
-- [ ] index.html · vite.config.ts · vitest.config.ts · tsconfig.json · package.json
-- [ ] .oxlintrc.json · .prettierrc.json · frontend/AGENTS.md · src/iframe/AGENTS.md
+- Environment caps subagents at 2 concurrent (not 10): each batch got one
+  correctness-first + one idiom-focused reviewer instead of two per file.
+- b08 completed by the arbiter alone after four consecutive subagent
+  "model request failed" errors.
 
 ## Closeout
 
-- [ ] Carried: normalize unresolvable artifact citations (docs29/b49/X35/X54/bNN/batch-N refs) as each file's batch lands
-- [ ] `bun run check` + `bun run test` green after every fix batch (rolling)
+- [x] `bun run check` + `bun run test` green after every fix batch (final: 833 passed / 1 skipped)
+- [x] prettier clean (one format commit)
 - [ ] root `./check.sh` — all ten gates
-- [ ] push branch, final chat report, REVIEW.md dropped before merge
+- [ ] push branch, final chat report
+- Carried forward for a future review pass: artifact citations may remain in
+  the unreviewed files (bNN/XNN/docsNN/batch-N family — e.g. components/
+  library+reader dialogs, iframe/, app.css:4566, Read.tsx docs29 cleanups done).
+
+Deleted before merge.
