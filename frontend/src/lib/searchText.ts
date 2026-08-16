@@ -49,13 +49,6 @@ export function findFoldedCodePointRange(
   return null;
 }
 
-export function findCaseInsensitiveCodePointRange(
-  source: string,
-  query: string,
-): { start: number; end: number } | null {
-  return findFoldedCodePointRange(source, foldSearchText(query));
-}
-
 /** Splits on code-point boundaries; no returned part can hold half a pair. */
 export function splitFoldedCodePointMatch(
   source: string,
@@ -69,11 +62,4 @@ export function splitFoldedCodePointMatch(
     match: chars.slice(range.start, range.end).join(""),
     after: chars.slice(range.end).join(""),
   };
-}
-
-export function splitCaseInsensitiveCodePointMatch(
-  source: string,
-  query: string,
-): CodePointMatch | null {
-  return splitFoldedCodePointMatch(source, foldSearchText(query));
 }

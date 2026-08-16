@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   codePointLength,
-  findCaseInsensitiveCodePointRange,
   findFoldedCodePointRange,
   foldSearchCodePoint,
   foldSearchText,
-  splitCaseInsensitiveCodePointMatch,
+  splitFoldedCodePointMatch,
   toCodePoints,
 } from "~/lib/searchText";
 
@@ -21,14 +20,12 @@ describe("search text code-point doctrine", () => {
   });
 
   it("finds and slices a folded match only at code-point boundaries", () => {
-    expect(findCaseInsensitiveCodePointRange("Lead 🙂X tail", "🙂x")).toEqual({
-      start: 5,
-      end: 7,
-    });
     expect(
       findFoldedCodePointRange("Lead 🙂X tail", foldSearchText("🙂x")),
     ).toEqual({ start: 5, end: 7 });
-    expect(splitCaseInsensitiveCodePointMatch("Lead 🙂X tail", "🙂x")).toEqual({
+    expect(
+      splitFoldedCodePointMatch("Lead 🙂X tail", foldSearchText("🙂x")),
+    ).toEqual({
       before: "Lead ",
       match: "🙂X",
       after: " tail",
@@ -36,8 +33,8 @@ describe("search text code-point doctrine", () => {
   });
 
   it("returns null for empty, missing, or overlong queries", () => {
-    expect(findCaseInsensitiveCodePointRange("abc", "")).toBeNull();
-    expect(findCaseInsensitiveCodePointRange("abc", "z")).toBeNull();
-    expect(findCaseInsensitiveCodePointRange("abc", "abcd")).toBeNull();
+    expect(findFoldedCodePointRange("abc", foldSearchText(""))).toBeNull();
+    expect(findFoldedCodePointRange("abc", foldSearchText("z"))).toBeNull();
+    expect(findFoldedCodePointRange("abc", foldSearchText("abcd"))).toBeNull();
   });
 });
