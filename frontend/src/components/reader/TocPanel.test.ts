@@ -1,5 +1,5 @@
 // Suite for the reader table-of-contents panel -- the last component in
-// components/reader/ that had none (b37). Nothing is stubbed: the panel takes
+// components/reader/ that had none. Nothing is stubbed: the panel takes
 // plain props and renders real rows, so every test is a statement about the
 // shipped component. The invariants, four of which regressed silently:
 //   - The virtualized list keeps exactly ONE tab stop and keeps it inside the
