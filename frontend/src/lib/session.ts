@@ -16,9 +16,8 @@ import {
   UNAUTHENTICATED_CODE,
 } from "~/lib/sessionGate";
 
-// Holds the currently authenticated profile. Replaces the legacy lib/profile.ts
-// module-level state. The real session lives server-side in the `sayumi_session`
-// cookie; this is the client-side mirror.
+// Holds the currently authenticated profile. The real session lives server-side
+// in the `sayumi_session` cookie; this is the client-side mirror.
 export type SessionStatus =
   "checking" | "authenticated" | "signed-out" | "unavailable";
 
