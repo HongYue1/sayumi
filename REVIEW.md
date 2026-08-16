@@ -37,10 +37,11 @@ Legend: `[x]` done (reviewed, fixes committed) · `[-]` reviewed, clean
 - [-] b19 tests lib: searchMarks · searchText · session.integration · session · sessionGate — reviewed, clean
 - [-] b20 tests lib: settings · specimen · theme · themes · toast — reviewed, clean
 - [x] b21 tests: lib/Icon · CommandPalette · OfflineBanner · ShortcutsHelp · library/BookCard — assertions all test what they claim; comment hygiene in OfflineBanner/ShortcutsHelp/BookCard only
+- [x] b22 tests components/library: EditBookDialog · ProfileDialog · ProfileMenu · ShareDialog · ThemeDropdown — no bad assertions found; citation drops only
 
 ## Not run (stopped after b09 per owner instruction)
 
-- b22–b26 test files (except the additions/fixes made inside reviewed batches)
+- b23–b26 test files (except the additions/fixes made inside reviewed batches)
 - b27 Tier-2 CSS (app.css · frame.css · searchHighlight.bench)
 - Tier 3 configs + AGENTS files
 
