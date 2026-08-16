@@ -1,10 +1,10 @@
-// Ported from the Svelte Login.test.ts. Renders the component with
-// @solidjs/web's render directly -- NOT @solidjs/testing-library, whose dist
-// imports the removed "solid-js/web" specifier and dies at suite collection
-// under Solid 2.0. Events are dispatched by hand (as the Svelte version did);
-// `flush` forces Solid 2.0's batched writes so assertions see committed
-// state. This file never calls vi.resetModules(), so a statically imported
-// flush drives the same scheduler instance as the component under test.
+// Renders the component with @solidjs/web's render directly -- NOT
+// @solidjs/testing-library, whose dist imports the removed "solid-js/web"
+// specifier and dies at suite collection under Solid 2.0. Events are
+// dispatched by hand; `flush` forces Solid 2.0's batched writes so
+// assertions see committed state. This file never calls vi.resetModules(),
+// so a statically imported flush drives the same scheduler instance as the
+// component under test.
 //
 // The client mock spreads importOriginal instead of hand-rolling an ApiError
 // twin. A local twin is never constructed by the route, so every
@@ -322,7 +322,7 @@ describe("Login route", () => {
     expect(q('svg[aria-label="PIN protected"]')).not.toBeNull();
   });
 
-  it("Login route: profile rows track their index without dev diagnostics (X60)", async () => {
+  it("Login route: profile rows track their index without dev diagnostics", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
       api.listProfiles.mockResolvedValue([

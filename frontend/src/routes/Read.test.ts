@@ -65,7 +65,7 @@ const api = vi.hoisted(() => ({
   updateBookmark: vi.fn(),
   deleteBookmark: vi.fn(),
   // Reached through the real fontRegistry singleton rather than imported by
-  // Read.tsx directly: Read.tsx:639 calls fontRegistry.load(), which calls
+  // Read.tsx directly: Read's boot calls fontRegistry.load(), which calls
   // getFonts(). Without these two the `...actual` spread below leaves them
   // live, and every mount fired a real request at the dev-server port.
   getFonts: vi.fn(),
