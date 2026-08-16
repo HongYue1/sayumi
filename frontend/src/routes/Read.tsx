@@ -1,5 +1,5 @@
 // Read: the reader route — ChapterFrame wiring, side panels, progress
-// tracking, keyboard nav — Solid 2.0 port.
+// tracking, keyboard nav.
 //
 // Solid 2.0 notes:
 //   - Rendered state is signals; the large non-reactive instance state (api,
@@ -8,20 +8,17 @@
 //   - The four side panels are clientOnly(loader, { lazy: true }) so the
 //     import defers to first open; an idle-time prewarm (direct import(),
 //     module-cache-deduped with clientOnly's own) keeps first open at a
-//     one-microtask fallback, matching the Svelte prewarm. Specimen mode
-//     still prewarms Settings only.
-//   - svelte:window/document listeners -> window/document addEventListener in
-//     onSettled + its returned cleanup; the moreOpen-conditional pointerdown listener
-//     becomes a compute/apply createEffect keyed on moreOpen().
-//   - The three Svelte $effects (font-face push, settings push, theme sync)
-//     become compute/apply createEffects — plus a fourth for the overflow
-//     menu's outside-pointer listener; the apply phase never tracks, which is
-//     exactly the guarantee the Svelte version used untrack() for.
-//   - fly/fade transitions -> CSS keyframe enters (rdp-panel-in-left/right,
-//     rdp-fade-in) with a prefers-reduced-motion kill switch in CSS — the
-//     Svelte JS honored it via PANEL_MS=0; CSS owns it now. Exit animations
-//     are dropped: Solid 2.0 has no transition directives and docs29 has no
-//     Transition component.
+//     one-microtask fallback. Specimen mode still prewarms Settings only.
+//   - Window/document listeners attach in onSettled and tear down via its
+//     returned cleanup; the moreOpen-conditional pointerdown listener is a
+//     compute/apply createEffect keyed on moreOpen().
+//   - The font-face push, the settings push, and the overflow menu's
+//     outside-pointer listener are compute/apply createEffects — the apply
+//     phase never tracks, which is exactly the guarantee untrack() would give.
+//   - Panel enter animations are CSS keyframes (rdp-panel-in-left/right,
+//     rdp-fade-in) with a prefers-reduced-motion kill switch owned by CSS.
+//     Exit animations are dropped: nothing in the Solid 2 component set
+//     plays an exit transition.
 //   - No per-panel "couldn't load / Retry" UI: clientOnly exposes no error
 //     state, and with the idle prewarm a chunk failure means the whole reader
 //     chunk graph is broken anyway.
@@ -143,8 +140,8 @@ export default function Read(props: Props) {
   // not resume from (or clobber) each other's locally cached position.
   const bookId = props.bookId;
   // Intentional one-time read of a signal-backed getter at component-body top
-  // level: untrack marks it deliberate and silences STRICT_READ_UNTRACKED
-  // (docs29 08). Correctness comes from App's keyed Show remounting Read per
+  // level: untrack marks it deliberate and silences STRICT_READ_UNTRACKED.
+  // Correctness comes from App's keyed Show remounting Read per
   // book; the publisher is deliberately bound to the profile NAME (dead after
   // a switch), not a live subscription.
   const bootProfile = untrack(() => session.profile);
@@ -336,15 +333,20 @@ export default function Read(props: Props) {
     setActivePanel(p);
   }
   function togglePanel(p: Panel): void {
-    setPanel(activePanel() === p ? "none" : p);
-    // A panel is part of the chrome — keep it visible while open.
-    if (activePanel() !== "none") showChrome(false);
-    else resetChromeTimer();
+    const next: Panel = activePanel() === p ? "none" : p;
+    setPanel(next);
+    // A panel is part of the chrome — keep it visible while open. Branch on
+    // the computed value: an accessor read here still returns the pre-write
+    // value until the flush, which silently inverted both arms.
+    if (next !== "none") showChrome(false);
+    else resetChromeTimer(next);
   }
   function closePanel(): void {
     if (activePanel() === "none") return;
     setPanel("none");
-    resetChromeTimer();
+    // Arm against the state just written: resetChromeTimer's own accessor
+    // read is still pre-write in this tick.
+    resetChromeTimer("none");
   }
   function showToast(msg: string): void {
     toast.show(msg);
@@ -408,14 +410,24 @@ export default function Read(props: Props) {
     action();
   }
   function onMoreOutside(e: PointerEvent): void {
-    const t = e.target as Node;
+    // Narrow, don't cast — the same guard as Library's sort menu: a non-Node
+    // target must stand down, not count as an outside click.
+    const t = e.target;
+    if (!(t instanceof Node)) return;
     if (moreMenuEl?.contains(t) || moreBtn?.contains(t)) return;
     closeMore(false);
   }
   function onMoreKeydown(e: KeyboardEvent): void {
+    if (e.isComposing) return;
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
+      closeMore();
+      return;
+    }
+    if (e.key === "Tab") {
+      // Tab must LEAVE the menu, never wrap inside it (WCAG 2.1.2 / the APG
+      // Menu Button pattern) — the same close-on-Tab as every peer menu.
       closeMore();
       return;
     }
@@ -423,8 +435,7 @@ export default function Read(props: Props) {
       e.key !== "ArrowDown" &&
       e.key !== "ArrowUp" &&
       e.key !== "Home" &&
-      e.key !== "End" &&
-      e.key !== "Tab"
+      e.key !== "End"
     ) {
       return;
     }
@@ -445,15 +456,6 @@ export default function Read(props: Props) {
       case "End":
         next = items.length - 1;
         break;
-      case "Tab":
-        next = e.shiftKey
-          ? cur < 0
-            ? items.length - 1
-            : (cur - 1 + items.length) % items.length
-          : cur < 0
-            ? 0
-            : (cur + 1) % items.length;
-        break;
       case "ArrowDown":
         next = cur < 0 ? 0 : (cur + 1) % items.length;
         break;
@@ -465,7 +467,7 @@ export default function Read(props: Props) {
   }
 
   // ---- chrome auto-hide ----------------------------------------------------
-  function resetChromeTimer(): void {
+  function resetChromeTimer(panel: Panel = activePanel()): void {
     if (chromeHideTimer) {
       clearTimeout(chromeHideTimer);
       chromeHideTimer = undefined;
@@ -476,7 +478,7 @@ export default function Read(props: Props) {
     const barHasFocus =
       document.activeElement instanceof HTMLElement &&
       document.activeElement.closest(".rdp-bar") !== null;
-    if (activePanel() === "none" && !barHasFocus) {
+    if (panel === "none" && !barHasFocus) {
       chromeHideTimer = setTimeout(
         () => setChromeVisible(false),
         CHROME_AUTO_HIDE_MS,
@@ -550,7 +552,7 @@ export default function Read(props: Props) {
   // registry change) — not on every settings tweak. The frame stores the faces
   // and needs a following applySettings to inject them, so re-apply the current
   // settings without subscribing to them: the apply phase never tracks, so this
-  // effect stays keyed solely on fontFaceCSS (the Svelte version's untrack).
+  // effect stays keyed solely on fontFaceCSS.
   createEffect(
     () => fontFaceCSS(),
     (faces) => {
@@ -652,7 +654,7 @@ export default function Read(props: Props) {
   });
 
   // The outside-pointer listener for the ⋯ menu exists only while the menu is
-  // open (the Svelte version toggled the handler binding on moreOpen).
+  // open.
   createEffect(
     () => moreOpen(),
     (open) => {
@@ -903,6 +905,11 @@ export default function Read(props: Props) {
 
       setCurrentChapter(index);
       setChapterPercent(nextPercent);
+      // The anchor must move with the swap: the frame's first position
+      // report only lands after the fonts-gated reveal, and until then a
+      // stale previous-chapter cfi would send the bookmark toggle down the
+      // exact-anchor path and mis-resolve it against the new chapter.
+      setCurrentCfi(nextCFI);
       setChapterDirection(data.direction === "rtl" ? "rtl" : "ltr");
       // The post-swap boundary grace exists so wheel momentum can't chain-skip
       // a chapter the user hasn't seen render — stamp it only when a swap
@@ -1216,9 +1223,9 @@ export default function Read(props: Props) {
           // A toggle queued during the delete's flight means "undo the
           // delete" — re-create from the removed record (its server id is
           // gone). Done here, not via the finally's re-toggle, because
-          // currentBookmarkId() is a memo and beta.29 recomputes memos on the
-          // scheduler queue — a same-continuation re-read sees the stale
-          // pre-delete value (probe-verified; pinned in Read.test.tsx).
+          // currentBookmarkId() is a memo and this runtime recomputes memos on
+          // the scheduler queue — a same-continuation re-read sees the stale
+          // pre-delete value (pinned in Read.test.ts).
           if (bookmarkToggleQueued && removed) {
             bookmarkToggleQueued = false;
             try {
@@ -1402,7 +1409,7 @@ export default function Read(props: Props) {
       case "Escape":
         if (activePanel() !== "none") {
           setPanel("none");
-          resetChromeTimer();
+          resetChromeTimer("none");
         } else handleBack();
         return true;
       case "ArrowLeft":
@@ -1439,7 +1446,7 @@ export default function Read(props: Props) {
         // (PAGED_SCROLL_KEYS), so the parent must drive them like the PageDown
         // family above. Vertical arrows are physical — Down steps forward, Up
         // steps back, no RTL mirror — and a vertical-writing chapter never
-        // renders paged (the frame falls back to scroll frame-side, X6), so
+        // renders paged (the frame falls back to scroll frame-side), so
         // no per-mode axis check is owed here.
         if (isPaged()) {
           if (e.key === "ArrowDown") goNext();
@@ -1488,7 +1495,7 @@ export default function Read(props: Props) {
     // instantly closed) was Svelte-rune behaviour and does not hold for this
     // build. Solid batches the write, so two handlers on one keydown both
     // read the pre-write value, both compute the same next state, and the
-    // second toggle is MASKED: the palette ends up open. Probed at b49. The
+    // second toggle is MASKED: the palette ends up open. The
     // guard stays precisely because the double dispatch is now silent --
     // lib/ui.test.ts pins the masked-open semantics so a change to them
     // fails there instead of here.
@@ -1520,7 +1527,7 @@ export default function Read(props: Props) {
   function handleClickRegion(region: "left" | "center" | "right"): void {
     if (activePanel() !== "none") {
       setPanel("none");
-      resetChromeTimer();
+      resetChromeTimer("none");
       return;
     }
     if (isPaged()) {

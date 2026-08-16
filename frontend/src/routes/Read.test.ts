@@ -31,6 +31,7 @@ let searchPanelLatest: {
 let bookmarksPanelLatest: {
   bookmarks: ApiClient.Bookmark[];
   ondelete: (id: string) => void;
+  onnavigate: (bm: ApiClient.Bookmark) => void;
 } | null = null;
 let settingsPanelLatest: {
   effectiveMode: ApiClient.UserSettings["displayMode"];
@@ -117,6 +118,7 @@ vi.mock("~/components/reader/BookmarksPanel", () => ({
   default: (props: {
     bookmarks: ApiClient.Bookmark[];
     ondelete: (id: string) => void;
+    onnavigate: (bm: ApiClient.Bookmark) => void;
   }) => {
     bookmarksPanelLatest = props;
     return null;
@@ -1059,6 +1061,34 @@ describe("Read bookmarks", () => {
     expect(api.deleteBookmark).toHaveBeenCalledWith("book1", "a");
     expect(api.createBookmark).not.toHaveBeenCalled();
   });
+
+  it("resolves the toggle against a navigated anchor before the first report", async () => {
+    const target = { ...bm("b1", 1, 0.25), cfi: "cfi:9" };
+    api.getBookmarks.mockResolvedValue([target]);
+    api.deleteBookmark.mockResolvedValue(undefined);
+    api.fetchChapter.mockImplementation((_: string, i: number) =>
+      Promise.resolve(chapter(i)),
+    );
+    await bootReader();
+    // Plant the previous chapter's anchor.
+    frameHandler("onposition")(0, 0.5, "cfi:1");
+    await settle();
+
+    // Navigate to the bookmark and toggle BEFORE any position report for the
+    // new chapter arrives (the frame's first report is gated behind the
+    // fonts-ready reveal). If the anchor signal still held the chapter-0
+    // cfi, the exact-anchor path would fail and the toggle would CREATE a
+    // duplicate instead of deleting the bookmark it navigated to.
+    frameHandler("onkey")(key("B"));
+    await vi.waitFor(() => expect(bookmarksPanelLatest).not.toBeNull());
+    if (!bookmarksPanelLatest) throw new Error("bookmarks panel missing");
+    bookmarksPanelLatest.onnavigate(target);
+    await vi.waitFor(() => expect(loadChapterCalls().length).toBe(2));
+    frameHandler("onkey")(key("b"));
+    await vi.waitFor(() => expect(api.deleteBookmark).toHaveBeenCalledTimes(1));
+    expect(api.deleteBookmark).toHaveBeenCalledWith("book1", "b1");
+    expect(api.createBookmark).not.toHaveBeenCalled();
+  });
 });
 
 describe("Read more menu", () => {
@@ -1074,5 +1104,69 @@ describe("Read more menu", () => {
     const firstRow = document.querySelector<HTMLElement>(".rdp-mrow");
     if (!firstRow) throw new Error("more menu did not open");
     expect(document.activeElement).toBe(firstRow);
+  });
+
+  it("releases Tab from the menu instead of wrapping focus inside it", async () => {
+    await bootReader();
+    const trigger = document.querySelector<HTMLButtonElement>(".rdp-more");
+    if (!trigger) throw new Error("more-tools trigger did not render");
+    trigger.click();
+    await settle();
+    const menu = document.querySelector<HTMLElement>(".rdp-more-menu");
+    if (!menu) throw new Error("more menu did not open");
+
+    const event = new KeyboardEvent("keydown", {
+      key: "Tab",
+      bubbles: true,
+      cancelable: true,
+    });
+    menu.dispatchEvent(event);
+    await settle();
+
+    // WCAG 2.1.2: Tab must leave the menu. The old handler prevented the
+    // default and cycled focus inside the menu, leaving Escape as the only
+    // exit — the containment every peer menu rejects.
+    expect(event.defaultPrevented).toBe(false);
+    expect(document.querySelector(".rdp-mrow")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("stands down when the outside-pointerdown target is not a Node", async () => {
+    await bootReader();
+    const trigger = document.querySelector<HTMLButtonElement>(".rdp-more");
+    if (!trigger) throw new Error("more-tools trigger did not render");
+    trigger.click();
+    await settle();
+
+    // A synthetic event whose target is the window itself. The old cast form
+    // treated any non-Node target as an outside click and closed the menu
+    // while every peer menu's instanceof guard stands down.
+    window.dispatchEvent(new MouseEvent("pointerdown"));
+    await settle();
+    expect(document.querySelector(".rdp-mrow")).not.toBeNull();
+  });
+});
+
+describe("Read chrome", () => {
+  it("never auto-hides the chrome under an open panel", async () => {
+    vi.useFakeTimers();
+    try {
+      await bootReader();
+      const toc = document.querySelector<HTMLButtonElement>(
+        'button[aria-label="Table of contents"]',
+      );
+      if (!toc) throw new Error("toc button did not render");
+      toc.click();
+      flush();
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      const bar = document.querySelector<HTMLElement>(".rdp-bar");
+      if (!bar) throw new Error("reader bar did not render");
+      // Opening a panel is chrome business: the auto-hide timer must not be
+      // armed against the pre-write "no panel" state the old branch read.
+      expect(bar.getAttribute("aria-hidden")).not.toBe("true");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
