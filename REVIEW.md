@@ -31,10 +31,11 @@ Legend: `[x]` done (reviewed, fixes committed) · `[-]` reviewed, clean
 
 - [x] b14 tests: App · main · indexHtml · api/client · lib/ui — assertions all test what they claim; comment hygiene in App.test.ts + ui.test.ts only
 - [-] b15 tests lib: cfi · customThemes · errors · flairs · focusTrap — reviewed, clean
+- [-] b16 tests lib: fontRegistry · fonts · frameMessages · href · icons — reviewed, clean (fontRegistry's tick() hits are its own setTimeout helper)
 
 ## Not run (stopped after b09 per owner instruction)
 
-- b16–b26 test files (except the additions/fixes made inside reviewed batches)
+- b17–b26 test files (except the additions/fixes made inside reviewed batches)
 - b27 Tier-2 CSS (app.css · frame.css · searchHighlight.bench)
 - Tier 3 configs + AGENTS files
 
