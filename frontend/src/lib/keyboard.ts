@@ -5,6 +5,9 @@ const BUTTON_INPUT_TYPES = new Set([
   "button",
   "checkbox",
   "file",
+  // type="image" is a submit-button state per the HTML spec: Space activates
+  // it and letters have no native behavior, the same profile as "submit".
+  "image",
   "reset",
   "submit",
 ]);
