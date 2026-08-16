@@ -1,16 +1,13 @@
 // App shell: session boot, profile-owned store activation, global shortcuts,
-// and top-level routing. Ported from App.svelte.
+// and top-level routing.
 //
 // Solid 2.0 notes:
 //   - onMount -> onSettled. Its callback may return a cleanup function, which
-//     is how the removed <svelte:window onkeydown> binding is replaced.
+//     is how the global keydown listener is torn down.
 //   - createEffect takes a compute/apply pair (the single-argument form is
 //     typed to return never). Only the compute phase tracks, so
 //     session.profile is the sole dependency; everything the apply phase and
-//     the async continuation read stays untracked, which matches the Svelte
-//     $effect -- its reads inside .then() were untracked there too.
-//   - {#if}/{:else if}/{:else} -> <Switch>/<Match>, with the final else as the
-//     fallback. {#key expr} -> <Show keyed>, which remounts on a new identity.
+//     the async continuation read stays untracked.
 import { createEffect, Match, onSettled, Show, Switch } from "solid-js";
 import { session } from "~/lib/session";
 import { router } from "~/lib/router";
@@ -80,10 +77,10 @@ export default function App() {
   // the new profile. Closing global overlays on sign-out/session loss also
   // keeps stale commands and focus traps off the login screen.
   //
-  // Library owns a second activation call (Library.tsx:203) because its child
-  // effects can run before this one after a full-page refresh. activate() is
-  // idempotent per profile (library.ts:273), so the duplication is ordering
-  // insurance rather than a race (X54).
+  // Library owns a second activation call (Library.tsx's onSettled) because
+  // its child effects can run before this one after a full-page refresh.
+  // activate() is idempotent per profile (library.ts activate()), so the
+  // duplication is ordering insurance rather than a race.
   createEffect(
     () => session.profile,
     (profile) => {
@@ -179,7 +176,7 @@ export default function App() {
             {/* `keyed` is the point here, not the guard: matchRoute only
                 produces this path with a non-empty id (router.ts:20-25), so
                 the Show cannot fall through. Keyed remounts Read on a new book
-                id instead of reusing the instance, which is what {#key} did. */}
+                id instead of reusing the instance. */}
             <Show when={router.route.params.id} keyed>
               {(id) => <Read bookId={id} />}
             </Show>
