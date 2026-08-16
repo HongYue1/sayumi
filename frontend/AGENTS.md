@@ -1,6 +1,6 @@
 # frontend/AGENTS.md
 
-Solid 2.0 (beta) + TypeScript + Vite, built with **bun**. The build output goes to
+Solid 2.0 + TypeScript + Vite, built with **bun**. The build output goes to
 `../cmd/sayumi/dist` and is embedded in the Go binary, so a stale build ships stale UI.
 
 `package.json` is the source of truth for versions — don't restate pins in docs.
