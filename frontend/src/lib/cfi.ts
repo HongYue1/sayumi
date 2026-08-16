@@ -21,8 +21,8 @@
 // chapter that is otherwise unchanged. Their identity lives in searchMarks.ts.
 // Counting them as siblings shifts every element after the marked text by one,
 // so a path minted under a live highlight resolves to a DIFFERENT REAL ELEMENT
-// once the
-// highlight is cleared — silently, because a wrong-but-existing element yields
+// once the highlight is cleared — silently, because a wrong-but-existing
+// element yields
 // no null for the caller to fall back from. Both directions below therefore
 // index as if no search mark were present. Book-authored <mark> elements carry
 // no such attribute and are permanent chapter structure, so they still count;

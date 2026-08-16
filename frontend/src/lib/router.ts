@@ -39,9 +39,9 @@ function parseHash(): Route {
 
 // Value equality for the route signal: parseHash builds a fresh object per
 // hashchange, and reference equality would publish identical routes to every
-// consumer. The option is SignalOptions.equals (@solidjs/signals), grounded
-// in the installed .d.ts, not memory. Shallow on params is exact today,
-// where routes carry at most { id }.
+// consumer. The option is SignalOptions.equals — see createSignal in the
+// Solid v2 reference. Shallow on params is exact today, where routes carry at
+// most { id }.
 function sameRoute(a: Route, b: Route): boolean {
   if (a.path !== b.path) return false;
   const aKeys = Object.keys(a.params);
