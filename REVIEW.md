@@ -41,10 +41,10 @@ Legend: `[x]` done (reviewed, fixes committed) · `[-]` reviewed, clean
 - [x] b23 tests components/reader: BookmarksPanel · ChapterFrame · CustomThemeDialog · SearchPanel · SettingsPanel — no bad assertions; citation drops + the <select> comment re-anchored to rc.0 (matches the source comment, re-probed)
 - [x] b24 tests: TocPanel · frameMessageQueue · iframe boundary · cssText · frame — no bad assertions; TocPanel's b37 citation dropped, the rest clean
 - [-] b25 tests iframe: frameGraph · frameHtmlTemplate · pagination · reduceMotion · searchHighlight — reviewed, clean
+- [x] b26 tests routes: Library · Login · Read · test/library-harness · iframe/cssText.bench — Library/harness/bench clean; Login's porting stamp + X60 title and Read's line-number citation dropped
 
 ## Not run (stopped after b09 per owner instruction)
 
-- b26 test files (except the additions/fixes made inside reviewed batches)
 - b27 Tier-2 CSS (app.css · frame.css · searchHighlight.bench)
 - Tier 3 configs + AGENTS files
 
