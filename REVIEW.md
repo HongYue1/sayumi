@@ -35,10 +35,11 @@ Legend: `[x]` done (reviewed, fixes committed) · `[-]` reviewed, clean
 - [-] b17 tests lib: keyboard · library · libraryLifecycle · modalBoundary · profileState — reviewed, clean
 - [-] b18 tests lib: progress · reachability · readerFontFaces · router · scrollLock — reviewed, clean
 - [-] b19 tests lib: searchMarks · searchText · session.integration · session · sessionGate — reviewed, clean
+- [-] b20 tests lib: settings · specimen · theme · themes · toast — reviewed, clean
 
 ## Not run (stopped after b09 per owner instruction)
 
-- b20–b26 test files (except the additions/fixes made inside reviewed batches)
+- b21–b26 test files (except the additions/fixes made inside reviewed batches)
 - b27 Tier-2 CSS (app.css · frame.css · searchHighlight.bench)
 - Tier 3 configs + AGENTS files
 
