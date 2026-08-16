@@ -3,7 +3,7 @@
 [![CI](https://github.com/HongYue1/sayumi/actions/workflows/ci.yml/badge.svg)](https://github.com/HongYue1/sayumi/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/HongYue1/sayumi)](https://github.com/HongYue1/sayumi/releases/latest)
 
-Sayumi is a portable, local-first EPUB reader. It ships as a single Go binary with an embedded Svelte 5 web app that opens in your browser. There are no accounts and no required cloud services: your library, reading progress, and settings live in plain folders next to the binary.
+Sayumi is a portable, local-first EPUB reader. It ships as a single Go binary with an embedded Solid 2 web app that opens in your browser. There are no accounts and no required cloud services: your library, reading progress, and settings live in plain folders next to the binary.
 
 ## Screenshots
 
@@ -86,7 +86,7 @@ Building from source requires Go 1.26.5+ and bun (or npm) for the frontend.
 ```sh
 make build        # local optimized build (auto GOAMD64=v3 when supported)
 make run          # build, then run
-make check        # all quality gates: format, vet, lint, vulncheck, tests, svelte-check
+make check        # all quality gates: format, vet, lint, vulncheck, tests, tsc
 make fix          # auto-fix pass: imports, formatting, lint --fix, mod tidy
 make release      # cross-compiled, portable archives in dist-release/
 ```
@@ -97,7 +97,7 @@ For frontend work, run a dev server that proxies the API to a binary listening o
 cd frontend && bun install && bun run dev
 ```
 
-The quality gates use gofumpt and goimports for formatting, golangci-lint and `go vet` for static analysis, govulncheck for known vulnerabilities, `go test` for the backend, and svelte-check plus vitest for the frontend. Install the Go tools once:
+The quality gates use gofumpt and goimports for formatting, golangci-lint and `go vet` for static analysis, govulncheck for known vulnerabilities, `go test` for the backend, and `tsc` plus vitest for the frontend. Install the Go tools once:
 
 ```sh
 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
@@ -108,12 +108,12 @@ go install golang.org/x/tools/cmd/goimports@v0.46.0
 
 ## Architecture
 
-The backend is plain Go on the standard-library HTTP router, storing data in per-profile SQLite databases through the CGO-free `modernc.org/sqlite` driver — the binary builds and runs without a C toolchain. The frontend is a Svelte 5 single-page app built by Vite and embedded with `go:embed`, which is why a release is one file with nothing to install. EPUB files are parsed and sanitized on the server; each chapter renders inside a sandboxed iframe on the client.
+The backend is plain Go on the standard-library HTTP router, storing data in per-profile SQLite databases through the CGO-free `modernc.org/sqlite` driver — the binary builds and runs without a C toolchain. The frontend is a Solid 2 single-page app built by Vite and embedded with `go:embed`, which is why a release is one file with nothing to install. EPUB files are parsed and sanitized on the server; each chapter renders inside a sandboxed iframe on the client.
 
 ```
 cmd/sayumi/     package main: HTTP server and the embedded frontend (go:embed dist)
 internal/       api, epub parsing, library scanning, storage (SQLite), bundled fonts
-frontend/       Svelte 5 + Vite app; builds into cmd/sayumi/dist
+frontend/       Solid 2 + Vite app; builds into cmd/sayumi/dist
 fonts-bundle/   drop-in reading fonts shipped in releases as ./Fonts/
 docs/           screenshots and other documentation assets
 ```

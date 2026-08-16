@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Sayumi is a single-binary EPUB reader: a Go HTTP server (`cmd/sayumi`, `internal/`) that
-embeds a built Svelte 5 SPA (`frontend/`) and serves it via `//go:embed dist`. Local-first
+embeds a built Solid 2 SPA (`frontend/`) and serves it via `//go:embed dist`. Local-first
 — the only outbound request in the entire binary is the opt-in gofile.io share.
 
 `CLAUDE.md` only points here. If an agent you use doesn't read `AGENTS.md` natively, give
@@ -86,8 +86,8 @@ Nothing enforces these but a reviewer. Grep both sides before changing either.
 - Conventional commits with a package scope: backend `api|epub|fonts|library|storage`,
   frontend `reader|library|iframe|api|lib`, tooling `ci|build|release|make|lint`.
 - Go: gofumpt, imports grouped with `-local sayumi`. Frontend: prettier (spaces, width 80,
-  double quotes, `prettier-plugin-svelte`).
-- Svelte 5 runes (`$state`, `$derived`, `$effect`), TypeScript, plain CSS.
+  double quotes).
+- Solid 2 (signals, split effects), TypeScript, plain CSS.
 - Tests live beside the code. Fix a bug, add the test that would have caught it.
 
 ## Layout
