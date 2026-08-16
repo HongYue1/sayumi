@@ -1014,6 +1014,20 @@ export function deleteBookmark(
   );
 }
 
+/** Build metadata for the binary serving this library. Both fields come from
+ *  the linker (-X main.version / -X main.buildDate), so an unstamped build
+ *  reports "dev" and "unknown" rather than empty strings. */
+export interface VersionInfo {
+  version: string;
+  buildDate: string;
+}
+
+/** Reads the running server's build stamp. Auth-gated server-side, like the
+ *  About sheet that displays it. */
+export async function getVersion(signal?: AbortSignal): Promise<VersionInfo> {
+  return request<VersionInfo>("GET", "/version", undefined, signal);
+}
+
 export async function checkHealth(): Promise<boolean> {
   try {
     const res = await fetch(`${BASE}/health`, {

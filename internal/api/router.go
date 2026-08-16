@@ -19,6 +19,7 @@ type Dependencies struct {
 	ProfileMgr  *ProfileManager
 	LibraryRoot string
 	Fonts       *fonts.Scanner
+	Build       BuildInfo
 	sessions    *sessionStore
 	throttle    *loginThrottle
 	fontToken   string
@@ -98,6 +99,10 @@ func protectUserFonts(deps *Dependencies, next http.Handler) http.Handler {
 
 func RegisterRoutes(mux *http.ServeMux, deps *Dependencies) {
 	mux.HandleFunc("GET /api/health", healthHandler)
+	// Auth-gated, unlike health: the About sheet is only reachable from
+	// signed-in surfaces, so there is no reason to hand a build fingerprint to an
+	// unauthenticated visitor.
+	mux.Handle("GET /api/version", applyAuth(deps, versionHandler(deps)))
 	mux.HandleFunc("GET /api/auth/status", authStatusHandler(deps))
 	mux.HandleFunc("GET /api/auth/profiles", listProfilesHandler(deps))
 	mux.HandleFunc("POST /api/auth/login", loginHandler(deps))

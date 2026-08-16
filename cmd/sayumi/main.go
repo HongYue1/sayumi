@@ -124,6 +124,10 @@ func main() {
 	fontScanner := fonts.NewScanner(resolveFontsDir(*fontsPath))
 
 	deps := api.NewDependencies(profilesDB, profileMgr, absLibRoot, fontScanner)
+	// Hand the linker-stamped build metadata over once, before any request can
+	// reach it: GET /api/version is what lets the About sheet name the binary it
+	// is talking to, and -buildvcs=false keeps that out of debug.BuildInfo.
+	deps.Build = api.BuildInfo{Version: version, BuildDate: buildDate}
 
 	// Rehydrate "remember me" sessions persisted by a previous run so restarting
 	// the server doesn't sign everyone out. Non-fatal: on failure the server
