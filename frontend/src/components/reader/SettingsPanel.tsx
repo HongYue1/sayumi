@@ -77,6 +77,15 @@ const ROLES: {
   { key: "boldItalic", label: "Bold Italic" },
 ];
 
+// A variable family emits ONE 100-900 @font-face per axis (buildUserFontFaces
+// in lib/readerFontFaces): the upright file covers regular+bold and the italic
+// file covers italic+bold-italic, so a bold/bold-italic file pick would be
+// persisted and then silently dropped from the generated CSS. Offer only the
+// axis roles for those families.
+const AXIS_ROLES = ROLES.filter(
+  (r) => r.key === "regular" || r.key === "italic",
+);
+
 // Heading levels for the optional per-heading size overrides.
 const HEADERS: {
   key: "h1Size" | "h2Size" | "h3Size" | "h4Size" | "h5Size" | "h6Size";
@@ -704,7 +713,7 @@ export default function SettingsPanel(props: Props) {
                 <p class="stp-roles-hint">
                   Pick which file to use for each style.
                 </p>
-                <For each={ROLES}>
+                <For each={fam().variable ? AXIS_ROLES : ROLES}>
                   {(role) => (
                     <label class="stp-role-row">
                       <span class="stp-role-label">{role.label}</span>

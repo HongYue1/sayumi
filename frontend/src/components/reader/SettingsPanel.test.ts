@@ -530,6 +530,30 @@ describe("reader settings panel", () => {
     expect(settings.value.fontRoles).toEqual({});
   });
 
+  it("offers only the axis roles for a variable family", async () => {
+    world.setFamilies([
+      {
+        ...family("user:grade", {
+          regular: "GradeVF.otf",
+          italic: "GradeItalicVF.otf",
+        }),
+        variable: true,
+      },
+    ]);
+    world.setSettings({ fontFamily: "user:grade", preserveFonts: false });
+    mount();
+    await settle();
+
+    // A variable family's upright/italic files carry the whole weight axis in
+    // one @font-face each, so a bold/bold-italic pick would be persisted and
+    // then silently dropped from the generated CSS — those rows must not
+    // render at all.
+    expect(document.querySelector("#font-role-regular")).not.toBeNull();
+    expect(document.querySelector("#font-role-italic")).not.toBeNull();
+    expect(document.querySelector("#font-role-bold")).toBeNull();
+    expect(document.querySelector("#font-role-boldItalic")).toBeNull();
+  });
+
   it("closes on the router's no-op report when the specimen is already open", async () => {
     navigate.mockReset();
     navigate.mockReturnValue(true);

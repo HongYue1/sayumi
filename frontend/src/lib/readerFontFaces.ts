@@ -99,7 +99,10 @@ function buildUserFontFaces(
       // The upright file carries the whole weight axis, so a single 100–900
       // face yields real regular AND bold (and the weight slider works);
       // likewise the italic file for italic + bold-italic. No separate 700
-      // face means the browser never synthesizes a faux bold.
+      // face means the browser never synthesizes a faux bold. A split-out
+      // static bold/bold-italic file (detected or chosen) is deliberately
+      // ignored on this path — SettingsPanel hides those role rows for
+      // variable families, so no new pick can be made.
       if (regular)
         out.push(face(family, userFontUrl(dir, regular), "100 900", "normal"));
       if (italic)
