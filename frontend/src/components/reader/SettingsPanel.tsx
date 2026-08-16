@@ -120,7 +120,8 @@ function set<K extends keyof UserSettings>(
 // the open book the navigate is a no-op the router reports as false (no
 // hashchange fires — see lib/router.ts), so nothing remounts: close directly.
 function openSpecimen(onclose: () => void): void {
-  if (!router.navigate(`/read/${SPECIMEN_BOOK_ID}`)) onclose();
+  if (!router.navigate(`/read/${encodeURIComponent(SPECIMEN_BOOK_ID)}`))
+    onclose();
 }
 
 /** Numeric row with an "Auto" toggle for nullable settings. */
