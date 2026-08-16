@@ -3,7 +3,7 @@
 // UI); the icons render for real, since the trigger's accessible name is
 // assembled around them.
 //
-// The invariants, each of which regressed silently before b32:
+// The invariants, each of which regressed silently before this suite existed:
 //   - Focus enters the menu on open. The first item's self-focusing ref could
 //     never do it: Solid runs element refs while the node is still detached,
 //     so .focus() no-oped, the active element stayed on the trigger, the

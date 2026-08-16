@@ -5,7 +5,7 @@
 // here: this menu has no trap, which is exactly why focus used to stay on
 // the trigger.
 //
-// The invariants, each of which regressed silently before b34:
+// The invariants, each of which regressed silently before this suite existed:
 //   - Focus enters the menu on open, onto the swatch the markup nominates
 //     with tabindex="0" (the active theme, or the first light swatch when a
 //     custom theme is active). The swatches' self-focusing refs ran while

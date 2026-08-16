@@ -4,7 +4,7 @@
 // trap's fallback and the dialog's own intent, so stubbing it would assert
 // nothing.
 //
-// The invariants, each of which regressed silently before b30:
+// The invariants, each of which regressed silently before this suite existed:
 //   - Focus opens on the title field. A self-focusing ref could not do it,
 //     because refs run while the node is still detached, so the trap's fallback
 //     took the first focusable in the sheet -- the header close button, where
@@ -15,7 +15,7 @@
 //     importer allows one; PATCH then refuses it) kept the error on screen for
 //     the rest of the session, contradicting aria-invalid="false".
 //   - Announcements come from one pre-mounted .sr-only region. A live region
-//     inserted in the same tick as its text is not announced (b27), so the
+//     inserted in the same tick as its text is not announced, so the
 //     visible paragraphs carry no role="alert" and the region exists before it
 //     has anything to say.
 //   - Save is aria-disabled, never disabled: the real attribute blurs the
