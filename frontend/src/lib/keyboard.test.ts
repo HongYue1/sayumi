@@ -30,7 +30,14 @@ describe("isKeyboardConsumer", () => {
   });
 
   it("leaves button-like inputs and ordinary elements shortcut-capable", () => {
-    for (const type of ["button", "checkbox", "file", "image", "reset", "submit"]) {
+    for (const type of [
+      "button",
+      "checkbox",
+      "file",
+      "image",
+      "reset",
+      "submit",
+    ]) {
       const input = document.createElement("input");
       input.type = type;
       expect(isKeyboardConsumer(input), type).toBe(false);
