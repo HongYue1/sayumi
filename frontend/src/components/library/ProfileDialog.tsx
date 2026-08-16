@@ -1,18 +1,12 @@
-// Clone / delete profile dialog. Ported from ProfileDialog.svelte.
+// Clone / delete profile dialog.
 //
-// Solid 2.0 notes:
-//   - onMount -> onSettled for the prerequisite fetch (names list or PIN
-//     check); <svelte:window onkeydowncapture> -> a mount-scoped capture
-//     listener.
-//   - {@attach ...focus()} -> onSettled + queueMicrotask (a self-focusing
-//     ref runs while the node is still detached and is a silent no-op);
-//     no `as` casts anywhere.
+//   - No `as` casts anywhere: event targets are narrowed with instanceof.
 //   - Submit freezes the profile name and PIN before the first await:
 //     profileName is the reactive session.profile and deleteCurrent() nulls
 //     it -- reading it after the await would interpolate "null" into the
-//     toast (unchanged from the Svelte reasoning).
-//   - The backdrop dismiss is the shared .backdrop-dismiss button (guarded by
-//     !busy, mirroring the Svelte's conditional overlay click).
+//     toast.
+//   - The backdrop dismiss is the shared .backdrop-dismiss button, guarded by
+//     !busy.
 import { createMemo, createSignal, onSettled, Show } from "solid-js";
 import { session } from "~/lib/session";
 import { listProfiles } from "~/api/client";
@@ -26,8 +20,8 @@ import { TriangleAlert, X } from "~/lib/icons";
 // in internal/api/auth.go): a profile name becomes a directory verbatim, and
 // on Windows "nul" stats as an existing device, so a clone of one dies
 // server-side after the client waved it through -- with a message naming
-// rules the name satisfies. Same set Login carries; extracting a shared
-// validator is the X-list item, not this batch.
+// rules the name satisfies. Same set Login carries (both mirror
+// validateProfileName); keep the two in sync or extract the shared validator.
 const RESERVED_NAMES = new Set([
   "con",
   "prn",
@@ -193,7 +187,7 @@ export default function ProfileDialog(props: Props) {
 
   // Every message is announced from the one pre-mounted region below, never
   // from the visible paragraphs: a live region inserted in the same tick as
-  // its text is not announced by NVDA or JAWS (b27, WCAG 4.1.3), and all
+  // its text is not announced by NVDA or JAWS (WCAG 4.1.3), and all
   // four Show-wrapped paragraphs here mount together with their text.
   // Freshest first: a submit failure outranks the field validators.
   const announcement = createMemo(
@@ -260,7 +254,7 @@ export default function ProfileDialog(props: Props) {
   });
 
   // Focus the field this mode exists for. A ref cannot do it: refs run while
-  // the node is still detached (b28 probe), so ref={(el) => el.focus()} was
+  // the node is still detached, so ref={(el) => el.focus()} was
   // a silent no-op and focusTrap's fallback took the first focusable in the
   // sheet -- the header close button, where Enter dismisses. Deferring one
   // microtask lands after the trap's own queueMicrotask; if this runs first
@@ -458,7 +452,7 @@ export default function ProfileDialog(props: Props) {
 
           {/* Pre-mounted live region. Every visible message above is inserted
               in the same tick as its text, which NVDA and JAWS do not
-              announce (b27, WCAG 4.1.3) -- this region exists from first
+              announce (WCAG 4.1.3) -- this region exists from first
               paint and only its text changes, so the paragraphs carry no
               role="alert". */}
           <p class="sr-only" role="alert">

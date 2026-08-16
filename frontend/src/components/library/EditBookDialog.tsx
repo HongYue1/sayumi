@@ -1,18 +1,11 @@
-// Edit-book dialog: staged metadata + cover save. Ported from
-// EditBookDialog.svelte.
+// Edit-book dialog: staged metadata + cover save.
 //
-// Solid 2.0 notes:
-//   - onDestroy -> onCleanup; <svelte:window onkeydowncapture> -> an
-//     onSettled-scoped capture listener (mount-scoped).
-//   - {@attach ...focus()} -> an onSettled + queueMicrotask focus of the title
-//     field, NOT a ref: refs run while the node is still detached (b28 probe),
-//     so a self-focusing ref is a no-op and focusTrap's fallback then took the
-//     header close button. The file input's currentTarget is typed via an
-//     intersection, not an `as` cast (lint).
-//   - Signals initialize from props once (the Svelte state_referenced_locally
-//     pattern); the saved* baselines advance only after a successful stage.
-//   - The backdrop dismiss is the shared .backdrop-dismiss button (guarded by
-//     !busy, mirroring the Svelte's conditional overlay click).
+//   - Signals initialize from props once; the saved* baselines advance only
+//     after a successful stage.
+//   - The file input's event is typed via an intersection, not an `as` cast
+//     (lint).
+//   - The backdrop dismiss is the shared .backdrop-dismiss button, guarded by
+//     !busy.
 import { createMemo, createSignal, onCleanup, onSettled, Show } from "solid-js";
 import { getCoverUrl, type BookMeta } from "~/api/client";
 import { getErrorMessage } from "~/lib/errors";
@@ -86,7 +79,7 @@ export default function EditBookDialog(props: Props) {
   );
 
   // Focus the field this dialog exists to edit. A ref cannot do it: refs run
-  // while the node is still detached (b28 probe), so ref={(el) => el.focus()}
+  // while the node is still detached, so ref={(el) => el.focus()}
   // was a silent no-op and focusTrap's fallback took the first focusable in the
   // sheet -- the header close button, where Enter dismisses. Deferring one
   // microtask lands after the trap's own queueMicrotask; if this runs first
@@ -309,11 +302,11 @@ export default function EditBookDialog(props: Props) {
               ref={(el) => (titleEl = el)}
             />
           </label>
-          {/* Always mounted, hidden when clean: a <Show> true at first paint
-              never removes its child (X35), so a book with no title -- which
-              the importer allows and PATCH then rejects -- kept "Title can't be
-              empty." on screen forever, with aria-invalid back to false and the
-              describedby link already dropped. */}
+          {/* Always mounted and hidden when clean, so aria-invalid, the
+              describedby link, and the error text can never disagree. A book
+              with no title -- which the importer allows and PATCH then
+              rejects -- is the case that needs it: the error must vanish the
+              moment the field validates. */}
           <p
             class="eb-note"
             id="book-title-error"
@@ -349,7 +342,7 @@ export default function EditBookDialog(props: Props) {
 
           {/* Pre-mounted live region. Every visible message above is inserted
               in the same tick as its text, which NVDA and JAWS do not announce
-              (b27, WCAG 4.1.3) -- this region exists from first paint and only
+              (WCAG 4.1.3) -- this region exists from first paint and only
               its text changes, so the paragraphs carry no role="alert". */}
           <p class="sr-only" role="alert">
             {announcement() ?? ""}

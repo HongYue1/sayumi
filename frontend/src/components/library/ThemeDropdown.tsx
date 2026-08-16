@@ -1,19 +1,15 @@
 // Theme selector in the library masthead: light and dark built-ins as
-// swatches, custom themes resolved through the registry. Ported from
-// ThemeDropdown.svelte.
+// swatches, custom themes resolved through the registry.
 //
 // Solid 2.0 notes:
-//   - The conditional <svelte:window onpointerdown> becomes a compute/apply
-//     createEffect that attaches the outside-dismiss listener only while open.
+//   - The outside-dismiss window listener attaches only while the menu is
+//     open, via a compute/apply createEffect.
 //   - toggle() computes `next` once: reading open() right after setOpen would
 //     still return the pre-write value (batched).
-//   - The retry promise chain is an async function instead of a .then
-//     callback, so promise/always-return has nothing to lint (the App.tsx
-//     precedent).
-//   - {@attach ...focus()} per swatch -> ref callbacks; bind:this -> ref
-//     assignments; no `as` casts (instanceof narrowing instead).
+//   - No `as` casts: event targets are narrowed with instanceof.
 //   - Class names get a .td- prefix: .trigger/.pick/.caret are shared by
-//     convention across the library subtree's scoped styles.
+//     convention across the library subtree and would collide in the one
+//     global sheet.
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { settings } from "~/lib/settings";
 import { THEMES, getTheme } from "~/lib/themes";
