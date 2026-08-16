@@ -105,6 +105,18 @@ export class Library {
     { title: string; author: string; hay: string }
   >();
 
+  /** Per-book write stamps for the optimistic-rollback ownership checks.
+   *  Comparing the live value to the optimistic one cannot tell this call's
+   *  write from a later call that toggled the same value back (ABA), so each
+   *  mutator captures the stamp before its optimistic write and keeps the
+   *  rollback only while its own bump is still the newest write to that book.
+   *  Server responses that replace a record wholesale clear the entry. */
+  readonly #bookWrites = new Map<string, number>();
+
+  #stampBookWrite(id: string): void {
+    this.#bookWrites.set(id, (this.#bookWrites.get(id) ?? 0) + 1);
+  }
+
   constructor() {
     // Detached on purpose: in Solid 2.0 a root is owned by its parent by
     // default, so an app-lifetime singleton opts into global lifetime
@@ -292,6 +304,7 @@ export class Library {
     this.#setRescanning(false);
     this.#error[1]("");
     this.#hayCache.clear();
+    this.#bookWrites.clear();
   }
 
   /** Activates a profile and performs its lazy initial load as one ordered
@@ -391,6 +404,8 @@ export class Library {
         if (!this.#isCurrent(profile, generation)) return;
         this.#books[1](() => books);
         this.#booksLoaded = true;
+        // Server truth replaces local writes: stale rollback guards reset.
+        this.#bookWrites.clear();
       } catch (e) {
         if (!this.#isCurrent(profile, generation)) return;
         // A transport failure means the global offline banner is already on
@@ -417,24 +432,27 @@ export class Library {
   }
 
   /** Refreshes books after an operation that can change the server library.
-   *  Refreshes are deduped and wait for any older initial load before issuing
-   *  the authoritative post-mutation read. */
+   *  Each refresh chains behind any older refresh (and the initial load)
+   *  rather than deduping onto it: a dedupe could resolve a caller's await
+   *  with a read issued before that caller's mutation committed — uploadFiles
+   *  would toast "Added N books" over a shelf that still lacked them, and
+   *  nothing would refetch. Overlapping refreshes wait on each other, but
+   *  every caller still gets a read that postdates its own mutation. The
+   *  field is never cleared on settle: awaiting an already-settled refresh is
+   *  a no-op, and a stale one can never clobber the slot it no longer owns. */
   async refresh(): Promise<void> {
     const profile = this.#profile;
     if (profile === null) return;
     const generation = this.#generation;
-    if (this.#refreshPromise) return this.#refreshPromise;
+    const prior = this.#refreshPromise;
 
     const promise = (async () => {
-      try {
-        const initialLoad = this.#loadPromise;
-        if (initialLoad) await initialLoad;
-        if (!this.#isCurrent(profile, generation)) return;
-        this.#booksLoaded = false;
-        await this.load();
-      } finally {
-        if (this.#isCurrent(profile, generation)) this.#refreshPromise = null;
-      }
+      if (prior) await prior;
+      const initialLoad = this.#loadPromise;
+      if (initialLoad) await initialLoad;
+      if (!this.#isCurrent(profile, generation)) return;
+      this.#booksLoaded = false;
+      await this.load();
     })();
     this.#refreshPromise = promise;
     return promise;
@@ -479,20 +497,24 @@ export class Library {
     if (profile === null) return;
     const generation = this.#generation;
     const prevFlair = this.books.find((b) => b.id === bookId)?.flairId;
+    const stamp = this.#bookWrites.get(bookId) ?? 0;
     this.#books[1]((s) => {
       const book = s.find((b) => b.id === bookId);
       if (book) book.flairId = flairId ?? undefined;
     });
+    this.#stampBookWrite(bookId);
     try {
       await setBookFlair(bookId, flairId);
     } catch (e) {
       if (!this.#isCurrent(profile, generation)) return;
-      // Roll back only if the live value is still this call's optimistic
-      // write: an overlapping setFlair that landed meanwhile owns the book now.
+      // Roll back only while this call's write is still the newest one: an
+      // overlapping setFlair that landed meanwhile owns the book now, even
+      // when it re-wrote the same value this call had optimistically set.
       this.#books[1]((s) => {
         const book = s.find((b) => b.id === bookId);
-        if (book && book.flairId === (flairId ?? undefined)) {
+        if (book && (this.#bookWrites.get(bookId) ?? 0) === stamp + 1) {
           book.flairId = prevFlair;
+          this.#stampBookWrite(bookId);
         }
       });
       toast.show(getErrorMessage(e, "Could not update flair"));
@@ -531,9 +553,8 @@ export class Library {
     const profile = this.#profile;
     if (profile === null) return;
     const generation = this.#generation;
-    // Plain copies, not the store proxies. The Svelte revision could hold the
-    // old arrays because every update REPLACED them; draft mutation edits them
-    // in place, so keeping the proxy here would alias the live state and the
+    // Plain copies, not the store proxies: draft mutation edits the arrays in
+    // place, so holding the proxy here would alias the live state and the
     // rollback below would restore the already-mutated value.
     const found = this.customFlairs.find((f) => f.id === id);
     const removedFlair = found ? { ...found } : null;
@@ -556,7 +577,10 @@ export class Library {
     });
     this.#books[1]((s) => {
       for (const book of s) {
-        if (book.flairId === id) book.flairId = undefined;
+        if (book.flairId === id) {
+          book.flairId = undefined;
+          this.#stampBookWrite(book.id);
+        }
       }
     });
     try {
@@ -583,6 +607,7 @@ export class Library {
         for (const book of s) {
           if (affected.has(book.id) && book.flairId === undefined) {
             book.flairId = id;
+            this.#stampBookWrite(book.id);
           }
         }
       });
@@ -690,10 +715,12 @@ export class Library {
     const prevMeta = target
       ? { title: target.title, author: target.author }
       : null;
+    const stamp = this.#bookWrites.get(id) ?? 0;
     this.#books[1]((s) => {
       const book = s.find((b) => b.id === id);
       if (book) Object.assign(book, patch);
     });
+    this.#stampBookWrite(id);
     try {
       const updated = await updateBookMeta(id, patch);
       if (!this.#isCurrent(profile, generation)) return;
@@ -709,6 +736,7 @@ export class Library {
         s[index] = updated;
       });
       this.#hayCache.delete(id);
+      this.#bookWrites.delete(id);
     } catch (e) {
       if (!this.#isCurrent(profile, generation)) return;
       // Restore this book's previous title/author on the current array, and
@@ -718,12 +746,12 @@ export class Library {
         this.#books[1]((s) => {
           const book = s.find((b) => b.id === id);
           if (!book) return;
-          if (patch.title !== undefined && book.title === patch.title) {
-            book.title = prevMeta.title;
-          }
-          if (patch.author !== undefined && book.author === patch.author) {
-            book.author = prevMeta.author;
-          }
+          // Same newest-write guard as setFlair's rollback: an overlapping
+          // edit owns the book now, even if it re-typed the same text.
+          if ((this.#bookWrites.get(id) ?? 0) !== stamp + 1) return;
+          book.title = prevMeta.title;
+          book.author = prevMeta.author;
+          this.#stampBookWrite(id);
         });
       }
       // The rollback restores the likely case (a pre-commit rejection); the
@@ -763,6 +791,7 @@ export class Library {
       if (index === -1) return;
       s[index] = updated;
     });
+    this.#bookWrites.delete(id);
   }
 
   /**
@@ -799,6 +828,7 @@ export class Library {
         if (index !== -1) s.splice(index, 1);
       });
       this.#hayCache.delete(id);
+      this.#bookWrites.delete(id);
     } catch (e) {
       if (!this.#isCurrent(profile, generation)) return;
       toast.show(getErrorMessage(e, "Could not remove book"));

@@ -323,6 +323,40 @@ describe("library.setFlair", () => {
     flush();
     expect(store.books[0].flairId).toBe("finished");
   });
+
+  it("does not roll back over a same-value re-toggle (ABA)", async () => {
+    const store = await seed([book({ id: "a", title: "A" })]);
+    const first = deferred<void>();
+    const second = deferred<void>();
+    const third = deferred<void>();
+    mocks.setBookFlair
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+      .mockReturnValueOnce(third.promise);
+
+    const m1 = store.setFlair("a", "reading");
+    const m2 = store.setFlair("a", "finished");
+    const m3 = store.setFlair("a", "reading");
+    flush();
+    expect(store.books[0].flairId).toBe("reading");
+
+    second.resolve();
+    await m2;
+    flush();
+
+    // m3 re-wrote the value m1 had optimistically set, so a value comparison
+    // would let m1's late failure roll m3's write back; only the write stamp
+    // tells the two apart.
+    first.reject(new Error("late failure"));
+    await m1;
+    flush();
+    expect(store.books[0].flairId).toBe("reading");
+
+    third.resolve();
+    await m3;
+    flush();
+    expect(store.books[0].flairId).toBe("reading");
+  });
 });
 
 describe("library.editMetadata", () => {
@@ -400,6 +434,33 @@ describe("library.editMetadata", () => {
     // The failed call's rollback must not clobber the newer edit, and a known
     // pre-commit rejection never triggers a reconcile refetch.
     expect(store.books[0].title).toBe("Second");
+    expect(mocks.getBooks).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not roll back over a same-value re-edit (ABA)", async () => {
+    const store = await seed([book({ id: "a", title: "Old", author: "X" })]);
+    const first = deferred<BookMeta>();
+    const second = deferred<BookMeta>();
+    mocks.updateBookMeta
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+
+    const m1 = store.editMetadata("a", { title: "New" });
+    const m2 = store.editMetadata("a", { title: "New" });
+    flush();
+    expect(store.books[0].title).toBe("New");
+
+    // m2 committed the same text m1 had optimistically written; m1's later
+    // rejection must not restore "Old" over the accepted record.
+    second.resolve(book({ id: "a", title: "New", author: "X" }));
+    await m2;
+    flush();
+
+    first.reject(new ApiError("bad", 400, "invalid"));
+    await expect(m1).rejects.toThrow("bad");
+    flush();
+
+    expect(store.books[0].title).toBe("New");
     expect(mocks.getBooks).toHaveBeenCalledTimes(1);
   });
 
@@ -768,7 +829,7 @@ describe("library.refresh loading state", () => {
   });
 });
 
-describe("library.visible (H5: split sort/filter memos)", () => {
+describe("library.visible (split sort/filter memos)", () => {
   it("constructs without reading a field that is not assigned yet", () => {
     // Regression for the memo-ordering trap the split exposed. `visible` read
     // `this.#sorted()` inside its own memo body; createMemo evaluates eagerly,
@@ -822,7 +883,7 @@ describe("library.visible (H5: split sort/filter memos)", () => {
   });
 });
 
-describe("library.addCustomFlair (M2)", () => {
+describe("library.addCustomFlair", () => {
   it("returns null for a blank label without reaching the transport", async () => {
     const store = await seed([]);
     await expect(store.addCustomFlair("   ")).resolves.toBeNull();
