@@ -1,25 +1,22 @@
 // SearchPanel: in-book search with paging, chapter grouping, and combobox
-// keyboard nav — Solid 2.0 port.
+// keyboard nav.
 //
-// Solid 2.0 notes:
 //   - Rendered state is signals; debounce/token/abort/lastQuery/composing and
 //     activeOptionEl stay plain lets (never rendered).
-//   - The active-descendant perf trick survives unchanged: rows always render
-//     aria-selected="false" and syncActiveOption mutates the two affected DOM
-//     nodes directly, so arrowing through 200+ results never re-renders rows.
-//     Safe because every row attribute is static — Solid never re-applies
-//     them, so the manual setAttribute can't be clobbered.
-//   - onMount -> onSettled, which RETURNS the debounce/abort teardown.
-//     onCleanup() inside onSettled throws CLEANUP_IN_FORBIDDEN_SCOPE, and an
-//     uncaught throw there halts the whole reactive system: no further updates
+//   - Rows always render aria-selected="false" and syncActiveOption mutates
+//     the two affected DOM nodes directly, so arrowing through 200+ results
+//     never re-renders rows. Safe because every row attribute is static —
+//     Solid never re-applies them, so the manual setAttribute can't be
+//     clobbered.
+//   - The onSettled below RETURNS its debounce/abort teardown: onCleanup()
+//     inside onSettled throws CLEANUP_IN_FORBIDDEN_SCOPE, and an uncaught
+//     throw there halts the whole reactive system — no further updates
 //     anywhere in the app, and dispose() can no longer unmount. Login.tsx and
 //     Library.tsx document the same rule.
-//   - await tick() -> flush() in syncActiveOptionAfterRender.
 //   - appendRawResults replaces the LAST group object (Solid's keyed <For>
 //     maps by group identity; mutating the old object in place would never
-//     re-render). The last group's rows are recreated on each load-more, so we
-//     re-sync the active option afterwards — the Svelte original relied on
-//     rune proxies mutating in place and needed no such pass.
+//     re-render). The last group's rows are recreated on each load-more, so
+//     the active option is re-synced afterwards.
 //   - aria-expanded is a constant "true" string (EnumeratedPseudoBoolean): the
 //     listbox is always rendered, and carries the loading/error/empty states
 //     too, so the popup is never collapsed (as in CommandPalette.tsx).
@@ -259,11 +256,10 @@ export default function SearchPanel(props: Props) {
   }
 
   // flush() applies the just-committed results synchronously so the option
-  // nodes exist before we sync (the Svelte original awaited tick()). It also
-  // publishes a setCurrentIdx() issued by the calling handler: a signal write
-  // is not visible to a synchronous read in the same handler, so syncing
-  // without it marks the option the user just left and leaves aria-selected a
-  // keystroke behind aria-activedescendant.
+  // nodes exist before we sync. It also publishes a setCurrentIdx() issued by
+  // the calling handler: a signal write is not visible to a synchronous read
+  // in the same handler, so syncing without it marks the option the user just
+  // left and leaves aria-selected a keystroke behind aria-activedescendant.
   function syncActiveOptionAfterRender(scroll = false): void {
     flush();
     syncActiveOption(scroll);
@@ -512,8 +508,7 @@ export default function SearchPanel(props: Props) {
   return (
     // Keyboard handling lives on the wrapper (combobox pattern: focus stays on
     // the input; arrows walk aria-activedescendant). The list's click/mouse
-    // handling is delegation, so there are no per-row handlers at all — these
-    // cover the two a11y ignores the Svelte original carried.
+    // handling is delegation, so there are no per-row handlers at all.
     <div class="srp" onKeyDown={onKey}>
       <header class="srp-head">
         <input
