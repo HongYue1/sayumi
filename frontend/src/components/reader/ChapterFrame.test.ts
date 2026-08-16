@@ -138,7 +138,7 @@ describe("ChapterFrame", () => {
     document.body.append(container);
     // Mounting must not throw: the onSettled listener registration used to
     // nest onCleanup inside the settle callback, which dev builds reject with
-    // CLEANUP_IN_FORBIDDEN_SCOPE (probe-verified against beta.29).
+    // CLEANUP_IN_FORBIDDEN_SCOPE.
     dispose = render(
       () =>
         ChapterFrame({

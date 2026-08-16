@@ -420,7 +420,7 @@ describe("reader settings panel", () => {
   });
 
   it("keeps exactly one user font group per select across rescans", async () => {
-    // On 2.0.0-beta.29 a conditional element child of a <select> is never
+    // On 2.0.0-rc.0 a conditional element child of a <select> is never
     // removed once the <select> has another element child, so gating the group
     // on userFamilies().length stranded a stale group (and its dead
     // user:<dir> options) after every rescan. Always-mounted, emptied by <For>.

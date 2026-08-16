@@ -1,11 +1,11 @@
 // Suite for the reader bookmarks panel. Nothing is stubbed: the panel takes
 // plain props and renders real rows, so every test is a statement about the
 // shipped component. The invariants, two of which regressed silently before
-// b35 (the X42 pair):
+// this suite existed:
 //   - Focus follows the edit toggle both ways: entering edit mode puts focus
 //     on the label field, and leaving it -- save or cancel -- returns focus to
 //     that row's edit button. The old self-focusing refs ran while the nodes
-//     were still detached (b28 probe), so both moves were silent no-ops and
+//     were still detached, so both moves were silent no-ops and
 //     focus dropped to body.
 //   - Rows sort by chapter, then position within the chapter.
 //   - bookmarkName prefers the user's label, then the chapter's TOC heading,
