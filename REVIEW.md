@@ -29,9 +29,11 @@ Legend: `[x]` done (reviewed, fixes committed) · `[-]` reviewed, clean
 - [x] b12 iframe: buildFrameHtml.ts · cssText.ts · frameHtmlTemplate.ts · pagination.ts · searchHighlight.ts — no bugs found; header citation/provenance trims only; TEXT_BOUNDARY_TAGS ↔ search.go mirror re-verified exact
 - [x] b13 iframe: frame.ts · test-setup.ts · test/library-harness.ts · vite-env.d.ts — no bugs found; frame.ts comment reattachment + citation drop only
 
+- [x] b14 tests: App · main · indexHtml · api/client · lib/ui — assertions all test what they claim; comment hygiene in App.test.ts + ui.test.ts only
+
 ## Not run (stopped after b09 per owner instruction)
 
-- b14–b26 test files (except the additions/fixes made inside reviewed batches)
+- b15–b26 test files (except the additions/fixes made inside reviewed batches)
 - b27 Tier-2 CSS (app.css · frame.css · searchHighlight.bench)
 - Tier 3 configs + AGENTS files
 
