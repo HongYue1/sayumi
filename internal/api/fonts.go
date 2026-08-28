@@ -7,15 +7,25 @@ import (
 )
 
 // fontsResponse is the JSON shape returned by the font-discovery endpoints.
-// Only user-supplied families are reported; the embedded catalog is a static
-// constant on the client side.
+// Only user-supplied families are reported as families; the embedded catalog
+// stays a static constant on the client side.
+//
+// What the server does report for the embedded set is measurements, keyed by
+// the flat filename each face is served under. Those let the client size-
+// normalize embedded and user families against one set of numbers, instead of
+// carrying a hand-copied table that goes stale whenever a face is updated.
 type fontsResponse struct {
-	User      []fonts.Family `json:"user"`
-	UserToken string         `json:"userToken"`
+	User      []fonts.Family           `json:"user"`
+	Embedded  map[string]fonts.Metrics `json:"embedded"`
+	UserToken string                   `json:"userToken"`
 }
 
 func newFontsResponse(deps *Dependencies, families []fonts.Family) fontsResponse {
-	return fontsResponse{User: families, UserToken: deps.fontToken}
+	return fontsResponse{
+		User:      families,
+		Embedded:  fonts.EmbeddedFaceMetrics(),
+		UserToken: deps.fontToken,
+	}
 }
 
 func listFontsHandler(deps *Dependencies) http.HandlerFunc {

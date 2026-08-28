@@ -46,6 +46,12 @@ type Family struct {
 	Files    []string      `json:"files"`    // font file names, sorted
 	Variable bool          `json:"variable"` // variable family: one upright file covers regular+bold, one italic file covers italic+boldItalic
 	Detected DetectedRoles `json:"detected"` // best-effort role guess for UI pre-fill
+	// Metrics are the regular face's em-relative metrics, or nil when they
+	// could not be read. They are what lets the client make two families look
+	// the same size at one font-size: glyphs fill different fractions of the em
+	// from family to family, so the same 28px yields a visibly smaller or
+	// larger page depending on the face.
+	Metrics *Metrics `json:"metrics,omitempty"`
 }
 
 // DetectedRoles is a filename-heuristic guess of which file fits each role.
@@ -64,6 +70,11 @@ type familyMeta struct {
 	// Variable, when present in family.json, authoritatively marks the family
 	// as variable (overriding the looksVariable filename heuristic either way).
 	Variable *bool `json:"variable"`
+	// Metrics, when present in family.json, replaces what was read out of the
+	// font file, the same way Variable overrides the filename heuristic. It is
+	// the escape hatch for a face whose OS/2 table stops before the x-height
+	// (version 0 and 1 do) or reports one that disagrees with what renders.
+	Metrics *Metrics `json:"metrics"`
 }
 
 // familyIndex is the set of font file names in one family, keyed for O(1)
@@ -290,6 +301,7 @@ func (s *Scanner) scanFamily(dirName string) (Family, bool) {
 	// A variable family is guessed from filenames; an explicit "variable" in
 	// family.json overrides that heuristic either way.
 	variable := looksVariable(files)
+	var metricsOverride *Metrics
 	if meta, ok := readFamilyMeta(famDir); ok {
 		if strings.TrimSpace(meta.Label) != "" {
 			label = strings.TrimSpace(meta.Label)
@@ -300,11 +312,22 @@ func (s *Scanner) scanFamily(dirName string) (Family, bool) {
 		if meta.Variable != nil {
 			variable = *meta.Variable
 		}
+		if meta.Metrics != nil {
+			metricsOverride = meta.Metrics
+		}
 	}
 
 	detected := detectRoles(files)
 	if variable {
 		detected = applyVariableRoles(detected)
+	}
+
+	// Measured from the regular face, because that is the one running text is
+	// set in. An explicit "metrics" in family.json wins, as with label,
+	// category and variable.
+	metrics := metricsOverride
+	if metrics == nil {
+		metrics = familyMetrics(famDir, detected.Regular)
 	}
 
 	return Family{
@@ -315,6 +338,7 @@ func (s *Scanner) scanFamily(dirName string) (Family, bool) {
 		Files:    files,
 		Variable: variable,
 		Detected: detected,
+		Metrics:  metrics,
 	}, true
 }
 
@@ -328,6 +352,48 @@ func readFamilyMeta(famDir string) (familyMeta, bool) {
 		return familyMeta{}, false
 	}
 	return meta, true
+}
+
+// maxFontFile caps how much of a font file is read to measure it. Text faces
+// run to tens or hundreds of kilobytes; the cap is what keeps a mistaken drop
+// in ./Fonts/ (a video named .woff2) from being pulled into memory whole.
+const maxFontFile = 8 << 20
+
+// familyMetrics measures one face and returns nil if it cannot. Every failure
+// here is survivable: the family still renders, just without size
+// normalization, so nothing about it should fail the scan or the request.
+func familyMetrics(famDir, file string) *Metrics {
+	if file == "" {
+		return nil
+	}
+	f, err := os.Open(filepath.Join(famDir, file))
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = f.Close() }()
+
+	data, err := io.ReadAll(io.LimitReader(f, maxFontFile+1))
+	if err != nil {
+		return nil
+	}
+	if len(data) > maxFontFile {
+		slog.Warn("font too large to measure", "dir", famDir, "file", file, "limit", maxFontFile)
+		return nil
+	}
+
+	metrics, err := ReadMetrics(data)
+	if err != nil {
+		// Expected for a file that is not a font, and for containers this does
+		// not read (a .ttc holds several faces). Debug, not Warn: dropping a
+		// stray file into a family directory is a user habit, not a fault.
+		slog.Debug("read font metrics", "dir", famDir, "file", file, "err", err)
+		return nil
+	}
+	if !metrics.Normalizable() {
+		slog.Debug("font has no usable x-height", "dir", famDir, "file", file)
+		return nil
+	}
+	return &metrics
 }
 
 // looksVariable reports whether the family's filenames look like variable

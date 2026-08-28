@@ -3,7 +3,9 @@
 // can load them across the null origin boundary.
 
 import {
+  embeddedMetrics,
   userFontUrl,
+  type FontMetrics,
   type FontRoleMap,
   type UserFontFamily,
 } from "~/api/client";
@@ -22,32 +24,100 @@ function fontUrl(filename: string): string {
   return `${window.location.origin}/fonts/${filename}`;
 }
 
+// Every family is normalized against Literata, the default reading font. Its
+// own numbers cancel out — size-adjust resolves to 100% and each override
+// equals what the face already reports — so the default rendering is unchanged
+// and only the other families move.
+const REFERENCE_FACE = FONT_FILES.literata;
+
+function percent(ratio: number): string {
+  return `${Number((ratio * 100).toFixed(3))}%`;
+}
+
+/**
+ * The @font-face descriptors that make a family look the same size as the
+ * reference, or "" when either set of metrics is unknown — in which case the
+ * family is left at its natural size rather than sized from a guess.
+ *
+ * `size-adjust` scales the glyphs until the x-heights match, and x-height (not
+ * font-size) is what the eye reads as size; that is why two families need
+ * different font-size values to look equal without this.
+ *
+ * The three overrides then replace the face's own vertical metrics, so
+ * `line-height: normal` produces the same line box for every family. That is
+ * what makes the Auto leading setting portable: without them, size-adjust
+ * fixes the glyphs but each family still picks its own natural leading.
+ *
+ * Each override is divided by the adjustment because the browser resolves it
+ * against the already-adjusted size; without the divide, scaling glyphs down
+ * would drag the line box down with them.
+ */
+function normalizeToReference(
+  face: FontMetrics | undefined,
+  reference: FontMetrics | undefined,
+): string {
+  if (!face?.xHeight || !reference?.xHeight) return "";
+  const adjust = reference.xHeight / face.xHeight;
+  return [
+    `  size-adjust: ${percent(adjust)};`,
+    `  ascent-override: ${percent(reference.ascent / adjust)};`,
+    `  descent-override: ${percent(reference.descent / adjust)};`,
+    `  line-gap-override: ${percent(reference.lineGap / adjust)};`,
+  ].join("\n");
+}
+
 let cachedReaderFontFaces: string | null = null;
+// The metrics object this cache was built from. /fonts returns a fresh object
+// per response, so an identity check is enough to rebuild once measurements
+// arrive — otherwise an un-normalized first build would stick for the session.
+let cachedMetricsSource: Record<string, FontMetrics> | null = null;
 
 export function buildReaderFontFaces(): string {
-  if (cachedReaderFontFaces) return cachedReaderFontFaces;
+  const metrics = embeddedMetrics();
+  if (cachedReaderFontFaces && cachedMetricsSource === metrics) {
+    return cachedReaderFontFaces;
+  }
 
   const face = (
     family: string,
     file: string,
     weight: string,
     style = "normal",
+    normalize = "",
   ) => `@font-face {
   font-family: '${family}';
   src: url('${fontUrl(file)}') format('woff2');
   font-weight: ${weight};
   font-style: ${style};
-  font-display: block;
+  font-display: block;${normalize ? `\n${normalize}` : ""}
 }`;
 
   const { literata, literataItalic, atkinson, atkinsonItalic } = FONT_FILES;
+  const reference = metrics[REFERENCE_FACE];
+  // Both faces of a family take the UPRIGHT face's adjustment, so the
+  // designer's intended roman-to-italic relationship survives normalization.
+  const literataFit = normalizeToReference(metrics[literata], reference);
+  const atkinsonFit = normalizeToReference(metrics[atkinson], reference);
 
   cachedReaderFontFaces = [
-    face("Literata", literata, "100 900"),
-    face("Literata", literataItalic, "100 900", "italic"),
-    face("Atkinson Hyperlegible Next", atkinson, "100 900"),
-    face("Atkinson Hyperlegible Next", atkinsonItalic, "100 900", "italic"),
+    face("Literata", literata, "100 900", "normal", literataFit),
+    face("Literata", literataItalic, "100 900", "italic", literataFit),
+    face(
+      "Atkinson Hyperlegible Next",
+      atkinson,
+      "100 900",
+      "normal",
+      atkinsonFit,
+    ),
+    face(
+      "Atkinson Hyperlegible Next",
+      atkinsonItalic,
+      "100 900",
+      "italic",
+      atkinsonFit,
+    ),
   ].join("\n");
+  cachedMetricsSource = metrics;
 
   return cachedReaderFontFaces;
 }
@@ -68,19 +138,30 @@ function buildUserFontFaces(
 ): string {
   if (!families.length) return "";
 
-  const face = (family: string, url: string, weight: string, style: string) =>
+  const face = (
+    family: string,
+    url: string,
+    weight: string,
+    style: string,
+    normalize: string,
+  ) =>
     `@font-face {
   font-family: ${family};
   src: url('${url}') format('${formatHint(url)}');
   font-weight: ${weight};
   font-style: ${style};
-  font-display: block;
+  font-display: block;${normalize ? `\n${normalize}` : ""}
 }`;
 
+  const reference = embeddedMetrics()[REFERENCE_FACE];
   const out: string[] = [];
   for (const fam of families) {
     const dir = userFamilyDir(fam.id);
     const family = userFamilyCSSName(fam.id);
+    // fam.metrics describes the family's regular face, and every role takes
+    // that same adjustment so roman, italic and bold keep their relationship
+    // to one another. Absent metrics leave the family at its natural size.
+    const fit = normalizeToReference(fam.metrics, reference);
     const map = roles?.[fam.id] ?? {};
     // Fall back to the backend's detected roles when the user hasn't chosen.
     //
@@ -104,19 +185,26 @@ function buildUserFontFaces(
       // ignored on this path — SettingsPanel hides those role rows for
       // variable families, so no new pick can be made.
       if (regular)
-        out.push(face(family, userFontUrl(dir, regular), "100 900", "normal"));
+        out.push(
+          face(family, userFontUrl(dir, regular), "100 900", "normal", fit),
+        );
       if (italic)
-        out.push(face(family, userFontUrl(dir, italic), "100 900", "italic"));
+        out.push(
+          face(family, userFontUrl(dir, italic), "100 900", "italic", fit),
+        );
       continue;
     }
 
     if (regular)
-      out.push(face(family, userFontUrl(dir, regular), "400", "normal"));
-    if (bold) out.push(face(family, userFontUrl(dir, bold), "700", "normal"));
+      out.push(face(family, userFontUrl(dir, regular), "400", "normal", fit));
+    if (bold)
+      out.push(face(family, userFontUrl(dir, bold), "700", "normal", fit));
     if (italic)
-      out.push(face(family, userFontUrl(dir, italic), "400", "italic"));
+      out.push(face(family, userFontUrl(dir, italic), "400", "italic", fit));
     if (boldItalic)
-      out.push(face(family, userFontUrl(dir, boldItalic), "700", "italic"));
+      out.push(
+        face(family, userFontUrl(dir, boldItalic), "700", "italic", fit),
+      );
   }
   return out.join("\n");
 }

@@ -556,6 +556,21 @@ export interface FontRoleMap {
   boldItalic?: string;
 }
 
+/**
+ * A face's vertical metrics as fractions of its em, read out of the font file
+ * by the server. `xHeight` is the one that governs apparent size: two families
+ * set at the same font-size look like different sizes because their glyphs
+ * fill different fractions of the em.
+ */
+export interface FontMetrics {
+  unitsPerEm: number;
+  xHeight: number;
+  capHeight: number;
+  ascent: number;
+  descent: number;
+  lineGap: number;
+}
+
 /** A user-supplied font family discovered under ./Fonts/<dir>/. */
 export interface UserFontFamily {
   id: string; // "user:<dir>"
@@ -573,17 +588,36 @@ export interface UserFontFamily {
     bold: string;
     boldItalic: string;
   };
+  /**
+   * The regular face's metrics, absent when the server could not read them —
+   * not every face carries an x-height, and the file may not be a font at all.
+   * Absent means "leave this family at its natural size".
+   */
+  metrics?: FontMetrics;
 }
 
 interface FontsResponse {
   user: UserFontFamily[];
+  /** Embedded face metrics, keyed by the flat filename each is served under. */
+  embedded: Record<string, FontMetrics>;
   userToken: string;
 }
 
 let userFontToken = "";
+let embeddedFontMetrics: Record<string, FontMetrics> = {};
+
+/**
+ * Metrics for the embedded faces, keyed by served filename. Empty until the
+ * first /fonts response, which readerFontFaces reads as "emit no size
+ * normalization yet" rather than normalizing against numbers it does not have.
+ */
+export function embeddedMetrics(): Record<string, FontMetrics> {
+  return embeddedFontMetrics;
+}
 
 function acceptFontsResponse(response: FontsResponse): UserFontFamily[] {
   userFontToken = response.userToken;
+  embeddedFontMetrics = response.embedded ?? {};
   return response.user ?? [];
 }
 

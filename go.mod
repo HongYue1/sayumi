@@ -3,6 +3,7 @@ module sayumi
 go 1.26.6
 
 require (
+	github.com/andybalholm/brotli v1.0.6
 	golang.org/x/crypto v0.55.0
 	golang.org/x/image v0.45.0
 	golang.org/x/net v0.58.0

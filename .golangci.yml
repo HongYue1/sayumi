@@ -109,6 +109,11 @@ linters:
             - golang.org/x/net
             - golang.org/x/sync
             - modernc.org/sqlite
+            # Pure-Go brotli decoder, no cgo. A .woff2 stores its tables in one
+            # brotli stream, and the font metrics the reader normalizes size
+            # against live in there; without this the server can only measure
+            # .ttf/.otf/.woff, which is none of the bundled families.
+            - github.com/andybalholm/brotli
 
     govet:
       # The full analyzer set, minus two. This is where nilness (provable nil
