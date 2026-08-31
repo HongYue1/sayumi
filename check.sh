@@ -55,7 +55,7 @@ step "6. golangci-lint"
 if have golangci-lint; then
   if out="$(golangci-lint run ./... --timeout=5m 2>&1)"; then ok "no issues"; else fail "issues:
 $(printf '%s\n' "$out"|indent)"; fi
-else skip "golangci-lint (go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2)"; fi
+else skip "golangci-lint (go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2)"; fi
 
 step "7. govulncheck"
 if have govulncheck; then

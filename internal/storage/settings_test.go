@@ -108,7 +108,7 @@ func TestSettingsBoolColumnsRoundTripIndependently(t *testing.T) {
 
 			read := reflect.ValueOf(got)
 			for _, i := range boolFields {
-				value, ok := read.Field(i).Interface().(sql.NullBool)
+				value, ok := reflect.TypeAssert[sql.NullBool](read.Field(i))
 				if !ok {
 					t.Fatalf("%s is not a sql.NullBool", rt.Field(i).Name)
 				}

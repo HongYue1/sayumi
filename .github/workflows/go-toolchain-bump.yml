@@ -30,11 +30,25 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The writer needs the newest Go to stamp the newest directive; CI itself
-      # stays on go-version-file: go.mod so this workflow is the only floater.
+      # Resolve the newest patch inside the go.mod minor. Using `stable` here
+      # crosses into a newly released minor before the repo, its linters, and CI
+      # are ready for it—the opposite of this workflow's patch-only contract.
+      - name: Read current Go minor
+        id: go-minor
+        shell: bash
+        run: |
+          GO_VERSION="$(sed -n 's/^go //p' go.mod)"
+          GO_MINOR="${GO_VERSION%.*}"
+          if [[ ! "$GO_VERSION" =~ ^1\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::go.mod must pin a Go patch release (got '$GO_VERSION')"
+            exit 1
+          fi
+          echo "version=${GO_MINOR}.x" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: stable
+          go-version: ${{ steps.go-minor.outputs.version }}
+          check-latest: true
           cache: true
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -58,7 +72,7 @@ jobs:
       - name: Install Go quality tools (pinned)
         if: env.noop != '1'
         run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
           go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
           go install mvdan.cc/gofumpt@v0.11.0
           go install golang.org/x/tools/cmd/goimports@v0.49.0

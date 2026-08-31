@@ -1,4 +1,4 @@
-# golangci-lint v2 config (matches installed 2.12.2).
+# golangci-lint v2 config (matches installed 2.13.2).
 #
 # Builds on the default "standard" set (errcheck, govet, ineffassign,
 # staticcheck, unused), then widens the two heavyweights (govet, staticcheck)

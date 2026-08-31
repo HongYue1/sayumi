@@ -1,6 +1,6 @@
 module sayumi
 
-go 1.26.6
+go 1.26.7
 
 require (
 	github.com/andybalholm/brotli v1.0.6
