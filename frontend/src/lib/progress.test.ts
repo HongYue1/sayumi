@@ -222,6 +222,43 @@ describe("isBookmarkAtPosition anchor paths", () => {
       isBookmarkAtPosition({ chapter: 1, percent: 0.5 }, 1, 0.51, "cfi:a"),
     ).toBe(true);
   });
+
+  it("ignores text offsets: two taps at the same spot toggle, not duplicate", () => {
+    // Per-pixel caret offsets differ between taps; matching on them would
+    // create a second bookmark instead of deleting the first.
+    expect(
+      isBookmarkAtPosition(
+        { chapter: 1, percent: 0.5, cfi: "cfi:1/2:40" },
+        1,
+        0.5,
+        "cfi:1/2:87",
+      ),
+    ).toBe(true);
+  });
+
+  it("still refuses different blocks that both carry offsets", () => {
+    expect(
+      isBookmarkAtPosition(
+        { chapter: 1, percent: 0.5, cfi: "cfi:1/2:40" },
+        1,
+        0.5,
+        "cfi:1/3:12",
+      ),
+    ).toBe(false);
+  });
+
+  it("matches an offset bookmark from an element-only position", () => {
+    // A bookmark minted with an offset against a boot-time element-only
+    // position (or vice versa): the block agrees, the percent is tight.
+    expect(
+      isBookmarkAtPosition(
+        { chapter: 1, percent: 0.5, cfi: "cfi:1/2:40" },
+        1,
+        0.5,
+        "cfi:1/2",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("findBookmarkAtPosition", () => {

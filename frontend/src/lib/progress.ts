@@ -103,16 +103,19 @@ export const BOOKMARK_EPSILON = 0.02;
 
 /**
  * True when a bookmark sits at the given position. Two paths: when BOTH sides
- * carry a cfi the match is exact-anchor -- the cfis must agree AND the
- * percents must sit inside a tight same-spot bucket (paged quantization makes
- * same-page percents identical, so the bucket only absorbs float noise). The
- * tight guard matters for the degenerate chapter whose one giant element
- * anchors several pages to the same cfi: there a page of travel shares the
- * anchor, and the percent is the only tell. When either side lacks a cfi
- * (legacy bookmarks, or the pre-first-report boot state) the legacy percent
- * bucket decides. Deletes flow from this predicate, so every doubt resolves
- * to NO match -- a wrong create is recoverable with a second tap; a wrong
- * delete loses the label and note.
+ * carry a cfi the match is exact-anchor -- the ELEMENT paths must agree AND
+ * the percents must sit inside a tight same-spot bucket (paged quantization
+ * makes same-page percents identical, so the bucket only absorbs float
+ * noise). The tight guard matters for the degenerate chapter whose one giant
+ * element anchors several pages to the same cfi: there a page of travel
+ * shares the anchor, and the percent is the only tell. Text offsets (`:C`
+ * suffix) are ignored for the anchor comparison -- two taps at the same spot
+ * measure different pixel offsets, and matching on them would duplicate
+ * instead of toggling; the percent bucket still scopes nearness. When either
+ * side lacks a cfi (legacy bookmarks, or the pre-first-report boot state)
+ * the legacy percent bucket decides. Deletes flow from this predicate, so
+ * every doubt resolves to NO match -- a wrong create is recoverable with a
+ * second tap; a wrong delete loses the label and note.
  */
 export function isBookmarkAtPosition(
   bookmark: { chapter: number; percent: number; cfi?: string },
@@ -124,9 +127,21 @@ export function isBookmarkAtPosition(
   if (bookmark.chapter !== chapter) return false;
   const delta = Math.abs(bookmark.percent - percent);
   if (bookmark.cfi !== undefined && cfi !== undefined) {
-    return bookmark.cfi === cfi && delta < PROGRESS_EPSILON;
+    return (
+      cfiElementPath(bookmark.cfi) === cfiElementPath(cfi) &&
+      delta < PROGRESS_EPSILON
+    );
   }
   return delta < eps;
+}
+
+/**
+ * The element path of a CFI, dropping the text-offset suffix (`:C`) so
+ * anchors compare by block, not by measured pixel. Suffix-less (legacy)
+ * values pass through unchanged.
+ */
+export function cfiElementPath(cfi: string): string {
+  return cfi.replace(/:\d+$/, "");
 }
 
 /**
