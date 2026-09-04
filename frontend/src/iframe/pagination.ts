@@ -1,4 +1,5 @@
 import type { FrameToParentMessage } from "~/lib/frameMessages";
+import { rectForCollapsedRange } from "~/lib/cfi";
 import { prefersReducedMotion } from "./reduceMotion";
 
 // Page-turn cross-fade timing. The paged view is one multicol scroller, so a
@@ -64,6 +65,13 @@ export type PaginationController = {
   prevPage: () => void;
   goToPage: (page: number, animated: boolean) => void;
   getElementPageIndex: (el: Element) => number;
+  /**
+   * The page holding a viewport rect (Foliate-shaped range restore: the
+   * anchor is a text offset, not an element, so callers pass the range's
+   * rect instead of resolving an element first). Same mapping as
+   * getElementPageIndex; split out so restores and mode switches share it.
+   */
+  getRectPageIndex: (rect: { left: number; right: number }) => number;
   /** Turn to the page holding `id`; false when the anchor isn't in this chapter. */
   scrollToFragmentPaged: (id: string, animated?: boolean) => boolean;
   goToElementPaged: (el: Element, animated?: boolean) => void;
@@ -72,15 +80,23 @@ export type PaginationController = {
     scrollTarget: "top" | "end",
     restorePercent: number | null,
     restoreElement: Element | null,
+    restoreRange?: Range | null,
   ) => void;
   /**
    * Enter paged mode for the already-loaded chapter, preserving the position
    * captured before the switch. Not a restore: there is no load transaction,
    * no pending fragment to consume, and no shell to reveal — just re-paginate
    * around the given anchor (or ratio fallback) and report the converted
-   * position so the parent's saved progress survives the mode change.
+   * position so the parent's saved progress survives the mode change. A
+   * viewport rect (measured post-switch from a text-offset range) outranks
+   * the element: a block spanning several pages maps by its start, while the
+   * rect lands the exact page.
    */
-  enterPagedFromScroll: (anchor: Element | null, ratio: number) => void;
+  enterPagedFromScroll: (
+    anchor: Element | null,
+    ratio: number,
+    anchorRange?: Range | null,
+  ) => void;
   /** Current position as a 0..1 ratio; 0 while unpaginated. */
   getCurrentRatio: () => number;
   reportPagePosition: () => void;
@@ -308,12 +324,20 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     return pagePercent(currentPage, totalPages);
   }
 
-  function enterPagedFromScroll(anchor: Element | null, ratio: number): void {
+  function enterPagedFromScroll(
+    anchor: Element | null,
+    ratio: number,
+    anchorRange: Range | null = null,
+  ): void {
     // A scroll->paged switch must not start from currentPage: it still holds
     // the page from the previous paged session (or 0 after the chapter load
     // reset), so reusing it opens the wrong page and the report that follows
     // overwrites the parent's good scroll position with it. Resolve from the
-    // anchor captured in the scroll layout instead, ratio as fallback.
+    // anchor captured in the scroll layout instead, ratio as fallback. A live
+    // text-offset range outranks the element: a block spanning several pages
+    // maps by its start, while the range lands the exact page. The range is
+    // resolved to a rect here — after scrollLeft is zeroed below — because a
+    // rect read earlier would be mapped against the wrong origin.
     setPageTurning(false);
     if (!pagedResizeObserver) setupPagedResizeObserver();
     setPagedHeights();
@@ -322,11 +346,20 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     lastLayoutW = window.innerWidth;
     lastLayoutH = window.innerHeight;
     totalPages = calculateTotalPages();
+    // Measure against scrollLeft 0 like a load restore does: a stale
+    // scrollLeft from the previous paged session would skew the logical-x
+    // mapping for both the range and the element paths.
+    const content = deps.getContentEl();
+    if (content) content.scrollLeft = 0;
     const liveAnchor = anchor?.isConnected ? anchor : null;
+    const rangeRect =
+      liveAnchor !== null ? rectForCollapsedRange(anchorRange) : null;
     currentPage =
-      liveAnchor !== null
-        ? getElementPageIndex(liveAnchor)
-        : pageForRatio(ratio, totalPages);
+      rangeRect !== null
+        ? getRectPageIndex(rangeRect)
+        : liveAnchor !== null
+          ? getElementPageIndex(liveAnchor)
+          : pageForRatio(ratio, totalPages);
     lastAnchorEl = liveAnchor;
     applyPageScroll(currentPage, false);
     reportPagePosition();
@@ -555,13 +588,33 @@ export function createPagination(deps: PaginationDeps): PaginationController {
 
     const contentRect = content.getBoundingClientRect();
     const rect = el.getBoundingClientRect();
+    return pageIndexForRect(contentRect, rect, content.scrollLeft);
+  }
+
+  function getRectPageIndex(rect: { left: number; right: number }): number {
+    const content = deps.getContentEl();
+    if (!content) return 0;
+    totalPages = calculateTotalPages();
+    if (pageStride <= 0) return 0;
+    return pageIndexForRect(
+      content.getBoundingClientRect(),
+      rect,
+      content.scrollLeft,
+    );
+  }
+
+  function pageIndexForRect(
+    contentRect: { left: number; right: number },
+    rect: { left: number; right: number },
+    domScrollLeft: number,
+  ): number {
     return pageAtOffset(
       elementLogicalX({
         containerLeft: contentRect.left,
         containerRight: contentRect.right,
         elementLeft: rect.left,
         elementRight: rect.right,
-        domScrollLeft: content.scrollLeft,
+        domScrollLeft,
         rtl: isRTL,
       }),
       pageStride,
@@ -671,6 +724,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     scrollTarget: "top" | "end",
     restorePercent: number | null,
     restoreElement: Element | null,
+    restoreRange: Range | null = null,
   ): void {
     const seqAtStart = deps.getActiveSeq();
     const content = deps.getContentEl();
@@ -702,15 +756,24 @@ export function createPagination(deps: PaginationDeps): PaginationController {
       return;
     }
 
-    currentPage = restoreElement
-      ? getElementPageIndex(restoreElement)
-      : restorePercent !== null &&
-          Number.isFinite(restorePercent) &&
-          totalPages > 1
-        ? pageForRatio(restorePercent, totalPages)
-        : scrollTarget === "end"
-          ? Math.max(0, totalPages - 1)
-          : 0;
+    // A text-offset range outranks the element: a block spanning several
+    // pages maps by its start, while the range lands the exact page. The
+    // rect is read here — after scrollLeft is zeroed above — so the
+    // logical-x mapping sees the same origin it computes against.
+    const rangeRect =
+      restoreElement !== null ? rectForCollapsedRange(restoreRange) : null;
+    currentPage =
+      rangeRect !== null
+        ? getRectPageIndex(rangeRect)
+        : restoreElement
+          ? getElementPageIndex(restoreElement)
+          : restorePercent !== null &&
+              Number.isFinite(restorePercent) &&
+              totalPages > 1
+            ? pageForRatio(restorePercent, totalPages)
+            : scrollTarget === "end"
+              ? Math.max(0, totalPages - 1)
+              : 0;
     lastAnchorEl = restoreElement;
 
     applyPageScroll(currentPage, false);
@@ -841,6 +904,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     prevPage,
     goToPage: goToPageInternal,
     getElementPageIndex,
+    getRectPageIndex,
     scrollToFragmentPaged,
     goToElementPaged,
     relayout: relayoutAfterSettings,

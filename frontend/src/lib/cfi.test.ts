@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { generateCFI, resolveCFI } from "~/lib/cfi";
+import {
+  generateCFI,
+  resolveCFI,
+  resolveCFIRange,
+  elementTextLength,
+} from "~/lib/cfi";
 import {
   SEARCH_MARK_ATTRIBUTE,
   SEARCH_MARK_SELECTOR,
@@ -159,4 +164,82 @@ describe("generateCFI / resolveCFI", () => {
       expect(resolveCFI(bad, document)).toBeNull();
     });
   }
+});
+
+describe("CFI text offsets", () => {
+  it("appends a character offset to the element path", () => {
+    setBody(`<p id="t">abcdef</p>`);
+    const target = document.getElementById("t")!;
+    expect(generateCFI(target, document, 4)).toBe("cfi:1:4");
+    // No offset measured: the plain element path, as before.
+    expect(generateCFI(target, document)).toBe("cfi:1");
+  });
+
+  it("clamps out-of-range offsets instead of failing", () => {
+    setBody(`<p id="t">abcdef</p>`);
+    const target = document.getElementById("t")!;
+    expect(generateCFI(target, document, 99)).toBe("cfi:1:6");
+    expect(generateCFI(target, document, -5)).toBe("cfi:1:0");
+    // A non-measurement degrades to the element path.
+    expect(generateCFI(target, document, NaN)).toBe("cfi:1");
+  });
+
+  it("counts text across inline descendants as one run", () => {
+    setBody(`<p id="t">ab<em>cd</em>ef</p>`);
+    expect(elementTextLength(document.getElementById("t")!)).toBe(6);
+    // A boundary offset sticks to the end of the left run — the same caret
+    // point as the start of the right run, deterministically.
+    const edge = resolveCFIRange("cfi:1:4", document)!;
+    expect(edge.collapsed).toBe(true);
+    expect(edge.startContainer.textContent).toBe("cd");
+    expect(edge.startOffset).toBe(2);
+    const inner = resolveCFIRange("cfi:1:5", document)!;
+    expect(inner.startContainer.textContent).toBe("ef");
+    expect(inner.startOffset).toBe(1);
+  });
+
+  it("maps an offset identically with a live highlight as without", () => {
+    // Marks wrap the original text in place, so the element-text count is
+    // highlight-stable by construction: no invalidation dance needed.
+    setBody(`<p id="t">abcdef</p>`);
+    const target = document.getElementById("t")!;
+    const clean = generateCFI(target, document, 4);
+    wrapMark(target, 1, 2);
+    expect(generateCFI(target, document, 4)).toBe(clean);
+    const range = resolveCFIRange(clean!, document)!;
+    expect(range.startContainer.textContent).toBe("def");
+    expect(range.startOffset).toBe(1);
+    clearSearchMarks();
+    const cleared = resolveCFIRange(clean!, document)!;
+    expect(cleared.startContainer.textContent).toBe("abcdef");
+    expect(cleared.startOffset).toBe(4);
+  });
+
+  it("resolves an offset-less value to the start of the element", () => {
+    setBody(`<div><p id="t">xy</p></div>`);
+    const target = document.getElementById("t")!;
+    const range = resolveCFIRange("cfi:1/1", document)!;
+    expect(range.startContainer).toBe(target);
+    expect(range.startOffset).toBe(0);
+  });
+
+  it("resolveCFI tolerates the suffix for element-only callers", () => {
+    setBody(`<div><p id="t">xy</p></div>`);
+    const target = document.getElementById("t")!;
+    expect(resolveCFI("cfi:1/1:1", document)).toBe(target);
+  });
+
+  it("clamps a resolve past shrunken text to the end instead of failing", () => {
+    setBody(`<p id="t">abcdef</p>`);
+    const range = resolveCFIRange("cfi:1:99", document)!;
+    expect(range.startContainer.textContent).toBe("abcdef");
+    expect(range.startOffset).toBe(6);
+  });
+
+  it("returns null only when the element itself is gone", () => {
+    setBody(`<p id="t">abcdef</p>`);
+    expect(resolveCFIRange("cfi:2:1", document)).toBeNull();
+    expect(resolveCFIRange("cfi:1:1x", document)).toBeNull();
+    expect(resolveCFIRange("cfi:1:", document)).toBeNull();
+  });
 });

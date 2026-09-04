@@ -14,7 +14,13 @@ import {
   extractBookFontFamilies,
   filterReaderFontFaces,
 } from "./cssText";
-import { generateCFI, resolveCFI } from "~/lib/cfi";
+import {
+  generateCFI,
+  resolveCFI,
+  resolveCFIRange,
+  rectForCollapsedRange,
+  textNodeAtOffset,
+} from "~/lib/cfi";
 import { createSearchHighlight } from "./searchHighlight";
 import { createBoundary } from "./boundary";
 import { createPagination } from "./pagination";
@@ -230,6 +236,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   let lastVisibleBlock: Element | null = null;
   let lastReportedAnchor: Element | null = null;
   let lastReportedCfi: string | null = null;
+  let lastReportedOffset: number | undefined;
 
   function absolutifyHTML(html: string): string {
     if (!parentOrigin) return html;
@@ -253,8 +260,19 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     );
   }
 
+  // Static shell nodes of the reader document. They must never anchor a
+  // position: #content-inner carries the paged page padding, so the 8px
+  // reading-edge probe lands in its padding (not in any block) and
+  // elementFromPoint returns the inner element itself. Its column-height box
+  // passes the size/overlap tests below from every page, so once memoized it
+  // sticks for the rest of the chapter: every report pairs a fresh percent
+  // with CFI cfi:1/1/1, every save persists it, and every reopen resolves it
+  // to page 0 — a self-sustaining chapter-start loop across sessions.
+  const SHELL_ELEMENT_IDS = new Set(["content-inner", "content", "paged-clip"]);
+
   function isUsableVisibleBlock(node: Element, content: HTMLElement): boolean {
     if (!content.contains(node) || !BLOCK_TAGS.has(node.tagName)) return false;
+    if (SHELL_ELEMENT_IDS.has(node.id)) return false;
     const rect = node.getBoundingClientRect();
     const vh = Number.isFinite(window.innerHeight) ? window.innerHeight : 0;
     const vw = Number.isFinite(window.innerWidth) ? window.innerWidth : 0;
@@ -287,21 +305,90 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     return null;
   }
 
-  function findFirstVisibleBlock(): Element | null {
+  // Anchor spot: the block at the reading edge plus the intra-block text
+  // offset of the exact point (Foliate-shaped single identity). The offset
+  // is what makes the anchor precise inside long blocks; the element alone
+  // stays a valid coarse anchor, so an unmeasurable offset degrades to the
+  // old element-only behavior instead of failing.
+  interface AnchorSpot {
+    element: Element;
+    offset?: number;
+  }
+
+  // Caret hit-test for offset measurement. caretRangeFromPoint is
+  // Chromium/WebKit; caretPositionFromPoint is Firefox-only and absent from
+  // lib.dom, hence the cast. Either may be missing entirely (notably in test
+  // DOMs) — the element probe below is the backstop, never this.
+  function caretPointForOffset(
+    px: number,
+    py: number,
+  ): { node: Node; offset: number } | null {
+    try {
+      const docWithCaret = document as Document & {
+        caretRangeFromPoint?: (x: number, y: number) => Range | null;
+        caretPositionFromPoint?: (
+          x: number,
+          y: number,
+        ) => {
+          offsetNode: Node;
+          offset: number;
+        } | null;
+      };
+      if (typeof docWithCaret.caretRangeFromPoint === "function") {
+        const range = docWithCaret.caretRangeFromPoint(px, py);
+        if (range)
+          return { node: range.startContainer, offset: range.startOffset };
+        return null;
+      }
+      if (typeof docWithCaret.caretPositionFromPoint === "function") {
+        const pos = docWithCaret.caretPositionFromPoint(px, py);
+        if (pos) return { node: pos.offsetNode, offset: pos.offset };
+      }
+    } catch {
+      // Hit-testing must never break reporting; fall through to null and let
+      // the caller take the element probe.
+    }
+    return null;
+  }
+
+  // Character offset of a caret point inside its block, in the same
+  // element-text space generateCFI addresses (every descendant text node in
+  // tree order, search-mark contents included). A caret outside the block —
+  // the margin probe hitting a neighbor — or on an element boundary yields
+  // undefined rather than a fabricated offset.
+  function caretOffsetInBlock(
+    block: Element,
+    caretNode: Node,
+    caretOffset: number,
+  ): number | undefined {
+    if (caretNode !== block && !block.contains(caretNode)) return undefined;
+    if (caretNode.nodeType !== Node.TEXT_NODE) return undefined;
+    const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+    let acc = 0;
+    let node = walker.nextNode();
+    while (node) {
+      if (node === caretNode) {
+        const len = node.nodeValue?.length ?? 0;
+        return acc + Math.min(Math.max(0, caretOffset), len);
+      }
+      acc += node.nodeValue?.length ?? 0;
+      node = walker.nextNode();
+    }
+    return undefined;
+  }
+
+  // First visible content as element + intra-block offset. Caret-first per
+  // sample (one native hit-test, no author-JS reflow beyond style), with the
+  // element probe as the backstop at the same sample — coverage never drops
+  // below today's, it only gains precision. The memoized block short-circuits
+  // both probes; only the offset is re-measured, at the first sample point.
+  function captureAnchorSpot(): AnchorSpot | null {
     const content = getContentEl();
     if (!content) return null;
-
-    if (lastVisibleBlock && isUsableVisibleBlock(lastVisibleBlock, content)) {
-      return lastVisibleBlock;
-    }
 
     const vw = Number.isFinite(window.innerWidth) ? window.innerWidth : 0;
     const vh = Number.isFinite(window.innerHeight) ? window.innerHeight : 0;
     if (vw <= 0 || vh <= 0) return null;
-    // Probe inward from the reading edge: the top edge for horizontal-tb, the
-    // right edge for vertical-rl (which reads right to left), the left edge for
-    // vertical-lr. Sampling top-centre in a vertical chapter anchors to a block
-    // up to half a viewport ahead of the reader.
     const span = verticalWriting ? vw : vh;
     const samples = [8, 40, Math.floor(span * 0.18), Math.floor(span * 0.33)];
     const probePoint = (offset: number): [number, number] => {
@@ -311,15 +398,53 @@ const PAGED_SCROLL_KEYS = new Set<string>([
         : [offset, vh / 2];
     };
 
-    for (const offset of samples) {
-      if (offset < 0 || offset >= span) continue;
-      const [px, py] = probePoint(offset);
+    if (lastVisibleBlock && isUsableVisibleBlock(lastVisibleBlock, content)) {
+      const [px, py] = probePoint(samples[0]);
+      const caret = caretPointForOffset(px, py);
+      // No caret API in this runtime: element-only anchor, as before.
+      if (!caret) return { element: lastVisibleBlock };
+      const offset = caretOffsetInBlock(
+        lastVisibleBlock,
+        caret.node,
+        caret.offset,
+      );
+      // The caret resolving outside the memo means the reader moved on while
+      // the memo stayed "usable" — multicol union rects overlap every page
+      // they span, and the overlap test above is vertical-only, so in paged
+      // mode it never invalidates by horizontal distance. Returning the memo
+      // here would pair a fresh percent with a stale block; fall through to
+      // the full re-probe instead.
+      if (offset === undefined) {
+        lastVisibleBlock = null;
+      } else {
+        return { element: lastVisibleBlock, offset };
+      }
+    }
+
+    for (const sample of samples) {
+      if (sample < 0 || sample >= span) continue;
+      const [px, py] = probePoint(sample);
+      const caret = caretPointForOffset(px, py);
+      if (caret) {
+        const caretEl =
+          caret.node.nodeType === Node.ELEMENT_NODE
+            ? (caret.node as Element)
+            : caret.node.parentElement;
+        const block = ascendToVisibleBlock(caretEl, content);
+        if (block) {
+          lastVisibleBlock = block;
+          return {
+            element: block,
+            offset: caretOffsetInBlock(block, caret.node, caret.offset),
+          };
+        }
+      }
       const leaf = document.elementFromPoint(px, py);
       if (!leaf || !content.contains(leaf)) continue;
       const block = ascendToVisibleBlock(leaf, content);
       if (block) {
         lastVisibleBlock = block;
-        return block;
+        return { element: block };
       }
     }
 
@@ -560,11 +685,21 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     axisScrollTo(scrollTarget === "end" ? getScrollableMax() : 0);
 
     if (restoreCfi) {
-      const el = resolveCFI(restoreCfi, document);
-      if (el) {
-        el.scrollIntoView({ behavior: "instant" as ScrollBehavior });
-      } else if (restorePercent !== null) {
-        restoreScrollPercent(restorePercent);
+      // Range first: a text offset lands the exact point, while the element
+      // lands its top (a page or more off inside a long block). Vertical
+      // chapters stay on the element path — their flow axis isn't Y.
+      const rect = verticalWriting
+        ? null
+        : rectForCollapsedRange(resolveContentRange(restoreCfi));
+      if (rect) {
+        axisScrollTo(getAxisScrollPos() + rect.top);
+      } else {
+        const el = resolveContentCfi(restoreCfi);
+        if (el) {
+          el.scrollIntoView({ behavior: "instant" as ScrollBehavior });
+        } else if (restorePercent !== null) {
+          restoreScrollPercent(restorePercent);
+        }
       }
     } else if (restorePercent !== null) {
       restoreScrollPercent(restorePercent);
@@ -582,16 +717,23 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   // captured before the switch. Same-document transfer like enterPagedFromScroll
   // in the other direction: the element is still connected (no reload between
   // capture and use), so scroll to it directly instead of round-tripping a
-  // CFI. Instant, like the load restore — a switch is not interactive
+  // CFI. A text-offset range lands the exact point; the element is the
+  // fallback. Instant, like the load restore — a switch is not interactive
   // navigation. Runs synchronously inside applySettings after the paged inline
-  // styles are cleared; getScrollableMax/scrollIntoView force the reflow, so
-  // no rAF settling is needed.
+  // styles are cleared; getScrollableMax/scroll reads force the reflow, so no
+  // rAF settling is needed. Vertical chapters never render paged, so the
+  // rect path only ever runs horizontal-tb here.
   function restoreScrollFromSwitch(
     anchor: Element | null,
     ratio: number,
+    anchorRange: Range | null = null,
   ): void {
-    if (anchor?.isConnected) {
-      anchor.scrollIntoView({ behavior: "instant" as ScrollBehavior });
+    const liveAnchor = anchor?.isConnected ? anchor : null;
+    const rect = rectForCollapsedRange(liveAnchor ? anchorRange : null);
+    if (rect) {
+      axisScrollTo(getAxisScrollPos() + rect.top);
+    } else if (liveAnchor) {
+      liveAnchor.scrollIntoView({ behavior: "instant" as ScrollBehavior });
     } else {
       const pct = Number.isFinite(ratio) ? Math.min(1, Math.max(0, ratio)) : 0;
       axisScrollTo(getScrollableMax() * pct);
@@ -647,7 +789,13 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       const target = loadScrollTarget || "top";
       const pagedRestore = loadRestorePercent;
       const pagedRestoreElement = loadRestoreCfi
-        ? resolveCFI(loadRestoreCfi, document)
+        ? resolveContentCfi(loadRestoreCfi)
+        : null;
+      // Resolve the range (not just the rect) here: the rect must be read
+      // inside restorePagedPosition, after scrollLeft is zeroed, or a stale
+      // offset skews the logical-x mapping.
+      const pagedRestoreRange = loadRestoreCfi
+        ? resolveContentRange(loadRestoreCfi)
         : null;
       loadScrollTarget = null;
       loadRestorePercent = null;
@@ -657,6 +805,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
         target,
         pagedRestore,
         pagedRestoreElement,
+        pagedRestoreRange,
       );
       requestAnimationFrame(drainPendingSearchHighlight);
       sendMessage({ type: "loaded", seq: activeSeq });
@@ -753,10 +902,10 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     // reveal time, so the load restore already lands in the final mode).
     const isModeSwitch =
       contentReady && !restorePending && isPagedMode !== willBePaged;
-    let switchAnchor: Element | null = null;
+    let switchSpot: AnchorSpot | null = null;
     let switchRatio = 0;
     if (isModeSwitch) {
-      switchAnchor = findFirstVisibleBlock();
+      switchSpot = captureAnchorSpot();
       switchRatio = isPagedMode
         ? pagination.getCurrentRatio()
         : getScrollPercent();
@@ -1037,7 +1186,12 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       // switch re-establishes it via pagination.relayout().
       cancelScheduledPagedRelayout();
       pagination.teardownResizeObserver();
-      if (isModeSwitch) restoreScrollFromSwitch(switchAnchor, switchRatio);
+      if (isModeSwitch)
+        restoreScrollFromSwitch(
+          switchSpot?.element ?? null,
+          switchRatio,
+          rangeForSpot(switchSpot),
+        );
     }
 
     if (!contentReady) {
@@ -1045,7 +1199,11 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       runInitialLayoutRestore();
     } else if (isPagedMode) {
       if (isModeSwitch)
-        pagination.enterPagedFromScroll(switchAnchor, switchRatio);
+        pagination.enterPagedFromScroll(
+          switchSpot?.element ?? null,
+          switchRatio,
+          rangeForSpot(switchSpot),
+        );
       else schedulePagedRelayout();
     }
   }
@@ -1092,7 +1250,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     }
     if (!contentReady) return;
 
-    const el = resolveCFI(cfi, document);
+    const el = resolveContentCfi(cfi);
     if (!el) return;
 
     if (isPagedMode) {
@@ -1123,6 +1281,12 @@ const PAGED_SCROLL_KEYS = new Set<string>([
 
   let scrollThrottleTimer: ReturnType<typeof setTimeout> | null = null;
   let scrollThrottlePending = false;
+  // A scroll run that never pauses resets the trailing edge below forever, so
+  // reports (and with them saved progress) stall until the pause. Force one
+  // at most every interval while the run lasts; the trailing edge still
+  // reports the final rest.
+  const SCROLL_REPORT_MAX_WAIT_MS = 1000;
+  let lastScrollReportTime = 0;
 
   // generateCFI indexes among all element siblings, so wrapping or unwrapping
   // search <mark>s can shift the path a cached CFI encodes. Drop the cache
@@ -1131,24 +1295,66 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     lastVisibleBlock = null;
     lastReportedAnchor = null;
     lastReportedCfi = null;
+    lastReportedOffset = undefined;
   }
 
-  // CFI for the block anchoring the current view, or the empty marker when none
+  // CFI for the spot anchoring the current view, or the empty marker when none
   // resolves. Both modes report through this helper so a paged report can never
   // omit the field: an absent cfi means "keep the stored value" on the parent,
-  // which would pin paged progress to the page the chapter opened on.
+  // which would pin paged progress to the page the chapter opened on. The
+  // offset is part of the memo key alongside the element: the same block
+  // anchors many scroll positions, and a stale-offset CFI would restore
+  // behind where the reader actually is.
   function anchorCfiForCurrentView(): string {
-    const el = findFirstVisibleBlock();
-    if (!el) {
+    const spot = captureAnchorSpot();
+    if (!spot) {
       lastReportedAnchor = null;
       lastReportedCfi = null;
+      lastReportedOffset = undefined;
       return NO_CFI;
     }
-    if (el !== lastReportedAnchor) {
-      lastReportedAnchor = el;
-      lastReportedCfi = generateCFI(el, document);
+    if (
+      spot.element !== lastReportedAnchor ||
+      spot.offset !== lastReportedOffset
+    ) {
+      lastReportedAnchor = spot.element;
+      lastReportedOffset = spot.offset;
+      lastReportedCfi = generateCFI(spot.element, document, spot.offset);
     }
     return lastReportedCfi ?? NO_CFI;
+  }
+
+  // Resolve a stored CFI to book content, refusing the reader shell. Values
+  // saved before shell nodes were rejected as anchors (notably cfi:1/1/1,
+  // the #content-inner path) still arrive from the server: resolving them
+  // would land page 0 / chapter top under a correct percent, so they fail
+  // closed into the percent fallback instead.
+  function resolveContentCfi(cfi: string): Element | null {
+    const el = resolveCFI(cfi, document);
+    return el && !SHELL_ELEMENT_IDS.has(el.id) ? el : null;
+  }
+
+  function resolveContentRange(cfi: string): Range | null {
+    const el = resolveContentCfi(cfi);
+    if (!el) return null;
+    return resolveCFIRange(cfi, document);
+  }
+
+  // Collapsed Range at a live spot's text offset, for measuring where the
+  // exact point sits in the current layout (mode-switch transfer). Null for
+  // element-only spots: callers fall back to the element.
+  function rangeForSpot(spot: AnchorSpot | null): Range | null {
+    if (!spot || spot.offset === undefined) return null;
+    try {
+      const point = textNodeAtOffset(spot.element, spot.offset);
+      if (!point) return null;
+      const range = document.createRange();
+      range.setStart(point.node, point.offset);
+      range.collapse(true);
+      return range;
+    } catch {
+      return null;
+    }
   }
 
   function reportPosition(): void {
@@ -1169,15 +1375,20 @@ const PAGED_SCROLL_KEYS = new Set<string>([
 
   function throttledReportPosition(): void {
     if (!scrollThrottleTimer) {
+      lastScrollReportTime = Date.now();
       reportPosition();
       scrollThrottlePending = false;
       scrollThrottleTimer = setTimeout(() => {
         scrollThrottleTimer = null;
         if (scrollThrottlePending) {
           scrollThrottlePending = false;
+          lastScrollReportTime = Date.now();
           reportPosition();
         }
       }, 200);
+    } else if (Date.now() - lastScrollReportTime >= SCROLL_REPORT_MAX_WAIT_MS) {
+      lastScrollReportTime = Date.now();
+      reportPosition();
     } else {
       scrollThrottlePending = true;
     }

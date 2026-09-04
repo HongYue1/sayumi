@@ -306,4 +306,95 @@ describe("enterPagedFromScroll / getCurrentRatio", () => {
     expect(content.scrollLeft).toBe(2400);
     expect(positions()[0]?.percent).toBe(1);
   });
+
+  it("prefers a text-offset range over the anchor element", () => {
+    // A long block spans pages; the element maps by its start (page 0 here)
+    // while the range rect lands the exact page.
+    const anchor = document.createElement("p");
+    content.append(anchor);
+    anchor.getBoundingClientRect = () => rect(0, 3200);
+    const range = {
+      getBoundingClientRect: () => rect(1700, 1750),
+    } as unknown as Range;
+    pagination?.enterPagedFromScroll(anchor, 0, range);
+    expect(content.scrollLeft).toBe(1600);
+    expect(positions()).toEqual([
+      {
+        type: "position",
+        seq: 7,
+        chapterIndex: 3,
+        percent: 2 / 3,
+        cfi: "cfi:/1/2",
+      },
+    ]);
+  });
+});
+
+describe("getRectPageIndex", () => {
+  // Same four-page geometry as above: stride 800, pages at 0/800/1600/2400.
+  let content: HTMLElement;
+  let pagination: PaginationController | null = null;
+
+  function pageRect(left: number, right: number): DOMRect {
+    return {
+      left,
+      right,
+      top: 0,
+      bottom: 100,
+      width: right - left,
+      height: 100,
+      x: left,
+      y: 0,
+      toJSON: () => {},
+    } as DOMRect;
+  }
+
+  beforeEach(() => {
+    content = document.createElement("div");
+    document.body.append(content);
+    Object.defineProperty(content, "clientWidth", {
+      value: 800,
+      configurable: true,
+    });
+    Object.defineProperty(content, "scrollWidth", {
+      value: 3200,
+      configurable: true,
+    });
+    content.getBoundingClientRect = () => pageRect(0, 800);
+    pagination = createPagination({
+      getContentEl: () => content,
+      getClipEl: () => null,
+      sendMessage: () => {},
+      getActiveSeq: () => 0,
+      getActiveChapterIndex: () => 0,
+      isDestroyed: () => false,
+      isContentReady: () => true,
+      isRestorePending: () => false,
+      getPositionCfi: () => "",
+      isPagedMode: () => true,
+      hasNextChapter: () => false,
+      hasPrevChapter: () => false,
+      setChapterHidden: () => {},
+      ensureBoundaryElements: () => {},
+      flashBoundaryEdge: () => {},
+      updateBoundaryState: () => {},
+      takePendingFragment: () => null,
+    });
+  });
+
+  afterEach(() => {
+    pagination?.dispose();
+    pagination = null;
+    document.body.innerHTML = "";
+  });
+
+  it("maps a range rect to its page without resolving an element", () => {
+    // A text-offset anchor mid-chapter: the range rect, not the block's.
+    expect(pagination?.getRectPageIndex(pageRect(1700, 1750))).toBe(2);
+    expect(pagination?.getRectPageIndex(pageRect(0, 100))).toBe(0);
+    // Range rects are viewport-relative: scrolled to page 2, page-2 content
+    // sits at viewport x 0..800.
+    content.scrollLeft = 1600;
+    expect(pagination?.getRectPageIndex(pageRect(100, 150))).toBe(2);
+  });
 });
