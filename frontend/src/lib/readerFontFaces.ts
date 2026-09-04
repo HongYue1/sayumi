@@ -28,15 +28,23 @@ function fontUrl(filename: string): string {
 // own numbers cancel out — size-adjust resolves to 100% and each override
 // equals what the face already reports — so the default rendering is unchanged
 // and only the other families move.
-const REFERENCE_FACE = FONT_FILES.literata;
+export const REFERENCE_FACE = FONT_FILES.literata;
 
 function percent(ratio: number): string {
   return `${Number((ratio * 100).toFixed(3))}%`;
 }
 
+// A size-adjust outside this range is a lying x-height, not an unusual
+// design: Ovo and Rosarivo report ~0.17 while inking ~0.46-0.51, which sized
+// them near 300% until the glyphs overflowed the line box and lines
+// overlapped. Skipping (natural size) is always safe; a wrong scale is not.
+// Honest text faces land near 1.0 against the Literata reference.
+const MIN_SIZE_ADJUST = 0.7;
+const MAX_SIZE_ADJUST = 1.5;
+
 /**
  * The @font-face descriptors that make a family look the same size as the
- * reference, or "" when either set of metrics is unknown — in which case the
+ * reference, or "" when no trustworthy ratio exists — in which case the
  * family is left at its natural size rather than sized from a guess.
  *
  * `size-adjust` scales the glyphs until the x-heights match, and x-height (not
@@ -51,13 +59,38 @@ function percent(ratio: number): string {
  * Each override is divided by the adjustment because the browser resolves it
  * against the already-adjusted size; without the divide, scaling glyphs down
  * would drag the line box down with them.
+ *
+ * `measuredAdjust` is the family's ink-measured ratio (see lib/fontMeasure)
+ * and wins over the server metrics when sane: OS/2 x-heights can lie while
+ * staying inside the server's plausibility band, but ink cannot. Either
+ * source outside the sane range degrades to natural size rather than a
+ * blowup.
  */
-function normalizeToReference(
+export function normalizeToReference(
   face: FontMetrics | undefined,
   reference: FontMetrics | undefined,
+  measuredAdjust?: number,
 ): string {
-  if (!face?.xHeight || !reference?.xHeight) return "";
-  const adjust = reference.xHeight / face.xHeight;
+  // Without the reference there is nothing to normalize against — not even a
+  // measured ratio, whose line-box overrides still come from its verticals.
+  if (!reference) return "";
+  const serverAdjust = face?.xHeight
+    ? reference.xHeight / face.xHeight
+    : Number.NaN;
+  // The first sane ratio wins, measured before server. An insane measurement
+  // (a fallback font measured by mistake) falls through to the server value
+  // instead of skipping straight to natural size.
+  const candidates =
+    measuredAdjust === undefined
+      ? [serverAdjust]
+      : [measuredAdjust, serverAdjust];
+  const adjust = candidates.find(
+    (ratio) =>
+      Number.isFinite(ratio) &&
+      ratio >= MIN_SIZE_ADJUST &&
+      ratio <= MAX_SIZE_ADJUST,
+  );
+  if (adjust === undefined) return "";
   return [
     `  size-adjust: ${percent(adjust)};`,
     `  ascent-override: ${percent(reference.ascent / adjust)};`,
@@ -135,6 +168,7 @@ export function buildReaderFontFaces(): string {
 function buildUserFontFaces(
   families: UserFontFamily[],
   roles: Record<string, FontRoleMap> | undefined,
+  measured: Record<string, number> = {},
 ): string {
   if (!families.length) return "";
 
@@ -160,8 +194,9 @@ function buildUserFontFaces(
     const family = userFamilyCSSName(fam.id);
     // fam.metrics describes the family's regular face, and every role takes
     // that same adjustment so roman, italic and bold keep their relationship
-    // to one another. Absent metrics leave the family at its natural size.
-    const fit = normalizeToReference(fam.metrics, reference);
+    // to one another. Absent metrics leave the family at its natural size
+    // until the ink measurement (measured[family id]) reports its true ratio.
+    const fit = normalizeToReference(fam.metrics, reference, measured[fam.id]);
     const map = roles?.[fam.id] ?? {};
     // Fall back to the backend's detected roles when the user hasn't chosen.
     //
@@ -223,13 +258,16 @@ function formatHint(url: string): string {
 /**
  * Full @font-face CSS for the reader: the static embedded set plus any user
  * families. Recomputed whenever the user font registry or role mapping change,
- * then re-sent to the iframe.
+ * then re-sent to the iframe. `measured` carries ink-measured size ratios by
+ * family id (see lib/fontMeasure); they override the server metrics wherever
+ * present, so a face whose tables lie still matches once measured.
  */
 export function buildAllFontFaces(
   userFamilies: UserFontFamily[],
   roles: Record<string, FontRoleMap> | undefined,
+  measured: Record<string, number> = {},
 ): string {
-  const userFaces = buildUserFontFaces(userFamilies, roles);
+  const userFaces = buildUserFontFaces(userFamilies, roles, measured);
   return userFaces
     ? `${buildReaderFontFaces()}\n${userFaces}`
     : buildReaderFontFaces();

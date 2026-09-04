@@ -47,10 +47,13 @@ type Family struct {
 	Variable bool          `json:"variable"` // variable family: one upright file covers regular+bold, one italic file covers italic+boldItalic
 	Detected DetectedRoles `json:"detected"` // best-effort role guess for UI pre-fill
 	// Metrics are the regular face's em-relative metrics, or nil when they
-	// could not be read. They are what lets the client make two families look
-	// the same size at one font-size: glyphs fill different fractions of the em
-	// from family to family, so the same 28px yields a visibly smaller or
-	// larger page depending on the face.
+	// could not be read or could not be trusted. They are what lets the client
+	// make two families look the same size at one font-size: glyphs fill
+	// different fractions of the em from family to family, so the same 28px
+	// yields a visibly smaller or larger page depending on the face. A missing
+	// x-height (old OS/2 tables stop before it) and an implausible one (some
+	// faces report one far from what they render) both read as nil, which the
+	// client renders at natural size.
 	Metrics *Metrics `json:"metrics,omitempty"`
 }
 

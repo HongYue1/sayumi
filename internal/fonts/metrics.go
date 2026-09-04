@@ -57,7 +57,8 @@ const (
 // XHeight and CapHeight come from OS/2, which only carries them from version 2
 // onward. A face without them reports zero rather than a guess: a wrong ratio
 // would silently mis-size text, while a zero can be detected and left alone.
-// Normalizable tells the two apart.
+// Normalizable tells the two apart, and additionally rejects an x-height no
+// text face could honestly report.
 func ReadMetrics(data []byte) (Metrics, error) {
 	tables, err := readTables(data)
 	if err != nil {
@@ -123,10 +124,25 @@ func ReadMetrics(data []byte) (Metrics, error) {
 	return metrics, nil
 }
 
-// Normalizable reports whether this face carries the one metric the size
-// normalization needs. A face without it has to be left at its natural size.
+// plausibleXHeight bounds the x-height a text face can honestly report, as a
+// fraction of its em. The embedded faces all land near the middle (pinned by
+// TestReadMetricsEmbeddedFaces); the ends are where a misread field shows up,
+// not an unusual design.
+const (
+	minPlausibleXHeight = 0.3
+	maxPlausibleXHeight = 0.7
+)
+
+// Normalizable reports whether this face carries an x-height the size
+// normalization can trust. A face without one has to be left at its natural
+// size — and so does a face with one no text face could report: Ovo and
+// Rosarivo claim ~0.17 while their 'x' inks ~0.46-0.51 of the em, which sized
+// them near 300% until the glyphs no longer fit the line box and lines
+// overlapped. A wrong ratio mis-sizes text silently, while a false here
+// degrades to natural size.
 func (m Metrics) Normalizable() bool {
-	return m.UnitsPerEm > 0 && m.XHeight > 0
+	return m.UnitsPerEm > 0 &&
+		m.XHeight >= minPlausibleXHeight && m.XHeight <= maxPlausibleXHeight
 }
 
 // readU16 reads a big-endian uint16 at a byte offset, reporting false when the

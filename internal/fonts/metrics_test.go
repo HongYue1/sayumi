@@ -1,6 +1,7 @@
 package fonts
 
 import (
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"strings"
@@ -198,6 +199,136 @@ func TestWoff2KnownTagsIndexes(t *testing.T) {
 		if len(tag) != 4 {
 			t.Errorf("woff2KnownTags[%d] = %q, want a four-byte tag", index, tag)
 		}
+	}
+}
+
+// An x-height outside any text face's range is a lying OS/2 table, not an
+// unusual design: Ovo claims 356/2048 and Rosarivo 170/1000 while their 'x'
+// inks more than twice that. Trusting either sized them near 300% until lines
+// overlapped, so the gate below the band rejects as firmly as a missing value.
+func TestMetricsNormalizable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		metrics Metrics
+		wantOK  bool
+	}{
+		{name: "literata reference", metrics: Metrics{UnitsPerEm: 1000, XHeight: 0.507}, wantOK: true},
+		{name: "band low end", metrics: Metrics{UnitsPerEm: 1000, XHeight: 0.3}, wantOK: true},
+		{name: "band high end", metrics: Metrics{UnitsPerEm: 1000, XHeight: 0.7}, wantOK: true},
+		{name: "missing x-height", metrics: Metrics{UnitsPerEm: 1000}, wantOK: false},
+		{name: "zeroed units", metrics: Metrics{XHeight: 0.5}, wantOK: false},
+		{name: "ovo reports 356 of 2048", metrics: Metrics{UnitsPerEm: 2048, XHeight: 356.0 / 2048}, wantOK: false},
+		{name: "rosarivo reports 170 of 1000", metrics: Metrics{UnitsPerEm: 1000, XHeight: 0.17}, wantOK: false},
+		{name: "rosarivo italic reports 217 of 1000", metrics: Metrics{UnitsPerEm: 1000, XHeight: 0.217}, wantOK: false},
+		{name: "just below the band", metrics: Metrics{UnitsPerEm: 1000, XHeight: 0.299}, wantOK: false},
+		{name: "just above the band", metrics: Metrics{UnitsPerEm: 1000, XHeight: 0.701}, wantOK: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tc.metrics.Normalizable(); got != tc.wantOK {
+				t.Errorf("Normalizable(%+v) = %t, want %t", tc.metrics, got, tc.wantOK)
+			}
+		})
+	}
+}
+
+// craftSFNT builds the smallest container ReadMetrics accepts: a TrueType
+// header plus exactly the head, hhea and OS/2 tables it reads. Enough to pin
+// how a lying or version-1 OS/2 table flows through the real parser without
+// shipping a font as test data.
+func craftSFNT(head, hhea, os2 []byte) []byte {
+	tables := []struct {
+		tag  string
+		body []byte
+	}{
+		{"OS/2", os2},
+		{"head", head},
+		{"hhea", hhea},
+	}
+	headerLen := 12 + len(tables)*16
+	header := make([]byte, headerLen)
+	binary.BigEndian.PutUint32(header[0:], 0x00010000)
+	binary.BigEndian.PutUint16(header[4:], uint16(len(tables)))
+	at := headerLen
+	for i, table := range tables {
+		rec := header[12+i*16:]
+		copy(rec[:4], table.tag)
+		binary.BigEndian.PutUint32(rec[8:], uint32(at))
+		binary.BigEndian.PutUint32(rec[12:], uint32(len(table.body)))
+		at += len(table.body)
+	}
+	data := make([]byte, 0, at)
+	data = append(data, header...)
+	for _, table := range tables {
+		data = append(data, table.body...)
+	}
+	return data
+}
+
+func craftHead(unitsPerEm uint16) []byte {
+	head := make([]byte, 54)
+	binary.BigEndian.PutUint16(head[18:], unitsPerEm)
+	return head
+}
+
+func craftHhea(ascender, descender, lineGap int16) []byte {
+	hhea := make([]byte, 36)
+	binary.BigEndian.PutUint16(hhea[4:], uint16(ascender))
+	binary.BigEndian.PutUint16(hhea[6:], uint16(descender))
+	binary.BigEndian.PutUint16(hhea[8:], uint16(lineGap))
+	return hhea
+}
+
+func craftOS2(version uint16, typoAscender, typoDescender, typoLineGap, xHeight, capHeight int16) []byte {
+	os2 := make([]byte, 96)
+	binary.BigEndian.PutUint16(os2[0:], version)
+	binary.BigEndian.PutUint16(os2[68:], uint16(typoAscender))
+	binary.BigEndian.PutUint16(os2[70:], uint16(typoDescender))
+	binary.BigEndian.PutUint16(os2[72:], uint16(typoLineGap))
+	binary.BigEndian.PutUint16(os2[86:], uint16(xHeight))
+	binary.BigEndian.PutUint16(os2[88:], uint16(capHeight))
+	return os2
+}
+
+// The parser must accept these files (they are well-formed) yet refuse to
+// normalize from them: the Ovo-shaped table reports a usable-looking x-height
+// that is a lie, and the version-1 table stops before the x-height entirely.
+func TestReadMetricsDistrustsBadXHeight(t *testing.T) {
+	t.Parallel()
+
+	// Ovo's shape: 2048-unit em, OS/2 version 3 claiming sxHeight 356.
+	lying := craftSFNT(craftHead(2048), craftHhea(1770, -534, 0), craftOS2(3, 1770, -534, 0, 356, 210))
+	metrics, err := ReadMetrics(lying)
+	if err != nil {
+		t.Fatalf("ReadMetrics(lying OS/2): %v", err)
+	}
+	if metrics.Normalizable() {
+		t.Errorf("lying x-height %+v is Normalizable, want false", metrics)
+	}
+
+	// An OS/2 version 1 table carries no sxHeight at all.
+	old := craftSFNT(craftHead(1000), craftHhea(800, -200, 0), craftOS2(1, 800, -200, 0, 0, 0)[:78])
+	metrics, err = ReadMetrics(old)
+	if err != nil {
+		t.Fatalf("ReadMetrics(version 1 OS/2): %v", err)
+	}
+	if metrics.Normalizable() {
+		t.Errorf("missing x-height %+v is Normalizable, want false", metrics)
+	}
+
+	// Control: the same scaffolding with an honest x-height stays usable.
+	honest := craftSFNT(craftHead(1000), craftHhea(900, -300, 0), craftOS2(4, 900, -300, 0, 500, 700))
+	metrics, err = ReadMetrics(honest)
+	if err != nil {
+		t.Fatalf("ReadMetrics(honest OS/2): %v", err)
+	}
+	if !metrics.Normalizable() {
+		t.Errorf("honest x-height %+v is not Normalizable, want true", metrics)
 	}
 }
 

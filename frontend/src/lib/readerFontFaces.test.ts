@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { buildAllFontFaces, buildReaderFontFaces } from "~/lib/readerFontFaces";
-import type { UserFontFamily } from "~/api/client";
+import {
+  embeddedMetrics,
+  type FontMetrics,
+  type UserFontFamily,
+} from "~/api/client";
+import {
+  buildAllFontFaces,
+  buildReaderFontFaces,
+  normalizeToReference,
+} from "~/lib/readerFontFaces";
 
 type Face = { family: string; url: string; weight: string; style: string };
 
@@ -265,6 +273,82 @@ describe("buildAllFontFaces", () => {
         undefined,
       );
       expect(userFormats(css)).toEqual([hint]);
+    }
+  });
+});
+
+// The Literata upright the client normalizes every family against.
+const REFERENCE: FontMetrics = {
+  unitsPerEm: 1000,
+  xHeight: 0.507,
+  capHeight: 0.7,
+  ascent: 1.177,
+  descent: 0.308,
+  lineGap: 0,
+};
+
+function faceMetrics(xHeight: number): FontMetrics {
+  return { ...REFERENCE, xHeight };
+}
+
+describe("normalizeToReference", () => {
+  it("leaves the family alone when either side is unknown", () => {
+    expect(normalizeToReference(undefined, REFERENCE)).toBe("");
+    expect(normalizeToReference(faceMetrics(0.5), undefined)).toBe("");
+    expect(normalizeToReference(faceMetrics(0), REFERENCE)).toBe("");
+  });
+
+  it("matches a sane face against the reference", () => {
+    // Atkinson at 0.496 against Literata at 0.507: a 2.2% upscale.
+    const css = normalizeToReference(faceMetrics(0.496), REFERENCE);
+    expect(css).toContain("size-adjust: 102.218%;");
+    expect(css).toContain("ascent-override:");
+  });
+
+  it("refuses a lying x-height instead of blowing up", () => {
+    // Ovo reports 356/2048 and Rosarivo 170/1000 while inking more than
+    // twice that; trusting either sized them near 300% until lines
+    // overlapped. Natural size is the safe degradation.
+    expect(normalizeToReference(faceMetrics(356 / 2048), REFERENCE)).toBe("");
+    expect(normalizeToReference(faceMetrics(0.17), REFERENCE)).toBe("");
+    expect(normalizeToReference(faceMetrics(0.217), REFERENCE)).toBe("");
+  });
+
+  it("prefers an ink measurement over lying server metrics", () => {
+    // Ovo's tables claim ~0.17 (a 292% blowup) while its ink measures 1.11.
+    const css = normalizeToReference(faceMetrics(356 / 2048), REFERENCE, 1.11);
+    expect(css).toContain("size-adjust: 111%;");
+  });
+
+  it("measures a family the server could not read at all", () => {
+    const css = normalizeToReference(undefined, REFERENCE, 1.1);
+    expect(css).toContain("size-adjust: 110%;");
+  });
+
+  it("falls back to sane server metrics past a bad measurement", () => {
+    const css = normalizeToReference(faceMetrics(0.496), REFERENCE, 3);
+    expect(css).toContain("size-adjust: 102.218%;");
+  });
+
+  it("leaves the family alone when both sources are insane", () => {
+    expect(normalizeToReference(faceMetrics(0.17), REFERENCE, 3)).toBe("");
+  });
+
+  it("needs the reference verticals even with a measurement", () => {
+    expect(normalizeToReference(undefined, undefined, 1.1)).toBe("");
+  });
+});
+
+describe("buildAllFontFaces with measurements", () => {
+  it("sizes a metrics-less family from its ink ratio", () => {
+    embeddedMetrics()["Literata-VariableFont.woff2"] = REFERENCE;
+    try {
+      const css = buildAllFontFaces([fam()], undefined, {
+        "user:Minion": 1.1,
+      });
+      expect(css).toContain("size-adjust: 110%;");
+    } finally {
+      delete embeddedMetrics()["Literata-VariableFont.woff2"];
     }
   });
 });
