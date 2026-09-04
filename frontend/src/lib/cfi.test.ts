@@ -20,7 +20,6 @@ function setBody(html: string): void {
 function wrapMark(container: Element, start: number, length: number): Element {
   const text = container.firstChild as Text;
   const mark = document.createElement("mark");
-  mark.className = "search-highlight";
   mark.setAttribute(SEARCH_MARK_ATTRIBUTE, SEARCH_MARK_VALUE);
   const range = document.createRange();
   range.setStart(text, start);

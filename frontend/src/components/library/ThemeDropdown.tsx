@@ -36,8 +36,7 @@ export default function ThemeDropdown() {
   // Memos, not module-level constants: customThemes.list is reactive and starts
   // empty, so a module-level filter over THEMES alone could never grow. That is
   // why a saved custom theme was resolvable by the trigger (which reads the
-  // registry) yet had no row to pick it from in this menu. Same derivation the
-  // reader's SettingsPanel uses, so a theme created there is offered here too.
+  // registry) yet had no row to pick it from in this menu.
   const lightThemes = createMemo(() => [
     ...THEMES.filter((t) => t.group === "light"),
     ...customThemes.list.filter((t) => t.group === "light"),

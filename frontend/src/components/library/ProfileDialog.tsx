@@ -280,7 +280,7 @@ export default function ProfileDialog(props: Props) {
           if (!busy()) props.onclose();
         }}
       />
-      {/* eslint-disable jsx-a11y/prefer-tag-over-role -- div+role kept over a native <dialog>: visual parity with the Svelte original is the port's contract. */}
+      {/* eslint-disable jsx-a11y/prefer-tag-over-role -- div+role kept over a native <dialog>: visual parity with the established design is the port's contract. */}
       <div
         class="pd-sheet"
         role="dialog"

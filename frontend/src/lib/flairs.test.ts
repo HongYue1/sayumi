@@ -4,6 +4,7 @@
  * halves are pinned here.
  */
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   DEFAULT_FLAIRS,
   findFlair,
@@ -67,5 +68,25 @@ describe("findFlair", () => {
   it("returns undefined without an id or a match", () => {
     expect(findFlair(undefined, [])).toBeUndefined();
     expect(findFlair("nope", [])).toBeUndefined();
+  });
+});
+
+describe("the Go builtinFlairIDs contract", () => {
+  it("matches internal/api/flairs.go in both directions", () => {
+    // Built-in flairs live on the client but the Go side accepts them without
+    // a DB lookup, so an id added on one side and not the other either 404s
+    // on assign or never resolves a label. Pin both directions.
+    const go = readFileSync("../internal/api/flairs.go", "utf8");
+    const block =
+      /var builtinFlairIDs = map\[string\]struct\{\}\{([\s\S]*?)\n\}/.exec(
+        go,
+      )?.[1];
+    expect(block).toBeDefined();
+    const remote = new Set(
+      [...block!.matchAll(/"([^"]+)":/g)].map((m) => m[1]),
+    );
+    const local = new Set(DEFAULT_FLAIRS.map((f) => f.id));
+    expect([...local].filter((id) => !remote.has(id))).toEqual([]);
+    expect([...remote].filter((id) => !local.has(id))).toEqual([]);
   });
 });

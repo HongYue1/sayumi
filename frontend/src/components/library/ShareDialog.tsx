@@ -130,7 +130,7 @@ export default function ShareDialog(props: Props) {
         tabindex="-1"
         onClick={close}
       />
-      {/* eslint-disable jsx-a11y/prefer-tag-over-role -- div+role kept over a native <dialog>: visual parity with the Svelte original is the port's contract. */}
+      {/* eslint-disable jsx-a11y/prefer-tag-over-role -- div+role kept over a native <dialog>: visual parity with the established design is the port's contract. */}
       <div
         class="sd-sheet"
         role="dialog"

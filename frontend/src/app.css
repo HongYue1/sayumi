@@ -4921,8 +4921,7 @@ main {
   background: var(--veil);
   cursor: pointer;
   z-index: 6;
-  /* Replaces transition:fade={{ duration: 160 }} (fade's default easing is
-     linear). */
+  /* 160ms linear fade-in for the veil. */
   animation: rdp-fade-in 160ms linear both;
 }
 @keyframes rdp-fade-in {
@@ -4991,18 +4990,4 @@ main {
 .rdp-pos.rdp-hidden {
   opacity: 0;
   transform: translateY(6px);
-}
-
-/* Reduced motion: snap the progress fill instead of easing it, and skip the
-   panel/scrim enter animations. The global switch above already collapses
-   every duration; this block stops these animations outright so they never
-   start. */
-@media (prefers-reduced-motion: reduce) {
-  .rdp-fill {
-    transition: none;
-  }
-  .rdp-panel,
-  .rdp-scrim {
-    animation: none;
-  }
 }

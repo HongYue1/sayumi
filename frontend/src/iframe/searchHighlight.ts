@@ -240,10 +240,11 @@ export function buildSearchTextIndex(
 
 function createSearchMark(): HTMLElement {
   const mark = document.createElement("mark");
-  mark.className = "search-highlight";
   // Book content may ship its own <mark class="search-highlight">. Ours are
   // identified by attribute so clearing never unwraps — and normalize()s — a
-  // piece of the chapter that was authored that way.
+  // piece of the chapter that was authored that way. No class is minted: a
+  // book stylesheet could restyle or hide it, and frame.css keys the active
+  // styling off the same attribute.
   mark.setAttribute(SEARCH_MARK_ATTRIBUTE, SEARCH_MARK_VALUE);
   return mark;
 }

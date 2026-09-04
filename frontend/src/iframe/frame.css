@@ -496,8 +496,8 @@ th {
   background: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
-/* One rule: searchHighlight.ts only ever applies .search-highlight, and only
-   to the single active match, so the former .search-highlight-active variant
+/* One rule: searchHighlight.ts mints marks with no class, and only the single
+   active match carries one, so the former .search-highlight-active variant
    was unreachable. Computed style is unchanged.
 
    Matched by attribute, not by class. The Go sanitizer is a deny-list

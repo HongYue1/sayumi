@@ -37,7 +37,7 @@ export const BOUNDARY_SENT_HIDE_MS = 300;
  * can't be reused there -- there is no hand-off to earn, and the wheel
  * threshold (600) would leave the end-stop invisible for a whole second.
  */
-export const EDGE_FULL_TRAVEL = 120;
+const EDGE_FULL_TRAVEL = 120;
 /** How long a keyboard/paged end-stop flash stays up (no gesture to track). */
 export const EDGE_FLASH_MS = 700;
 /** Distance the pill slides in from its screen edge. */

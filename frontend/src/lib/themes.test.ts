@@ -129,6 +129,21 @@ describe("the frame.css contract", () => {
     expect([...ids].filter((id) => !classes.has(id))).toEqual([]);
     expect([...classes].filter((c) => !ids.has(c))).toEqual([]);
   });
+
+  it("matches every built-in theme bg to its reader --bg-primary", () => {
+    // The shell paints chrome with theme.bg while the frame paints the page
+    // with --bg-primary; a drift splits the reader across two backgrounds.
+    // The light theme rides the bare html rule, the rest html.theme-<id>.
+    const css = readFileSync("src/iframe/frame.css", "utf8");
+    const readerBg = (id: string): string | null => {
+      const rule = new RegExp(`html\\.theme-${id}\\s*\\{([^}]*)\\}`).exec(css);
+      const bg = rule && /--bg-primary:\s*([^;]+);/.exec(rule[1]);
+      return bg ? bg[1].trim().toLowerCase() : null;
+    };
+    for (const t of THEMES) {
+      expect(readerBg(t.id)).toBe(t.bg.toLowerCase());
+    }
+  });
 });
 
 describe("prefersBlackText", () => {
