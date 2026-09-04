@@ -679,6 +679,17 @@ html.paged-two #paged-clip {
  * container shifts columns inside the scrollable area so at scrollLeft=0
  * you see adjacent content bleed into the viewport.
  *
+ * overflow-x is hidden, not scroll: the paginator drives scrollLeft
+ * programmatically, and a user-scrollable scroller lets a touchpad
+ * horizontal swipe (or Shift+wheel, or a touch drag) move the columns
+ * underneath the controller — no page turn registers, so currentPage,
+ * the indicator, and the position report all desync and the content rests
+ * mid-page. Script-assigned scrollLeft keeps working under hidden (only
+ * user scrolling is suppressed), so turns, restores, and scrollWidth-based
+ * page math are unaffected. Arrow keys needed no help — frame.ts already
+ * preventDefaults them in paged mode — but wheel and touch have no such
+ * interception point, hence the CSS-level lock.
+ *
  * No scroll-snap-type here, deliberately. Nothing in the app sets
  * scroll-snap-align, so a snap container had no snap area to snap to -- and
  * book CSS reaches this document with its declarations intact (cssText.ts
@@ -690,7 +701,7 @@ html.paged #content,
 html.paged-two #content {
   column-fill: auto;
   height: 100%;
-  overflow-x: scroll;
+  overflow-x: hidden;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
