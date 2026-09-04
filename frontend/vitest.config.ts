@@ -16,10 +16,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "~": resolve(root, "./src"),
-      // @solidjs/testing-library still imports the pre-2.0 "solid-js/web"
-      // specifier, which no longer exists; map it onto the real package so
-      // component tests resolve the same renderer the app uses.
-      "solid-js/web": "@solidjs/web",
     },
     conditions: ["browser"],
   },

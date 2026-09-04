@@ -1,6 +1,5 @@
-// Renders the component with @solidjs/web's render directly -- NOT
-// @solidjs/testing-library, whose dist imports the removed "solid-js/web"
-// specifier and dies at suite collection under Solid 2.0. Events are
+// Renders the component with @solidjs/web's render directly, keeping the
+// suite hermetic with no query-layer behavior. Events are
 // dispatched by hand; `flush` forces Solid 2.0's batched writes so
 // assertions see committed state. This file never calls vi.resetModules(),
 // so a statically imported flush drives the same scheduler instance as the

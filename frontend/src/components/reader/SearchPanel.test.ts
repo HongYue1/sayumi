@@ -1,6 +1,5 @@
-// SearchPanel.test.ts -- mounts the real panel with @solidjs/web's render (the
-// ChapterFrame/SettingsPanel pattern; @solidjs/testing-library's dist still
-// imports the removed "solid-js/web" specifier).
+// SearchPanel.test.ts -- mounts the real panel with @solidjs/web's render
+// directly (the ChapterFrame/SettingsPanel pattern).
 //
 // searchBook is the panel's only collaborator and test-setup.ts fails any test
 // that lets a fetch escape, so it is replaced at the module boundary. The mock

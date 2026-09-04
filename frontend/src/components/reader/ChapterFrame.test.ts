@@ -1,6 +1,5 @@
 // ChapterFrame.test.ts — mounts the real component with @solidjs/web's render
-// (not @solidjs/testing-library, whose dist imports the removed "solid-js/web"
-// specifier — see Login.test.ts) against a stubbed iframe contentWindow.
+// directly, keeping the suite hermetic against a stubbed iframe contentWindow.
 //
 // Two module mocks keep the suite hermetic:
 //   - ~/iframe/buildFrameHtml imports `virtual:frame-script`, which

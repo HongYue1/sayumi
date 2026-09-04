@@ -16,8 +16,8 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "@solidjs/testing-library": "0.8.10",
-    "@solidjs/vite-plugin": "3.0.0-next.31",
+    "@solidjs/testing-library": "1.0.0-beta.3",
+    "@solidjs/vite-plugin": "3.0.0-next.38",
     "@types/node": "^26.2.0",
     "happy-dom": "^20.11.2",
     "oxfmt": "^0.64.0",
@@ -28,7 +28,7 @@
     "vitest": "4.1.11"
   },
   "dependencies": {
-    "@solidjs/web": "2.0.0-rc.0",
-    "solid-js": "2.0.0-rc.0"
+    "@solidjs/web": "2.0.0-rc.6",
+    "solid-js": "2.0.0-rc.6"
   }
 }

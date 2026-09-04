@@ -1,6 +1,6 @@
 // CommandPalette.test.ts -- mounts the real palette with @solidjs/web's render
-// (the SearchPanel/SettingsPanel pattern; @solidjs/testing-library's dist
-// still imports the removed "solid-js/web" specifier).
+// directly (the SearchPanel/SettingsPanel pattern), keeping the suite hermetic
+// with no query-layer behavior between the component and its assertions.
 //
 // Every collaborator is a module singleton replaced at the module boundary;
 // each mock spreads its real module so unrelated named exports keep

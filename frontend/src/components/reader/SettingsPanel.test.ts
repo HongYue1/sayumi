@@ -1,6 +1,5 @@
 // SettingsPanel.test.ts -- mounts the real panel with @solidjs/web's render
-// (the ChapterFrame.test.ts pattern; @solidjs/testing-library's dist still
-// imports the removed "solid-js/web" specifier).
+// directly (the ChapterFrame.test.ts pattern).
 //
 // The panel's collaborators are module singletons that would otherwise reach
 // the network, so each is replaced at the module boundary. Every mock spreads
