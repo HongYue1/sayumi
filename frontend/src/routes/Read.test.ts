@@ -828,6 +828,54 @@ describe("Read progress", () => {
     expect(navigate).toHaveBeenCalledWith("/");
   });
 
+  it("persists the live position on back, not the throttled one", async () => {
+    await bootReader();
+    frameHandler("onposition")(0, 0.3, undefined);
+    await settle();
+    frameHandler("onkey")(key("Escape")); // nothing open -> handleBack
+    await settle();
+    // Back holds navigation open for one fresh frame report instead of
+    // flushing the trailing-edge saveData (up to ~200ms stale after a
+    // scroll burst — the scroll-up-then-immediately-Back habit).
+    expect(frame.api.requestPosition).toHaveBeenCalledTimes(1);
+    expect(api.saveProgress).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    // The frame answers with where the reader actually is.
+    frameHandler("onposition")(0, 0.5, undefined);
+    await vi.waitFor(() => expect(api.saveProgress).toHaveBeenCalledTimes(1));
+    expect(api.saveProgress).toHaveBeenCalledWith("book1", {
+      chapter: 0,
+      percent: 0.5,
+      cfi: undefined,
+    });
+    expect(navigate).toHaveBeenCalledWith("/");
+  });
+
+  it("still leaves on back when the frame never answers", async () => {
+    vi.useFakeTimers();
+    try {
+      await bootReader();
+      frameHandler("onposition")(0, 0.3, undefined);
+      await settle();
+      frameHandler("onkey")(key("Escape")); // nothing open -> handleBack
+      await settle();
+      expect(frame.api.requestPosition).toHaveBeenCalledTimes(1);
+      // No answer arrives: navigation must not hang behind the timeout.
+      expect(navigate).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(500);
+      await settle();
+      await vi.waitFor(() => expect(api.saveProgress).toHaveBeenCalledTimes(1));
+      expect(api.saveProgress).toHaveBeenCalledWith("book1", {
+        chapter: 0,
+        percent: 0.3,
+        cfi: undefined,
+      });
+      expect(navigate).toHaveBeenCalledWith("/");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("beacons and writes the crash-guard cache on page hide, without a save", async () => {
     await bootReader();
     frameHandler("onposition")(0, 0.3, undefined);

@@ -1844,6 +1844,16 @@ const PAGED_SCROLL_KEYS = new Set<string>([
         break;
 
       case "get-position":
+        // The parent is about to persist (Back navigation) and needs the
+        // position the reader is actually looking at, not the throttled one.
+        // A trailing report armed on earlier scrolling would otherwise slip in
+        // beside this fresh read with pre-scroll values; dropping it loses
+        // nothing because the read below observes the same layout, newer.
+        if (scrollThrottleTimer !== null) {
+          clearTimeout(scrollThrottleTimer);
+          scrollThrottleTimer = null;
+        }
+        scrollThrottlePending = false;
         reportPosition();
         break;
 

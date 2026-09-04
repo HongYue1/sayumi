@@ -117,6 +117,12 @@ interface Props {
 
 const PROGRESS_FLUSH_THROTTLE_MS = 5_000;
 const PROGRESS_SAVE_INTERVAL_MS = 15_000;
+// Upper bound for the frame's answer to a position request on the way out.
+// The round trip is a synchronous layout read plus two postMessages (~ms),
+// so this only ever bites when the frame cannot answer at all (mid-restore
+// reports are suppressed; an unready frame queues) — and then Back must not
+// hang behind a chapter that will never report.
+const POSITION_REQUEST_TIMEOUT_MS = 200;
 const BOUNDARY_COOLDOWN_MS = 400;
 // Extra boundary quiet period right after a chapter swap lands. The 400ms
 // cooldown starts when the boundary FIRES, but the new chapter renders later
@@ -300,6 +306,10 @@ export default function Read(props: Props) {
   let fetchAbort: AbortController | null = null;
   let progressTimer: ReturnType<typeof setTimeout> | undefined;
   let lastFlushTime = 0;
+  // Waiter for a position request issued on the way out (handleBack). Resolved
+  // by the next handlePosition report, or by its timeout — whichever first.
+  let pendingPositionResolve: (() => void) | null = null;
+  let pendingPositionTimer: ReturnType<typeof setTimeout> | undefined;
   let lastPersistedChapter = PROGRESS_UNSET;
   let lastPersistedPercent = PROGRESS_UNSET;
   // Part of the dedupe key, not just payload: a relayout can hold percent
@@ -649,6 +659,11 @@ export default function Read(props: Props) {
       fetchAbort?.abort();
       if (highlightTimer) clearTimeout(highlightTimer);
       if (chromeHideTimer) clearTimeout(chromeHideTimer);
+      if (pendingPositionTimer) {
+        clearTimeout(pendingPositionTimer);
+        pendingPositionTimer = undefined;
+      }
+      pendingPositionResolve = null;
       if (applyRaf !== null) cancelAnimationFrame(applyRaf);
       panelPrewarm?.cancel();
     };
@@ -998,6 +1013,26 @@ export default function Read(props: Props) {
     }
   }
 
+  // Promise for the frame's current position, for exit paths that must persist
+  // what the reader is looking at RIGHT NOW rather than the throttled
+  // saveData (up to ~200ms stale after a scroll burst — exactly the
+  // scroll-then-immediately-Back habit). The frame answers get-position with
+  // a fresh read and drops its own pending straggler first, so the first
+  // report back settles this. Skipped while a chapter load is in flight: the
+  // position then is the load target and saveData already holds it.
+  function requestFreshPosition(): Promise<void> {
+    if (!api || chapterLoadInProgress) return Promise.resolve();
+    return new Promise((resolve) => {
+      pendingPositionResolve = resolve;
+      api?.requestPosition();
+      pendingPositionTimer = setTimeout(() => {
+        pendingPositionTimer = undefined;
+        pendingPositionResolve = null;
+        resolve();
+      }, POSITION_REQUEST_TIMEOUT_MS);
+    });
+  }
+
   function handleVisibility(): void {
     if (!bookLoaded || isSpecimen) return;
     if (document.visibilityState === "hidden") {
@@ -1064,6 +1099,17 @@ export default function Read(props: Props) {
       cfi ?? (chapterIndex === saveData.chapter ? saveData.cfi : undefined);
     setCurrentCfi(keptCfi);
     saveData = { chapter: chapterIndex, percent: safePercent, cfi: keptCfi };
+    // An exit path may be holding Back open for exactly this report (see
+    // requestFreshPosition): settle it now that saveData is current.
+    if (pendingPositionResolve) {
+      const resolve = pendingPositionResolve;
+      pendingPositionResolve = null;
+      if (pendingPositionTimer) {
+        clearTimeout(pendingPositionTimer);
+        pendingPositionTimer = undefined;
+      }
+      resolve();
+    }
   }
   function handleBoundary(boundary: "start" | "end"): void {
     const now = Date.now();
@@ -1136,8 +1182,15 @@ export default function Read(props: Props) {
       void loadChapter(currentChapter() + 1, "top");
   }
   function handleBack(): void {
-    void flushProgress(true);
-    router.navigate("/");
+    // Persist the live position before leaving: a scroll burst followed by an
+    // immediate Back would otherwise flush the pre-burst saveData (the frame
+    // reports on a ~200ms trailing edge). The wait is one postMessage round
+    // trip, bounded by the request timeout — then navigate either way.
+    void (async () => {
+      await requestFreshPosition();
+      await flushProgress(true);
+      router.navigate("/");
+    })();
   }
 
   // ---- search -------------------------------------------------------------
