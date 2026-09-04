@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clampPage,
+  createPagination,
   elementLogicalX,
   logicalOffsetForPage,
   pageAtOffset,
@@ -9,7 +10,10 @@ import {
   pageForRatio,
   pagePercent,
   pageStrideFrom,
+  type PaginationController,
+  type PaginationDeps,
 } from "./pagination";
+import type { FrameToParentMessage } from "~/lib/frameMessages";
 
 // Fixtures mirror frame.css: single-column paged is column-width:100vw with
 // column-gap:0; the two-page spread is column-count:2 with column-gap:1px (the
@@ -172,5 +176,134 @@ describe("pageForRatio / pagePercent", () => {
     // neighbour, which is why a resolved anchor element is preferred.
     expect(pageForRatio(pagePercent(3, 10), 12)).toBe(4);
     expect(pageForRatio(pagePercent(9, 10), 12)).toBe(11);
+  });
+});
+
+describe("enterPagedFromScroll / getCurrentRatio", () => {
+  // Four 800px pages: clientWidth 800, scrollWidth 3200. happy-dom reports 0
+  // for both, so the geometry is stubbed per element (defineProperty shadows
+  // the prototype getters the way the existing frame tests stub layout).
+  let content: HTMLElement;
+  let clip: HTMLElement;
+  let sent: FrameToParentMessage[];
+  let pagination: PaginationController | null = null;
+
+  function rect(left: number, right: number): DOMRect {
+    return {
+      left,
+      right,
+      top: 0,
+      bottom: 100,
+      width: right - left,
+      height: 100,
+      x: left,
+      y: 0,
+      toJSON: () => {},
+    } as DOMRect;
+  }
+
+  beforeEach(() => {
+    content = document.createElement("div");
+    clip = document.createElement("div");
+    document.body.append(clip, content);
+    Object.defineProperty(content, "clientWidth", {
+      value: 800,
+      configurable: true,
+    });
+    Object.defineProperty(content, "scrollWidth", {
+      value: 3200,
+      configurable: true,
+    });
+    content.getBoundingClientRect = () => rect(0, 800);
+    sent = [];
+    const deps: PaginationDeps = {
+      getContentEl: () => content,
+      getClipEl: () => clip,
+      sendMessage: (m) => sent.push(m),
+      getActiveSeq: () => 7,
+      getActiveChapterIndex: () => 3,
+      isDestroyed: () => false,
+      isContentReady: () => true,
+      isRestorePending: () => false,
+      getPositionCfi: () => "cfi:/1/2",
+      isPagedMode: () => true,
+      hasNextChapter: () => true,
+      hasPrevChapter: () => true,
+      setChapterHidden: () => {},
+      ensureBoundaryElements: () => {},
+      flashBoundaryEdge: () => {},
+      updateBoundaryState: () => {},
+      takePendingFragment: () => null,
+    };
+    pagination = createPagination(deps);
+  });
+
+  afterEach(() => {
+    pagination?.dispose();
+    pagination = null;
+    document.body.innerHTML = "";
+    vi.restoreAllMocks();
+  });
+
+  function positions(): Array<
+    Extract<FrameToParentMessage, { type: "position" }>
+  > {
+    return sent.filter(
+      (m): m is Extract<FrameToParentMessage, { type: "position" }> =>
+        m.type === "position",
+    );
+  }
+
+  it("starts unpaginated at ratio 0", () => {
+    expect(pagination?.getCurrentRatio()).toBe(0);
+  });
+
+  it("resolves the page from a connected anchor, ignoring a stale ratio", () => {
+    // The regression: entering paged mode from scroll reused currentPage (0
+    // after the load reset), so the view opened on page 1 and the report
+    // that followed overwrote the parent's good scroll position with 0.
+    const anchor = document.createElement("p");
+    content.append(anchor);
+    // Logical x 1700 with scrollLeft 0 sits on page 2 of 4.
+    anchor.getBoundingClientRect = () => rect(1700, 1900);
+    pagination?.enterPagedFromScroll(anchor, 0);
+    expect(content.scrollLeft).toBe(1600);
+    expect(positions()).toEqual([
+      {
+        type: "position",
+        seq: 7,
+        chapterIndex: 3,
+        percent: 2 / 3,
+        cfi: "cfi:/1/2",
+      },
+    ]);
+    expect(pagination?.getCurrentRatio()).toBe(2 / 3);
+    expect(document.getElementById("page-indicator")?.textContent).toBe(
+      "3 / 4",
+    );
+  });
+
+  it("falls back to the ratio when there is no anchor", () => {
+    pagination?.enterPagedFromScroll(null, 0.5);
+    // pageForRatio(0.5, 4) rounds to page 2.
+    expect(content.scrollLeft).toBe(1600);
+    expect(positions()).toEqual([
+      {
+        type: "position",
+        seq: 7,
+        chapterIndex: 3,
+        percent: 2 / 3,
+        cfi: "cfi:/1/2",
+      },
+    ]);
+  });
+
+  it("falls back to the ratio when the anchor left the document", () => {
+    const anchor = document.createElement("p");
+    anchor.getBoundingClientRect = () => rect(1700, 1900);
+    expect(anchor.isConnected).toBe(false);
+    pagination?.enterPagedFromScroll(anchor, 1);
+    expect(content.scrollLeft).toBe(2400);
+    expect(positions()[0]?.percent).toBe(1);
   });
 });

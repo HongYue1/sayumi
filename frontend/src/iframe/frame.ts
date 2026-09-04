@@ -578,6 +578,29 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     });
   }
 
+  // Restore the scroll position after a paged→scroll switch using the anchor
+  // captured before the switch. Same-document transfer like enterPagedFromScroll
+  // in the other direction: the element is still connected (no reload between
+  // capture and use), so scroll to it directly instead of round-tripping a
+  // CFI. Instant, like the load restore — a switch is not interactive
+  // navigation. Runs synchronously inside applySettings after the paged inline
+  // styles are cleared; getScrollableMax/scrollIntoView force the reflow, so
+  // no rAF settling is needed.
+  function restoreScrollFromSwitch(
+    anchor: Element | null,
+    ratio: number,
+  ): void {
+    if (anchor?.isConnected) {
+      anchor.scrollIntoView({ behavior: "instant" as ScrollBehavior });
+    } else {
+      const pct = Number.isFinite(ratio) ? Math.min(1, Math.max(0, ratio)) : 0;
+      axisScrollTo(getScrollableMax() * pct);
+    }
+    boundary.reset();
+    updateBoundaryState();
+    reportPosition();
+  }
+
   function drainPendingSearchHighlight(): void {
     const h = pendingSearchHighlight;
     if (!h || !contentReady) return;
@@ -714,6 +737,31 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     const effectiveMode = verticalWriting ? "scroll" : settings.mode;
     const modeFallback =
       verticalWriting && settings.mode !== "scroll" ? "vertical-writing" : null;
+    const willBePaged =
+      effectiveMode === "paged" || effectiveMode === "paged-two";
+
+    // Mid-chapter mode switch on a settled chapter: capture the position BEFORE
+    // the CSS writes below reflow the document. Entering paged mode clamps the
+    // window scroll (body goes overflow:hidden), and leaving paged collapses
+    // the columns back into one flow — reading either side afterwards measures
+    // the new layout, not where the reader was. Without the capture the paged
+    // side restarts from the stale currentPage (0 after the load reset) and
+    // the scroll side keeps its pre-paged offset; the report that follows then
+    // overwrites the parent's good position and the next save persists it.
+    // Loads are excluded (contentReady is still false at commitLoad), as is
+    // the fonts-gated restore window (performInitialRestore reads the mode at
+    // reveal time, so the load restore already lands in the final mode).
+    const isModeSwitch =
+      contentReady && !restorePending && isPagedMode !== willBePaged;
+    let switchAnchor: Element | null = null;
+    let switchRatio = 0;
+    if (isModeSwitch) {
+      switchAnchor = findFirstVisibleBlock();
+      switchRatio = isPagedMode
+        ? pagination.getCurrentRatio()
+        : getScrollPercent();
+      if (!Number.isFinite(switchRatio)) switchRatio = 0;
+    }
 
     let fontFaceContent: string;
     if (settings.preserveBookFonts && preparedFontFaceCSS) {
@@ -989,13 +1037,16 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       // switch re-establishes it via pagination.relayout().
       cancelScheduledPagedRelayout();
       pagination.teardownResizeObserver();
+      if (isModeSwitch) restoreScrollFromSwitch(switchAnchor, switchRatio);
     }
 
     if (!contentReady) {
       contentReady = true;
       runInitialLayoutRestore();
     } else if (isPagedMode) {
-      schedulePagedRelayout();
+      if (isModeSwitch)
+        pagination.enterPagedFromScroll(switchAnchor, switchRatio);
+      else schedulePagedRelayout();
     }
   }
 

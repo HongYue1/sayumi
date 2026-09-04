@@ -73,6 +73,16 @@ export type PaginationController = {
     restorePercent: number | null,
     restoreElement: Element | null,
   ) => void;
+  /**
+   * Enter paged mode for the already-loaded chapter, preserving the position
+   * captured before the switch. Not a restore: there is no load transaction,
+   * no pending fragment to consume, and no shell to reveal — just re-paginate
+   * around the given anchor (or ratio fallback) and report the converted
+   * position so the parent's saved progress survives the mode change.
+   */
+  enterPagedFromScroll: (anchor: Element | null, ratio: number) => void;
+  /** Current position as a 0..1 ratio; 0 while unpaginated. */
+  getCurrentRatio: () => number;
   reportPagePosition: () => void;
   setPageTurning: (turning: boolean) => void;
   isRTL: () => boolean;
@@ -292,6 +302,35 @@ export function createPagination(deps: PaginationDeps): PaginationController {
       // chapter opened with while percent advances past it.
       cfi: deps.getPositionCfi(),
     });
+  }
+
+  function getCurrentRatio(): number {
+    return pagePercent(currentPage, totalPages);
+  }
+
+  function enterPagedFromScroll(anchor: Element | null, ratio: number): void {
+    // A scroll->paged switch must not start from currentPage: it still holds
+    // the page from the previous paged session (or 0 after the chapter load
+    // reset), so reusing it opens the wrong page and the report that follows
+    // overwrites the parent's good scroll position with it. Resolve from the
+    // anchor captured in the scroll layout instead, ratio as fallback.
+    setPageTurning(false);
+    if (!pagedResizeObserver) setupPagedResizeObserver();
+    setPagedHeights();
+    // Record the viewport box this layout is computed against so the resize
+    // handler can skip no-op relayouts (see handlePagedResize).
+    lastLayoutW = window.innerWidth;
+    lastLayoutH = window.innerHeight;
+    totalPages = calculateTotalPages();
+    const liveAnchor = anchor?.isConnected ? anchor : null;
+    currentPage =
+      liveAnchor !== null
+        ? getElementPageIndex(liveAnchor)
+        : pageForRatio(ratio, totalPages);
+    lastAnchorEl = liveAnchor;
+    applyPageScroll(currentPage, false);
+    reportPagePosition();
+    updatePageIndicator();
   }
 
   function applyPageScroll(page: number, animated: boolean): void {
@@ -806,6 +845,8 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     goToElementPaged,
     relayout: relayoutAfterSettings,
     restorePagedPosition,
+    enterPagedFromScroll,
+    getCurrentRatio,
     reportPagePosition,
     setPageTurning,
     isRTL: () => isRTL,
