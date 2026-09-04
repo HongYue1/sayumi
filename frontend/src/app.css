@@ -4665,7 +4665,9 @@ main {
 .rdp-book {
   font-weight: 560;
   font-size: 1.08rem;
-  line-height: var(--lh-tight);
+  /* Snug, not tight: at 1.1 the title's descenders sat on the chapter
+     eyebrow below across the 0.15rem stack gap. */
+  line-height: var(--lh-snug);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
