@@ -31,17 +31,15 @@ func newEnrichDeps(t *testing.T) *profileDeps {
 	})
 
 	book := storage.BookRecord{
-		BookSummary: storage.BookSummary{
-			ID:           enrichBookID,
-			Title:        "Enriched",
-			FilePath:     "/missing/book.epub",
-			FileHash:     "enrich-hash",
-			FileSize:     1,
-			Direction:    "ltr",
-			ChapterCount: 10,
-		},
-		SpineJSON: "[]",
-		TocJSON:   "[]",
+		ID:           enrichBookID,
+		Title:        "Enriched",
+		FilePath:     "/missing/book.epub",
+		FileHash:     "enrich-hash",
+		FileSize:     1,
+		Direction:    "ltr",
+		ChapterCount: 10,
+		SpineJSON:    "[]",
+		TocJSON:      "[]",
 	}
 	if _, err := db.InsertBookContext(t.Context(), book); err != nil {
 		t.Fatalf("insert book: %v", err)

@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"reflect"
@@ -24,7 +23,7 @@ import (
 func TestSettingsRoundTripsEveryColumn(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var want SettingsRecord
 	set := reflect.ValueOf(&want).Elem()
@@ -76,7 +75,7 @@ func TestSettingsRoundTripsEveryColumn(t *testing.T) {
 func TestSettingsBoolColumnsRoundTripIndependently(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	rt := reflect.TypeFor[SettingsRecord]()
 	boolType := reflect.TypeFor[sql.NullBool]()

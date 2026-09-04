@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -58,7 +57,7 @@ func TestOpenProfilesDBInLibraryPathWithQuestionMark(t *testing.T) {
 		t.Errorf("profiles.db is not inside the library: %v", err)
 	}
 	var journalMode string
-	if err := pdb.db.QueryRowContext(context.Background(), "PRAGMA journal_mode").Scan(&journalMode); err != nil {
+	if err := pdb.db.QueryRowContext(t.Context(), "PRAGMA journal_mode").Scan(&journalMode); err != nil {
 		t.Fatalf("pragma journal_mode: %v", err)
 	}
 	if !strings.EqualFold(journalMode, "wal") {
@@ -69,7 +68,7 @@ func TestOpenProfilesDBInLibraryPathWithQuestionMark(t *testing.T) {
 func TestProfilesCRUD(t *testing.T) {
 	t.Parallel()
 	pdb := newTestProfilesDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	const name = "alice"
 	// Storage treats pin_hash as opaque text; bcrypt verification lives in api.
@@ -128,7 +127,7 @@ func TestProfilesCRUD(t *testing.T) {
 func TestCreateProfileDuplicateName(t *testing.T) {
 	t.Parallel()
 	pdb := newTestProfilesDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	if err := pdb.CreateProfileContext(ctx, "alice", "h1"); err != nil {
 		t.Fatalf("create: %v", err)
@@ -137,8 +136,8 @@ func TestCreateProfileDuplicateName(t *testing.T) {
 	if err == nil {
 		t.Fatal("duplicate create: want error")
 	}
-	var sqliteErr *modernsqlite.Error
-	if !errors.As(err, &sqliteErr) {
+	sqliteErr, ok := errors.AsType[*modernsqlite.Error](err)
+	if !ok {
 		t.Fatalf("duplicate err = %v (%T), want modernc sqlite Error in chain", err, err)
 	}
 	switch sqliteErr.Code() {
@@ -152,7 +151,7 @@ func TestCreateProfileDuplicateName(t *testing.T) {
 func TestListProfilesStableTies(t *testing.T) {
 	t.Parallel()
 	pdb := newTestProfilesDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Same created_at forces the name tie-breaker (PK).
 	const ts = "2026-01-02 03:04:05"
@@ -201,7 +200,7 @@ func TestOpenProfilesDBLayout(t *testing.T) {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("stat profiles.db: %v", err)
 	}
-	if _, err := pdb.ListProfilesContext(context.Background()); err != nil {
+	if _, err := pdb.ListProfilesContext(t.Context()); err != nil {
 		t.Fatalf("list after open: %v", err)
 	}
 }
@@ -209,20 +208,20 @@ func TestOpenProfilesDBLayout(t *testing.T) {
 func TestDeleteProfileCascadesSessions(t *testing.T) {
 	t.Parallel()
 	pdb := newTestProfilesDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	if err := pdb.CreateProfileContext(ctx, "alice", ""); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	expiry := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
-	if err := pdb.SaveSession("tok-alice", "alice", expiry); err != nil {
+	if err := pdb.SaveSession(ctx, "tok-alice", "alice", expiry); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
 	// Delete without DeleteSessionsForProfile — CASCADE alone must clear rows.
 	if err := pdb.DeleteProfileContext(ctx, "alice"); err != nil {
 		t.Fatalf("delete profile: %v", err)
 	}
-	got, err := pdb.LoadSessions()
+	got, err := pdb.LoadSessions(ctx)
 	if err != nil {
 		t.Fatalf("load sessions: %v", err)
 	}
@@ -235,12 +234,12 @@ func TestSaveSessionRejectsUnknownProfile(t *testing.T) {
 	t.Parallel()
 	pdb := newTestProfilesDB(t)
 
-	err := pdb.SaveSession("tok", "no-such-profile", time.Now().UTC().Add(time.Hour))
+	err := pdb.SaveSession(t.Context(), "tok", "no-such-profile", time.Now().UTC().Add(time.Hour))
 	if err == nil {
 		t.Fatal("save session for missing profile: want FK error")
 	}
-	var sqliteErr *modernsqlite.Error
-	if !errors.As(err, &sqliteErr) {
+	sqliteErr, ok := errors.AsType[*modernsqlite.Error](err)
+	if !ok {
 		t.Fatalf("err = %v (%T), want modernc sqlite Error in chain", err, err)
 	}
 	switch sqliteErr.Code() {

@@ -102,8 +102,9 @@ func TestSessionStoreLifecycle(t *testing.T) {
 	t.Parallel()
 
 	ss := newSessionStore(nil)
+	ctx := t.Context()
 
-	token, sess, err := ss.create("alice", false)
+	token, sess, err := ss.create(ctx, "alice", false)
 	if err != nil || token == "" || sess.profile != "alice" || sess.remember {
 		t.Fatalf("create non-remember: token=%q sess=%+v err=%v", token, sess, err)
 	}
@@ -113,7 +114,7 @@ func TestSessionStoreLifecycle(t *testing.T) {
 	}
 
 	// Remember session.
-	rTok, rSess, err := ss.create("bob", true)
+	rTok, rSess, err := ss.create(ctx, "bob", true)
 	if err != nil || !rSess.remember || rSess.expiry.Before(time.Now().Add(24*time.Hour)) {
 		t.Fatalf("create remember: %+v err=%v", rSess, err)
 	}
@@ -122,17 +123,17 @@ func TestSessionStoreLifecycle(t *testing.T) {
 	}
 
 	// deleteToken
-	ss.deleteToken(token)
+	ss.deleteToken(ctx, token)
 	if _, ok := ss.get(token); ok {
 		t.Fatal("deleted token still present")
 	}
 
 	// deleteAllForProfile
-	t2, _, err := ss.create("bob", false)
+	t2, _, err := ss.create(ctx, "bob", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ss.deleteAllForProfile("bob")
+	ss.deleteAllForProfile(ctx, "bob")
 	if _, ok := ss.get(rTok); ok {
 		t.Fatal("bob remember still present")
 	}
@@ -153,7 +154,7 @@ func TestSessionStoreLifecycle(t *testing.T) {
 	ss.data[expTok] = session{profile: "carol", expiry: time.Now().Add(-time.Minute)}
 	ss.data["live"] = session{profile: "dave", expiry: time.Now().Add(time.Hour)}
 	ss.mu.Unlock()
-	ss.sweep()
+	ss.sweep(ctx)
 	if _, ok := ss.get(expTok); ok {
 		t.Fatal("sweep left expired")
 	}

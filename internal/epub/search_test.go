@@ -1,7 +1,6 @@
 package epub
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -128,7 +127,7 @@ func TestSearchEmptyQueryAndPagination(t *testing.T) {
 		{Href: "ch0.xhtml", ID: "c0", Linear: true},
 		{Href: "ch1.xhtml", ID: "c1", Linear: true},
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	empty, err := Search(ctx, store, zipPath, spine, "   ", "", 10)
 	if err != nil {

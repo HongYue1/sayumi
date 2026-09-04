@@ -4,16 +4,12 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"regexp"
 	"strings"
 
 	"sayumi/internal/storage"
 )
 
 const maxFlairLabelLen = 40
-
-// Hex color like #abc or #aabbcc.
-var hexColorPattern = regexp.MustCompile(`^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
 
 type flairResponse struct {
 	ID    string `json:"id"`
@@ -32,7 +28,7 @@ func normalizeCreateFlairBody(body *createFlairBody) (string, bool) {
 	if body.Label == "" || exceedsRuneLimit(body.Label, maxFlairLabelLen) {
 		return "label must be 1-40 characters", false
 	}
-	if !hexColorPattern.MatchString(body.Color) {
+	if !hexColorRe.MatchString(body.Color) {
 		return "color must be a hex value like #3b82f6", false
 	}
 	return "", true
@@ -45,10 +41,10 @@ type setBookFlairBody struct {
 
 // builtinFlairIDs mirrors the client-side DEFAULT_FLAIRS in
 // frontend/src/lib/flairs.ts. Built-in flairs live on the client (like the
-// theme catalog) and are never written to the flairs table, so
-// FlairExistsContext (which only queries that table) can't find them. They are
-// still valid assignment targets — book_flairs.flair_id intentionally has no
-// FK to flairs.id — so accept them without a DB lookup.
+// theme catalog) and are never written to the flairs table, so they never
+// appear in a flairs-table lookup. They are still valid assignment targets —
+// book_flairs.flair_id intentionally has no FK to flairs.id — so accept them
+// without a DB lookup.
 // KEEP IN SYNC with DEFAULT_FLAIRS in frontend/src/lib/flairs.ts.
 var builtinFlairIDs = map[string]struct{}{
 	"reading":      {},
@@ -99,8 +95,14 @@ func createFlairHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
+		flairID, err := storage.GenerateFlairID()
+		if err != nil {
+			slog.Error("generate flair id failed", "err", err)
+			writeError(w, http.StatusInternalServerError, "server_error", "failed to create flair")
+			return
+		}
 		rec := storage.FlairRecord{
-			ID:     storage.GenerateFlairID(),
+			ID:     flairID,
 			UserID: getUserID(r),
 			Label:  body.Label,
 			Color:  body.Color,

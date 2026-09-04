@@ -26,12 +26,7 @@ func OpenProfilesDB(libraryRoot string) (*ProfilesDB, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create .sayumi dir: %w", err)
 	}
-	// See storage.Open for why "_pragma=" is required here: modernc silently
-	// ignores the mattn-style "_param=" DSN keys, so the old form left WAL and
-	// foreign-key enforcement off on this database too.
-	// escapeDSNPath: a '?' anywhere in the library path would otherwise split the
-	// DSN early, landing this database outside the library and dropping the
-	// leading pragma. See escapeDSNPath in db.go.
+	// See escapeDSNPath/dataSourceName in db.go for why _pragma= is required.
 	dsn := escapeDSNPath(filepath.Join(dir, "profiles.db")) +
 		"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
 	db, err := sql.Open("sqlite", dsn)

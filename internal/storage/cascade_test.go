@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"errors"
 	"testing"
 )
@@ -18,7 +17,7 @@ import (
 func TestDeleteBookCascadesChildRows(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub"))
 
 	if err := db.SaveProgressContext(ctx, ProgressRecord{
@@ -27,7 +26,10 @@ func TestDeleteBookCascadesChildRows(t *testing.T) {
 		t.Fatalf("save progress: %v", err)
 	}
 
-	bookmarkID := GenerateBookmarkID()
+	bookmarkID, err := GenerateBookmarkID()
+	if err != nil {
+		t.Fatalf("generate bookmark id: %v", err)
+	}
 	if err := db.InsertBookmarkContext(ctx, BookmarkRecord{
 		ID: bookmarkID, BookID: "id1", UserID: "default", Chapter: 1, Percent: 0.25,
 		Label: "Start",

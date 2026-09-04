@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -27,17 +28,21 @@ type Dependencies struct {
 
 const userFontTokenBytes = 32
 
-func newUserFontToken() string {
+func newUserFontToken() (string, error) {
 	var token [userFontTokenBytes]byte
 	if _, err := rand.Read(token[:]); err != nil {
-		panic("crypto/rand unavailable: " + err.Error())
+		return "", fmt.Errorf("generate user font token: %w", err)
 	}
-	return hex.EncodeToString(token[:])
+	return hex.EncodeToString(token[:]), nil
 }
 
 // NewDependencies constructs a Dependencies value with all internal state
 // (including the session store) properly initialized.
-func NewDependencies(profilesDB *storage.ProfilesDB, profileMgr *ProfileManager, libraryRoot string, fontScanner *fonts.Scanner) *Dependencies {
+func NewDependencies(profilesDB *storage.ProfilesDB, profileMgr *ProfileManager, libraryRoot string, fontScanner *fonts.Scanner) (*Dependencies, error) {
+	fontToken, err := newUserFontToken()
+	if err != nil {
+		return nil, err
+	}
 	return &Dependencies{
 		ProfilesDB:  profilesDB,
 		ProfileMgr:  profileMgr,
@@ -45,15 +50,18 @@ func NewDependencies(profilesDB *storage.ProfilesDB, profileMgr *ProfileManager,
 		Fonts:       fontScanner,
 		sessions:    newSessionStore(profilesDB),
 		throttle:    newLoginThrottle(),
-		fontToken:   newUserFontToken(),
-	}
+		fontToken:   fontToken,
+	}, nil
 }
 
 // RestoreSessions rehydrates persisted "remember me" sessions from disk so a
 // server restart doesn't sign everyone out. Call once at startup, before
 // serving traffic. A failure is safe to treat as non-fatal by the caller.
 func (d *Dependencies) RestoreSessions() error {
-	return d.sessions.restore()
+	// Startup hydration must complete before serving traffic, so it runs on a
+	// background context rather than a cancelable request context (same reason
+	// storage migrations use context.Background()).
+	return d.sessions.restore(context.Background())
 }
 
 // StartBackgroundTasks runs periodic maintenance until ctx is canceled.
@@ -64,7 +72,7 @@ func (d *Dependencies) StartBackgroundTasks(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			d.sessions.sweep()
+			d.sessions.sweep(ctx)
 			d.throttle.sweep()
 		case <-ctx.Done():
 			return

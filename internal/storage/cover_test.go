@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"testing"
 )
 
@@ -9,10 +8,10 @@ import (
 // resolved cover yet, mirroring what the scanner records before extraction.
 func insertCoverTestBook(t *testing.T, db *DB, id, path, hash string) {
 	t.Helper()
-	if _, err := db.InsertBookContext(context.Background(), BookRecord{
-		BookSummary: BookSummary{ID: id, Title: id, FilePath: path, FileHash: hash},
-		SpineJSON:   "[]",
-		TocJSON:     "[]",
+	if _, err := db.InsertBookContext(t.Context(), BookRecord{
+		ID: id, Title: id, FilePath: path, FileHash: hash,
+		SpineJSON: "[]",
+		TocJSON:   "[]",
 	}); err != nil {
 		t.Fatalf("seed book %s: %v", id, err)
 	}
@@ -20,7 +19,7 @@ func insertCoverTestBook(t *testing.T, db *DB, id, path, hash string) {
 
 func listMissingCovers(t *testing.T, db *DB) []BookPath {
 	t.Helper()
-	rows, err := db.ListBooksMissingCoversContext(context.Background())
+	rows, err := db.ListBooksMissingCoversContext(t.Context())
 	if err != nil {
 		t.Fatalf("ListBooksMissingCoversContext: %v", err)
 	}
@@ -44,7 +43,7 @@ func missingCoverIDs(rows []BookPath) map[string]bool {
 func TestCoverCheckedBackfillQuery(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	insertCoverTestBook(t, db, "book_with", "/lib/with.epub", "hash-with")
 	insertCoverTestBook(t, db, "book_skip", "/lib/skip.epub", "hash-skip")
@@ -131,7 +130,7 @@ func TestCoverCheckedBackfillQuery(t *testing.T) {
 // Reopening the library must repair those rows.
 func TestMigrateNormalizesWindowsCoverPaths(t *testing.T) {
 	dir := t.TempDir()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	db, err := Open(dir)
 	if err != nil {

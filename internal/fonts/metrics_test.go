@@ -56,8 +56,9 @@ func TestReadMetricsEmbeddedFaces(t *testing.T) {
 	}
 }
 
-// EmbeddedMetrics is how a font-face rule reaches the reference family's
-// numbers, so it has to answer for a served filename and refuse anything else.
+// The embedded-metrics map is how a font-face rule reaches the reference
+// family's numbers, so it has to answer for a served filename and refuse
+// anything else.
 func TestEmbeddedMetricsLookup(t *testing.T) {
 	t.Parallel()
 
@@ -72,16 +73,16 @@ func TestEmbeddedMetricsLookup(t *testing.T) {
 		t.Skip("the reference face is not embedded in this build")
 	}
 
-	metrics, found := EmbeddedMetrics(reference)
+	metrics, found := EmbeddedFaceMetrics()[reference]
 	if !found {
-		t.Fatalf("EmbeddedMetrics(%q) not found", reference)
+		t.Fatalf("EmbeddedFaceMetrics()[%q] not found", reference)
 	}
 	if !metrics.Normalizable() {
 		t.Fatalf("reference face %q is not normalizable: %+v", reference, metrics)
 	}
 
-	if _, found := EmbeddedMetrics("NoSuchFace.woff2"); found {
-		t.Error("EmbeddedMetrics found a face that is not embedded")
+	if _, found := EmbeddedFaceMetrics()["NoSuchFace.woff2"]; found {
+		t.Error("EmbeddedFaceMetrics found a face that is not embedded")
 	}
 }
 

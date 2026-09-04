@@ -152,22 +152,21 @@ func nullFloat64ToPtr(nf sql.NullFloat64) *float64 {
 	if !nf.Valid {
 		return nil
 	}
-	return &nf.Float64
+	return new(nf.Float64)
 }
 
 func nullInt64ToIntPtr(ni sql.NullInt64) *int {
 	if !ni.Valid || ni.Int64 < math.MinInt || ni.Int64 > math.MaxInt {
 		return nil
 	}
-	v := int(ni.Int64)
-	return &v
+	return new(int(ni.Int64))
 }
 
 func nullStringToPtr(ns sql.NullString) *string {
 	if !ns.Valid {
 		return nil
 	}
-	return &ns.String
+	return new(ns.String)
 }
 
 func ptrToNullFloat64(p *float64) sql.NullFloat64 {

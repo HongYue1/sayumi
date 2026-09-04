@@ -21,12 +21,12 @@ type FlairRecord struct {
 	CreatedAt string
 }
 
-func GenerateFlairID() string {
+func GenerateFlairID() (string, error) {
 	b := make([]byte, 8)
 	if _, err := io.ReadFull(rand.Reader, b); err != nil {
-		panic("crypto/rand unavailable: " + err.Error())
+		return "", fmt.Errorf("generate flair id: %w", err)
 	}
-	return "flair_" + hex.EncodeToString(b)
+	return "flair_" + hex.EncodeToString(b), nil
 }
 
 func (db *DB) ListFlairsContext(ctx context.Context, userID string) (out []FlairRecord, err error) {
@@ -156,20 +156,6 @@ func (db *DB) GetBookFlairContext(ctx context.Context, bookID, userID string) (s
 		return "", fmt.Errorf("get book flair: %w", err)
 	}
 	return flairID, nil
-}
-
-// FlairExistsContext reports whether a flair with the given id exists for the
-// user. There is no foreign key from book_flairs.flair_id to flairs.id, so the
-// caller must check this before assigning to avoid a dangling reference.
-func (db *DB) FlairExistsContext(ctx context.Context, id, userID string) (bool, error) {
-	var exists bool
-	err := db.QueryRowContext(ctx, `
-		SELECT EXISTS(SELECT 1 FROM flairs WHERE id = ? AND user_id = ?)
-	`, id, userID).Scan(&exists)
-	if err != nil {
-		return false, fmt.Errorf("flair exists: %w", err)
-	}
-	return exists, nil
 }
 
 // setBookFlairLocked assigns or clears a book flair. Caller must hold writeMu.

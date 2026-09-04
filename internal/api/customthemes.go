@@ -15,6 +15,7 @@ const maxThemeNameLen = 60
 
 // hexColorRe matches #rgb or #rrggbb (case-insensitive). Color <input> controls
 // emit #rrggbb; the 3-digit shorthand is accepted for hand-entered values.
+// Flair colors share this validator (see normalizeCreateFlairBody).
 var hexColorRe = regexp.MustCompile(`^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
 
 type customThemeResponse struct {
@@ -131,8 +132,14 @@ func createCustomThemeHandler(_ *Dependencies) http.HandlerFunc {
 		}
 
 		now := time.Now().UTC().Format(time.DateTime)
+		themeID, err := storage.GenerateCustomThemeID()
+		if err != nil {
+			slog.Error("generate custom theme id failed", "err", err)
+			writeError(w, http.StatusInternalServerError, "server_error", "failed to create custom theme")
+			return
+		}
 		rec := storage.CustomThemeRecord{
-			ID:        storage.GenerateCustomThemeID(),
+			ID:        themeID,
 			UserID:    getUserID(r),
 			Name:      body.Name,
 			Group:     body.Group,

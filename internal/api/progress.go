@@ -15,6 +15,9 @@ type progressBody struct {
 	CFI     string  `json:"cfi,omitempty"`
 }
 
+// getUserID returns the single-user id. Every profile is single-user today,
+// so the request is ignored and the id is constant; the parameter keeps the
+// seam where per-request user resolution will plug in for multi-user.
 func getUserID(_ *http.Request) string { return "default" }
 
 func getProgressHandler(_ *Dependencies) http.HandlerFunc {

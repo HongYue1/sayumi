@@ -180,38 +180,41 @@ func uploadFileToGofile(ctx context.Context, server, filePath string) (string, e
 	if err != nil {
 		return "", fmt.Errorf("open book file: %w", err)
 	}
-	defer func() { _ = file.Close() }()
 
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
 
-	// Copy the file into the multipart body on a goroutine; the request reads
-	// from the pipe as it sends, so the body is never fully buffered. Any write
-	// failure is propagated to the reader via CloseWithError so Do() returns an
-	// error instead of hanging.
-	go func() {
-		part, err := mw.CreateFormFile("file", filepath.Base(filePath))
-		if err != nil {
-			_ = pw.CloseWithError(fmt.Errorf("create form file: %w", err))
-			return
-		}
-		if _, err := io.Copy(part, file); err != nil {
-			_ = pw.CloseWithError(fmt.Errorf("copy book to gofile: %w", err))
-			return
-		}
-		if err := mw.Close(); err != nil {
-			_ = pw.CloseWithError(fmt.Errorf("close multipart writer: %w", err))
-			return
-		}
-		_ = pw.Close()
-	}()
-
 	uploadURL := fmt.Sprintf("https://%s.gofile.io/uploadFile", server)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, pr)
 	if err != nil {
+		// The streaming goroutine below hasn't started, so the file is still
+		// ours to close; the pipe ends are unreferenced and die with this frame.
+		_ = file.Close()
+		_ = pr.Close()
+		_ = pw.Close()
 		return "", fmt.Errorf("build upload request: %w", err)
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
+
+	// Copy the file into the multipart body on a goroutine; the request reads
+	// from the pipe as it sends, so the body is never fully buffered. The
+	// goroutine owns file from here on and closes it when the copy finishes —
+	// the caller must not touch file after this point, so a Do() failure can't
+	// race Close against an in-flight read.
+	writeDone := make(chan error, 1)
+	go func() {
+		writeDone <- writeMultipartBody(mw, pw, file, filepath.Base(filePath))
+	}()
+
+	// No return below may leak the streamer or race its file read: closing pr
+	// unblocks any pipe write even if the transport never reads or closes the
+	// body, and draining writeDone waits for the file close. The writer always
+	// sends exactly one value to the buffered channel, so this can't deadlock.
+	// Explicit returns keep the nakedret gate happy.
+	defer func() {
+		_ = pr.Close()
+		<-writeDone
+	}()
 
 	resp, err := gofileClient.Do(req)
 	if err != nil {
@@ -234,4 +237,26 @@ func uploadFileToGofile(ctx context.Context, server, filePath string) (string, e
 		return "", fmt.Errorf("invalid gofile download page: %w", err)
 	}
 	return parsed.Data.DownloadPage, nil
+}
+
+// writeMultipartBody streams one file as the "file" part of a multipart body,
+// then closes the file and the pipe writer. A write failure is propagated to
+// the reader via CloseWithError so Do() returns an error instead of hanging,
+// and the returned error lets tests assert the copy outcome directly.
+func writeMultipartBody(mw *multipart.Writer, pw *io.PipeWriter, file *os.File, filename string) error {
+	defer func() { _ = file.Close() }()
+	part, err := mw.CreateFormFile("file", filename)
+	if err != nil {
+		_ = pw.CloseWithError(fmt.Errorf("create form file: %w", err))
+		return err
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		_ = pw.CloseWithError(fmt.Errorf("copy book to gofile: %w", err))
+		return err
+	}
+	if err := mw.Close(); err != nil {
+		_ = pw.CloseWithError(fmt.Errorf("close multipart writer: %w", err))
+		return err
+	}
+	return pw.Close()
 }

@@ -157,11 +157,64 @@ func TestResponseTrackerPreservesOptionalInterfaces(t *testing.T) {
 	}
 }
 
+func TestHumanizeBytes(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		n    int64
+		want string
+	}{
+		{0, "0B"},
+		{1, "1B"},
+		{1023, "1023B"},
+		{1024, "1.0KB"},
+		{1536, "1.5KB"},
+		{1024 * 1024, "1.0MB"},
+		// Multi-gigabyte bodies must not wrap: ReadFrom reports int64 and the
+		// counter keeps the full width even on 32-bit builds.
+		{3 << 30, "3072.0MB"},
+		{10 << 30, "10240.0MB"},
+	}
+	for _, tc := range cases {
+		if got := humanizeBytes(tc.n); got != tc.want {
+			t.Errorf("humanizeBytes(%d) = %q, want %q", tc.n, got, tc.want)
+		}
+	}
+}
+
+// hugeReaderFrom reports a >2 GiB transfer without moving any bytes, so the
+// accounting can be verified without allocating gigabytes.
+type hugeReaderFrom struct {
+	*interfaceResponseWriter
+}
+
+func (hugeReaderFrom) ReadFrom(io.Reader) (int64, error) { return 3 << 30, nil }
+
+func TestStatusWriterReadFromCountsLargeTransfers(t *testing.T) {
+	t.Parallel()
+
+	const want = int64(3) << 30 // 3 GiB overflows int32
+	w := &statusWriter{ResponseWriter: hugeReaderFrom{newInterfaceResponseWriter()}}
+	n, err := w.ReadFrom(strings.NewReader("ignored"))
+	if err != nil {
+		t.Fatalf("ReadFrom: %v", err)
+	}
+	if n != want {
+		t.Errorf("ReadFrom n = %d, want %d", n, want)
+	}
+	if w.bytes != want {
+		t.Errorf("bytes = %d, want %d (counter truncated the int64 count)", w.bytes, want)
+	}
+	if got := humanizeBytes(w.bytes); got != "3072.0MB" {
+		t.Errorf("humanizeBytes(bytes) = %q, want %q", got, "3072.0MB")
+	}
+}
+
 type legacyStatusWriter struct {
 	http.ResponseWriter
 	status int
 	wrote  bool
-	bytes  int
+	bytes  int64
 }
 
 func (w *legacyStatusWriter) markWritten(status int) {
@@ -180,7 +233,7 @@ func (w *legacyStatusWriter) WriteHeader(code int) {
 func (w *legacyStatusWriter) Write(p []byte) (int, error) {
 	w.markWritten(http.StatusOK)
 	n, err := w.ResponseWriter.Write(p)
-	w.bytes += n
+	w.bytes += int64(n)
 	return n, err
 }
 
@@ -188,11 +241,11 @@ func (w *legacyStatusWriter) ReadFrom(r io.Reader) (int64, error) {
 	w.markWritten(http.StatusOK)
 	if rf, ok := w.ResponseWriter.(io.ReaderFrom); ok {
 		n, err := rf.ReadFrom(r)
-		w.bytes += int(n)
+		w.bytes += n
 		return n, err
 	}
 	n, err := io.Copy(w.ResponseWriter, r)
-	w.bytes += int(n)
+	w.bytes += n
 	return n, err
 }
 
@@ -244,7 +297,7 @@ func legacyInstrumentMiddleware(next http.Handler) http.Handler {
 type benchmarkResponseWriter struct {
 	header http.Header
 	status int
-	bytes  int
+	bytes  int64
 }
 
 func newBenchmarkResponseWriter() *benchmarkResponseWriter {
@@ -260,7 +313,7 @@ func (w *benchmarkResponseWriter) Write(p []byte) (int, error) {
 	if w.status == 0 {
 		w.status = http.StatusOK
 	}
-	w.bytes += len(p)
+	w.bytes += int64(len(p))
 	return len(p), nil
 }
 
@@ -269,7 +322,7 @@ func (w *benchmarkResponseWriter) ReadFrom(r io.Reader) (int64, error) {
 		w.status = http.StatusOK
 	}
 	n, err := io.Copy(io.Discard, r)
-	w.bytes += int(n)
+	w.bytes += n
 	return n, err
 }
 
@@ -285,7 +338,7 @@ func runMiddlewareBenchmark(b *testing.B, level slog.Level, factory middlewareFa
 	b.Helper()
 	setTestLogger(b, level)
 	wantDebug := level <= slog.LevelDebug
-	if got := slog.Default().Enabled(context.Background(), slog.LevelDebug); got != wantDebug {
+	if got := slog.Default().Enabled(b.Context(), slog.LevelDebug); got != wantDebug {
 		b.Fatalf("Debug enabled = %v, want %v", got, wantDebug)
 	}
 	wrapped := factory(workload)
@@ -293,7 +346,7 @@ func runMiddlewareBenchmark(b *testing.B, level slog.Level, factory middlewareFa
 	writer := newBenchmarkResponseWriter()
 	b.ReportAllocs()
 	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		wrapped.ServeHTTP(writer, request)
 		writer.reset()
 	}

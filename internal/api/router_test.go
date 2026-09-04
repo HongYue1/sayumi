@@ -90,8 +90,14 @@ func TestNewHandlerProtectsOnlyUserFonts(t *testing.T) {
 func TestNewUserFontToken(t *testing.T) {
 	t.Parallel()
 
-	first := newUserFontToken()
-	second := newUserFontToken()
+	first, err := newUserFontToken()
+	if err != nil {
+		t.Fatalf("newUserFontToken: %v", err)
+	}
+	second, err := newUserFontToken()
+	if err != nil {
+		t.Fatalf("newUserFontToken: %v", err)
+	}
 	if len(first) != userFontTokenBytes*2 {
 		t.Errorf("token length = %d, want %d", len(first), userFontTokenBytes*2)
 	}

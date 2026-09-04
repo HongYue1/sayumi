@@ -3,7 +3,6 @@ package library
 import (
 	"archive/zip"
 	"bytes"
-	"context"
 	"errors"
 	"image"
 	"image/color"
@@ -71,7 +70,7 @@ func TestResizeToFit(t *testing.T) {
 
 func TestEncodeCoverJPEG(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	pngData := encodePNG(t, 80, 120)
 	out, err := EncodeCoverJPEG(ctx, "book1", pngData)
@@ -233,7 +232,7 @@ func TestReadCoverData(t *testing.T) {
 
 func TestExtractCoverSkipsExisting(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	lib := t.TempDir()
 	covers := filepath.Join(lib, ".sayumi", "covers")
@@ -270,7 +269,7 @@ func TestExtractCoverSkipsExisting(t *testing.T) {
 
 func TestSaveCoverImage(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	lib := t.TempDir()
 
 	rel, err := SaveCoverImage(ctx, lib, "s1", encodePNG(t, 30, 40))

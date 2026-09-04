@@ -32,17 +32,15 @@ func newDownloadTestDeps(t *testing.T, content []byte, fileHash string) *profile
 	})
 
 	book := storage.BookRecord{
-		BookSummary: storage.BookSummary{
-			ID:           downloadTestBookID,
-			Title:        "كتاب",
-			FilePath:     filePath,
-			FileHash:     fileHash,
-			FileSize:     int64(len(content)),
-			Direction:    "rtl",
-			ChapterCount: 0,
-		},
-		SpineJSON: "[]",
-		TocJSON:   "[]",
+		ID:           downloadTestBookID,
+		Title:        "كتاب",
+		FilePath:     filePath,
+		FileHash:     fileHash,
+		FileSize:     int64(len(content)),
+		Direction:    "rtl",
+		ChapterCount: 0,
+		SpineJSON:    "[]",
+		TocJSON:      "[]",
 	}
 	if _, err := db.InsertBookContext(t.Context(), book); err != nil {
 		t.Fatalf("insert book: %v", err)

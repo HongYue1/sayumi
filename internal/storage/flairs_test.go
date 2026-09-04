@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"errors"
 	"testing"
 )
@@ -14,46 +13,10 @@ var testBuiltinFlairs = map[string]struct{}{
 	"plan-to-read": {},
 }
 
-func TestDB_FlairExistsContext(t *testing.T) {
-	t.Parallel()
-	db := newTestDB(t)
-	ctx := context.Background()
-
-	if err := db.InsertFlairContext(ctx, FlairRecord{
-		ID: "flair_known", UserID: "default", Label: "Favorite", Color: "#abc",
-	}); err != nil {
-		t.Fatalf("seed flair: %v", err)
-	}
-
-	tests := []struct {
-		name   string
-		id     string
-		userID string
-		want   bool
-	}{
-		{"existing flair for user", "flair_known", "default", true},
-		{"unknown id", "flair_missing", "default", false},
-		{"existing id but wrong user", "flair_known", "other", false},
-		{"empty id", "", "default", false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := db.FlairExistsContext(ctx, tc.id, tc.userID)
-			if err != nil {
-				t.Fatalf("FlairExistsContext: %v", err)
-			}
-			if got != tc.want {
-				t.Errorf("FlairExistsContext(%q, %q) = %v, want %v", tc.id, tc.userID, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestSetBookFlairCheckedContext(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub"))
 
 	if err := db.InsertFlairContext(ctx, FlairRecord{
@@ -116,7 +79,7 @@ func TestSetBookFlairCheckedContext(t *testing.T) {
 func TestListFlairsStableTies(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	const ts = "2026-01-02 03:04:05"
 	for _, id := range []string{"flair_z", "flair_a", "flair_m"} {
@@ -150,7 +113,7 @@ func TestGetBookFlairContext(t *testing.T) {
 	t.Parallel()
 
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub"))
 	mustInsertBook(t, db, sampleBook("id2", "hash-b", "/lib/b.epub"))
 

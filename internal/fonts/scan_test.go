@@ -244,18 +244,16 @@ func TestScannerConcurrentFirstFamilies(t *testing.T) {
 
 	const n = 32
 	var wg sync.WaitGroup
-	wg.Add(n)
 	start := make(chan struct{})
 	errs := make(chan string, n)
 	for range n {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			fams := s.Families()
 			if len(fams) != 1 || fams[0].Dir != "A" {
 				errs <- "bad families"
 			}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
@@ -276,12 +274,10 @@ func TestScannerConcurrentFamiliesAndRescan(t *testing.T) {
 
 	const n = 32
 	var wg sync.WaitGroup
-	wg.Add(n)
 	start := make(chan struct{})
 	errs := make(chan string, n)
 	for i := range n {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			var fams []Family
 			if i%2 == 0 {
@@ -292,7 +288,7 @@ func TestScannerConcurrentFamiliesAndRescan(t *testing.T) {
 			if len(fams) != 1 || fams[0].Dir != "A" {
 				errs <- "bad families"
 			}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

@@ -3,6 +3,7 @@ package epub
 import (
 	"archive/zip"
 	"bytes"
+	"cmp"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -11,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 )
 
@@ -84,7 +84,7 @@ func RewriteBook(srcPath string, edit MetadataEdit) (tmpPath string, err error) 
 		return "", fmt.Errorf("read OPF: %w", err)
 	}
 	if len(opfData) > maxOPFBytes {
-		return "", fmt.Errorf("OPF too large: %d bytes", len(opfData))
+		return "", fmt.Errorf("opf too large: %d bytes", len(opfData))
 	}
 
 	opfDir := pathDir(opfPath)
@@ -139,7 +139,7 @@ func RewriteBook(srcPath string, edit MetadataEdit) (tmpPath string, err error) 
 	}
 
 	if !wroteOPF {
-		return "", fmt.Errorf("OPF entry %q not found while rewriting", opfPath)
+		return "", fmt.Errorf("opf entry %q not found while rewriting", opfPath)
 	}
 
 	if coverZipName != "" && coverIsNew {
@@ -193,11 +193,11 @@ func writeZipBytes(zw *zip.Writer, src *zip.File, method uint16, data []byte) er
 // the path has no directory), mirroring how OPF hrefs are resolved relative to
 // the package document's folder.
 func pathDir(p string) string {
-	i := strings.LastIndexByte(p, '/')
-	if i < 0 {
+	dir, _, ok := strings.CutLast(p, "/")
+	if !ok {
 		return ""
 	}
-	return p[:i]
+	return dir
 }
 
 // spliceOp replaces src[start:end] with repl. Zero-length ranges (start==end)
@@ -239,7 +239,7 @@ func rewriteOPF(opfData []byte, opfDir string, edit MetadataEdit, index map[stri
 			ins = append(ins, "</dc:title>"...)
 			ops = append(ops, spliceOp{scan.metadataInsertAt, scan.metadataInsertAt, ins})
 		default:
-			return nil, "", false, errors.New("OPF has no <metadata> element to set the title")
+			return nil, "", false, errors.New("opf has no <metadata> element to set the title")
 		}
 	}
 
@@ -265,7 +265,7 @@ func rewriteOPF(opfData []byte, opfDir string, edit MetadataEdit, index map[stri
 			ins = append(ins, "</dc:creator>"...)
 			ops = append(ops, spliceOp{scan.metadataInsertAt, scan.metadataInsertAt, ins})
 		default:
-			return nil, "", false, errors.New("OPF has no <metadata> element to set the author")
+			return nil, "", false, errors.New("opf has no <metadata> element to set the author")
 		}
 	}
 
@@ -303,7 +303,7 @@ func rewriteOPF(opfData []byte, opfDir string, edit MetadataEdit, index map[stri
 			}
 		} else {
 			if scan.manifestInsertAt < 0 || scan.metadataInsertAt < 0 {
-				return nil, "", false, errors.New("OPF missing <manifest>/<metadata> to add a cover")
+				return nil, "", false, errors.New("opf missing <manifest>/<metadata> to add a cover")
 			}
 			href, zipName := uniqueCoverHref(opfDir, index)
 			itemID := uniqueItemID(manifest)
@@ -323,11 +323,8 @@ func applySplices(src []byte, ops []spliceOp) []byte {
 	if len(ops) == 0 {
 		return src
 	}
-	sort.SliceStable(ops, func(i, j int) bool {
-		if ops[i].start != ops[j].start {
-			return ops[i].start < ops[j].start
-		}
-		return ops[i].end < ops[j].end
+	slices.SortStableFunc(ops, func(a, b spliceOp) int {
+		return cmp.Or(cmp.Compare(a.start, b.start), cmp.Compare(a.end, b.end))
 	})
 	var out bytes.Buffer
 	out.Grow(len(src) + 256)
@@ -582,6 +579,8 @@ func uniqueItemID(manifest map[string]opfItem) string {
 // whitespace control chars).
 func escapeXMLText(s string) []byte {
 	var b bytes.Buffer
+	// bytes.Buffer never returns an error, so the EscapeText error is
+	// safely ignored here.
 	_ = xml.EscapeText(&b, []byte(s))
 	return b.Bytes()
 }

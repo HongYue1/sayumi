@@ -60,11 +60,11 @@ type session struct {
 // full access, and sessions are revocable and expiring, so they're strictly
 // lower-value than the PINs stored alongside them.
 type sessionPersistence interface {
-	SaveSession(token, profile string, expiry time.Time) error
-	DeleteSession(token string) error
-	DeleteSessionsForProfile(profile string) error
-	DeleteExpiredSessions(now time.Time) error
-	LoadSessions() ([]storage.PersistedSession, error)
+	SaveSession(ctx context.Context, token, profile string, expiry time.Time) error
+	DeleteSession(ctx context.Context, token string) error
+	DeleteSessionsForProfile(ctx context.Context, profile string) error
+	DeleteExpiredSessions(ctx context.Context, now time.Time) error
+	LoadSessions(ctx context.Context) ([]storage.PersistedSession, error)
 }
 
 // sessionStore holds active sessions in memory, write-through backed by an
@@ -83,7 +83,7 @@ func newSessionStore(persist sessionPersistence) *sessionStore {
 	return &sessionStore{data: make(map[string]session), persist: persist}
 }
 
-func (ss *sessionStore) create(profile string, remember bool) (string, session, error) {
+func (ss *sessionStore) create(ctx context.Context, profile string, remember bool) (string, session, error) {
 	tokenBytes := make([]byte, tokenLen)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return "", session{}, fmt.Errorf("generate session token: %w", err)
@@ -106,7 +106,7 @@ func (ss *sessionStore) create(profile string, remember bool) (string, session, 
 	// not fail the login — the session already works in memory for this server's
 	// lifetime.
 	if remember && ss.persist != nil {
-		if err := ss.persist.SaveSession(token, profile, sess.expiry); err != nil {
+		if err := ss.persist.SaveSession(ctx, token, profile, sess.expiry); err != nil {
 			slog.Error("persist session", "profile", profile, "err", err)
 		}
 	}
@@ -129,12 +129,12 @@ func (ss *sessionStore) get(token string) (session, bool) {
 	return sess, true
 }
 
-func (ss *sessionStore) deleteToken(token string) {
+func (ss *sessionStore) deleteToken(ctx context.Context, token string) {
 	ss.mu.Lock()
 	delete(ss.data, token)
 	ss.mu.Unlock()
 	if ss.persist != nil {
-		if err := ss.persist.DeleteSession(token); err != nil {
+		if err := ss.persist.DeleteSession(ctx, token); err != nil {
 			slog.Error("delete persisted session", "err", err)
 		}
 	}
@@ -154,7 +154,7 @@ func (ss *sessionStore) markProfileVerified(token string, until time.Time) {
 	ss.data[token] = sess
 }
 
-func (ss *sessionStore) deleteAllForProfile(profile string) {
+func (ss *sessionStore) deleteAllForProfile(ctx context.Context, profile string) {
 	ss.mu.Lock()
 	for token, sess := range ss.data {
 		if sess.profile == profile {
@@ -163,7 +163,7 @@ func (ss *sessionStore) deleteAllForProfile(profile string) {
 	}
 	ss.mu.Unlock()
 	if ss.persist != nil {
-		if err := ss.persist.DeleteSessionsForProfile(profile); err != nil {
+		if err := ss.persist.DeleteSessionsForProfile(ctx, profile); err != nil {
 			slog.Error("delete persisted sessions for profile", "profile", profile, "err", err)
 		}
 	}
@@ -171,7 +171,7 @@ func (ss *sessionStore) deleteAllForProfile(profile string) {
 
 // sweep removes all sessions whose expiry has passed. Called periodically
 // by Dependencies.StartBackgroundTasks.
-func (ss *sessionStore) sweep() {
+func (ss *sessionStore) sweep(ctx context.Context) {
 	now := time.Now()
 	ss.mu.Lock()
 	for token, sess := range ss.data {
@@ -181,7 +181,7 @@ func (ss *sessionStore) sweep() {
 	}
 	ss.mu.Unlock()
 	if ss.persist != nil {
-		if err := ss.persist.DeleteExpiredSessions(now); err != nil {
+		if err := ss.persist.DeleteExpiredSessions(ctx, now); err != nil {
 			slog.Error("sweep persisted sessions", "err", err)
 		}
 	}
@@ -191,15 +191,15 @@ func (ss *sessionStore) sweep() {
 // they survive a server restart. Expired rows are pruned first and skipped.
 // Restored sessions carry remember=true (only those are persisted) and an empty
 // verifiedUntil, so the next request re-confirms the profile still exists.
-func (ss *sessionStore) restore() error {
+func (ss *sessionStore) restore(ctx context.Context) error {
 	if ss.persist == nil {
 		return nil
 	}
 	now := time.Now()
-	if err := ss.persist.DeleteExpiredSessions(now); err != nil {
+	if err := ss.persist.DeleteExpiredSessions(ctx, now); err != nil {
 		return fmt.Errorf("prune expired sessions: %w", err)
 	}
-	rows, err := ss.persist.LoadSessions()
+	rows, err := ss.persist.LoadSessions(ctx)
 	if err != nil {
 		return fmt.Errorf("load persisted sessions: %w", err)
 	}
@@ -297,7 +297,7 @@ func validateSession(deps *Dependencies, w http.ResponseWriter, r *http.Request)
 
 	if err := sessionProfileExists(r.Context(), deps, sess); err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
-			deps.sessions.deleteToken(token)
+			deps.sessions.deleteToken(r.Context(), token)
 			clearCookie(w, r)
 			return session{}, false, nil
 		}
@@ -328,8 +328,8 @@ func requireAuthenticatedSession(
 }
 
 func isUniqueConstraint(err error) bool {
-	var sqliteErr *modernsqlite.Error
-	if !errors.As(err, &sqliteErr) {
+	sqliteErr, ok := errors.AsType[*modernsqlite.Error](err)
+	if !ok {
 		return false
 	}
 
@@ -346,8 +346,8 @@ func isUniqueConstraint(err error) bool {
 // is gone and is not coming back, so callers must drop the write rather than
 // queue it again.
 func isForeignKeyConstraint(err error) bool {
-	var sqliteErr *modernsqlite.Error
-	if !errors.As(err, &sqliteErr) {
+	sqliteErr, ok := errors.AsType[*modernsqlite.Error](err)
+	if !ok {
 		return false
 	}
 	return sqliteErr.Code() == sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY
@@ -581,7 +581,7 @@ func loginHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		token, sess, err := deps.sessions.create(body.Name, body.Remember)
+		token, sess, err := deps.sessions.create(r.Context(), body.Name, body.Remember)
 		if err != nil {
 			slog.Error("session creation failed", "profile", body.Name, "err", err)
 			writeError(w, http.StatusInternalServerError, "server_error", "failed to create session")
@@ -617,7 +617,7 @@ func loginHandler(deps *Dependencies) http.HandlerFunc {
 func logoutHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if cookie, err := r.Cookie(sessionCookie); err == nil {
-			deps.sessions.deleteToken(cookie.Value)
+			deps.sessions.deleteToken(r.Context(), cookie.Value)
 		}
 		clearCookie(w, r)
 		w.WriteHeader(http.StatusNoContent)
@@ -783,7 +783,7 @@ func deleteProfileHandler(deps *Dependencies) http.HandlerFunc {
 
 		profile, err := deps.ProfilesDB.GetProfileContext(r.Context(), sess.profile)
 		if errors.Is(err, storage.ErrNotFound) {
-			deps.sessions.deleteAllForProfile(sess.profile)
+			deps.sessions.deleteAllForProfile(r.Context(), sess.profile)
 			clearCookie(w, r)
 			writeError(w, http.StatusNotFound, "not_found", "profile not found")
 			return
@@ -805,7 +805,7 @@ func deleteProfileHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		deps.sessions.deleteAllForProfile(sess.profile)
+		deps.sessions.deleteAllForProfile(r.Context(), sess.profile)
 
 		deleteCtx, cancelDelete := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Second)
 		defer cancelDelete()

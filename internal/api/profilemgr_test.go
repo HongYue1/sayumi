@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"testing"
 	"time"
 )
@@ -15,7 +14,7 @@ import (
 // collide with a concurrent delete/evict of one of its names.
 func TestLockProfilesWaitsForNamesClaimedWhileBlocked(t *testing.T) {
 	pm := NewProfileManager(t.TempDir())
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// "alpha" is free; "beta" is mid-open, so a multi-name lock must park.
 	pm.mu.Lock()

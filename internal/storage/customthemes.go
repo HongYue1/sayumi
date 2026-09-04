@@ -26,12 +26,12 @@ type CustomThemeRecord struct {
 }
 
 // GenerateCustomThemeID returns a random, collision-resistant custom-theme id.
-func GenerateCustomThemeID() string {
+func GenerateCustomThemeID() (string, error) {
 	b := make([]byte, 8)
 	if _, err := io.ReadFull(rand.Reader, b); err != nil {
-		panic("crypto/rand unavailable: " + err.Error())
+		return "", fmt.Errorf("generate custom theme id: %w", err)
 	}
-	return "theme_" + hex.EncodeToString(b)
+	return "theme_" + hex.EncodeToString(b), nil
 }
 
 func (db *DB) ListCustomThemesContext(ctx context.Context, userID string) (out []CustomThemeRecord, err error) {

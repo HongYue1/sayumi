@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -123,7 +124,10 @@ func main() {
 
 	fontScanner := fonts.NewScanner(resolveFontsDir(*fontsPath))
 
-	deps := api.NewDependencies(profilesDB, profileMgr, absLibRoot, fontScanner)
+	deps, err := api.NewDependencies(profilesDB, profileMgr, absLibRoot, fontScanner)
+	if err != nil {
+		fatalf("cannot initialize server dependencies: %v", err)
+	}
 	// Hand the linker-stamped build metadata over once, before any request can
 	// reach it: GET /api/version is what lets the About sheet name the binary it
 	// is talking to, and -buildvcs=false keeps that out of debug.BuildInfo.
@@ -208,7 +212,7 @@ func (sm *serverManager) bindHost() string {
 }
 
 func (sm *serverManager) addr() string {
-	return fmt.Sprintf("%s:%d", sm.bindHost(), sm.port)
+	return net.JoinHostPort(sm.bindHost(), strconv.Itoa(sm.port))
 }
 
 func (sm *serverManager) reportServeError(err error) {
@@ -252,7 +256,7 @@ func (sm *serverManager) start() error {
 	sm.srv = server
 
 	go func(srv *http.Server, ln net.Listener) {
-		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("server error", "err", err)
 			sm.reportServeError(err)
 		}
@@ -619,7 +623,7 @@ func (w *responseTracker) Unwrap() http.ResponseWriter { return w.ResponseWriter
 type statusWriter struct {
 	responseTracker
 	status int
-	bytes  int
+	bytes  int64
 }
 
 func (w *statusWriter) WriteHeader(code int) {
@@ -634,7 +638,7 @@ func (w *statusWriter) Write(p []byte) (int, error) {
 		w.status = http.StatusOK
 	}
 	n, err := w.responseTracker.Write(p)
-	w.bytes += n
+	w.bytes += int64(n)
 	return n, err
 }
 
@@ -645,11 +649,11 @@ func (w *statusWriter) ReadFrom(r io.Reader) (int64, error) {
 	w.markWritten()
 	if rf, ok := w.ResponseWriter.(io.ReaderFrom); ok {
 		n, err := rf.ReadFrom(r)
-		w.bytes += int(n)
+		w.bytes += n
 		return n, err
 	}
 	n, err := io.Copy(w.ResponseWriter, r)
-	w.bytes += int(n)
+	w.bytes += n
 	return n, err
 }
 
@@ -692,8 +696,8 @@ func debugInstrumentMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		writer := &statusWriter{
-			responseTracker: responseTracker{ResponseWriter: w},
-			status:          http.StatusOK,
+			ResponseWriter: w,
+			status:         http.StatusOK,
 		}
 
 		defer func() {
@@ -719,8 +723,10 @@ func debugInstrumentMiddleware(next http.Handler) http.Handler {
 }
 
 // humanizeBytes renders a response body size in B/KB/MB for the debug
-// access log so large payloads are easy to spot at a glance.
-func humanizeBytes(n int) string {
+// access log so large payloads are easy to spot at a glance. The size is
+// int64 because ReadFrom reports int64 and a >2 GiB body must not wrap on
+// 32-bit builds.
+func humanizeBytes(n int64) string {
 	switch {
 	case n < 1024:
 		return fmt.Sprintf("%dB", n)

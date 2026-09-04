@@ -1,7 +1,6 @@
 package epub
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -312,7 +311,7 @@ func TestProcessChapterWritingModeAndCache(t *testing.T) {
 		{Href: "ch-body.xhtml"},
 		{Href: "ch-plain.xhtml"},
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	r0, err := ProcessChapter(ctx, store, zipPath, spine, 0, "book1", "ltr", "tok")
 	if err != nil {

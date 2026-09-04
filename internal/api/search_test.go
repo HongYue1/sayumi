@@ -109,17 +109,15 @@ func newSearchTestDeps(t *testing.T) *profileDeps {
 	})
 
 	book := storage.BookRecord{
-		BookSummary: storage.BookSummary{
-			ID:           searchTestBookID,
-			Title:        "Search Book",
-			FilePath:     filePath,
-			FileHash:     "search-hash",
-			FileSize:     1,
-			Direction:    "ltr",
-			ChapterCount: 1,
-		},
-		SpineJSON: `[{"href":"chapter.xhtml","id":"chapter","linear":true}]`,
-		TocJSON:   "[]",
+		ID:           searchTestBookID,
+		Title:        "Search Book",
+		FilePath:     filePath,
+		FileHash:     "search-hash",
+		FileSize:     1,
+		Direction:    "ltr",
+		ChapterCount: 1,
+		SpineJSON:    `[{"href":"chapter.xhtml","id":"chapter","linear":true}]`,
+		TocJSON:      "[]",
 	}
 	if _, err := db.InsertBookContext(t.Context(), book); err != nil {
 		t.Fatalf("insert book: %v", err)

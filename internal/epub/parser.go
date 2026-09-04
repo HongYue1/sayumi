@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"path"
-	"slices"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -639,7 +638,13 @@ func hasToken(value, target string) bool {
 		return false
 	}
 
-	return slices.Contains(strings.Fields(strings.ToLower(value)), target)
+	lowered := strings.ToLower(value)
+	for field := range strings.FieldsSeq(lowered) {
+		if field == target {
+			return true
+		}
+	}
+	return false
 }
 
 func firstNonEmpty(values []string) string {

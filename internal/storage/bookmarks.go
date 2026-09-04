@@ -136,10 +136,10 @@ func (db *DB) DeleteBookmarkContext(ctx context.Context, id, bookID, userID stri
 	return nil
 }
 
-func GenerateBookmarkID() string {
+func GenerateBookmarkID() (string, error) {
 	b := make([]byte, 8)
 	if _, err := io.ReadFull(rand.Reader, b); err != nil {
-		panic("crypto/rand unavailable: " + err.Error())
+		return "", fmt.Errorf("generate bookmark id: %w", err)
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }

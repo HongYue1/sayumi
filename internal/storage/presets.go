@@ -23,12 +23,12 @@ type PresetRecord struct {
 }
 
 // GeneratePresetID returns a random, collision-resistant preset id.
-func GeneratePresetID() string {
+func GeneratePresetID() (string, error) {
 	b := make([]byte, 8)
 	if _, err := io.ReadFull(rand.Reader, b); err != nil {
-		panic("crypto/rand unavailable: " + err.Error())
+		return "", fmt.Errorf("generate preset id: %w", err)
 	}
-	return "preset_" + hex.EncodeToString(b)
+	return "preset_" + hex.EncodeToString(b), nil
 }
 
 func (db *DB) ListPresetsContext(ctx context.Context, userID string) (out []PresetRecord, err error) {

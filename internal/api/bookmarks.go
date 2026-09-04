@@ -120,7 +120,12 @@ func createBookmarkHandler(_ *Dependencies) http.HandlerFunc {
 		}
 
 		createdAt := time.Now().UTC().Format(time.DateTime)
-		bookmarkID := storage.GenerateBookmarkID()
+		bookmarkID, err := storage.GenerateBookmarkID()
+		if err != nil {
+			slog.Error("generate bookmark id failed", "err", err)
+			writeError(w, http.StatusInternalServerError, "server_error", "failed to create bookmark")
+			return
+		}
 		record := storage.BookmarkRecord{
 			ID:        bookmarkID,
 			BookID:    bookID,

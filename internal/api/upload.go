@@ -91,7 +91,7 @@ func uploadBookHandler(_ *Dependencies) http.HandlerFunc {
 		// maxFilenameCollisions times.
 		var destPath string
 		var copyErr error
-		for index := 0; index <= maxFilenameCollisions; index++ {
+		for index := range maxFilenameCollisions + 1 {
 			if index == 0 {
 				destPath = filepath.Join(pd.LibPath, destName)
 			} else {

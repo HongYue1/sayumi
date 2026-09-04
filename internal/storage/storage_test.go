@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"testing"
@@ -28,23 +27,21 @@ func newTestDB(t *testing.T) *DB {
 // "[]" so the row satisfies the NOT NULL columns and parses cleanly.
 func sampleBook(id, hash, path string) BookRecord {
 	return BookRecord{
-		BookSummary: BookSummary{
-			ID:           id,
-			Title:        "Title " + id,
-			Author:       "Author",
-			FilePath:     path,
-			FileHash:     hash,
-			Direction:    "ltr",
-			ChapterCount: 3,
-		},
-		SpineJSON: "[]",
-		TocJSON:   "[]",
+		ID:           id,
+		Title:        "Title " + id,
+		Author:       "Author",
+		FilePath:     path,
+		FileHash:     hash,
+		Direction:    "ltr",
+		ChapterCount: 3,
+		SpineJSON:    "[]",
+		TocJSON:      "[]",
 	}
 }
 
 func mustInsertBook(tb testing.TB, db *DB, book BookRecord) string {
 	tb.Helper()
-	id, err := db.InsertBookContext(context.Background(), book)
+	id, err := db.InsertBookContext(tb.Context(), book)
 	if err != nil {
 		tb.Fatalf("insert book %q: %v", book.ID, err)
 	}
@@ -53,7 +50,7 @@ func mustInsertBook(tb testing.TB, db *DB, book BookRecord) string {
 
 func TestInsertBookIsIdempotentByHash(t *testing.T) {
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	first, err := db.InsertBookContext(ctx, sampleBook("id1", "hash-a", "/lib/a.epub"))
 	if err != nil {
@@ -84,7 +81,7 @@ func TestInsertBookIsIdempotentByHash(t *testing.T) {
 
 func TestInsertBookEmptyHashDoesNotCollide(t *testing.T) {
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// The partial unique index excludes the empty-string hash, so two
 	// not-yet-hashed books must both be inserted.
@@ -102,7 +99,7 @@ func TestInsertBookEmptyHashDoesNotCollide(t *testing.T) {
 
 func TestGetBookAndLookups(t *testing.T) {
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub"))
 
 	got, err := db.GetBookContext(ctx, "id1")
@@ -144,7 +141,7 @@ func TestGetBookAndLookups(t *testing.T) {
 
 func TestUpdateBookFilePathAndCover(t *testing.T) {
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub"))
 
 	if err := db.UpdateBookFilePathContext(ctx, "id1", "/lib/renamed.epub"); err != nil {
@@ -169,7 +166,7 @@ func TestUpdateBookFilePathAndCover(t *testing.T) {
 func TestProgressUpsert(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub"))
 
 	if _, err := db.GetProgressContext(ctx, "id1", "default"); !errors.Is(err, ErrNotFound) {
@@ -220,7 +217,7 @@ func TestProgressUpsert(t *testing.T) {
 func TestSettingsUpsert(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	if _, err := db.GetSettingsContext(ctx, "default"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("settings before save err = %v, want ErrNotFound", err)
@@ -287,7 +284,7 @@ func TestSettingsUpsert(t *testing.T) {
 
 func TestFlairDeleteClearsAssignments(t *testing.T) {
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub"))
 
 	if err := db.InsertFlairContext(ctx, FlairRecord{
@@ -333,7 +330,7 @@ func TestFlairDeleteClearsAssignments(t *testing.T) {
 
 func TestSetBookFlairClearsWhenEmpty(t *testing.T) {
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub"))
 
 	if err := db.SetBookFlairCheckedContext(ctx, "id1", "default", "reading", testBuiltinFlairs); err != nil {
@@ -354,10 +351,13 @@ func TestSetBookFlairClearsWhenEmpty(t *testing.T) {
 
 func TestBookmarksCRUD(t *testing.T) {
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub"))
 
-	id := GenerateBookmarkID()
+	id, err := GenerateBookmarkID()
+	if err != nil {
+		t.Fatalf("generate bookmark id: %v", err)
+	}
 	if err := db.InsertBookmarkContext(ctx, BookmarkRecord{
 		ID: id, BookID: "id1", UserID: "default", Chapter: 1, Percent: 0.25,
 		Label: "Start", Comment: "first note",
@@ -405,7 +405,7 @@ func TestBookmarksCRUD(t *testing.T) {
 
 func TestDeleteBookRecordsIgnoredFile(t *testing.T) {
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub"))
 
 	if err := db.DeleteBookContext(ctx, "id1"); err != nil {

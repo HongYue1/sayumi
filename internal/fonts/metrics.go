@@ -182,13 +182,6 @@ var embeddedFaceMetrics = sync.OnceValue(func() map[string]Metrics {
 	return parsed
 })
 
-// EmbeddedMetrics returns the metrics of an embedded face, keyed by the flat
-// filename it is served under, for example "Literata-VariableFont.woff2".
-func EmbeddedMetrics(name string) (Metrics, bool) {
-	metrics, found := embeddedFaceMetrics()[name]
-	return metrics, found
-}
-
 // EmbeddedFaceMetrics returns the metrics of every embedded face, keyed the
 // same way. The returned map is the shared parsed set and must be treated as
 // read-only.

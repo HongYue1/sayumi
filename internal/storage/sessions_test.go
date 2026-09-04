@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -9,7 +10,7 @@ import (
 func TestSessionsCRUDAndExpiry(t *testing.T) {
 	t.Parallel()
 	pdb := newTestProfilesDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// FK requires the profile row first.
 	if err := pdb.CreateProfileContext(ctx, "alice", ""); err != nil {
@@ -20,11 +21,11 @@ func TestSessionsCRUDAndExpiry(t *testing.T) {
 	}
 
 	expiry := time.Date(2030, 6, 1, 12, 0, 0, 0, time.UTC)
-	if err := pdb.SaveSession("tok-a", "alice", expiry); err != nil {
+	if err := pdb.SaveSession(ctx, "tok-a", "alice", expiry); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 
-	got, err := pdb.LoadSessions()
+	got, err := pdb.LoadSessions(ctx)
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -37,10 +38,10 @@ func TestSessionsCRUDAndExpiry(t *testing.T) {
 
 	// Upsert same token: new expiry + profile.
 	newExpiry := expiry.Add(24 * time.Hour)
-	if err := pdb.SaveSession("tok-a", "bob", newExpiry); err != nil {
+	if err := pdb.SaveSession(ctx, "tok-a", "bob", newExpiry); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
-	got, err = pdb.LoadSessions()
+	got, err = pdb.LoadSessions(ctx)
 	if err != nil {
 		t.Fatalf("load after upsert: %v", err)
 	}
@@ -49,18 +50,18 @@ func TestSessionsCRUDAndExpiry(t *testing.T) {
 	}
 
 	// Second session for alice.
-	if err := pdb.SaveSession("tok-b", "alice", expiry); err != nil {
+	if err := pdb.SaveSession(ctx, "tok-b", "alice", expiry); err != nil {
 		t.Fatalf("save tok-b: %v", err)
 	}
-	if err := pdb.DeleteSession("tok-a"); err != nil {
+	if err := pdb.DeleteSession(ctx, "tok-a"); err != nil {
 		t.Fatalf("delete tok-a: %v", err)
 	}
 	// Idempotent delete of missing token.
-	if err := pdb.DeleteSession("tok-missing"); err != nil {
+	if err := pdb.DeleteSession(ctx, "tok-missing"); err != nil {
 		t.Fatalf("delete missing: %v", err)
 	}
 
-	got, err = pdb.LoadSessions()
+	got, err = pdb.LoadSessions(ctx)
 	if err != nil {
 		t.Fatalf("load after delete: %v", err)
 	}
@@ -68,10 +69,10 @@ func TestSessionsCRUDAndExpiry(t *testing.T) {
 		t.Fatalf("after delete = %+v, want only tok-b", got)
 	}
 
-	if err := pdb.DeleteSessionsForProfile("alice"); err != nil {
+	if err := pdb.DeleteSessionsForProfile(ctx, "alice"); err != nil {
 		t.Fatalf("delete for alice: %v", err)
 	}
-	got, err = pdb.LoadSessions()
+	got, err = pdb.LoadSessions(ctx)
 	if err != nil {
 		t.Fatalf("load after profile purge: %v", err)
 	}
@@ -83,7 +84,7 @@ func TestSessionsCRUDAndExpiry(t *testing.T) {
 func TestDeleteExpiredSessionsBoundary(t *testing.T) {
 	t.Parallel()
 	pdb := newTestProfilesDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	if err := pdb.CreateProfileContext(ctx, "alice", ""); err != nil {
 		t.Fatalf("create: %v", err)
@@ -103,16 +104,16 @@ func TestDeleteExpiredSessionsBoundary(t *testing.T) {
 		{"tok-exact", exact},
 		{"tok-future", future},
 	} {
-		if err := pdb.SaveSession(s.token, "alice", s.expiry); err != nil {
+		if err := pdb.SaveSession(ctx, s.token, "alice", s.expiry); err != nil {
 			t.Fatalf("save %s: %v", s.token, err)
 		}
 	}
 
-	if err := pdb.DeleteExpiredSessions(now); err != nil {
+	if err := pdb.DeleteExpiredSessions(ctx, now); err != nil {
 		t.Fatalf("prune: %v", err)
 	}
 
-	got, err := pdb.LoadSessions()
+	got, err := pdb.LoadSessions(ctx)
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -131,14 +132,14 @@ func TestDeleteExpiredSessionsBoundary(t *testing.T) {
 func TestLoadSessionsSkipsCorruptExpiry(t *testing.T) {
 	t.Parallel()
 	pdb := newTestProfilesDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	if err := pdb.CreateProfileContext(ctx, "alice", ""); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 
 	goodExpiry := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
-	if err := pdb.SaveSession("tok-good", "alice", goodExpiry); err != nil {
+	if err := pdb.SaveSession(ctx, "tok-good", "alice", goodExpiry); err != nil {
 		t.Fatalf("save good: %v", err)
 	}
 	// Bypass SaveSession to plant an unparseable expiry.
@@ -150,11 +151,46 @@ func TestLoadSessionsSkipsCorruptExpiry(t *testing.T) {
 		t.Fatalf("insert corrupt: %v", err)
 	}
 
-	got, err := pdb.LoadSessions()
+	got, err := pdb.LoadSessions(ctx)
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
 	if len(got) != 1 || got[0].Token != "tok-good" {
 		t.Fatalf("load = %+v, want only tok-good (corrupt skipped)", got)
+	}
+}
+
+// TestSessionsHonorCancellation pins the ctx threading: every session method
+// must fail fast on a canceled context instead of running on Background.
+func TestSessionsHonorCancellation(t *testing.T) {
+	t.Parallel()
+	pdb := newTestProfilesDB(t)
+	ctx := t.Context()
+
+	if err := pdb.CreateProfileContext(ctx, "alice", ""); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	expiry := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := pdb.SaveSession(ctx, "tok-a", "alice", expiry); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+
+	if err := pdb.SaveSession(canceled, "tok-b", "alice", expiry); !errors.Is(err, context.Canceled) {
+		t.Errorf("SaveSession err = %v, want context.Canceled", err)
+	}
+	if err := pdb.DeleteSession(canceled, "tok-a"); !errors.Is(err, context.Canceled) {
+		t.Errorf("DeleteSession err = %v, want context.Canceled", err)
+	}
+	if err := pdb.DeleteSessionsForProfile(canceled, "alice"); !errors.Is(err, context.Canceled) {
+		t.Errorf("DeleteSessionsForProfile err = %v, want context.Canceled", err)
+	}
+	if err := pdb.DeleteExpiredSessions(canceled, time.Now()); !errors.Is(err, context.Canceled) {
+		t.Errorf("DeleteExpiredSessions err = %v, want context.Canceled", err)
+	}
+	if _, err := pdb.LoadSessions(canceled); !errors.Is(err, context.Canceled) {
+		t.Errorf("LoadSessions err = %v, want context.Canceled", err)
 	}
 }

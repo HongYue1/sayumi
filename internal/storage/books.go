@@ -339,8 +339,8 @@ func mapFileHashConflict(err error) error {
 	if err == nil {
 		return nil
 	}
-	var sqliteErr *modernsqlite.Error
-	if !errors.As(err, &sqliteErr) {
+	sqliteErr, ok := errors.AsType[*modernsqlite.Error](err)
+	if !ok {
 		return err
 	}
 	switch sqliteErr.Code() {

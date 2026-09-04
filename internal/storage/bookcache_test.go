@@ -26,7 +26,7 @@ func bookWithSpine(t *testing.T, id, hash, path string, spine []epub.SpineEntry)
 
 func TestBookCacheGetSpineLazy(t *testing.T) {
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	spine := []epub.SpineEntry{
 		{Href: "ch1.xhtml", ID: "c1", MediaType: "application/xhtml+xml", Linear: true},
@@ -75,7 +75,7 @@ func TestBookCacheGetSpineLazy(t *testing.T) {
 
 func TestBookCacheAddInvalidatesSpine(t *testing.T) {
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub"))
 
 	cache, err := NewBookCache(ctx, db)
@@ -108,7 +108,7 @@ func TestBookCacheAddInvalidatesSpine(t *testing.T) {
 
 func TestBookCacheRemoveDropsSpine(t *testing.T) {
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub"))
 
 	cache, err := NewBookCache(ctx, db)
@@ -165,7 +165,7 @@ func TestBookCacheGetSpineRejectsStaleConcurrentLoad(t *testing.T) {
 	}
 	resultCh := make(chan result, 1)
 	go func() {
-		spine, found, err := cache.GetSpine(context.Background(), "id1")
+		spine, found, err := cache.GetSpine(t.Context(), "id1")
 		resultCh <- result{spine: spine, found: found, err: err}
 	}()
 
@@ -191,7 +191,7 @@ func TestBookCacheGetSpineReturnsParseError(t *testing.T) {
 		generations: make(map[string]uint64),
 	}
 
-	_, _, err := cache.GetSpine(context.Background(), "id1")
+	_, _, err := cache.GetSpine(t.Context(), "id1")
 	if err == nil {
 		t.Fatal("GetSpine error = nil, want parse error")
 	}
@@ -207,7 +207,7 @@ func TestBookCacheGetSpineReturnsParseError(t *testing.T) {
 // means cache order is exactly what the user sees for identical titles.
 func TestAddPlacesDuplicateTitlesWhereARestartWould(t *testing.T) {
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	dup := func(id, hash, path string) BookRecord {
 		b := sampleBook(id, hash, path)

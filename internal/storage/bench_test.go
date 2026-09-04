@@ -19,7 +19,7 @@ import (
 // benchmarks operate on a realistic row count.
 func seedBooks(tb testing.TB, db *DB, n int) {
 	tb.Helper()
-	ctx := context.Background()
+	ctx := tb.Context()
 	for i := range n {
 		book := sampleBook(
 			fmt.Sprintf("id%04d", i),
@@ -40,7 +40,7 @@ func seedBooks(tb testing.TB, db *DB, n int) {
 // and every title stays unique.
 func seedBooksShuffledTitles(tb testing.TB, db *DB, n int) {
 	tb.Helper()
-	ctx := context.Background()
+	ctx := tb.Context()
 	for i := range n {
 		book := sampleBook(
 			fmt.Sprintf("id%04d", i),
@@ -59,7 +59,7 @@ func seedBooksShuffledTitles(tb testing.TB, db *DB, n int) {
 // JSON rather than the empty "[]" spines of seedBooks.
 func seedBooksWithSpines(tb testing.TB, db *DB, n, spineLen int) {
 	tb.Helper()
-	ctx := context.Background()
+	ctx := tb.Context()
 
 	spine := make([]epub.SpineEntry, spineLen)
 	for i := range spine {
@@ -135,7 +135,7 @@ func BenchmarkInsertBook(b *testing.B) {
 			b.Errorf("close: %v", err)
 		}
 	})
-	ctx := context.Background()
+	ctx := b.Context()
 
 	i := 0
 	for b.Loop() {
@@ -169,7 +169,7 @@ func BenchmarkBookCacheAddRetitle(b *testing.B) {
 	})
 	seedBooks(b, db, 2000)
 
-	cache, err := NewBookCache(context.Background(), db)
+	cache, err := NewBookCache(b.Context(), db)
 	if err != nil {
 		b.Fatalf("new book cache: %v", err)
 	}
@@ -198,7 +198,7 @@ func BenchmarkNewBookCache(b *testing.B) {
 	}
 	b.Cleanup(func() { _ = db.Close() })
 	seedBooksWithSpines(b, db, 200, 120)
-	ctx := context.Background()
+	ctx := b.Context()
 
 	b.ReportAllocs()
 	for b.Loop() {
@@ -219,7 +219,7 @@ func BenchmarkGetSpineColdBurst(b *testing.B) {
 	}
 	b.Cleanup(func() { _ = db.Close() })
 	seedBooksWithSpines(b, db, 1, 120)
-	ctx := context.Background()
+	ctx := b.Context()
 	cache, err := NewBookCache(ctx, db)
 	if err != nil {
 		b.Fatalf("new book cache: %v", err)
@@ -302,7 +302,7 @@ func BenchmarkListBookSummariesUnsortedTitles(b *testing.B) {
 	}
 	b.Cleanup(func() { _ = db.Close() })
 	seedBooksShuffledTitles(b, db, 200)
-	ctx := context.Background()
+	ctx := b.Context()
 
 	b.ReportAllocs()
 	for b.Loop() {
@@ -319,7 +319,7 @@ func BenchmarkListBookSummaries(b *testing.B) {
 	}
 	b.Cleanup(func() { _ = db.Close() })
 	seedBooks(b, db, 200)
-	ctx := context.Background()
+	ctx := b.Context()
 
 	b.ReportAllocs()
 	for b.Loop() {
@@ -335,7 +335,7 @@ func BenchmarkGetAllProgress(b *testing.B) {
 		b.Fatalf("open: %v", err)
 	}
 	b.Cleanup(func() { _ = db.Close() })
-	ctx := context.Background()
+	ctx := b.Context()
 	seedBooks(b, db, 200)
 	for i := range 200 {
 		if err := db.SaveProgressContext(ctx, ProgressRecord{
@@ -362,7 +362,7 @@ func BenchmarkSaveProgress(b *testing.B) {
 		b.Fatalf("open: %v", err)
 	}
 	b.Cleanup(func() { _ = db.Close() })
-	ctx := context.Background()
+	ctx := b.Context()
 	if _, err := db.InsertBookContext(ctx, sampleBook("id1", "hash-a", "/lib/a.epub")); err != nil {
 		b.Fatalf("insert book: %v", err)
 	}
@@ -394,7 +394,7 @@ func BenchmarkConcurrentReads(b *testing.B) {
 			db := openRawForBench(b, conns)
 			seedRawBooks(b, db, 200)
 			warmRawPool(b, db, conns)
-			ctx := context.Background()
+			ctx := b.Context()
 
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -453,7 +453,7 @@ func openRawForBench(b *testing.B, maxConns int) *sql.DB {
 
 func warmRawPool(b *testing.B, db *sql.DB, n int) {
 	b.Helper()
-	ctx := context.Background()
+	ctx := b.Context()
 	conns := make([]*sql.Conn, 0, n)
 	for i := range n {
 		conn, err := db.Conn(ctx)

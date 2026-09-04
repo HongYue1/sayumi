@@ -158,21 +158,19 @@ func TestScanNowSingleFlight(t *testing.T) {
 	dir := t.TempDir()
 	db := openTestDB(t, dir)
 	scanner := NewScanner(dir, db)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	const goroutines = 16
 	var wg sync.WaitGroup
 	errs := make([]error, goroutines)
 	counts := make([]int, goroutines)
 
-	wg.Add(goroutines)
 	for i := range goroutines {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			ids, scanErr := scanner.ScanNow(ctx)
 			errs[i] = scanErr
 			counts[i] = len(ids)
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -201,7 +199,7 @@ func TestCollectEPUBPathsSkipsDots(t *testing.T) {
 	writeMinimalEPUB(t, filepath.Join(lib, "sub", "nested.epub"), "Nested")
 	_ = os.WriteFile(filepath.Join(lib, "notes.txt"), []byte("x"), 0o644)
 
-	paths, err := s.collectEPUBPaths(context.Background())
+	paths, err := s.collectEPUBPaths(t.Context())
 	if err != nil {
 		t.Fatalf("collect: %v", err)
 	}
@@ -224,7 +222,7 @@ func TestScanNowImportAndDedup(t *testing.T) {
 	lib := t.TempDir()
 	db := openTestDB(t, lib)
 	s := NewScanner(lib, db)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	src := filepath.Join(lib, "book.epub")
 	writeMinimalEPUB(t, src, "Alpha")
@@ -286,7 +284,7 @@ func TestScanNowWithChangesReportsBackfilledCover(t *testing.T) {
 	lib := t.TempDir()
 	db := openTestDB(t, lib)
 	s := NewScanner(lib, db)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	path := filepath.Join(lib, "backfill.epub")
 	writeCoverEPUB(t, path, "Backfill")
@@ -296,17 +294,15 @@ func TestScanNowWithChangesReportsBackfilledCover(t *testing.T) {
 	}
 	const id = "backfill-book"
 	canonicalID, err := db.InsertBookContext(ctx, storage.BookRecord{
-		BookSummary: storage.BookSummary{
-			ID:           id,
-			Title:        "Backfill",
-			Author:       "Tester",
-			FilePath:     path,
-			FileHash:     "backfill-hash",
-			FileSize:     info.Size(),
-			ChapterCount: 1,
-		},
-		SpineJSON: "[]",
-		TocJSON:   "[]",
+		ID:           id,
+		Title:        "Backfill",
+		Author:       "Tester",
+		FilePath:     path,
+		FileHash:     "backfill-hash",
+		FileSize:     info.Size(),
+		ChapterCount: 1,
+		SpineJSON:    "[]",
+		TocJSON:      "[]",
 	})
 	if err != nil {
 		t.Fatalf("insert existing book: %v", err)
@@ -346,7 +342,7 @@ func TestScanNowSkipsIgnoredPath(t *testing.T) {
 	lib := t.TempDir()
 	db := openTestDB(t, lib)
 	s := NewScanner(lib, db)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	path := filepath.Join(lib, "gone.epub")
 	writeMinimalEPUB(t, path, "Gone")
@@ -382,7 +378,7 @@ func TestContentHashAndGenerateID(t *testing.T) {
 	p := filepath.Join(dir, "h.epub")
 	writeMinimalEPUB(t, p, "HashMe")
 
-	ctx := context.Background()
+	ctx := t.Context()
 	h1, sz1, err := HashFile(ctx, p)
 	if err != nil || h1 == "" || sz1 <= 0 {
 		t.Fatalf("HashFile: %q %d %v", h1, sz1, err)
@@ -397,7 +393,7 @@ func TestContentHashAndGenerateID(t *testing.T) {
 	if err := os.WriteFile(big, make([]byte, 2<<20), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cctx, cancel := context.WithCancel(context.Background())
+	cctx, cancel := context.WithCancel(t.Context())
 	// Cancel immediately after start via short timeout.
 	go func() {
 		time.Sleep(time.Millisecond)
@@ -420,7 +416,7 @@ func TestImportFile(t *testing.T) {
 	lib := t.TempDir()
 	db := openTestDB(t, lib)
 	s := NewScanner(lib, db)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	p := filepath.Join(lib, "one.epub")
 	writeMinimalEPUB(t, p, "OneShot")
@@ -439,7 +435,7 @@ func TestImportUploadedFilePreservesCanonicalDuplicatePath(t *testing.T) {
 	lib := t.TempDir()
 	db := openTestDB(t, lib)
 	s := NewScanner(lib, db)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	canonicalPath := filepath.Join(lib, "canonical.epub")
 	writeMinimalEPUB(t, canonicalPath, "Canonical")
@@ -489,7 +485,7 @@ func TestScanNowWithChangesReportsPathReconciledBooks(t *testing.T) {
 	lib := t.TempDir()
 	db := openTestDB(t, lib)
 	s := NewScanner(lib, db)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	src := filepath.Join(lib, "moved.epub")
 	writeCoverEPUB(t, src, "Moved")
@@ -536,7 +532,7 @@ func TestCoverPathIsStoredWithForwardSlashes(t *testing.T) {
 	lib := t.TempDir()
 	db := openTestDB(t, lib)
 	s := NewScanner(lib, db)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	writeCoverEPUB(t, filepath.Join(lib, "withcover.epub"), "Covered")
 

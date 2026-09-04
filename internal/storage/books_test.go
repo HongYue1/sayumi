@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -14,7 +13,7 @@ import (
 func TestListBookSummariesStableTitleTies(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Same title, different ids: order must be title then id, not insertion order.
 	mustInsertBook(t, db, sampleBook("z-book", "hash-z", "/lib/z.epub"))
@@ -86,7 +85,7 @@ func TestIgnoredFileSurvivesLibraryPathCaseChange(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
 	db.foldPaths = true // library lives on NTFS / APFS / exFAT
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mustInsertBook(t, db, sampleBook("b1", "hash-1", "/Library/Books/Novel.epub"))
 	if err := db.DeleteBookContext(ctx, "b1"); err != nil {
@@ -123,7 +122,7 @@ func TestBookExistsByPathFoldsCaseOnFoldingVolume(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
 	db.foldPaths = true
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mustInsertBook(t, db, sampleBook("b1", "hash-1", "/Library/Books/Novel.epub"))
 
@@ -146,7 +145,7 @@ func TestPathKeyKeepsCaseOnCaseSensitiveVolume(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
 	db.foldPaths = false
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mustInsertBook(t, db, sampleBook("b1", "hash-1", "/library/Novel.epub"))
 
@@ -190,7 +189,7 @@ func TestDetectPathFoldingAgreesWithFilesystem(t *testing.T) {
 func TestBookUpdateMissingReturnsNotFound(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	if err := db.UpdateBookFilePathContext(ctx, "missing", "/lib/x.epub"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("UpdateBookFilePathContext err = %v, want ErrNotFound", err)
@@ -212,7 +211,7 @@ func TestBookUpdateMissingReturnsNotFound(t *testing.T) {
 func TestUpdateBookMetadataFileHashConflict(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	mustInsertBook(t, db, sampleBook("id1", "hash-a", "/lib/a.epub"))
 	mustInsertBook(t, db, sampleBook("id2", "hash-b", "/lib/b.epub"))
 
@@ -239,7 +238,7 @@ func TestUpdateBookMetadataFileHashConflict(t *testing.T) {
 func TestGetBookContentAndSummary(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	book := sampleBook("id1", "hash-a", "/lib/a.epub")
 	book.SpineJSON = `[{"id":"c1"}]`
@@ -273,7 +272,7 @@ func TestGetBookContentAndSummary(t *testing.T) {
 func TestInsertBookConcurrentSameHash(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	const workers = 8
 	var (
@@ -281,13 +280,11 @@ func TestInsertBookConcurrentSameHash(t *testing.T) {
 		ids  = make([]string, workers)
 		errs = make([]error, workers)
 	)
-	wg.Add(workers)
 	for i := range workers {
-		go func(i int) {
-			defer wg.Done()
+		wg.Go(func() {
 			book := sampleBook(fmt.Sprintf("id-%d", i), "hash-shared", fmt.Sprintf("/lib/%d.epub", i))
 			ids[i], errs[i] = db.InsertBookContext(ctx, book)
-		}(i)
+		})
 	}
 	wg.Wait()
 

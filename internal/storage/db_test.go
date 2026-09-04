@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"database/sql"
 	"os"
 	"path/filepath"
@@ -13,7 +12,7 @@ import (
 func TestOpenEnablesPragmasAndSchema(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var foreignKeys int
 	if err := db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&foreignKeys); err != nil {
@@ -74,7 +73,7 @@ func TestMigrateAddsCoverCheckedAndReconciles(t *testing.T) {
 	}
 	defer func() { _ = raw.Close() }()
 
-	if _, err := raw.ExecContext(context.Background(), `
+	if _, err := raw.ExecContext(t.Context(), `
 		CREATE TABLE books (
 			id            TEXT PRIMARY KEY,
 			title         TEXT NOT NULL DEFAULT '',
@@ -117,11 +116,11 @@ func TestMigrateAddsCoverCheckedAndReconciles(t *testing.T) {
 	}
 
 	var withChecked, withoutChecked int
-	if err := db.QueryRowContext(context.Background(),
+	if err := db.QueryRowContext(t.Context(),
 		`SELECT cover_checked FROM books WHERE id = 'with'`).Scan(&withChecked); err != nil {
 		t.Fatalf("read with: %v", err)
 	}
-	if err := db.QueryRowContext(context.Background(),
+	if err := db.QueryRowContext(t.Context(),
 		`SELECT cover_checked FROM books WHERE id = 'without'`).Scan(&withoutChecked); err != nil {
 		t.Fatalf("read without: %v", err)
 	}
@@ -171,7 +170,7 @@ func TestOpenLibraryPathWithQuestionMark(t *testing.T) {
 			t.Errorf("close: %v", err)
 		}
 	})
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var gotPath string
 	if err := db.QueryRowContext(ctx,

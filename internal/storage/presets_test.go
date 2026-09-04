@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"errors"
 	"testing"
 )
@@ -18,7 +17,7 @@ func samplePreset(id, userID, name, settingsJSON string) PresetRecord {
 func TestPresetsCRUDAndScope(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	const settingsJSON = `{"fontSize":18,"theme":"rose-pine"}`
 	rec := samplePreset("preset_a", "default", "Night", settingsJSON)
@@ -71,7 +70,7 @@ func TestPresetsCRUDAndScope(t *testing.T) {
 func TestListPresetsStableTies(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Same created_at forces the id tie-breaker.
 	const ts = "2026-01-02 03:04:05"
@@ -104,8 +103,14 @@ func TestListPresetsStableTies(t *testing.T) {
 
 func TestGeneratePresetID(t *testing.T) {
 	t.Parallel()
-	a := GeneratePresetID()
-	b := GeneratePresetID()
+	a, err := GeneratePresetID()
+	if err != nil {
+		t.Fatalf("generate id: %v", err)
+	}
+	b, err := GeneratePresetID()
+	if err != nil {
+		t.Fatalf("generate id: %v", err)
+	}
 	if a == "" || b == "" || a == b {
 		t.Fatalf("ids not unique/non-empty: %q %q", a, b)
 	}

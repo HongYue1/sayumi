@@ -1,12 +1,19 @@
 package api
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 type gofileRoundTripFunc func(*http.Request) (*http.Response, error)
@@ -106,4 +113,89 @@ func TestUploadGofileHandlerHoldsReplacementReadLock(t *testing.T) {
 		t.Fatal("replacement write lock remained held after gofile upload completed")
 	}
 	pd.bookReplaceMu.Unlock()
+}
+
+func TestUploadFileToGofileSuccess(t *testing.T) {
+	oldClient := gofileClient
+	gofileClient = &http.Client{Transport: gofileRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		defer func() { _ = req.Body.Close() }()
+		if _, err := io.Copy(io.Discard, req.Body); err != nil {
+			return nil, fmt.Errorf("read upload body: %w", err)
+		}
+		if ct := req.Header.Get("Content-Type"); !strings.HasPrefix(ct, "multipart/form-data;") {
+			return nil, fmt.Errorf("content-type = %q, want multipart", ct)
+		}
+		return gofileTestResponse(req, `{"status":"ok","data":{"downloadPage":"https://gofile.io/d/abc123"}}`), nil
+	})}
+	t.Cleanup(func() { gofileClient = oldClient })
+
+	path := filepath.Join(t.TempDir(), "book.epub")
+	if err := os.WriteFile(path, []byte("epub-content"), 0o644); err != nil {
+		t.Fatalf("seed book: %v", err)
+	}
+
+	page, err := uploadFileToGofile(t.Context(), "store1", path)
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	if page != "https://gofile.io/d/abc123" {
+		t.Fatalf("page = %q, want download page", page)
+	}
+}
+
+// TestUploadFileToGofileTransportErrorReleasesWriter pins the streaming
+// goroutine's lifecycle: when the transport fails without reading or closing
+// the request body, the upload must still return and leave no goroutine
+// behind. (The RoundTripper contract asks transports to close the body, but
+// the uploader owns its pipe cleanup instead of relying on it.)
+//
+// This test is intentionally not parallel: it counts process goroutines, and
+// parallel siblings only run once sequential tests like this one finish.
+func TestUploadFileToGofileTransportErrorReleasesWriter(t *testing.T) {
+	oldClient := gofileClient
+	gofileClient = &http.Client{Transport: gofileRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("connection refused")
+	})}
+	t.Cleanup(func() { gofileClient = oldClient })
+
+	// Large enough that the first pipe write blocks until a reader arrives
+	// (io.Pipe is unbuffered), pinning a leaked writer in place.
+	path := filepath.Join(t.TempDir(), "book.epub")
+	if err := os.WriteFile(path, bytes.Repeat([]byte("x"), 1<<20), 0o644); err != nil {
+		t.Fatalf("seed book: %v", err)
+	}
+
+	before := runtime.NumGoroutine()
+	if _, err := uploadFileToGofile(t.Context(), "store1", path); err == nil {
+		t.Fatal("upload with failing transport succeeded, want error")
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for runtime.NumGoroutine() > before {
+		if time.Now().After(deadline) {
+			t.Fatalf("streaming goroutine leaked: %d goroutines, want %d", runtime.NumGoroutine(), before)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestWriteMultipartBodyClosedPipe(t *testing.T) {
+	t.Parallel()
+
+	pr, pw := io.Pipe()
+	// No reader: the first write fails, exercising the CloseWithError path.
+	_ = pr.Close()
+
+	file := filepath.Join(t.TempDir(), "book.epub")
+	if err := os.WriteFile(file, []byte("epub-content"), 0o644); err != nil {
+		t.Fatalf("seed book: %v", err)
+	}
+	f, err := os.Open(file)
+	if err != nil {
+		t.Fatalf("open book: %v", err)
+	}
+
+	mw := multipart.NewWriter(pw)
+	if err := writeMultipartBody(mw, pw, f, "book.epub"); err == nil {
+		t.Fatal("write to closed pipe succeeded, want error")
+	}
 }

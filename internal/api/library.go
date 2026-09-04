@@ -163,10 +163,7 @@ func filterAndSortBooks(books []BookResponse, q, sortField, order string) []Book
 			lowerAuthor[books[i].ID] = strings.ToLower(books[i].Author)
 		}
 		less = func(a, b BookResponse) int {
-			if c := cmp.Compare(lowerAuthor[a.ID], lowerAuthor[b.ID]); c != 0 {
-				return c
-			}
-			return byTitle(a, b)
+			return cmp.Or(cmp.Compare(lowerAuthor[a.ID], lowerAuthor[b.ID]), byTitle(a, b))
 		}
 	case "added":
 		less = func(a, b BookResponse) int { return cmp.Compare(a.AddedAt, b.AddedAt) }
@@ -174,10 +171,7 @@ func filterAndSortBooks(books []BookResponse, q, sortField, order string) []Book
 		less = func(a, b BookResponse) int { return cmp.Compare(a.LastReadAt, b.LastReadAt) }
 	case "progress":
 		less = func(a, b BookResponse) int {
-			if c := cmp.Compare(a.Progress, b.Progress); c != 0 {
-				return c
-			}
-			return byTitle(a, b)
+			return cmp.Or(cmp.Compare(a.Progress, b.Progress), byTitle(a, b))
 		}
 	case "", "title":
 		less = byTitle

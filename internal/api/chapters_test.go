@@ -116,15 +116,13 @@ func TestGetChapterHandlerMatchingETagSkipsSpineLoad(t *testing.T) {
 		fileHash = "hash-1"
 	)
 	book := storage.BookRecord{
-		BookSummary: storage.BookSummary{
-			ID:           bookID,
-			Title:        "Book",
-			FilePath:     "/missing/book.epub",
-			FileHash:     fileHash,
-			FileSize:     1,
-			Direction:    "ltr",
-			ChapterCount: 1,
-		},
+		ID:           bookID,
+		Title:        "Book",
+		FilePath:     "/missing/book.epub",
+		FileHash:     fileHash,
+		FileSize:     1,
+		Direction:    "ltr",
+		ChapterCount: 1,
 		// A spine load would fail parsing and turn this request into a 500.
 		// The matching validator must return before touching this value.
 		SpineJSON: "not-json",

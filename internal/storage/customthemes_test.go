@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"errors"
 	"testing"
 )
@@ -21,7 +20,7 @@ func sampleTheme(id, userID, name string) CustomThemeRecord {
 func TestCustomThemesCRUDAndScope(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	rec := sampleTheme("theme_a", "default", "Forest")
 	if err := db.InsertCustomThemeContext(ctx, rec); err != nil {
@@ -96,7 +95,7 @@ func TestCustomThemesCRUDAndScope(t *testing.T) {
 func TestListCustomThemesStableTies(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Same created_at forces the id tie-breaker.
 	const ts = "2026-01-02 03:04:05"
@@ -129,8 +128,14 @@ func TestListCustomThemesStableTies(t *testing.T) {
 
 func TestGenerateCustomThemeID(t *testing.T) {
 	t.Parallel()
-	a := GenerateCustomThemeID()
-	b := GenerateCustomThemeID()
+	a, err := GenerateCustomThemeID()
+	if err != nil {
+		t.Fatalf("generate id: %v", err)
+	}
+	b, err := GenerateCustomThemeID()
+	if err != nil {
+		t.Fatalf("generate id: %v", err)
+	}
 	if a == "" || b == "" || a == b {
 		t.Fatalf("ids not unique/non-empty: %q %q", a, b)
 	}
@@ -139,7 +144,14 @@ func TestGenerateCustomThemeID(t *testing.T) {
 	}
 	done := make(chan string, 4)
 	for range 4 {
-		go func() { done <- GenerateCustomThemeID() }()
+		go func() {
+			id, err := GenerateCustomThemeID()
+			if err != nil {
+				t.Errorf("generate id: %v", err)
+				return
+			}
+			done <- id
+		}()
 	}
 	seen := map[string]bool{}
 	for range 4 {

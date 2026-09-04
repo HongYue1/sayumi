@@ -22,9 +22,9 @@ const sessionTimeFormat = time.RFC3339
 // SaveSession upserts a persisted session. Only "remember me" sessions are
 // written; non-remember sessions live in memory only and are gone after a
 // restart by design.
-func (p *ProfilesDB) SaveSession(token, profile string, expiry time.Time) error {
+func (p *ProfilesDB) SaveSession(ctx context.Context, token, profile string, expiry time.Time) error {
 	_, err := p.db.ExecContext(
-		context.Background(),
+		ctx,
 		`INSERT INTO sessions (token, profile, expiry) VALUES (?, ?, ?)
 		 ON CONFLICT(token) DO UPDATE SET profile = excluded.profile, expiry = excluded.expiry`,
 		token, profile, expiry.UTC().Format(sessionTimeFormat),
@@ -36,9 +36,9 @@ func (p *ProfilesDB) SaveSession(token, profile string, expiry time.Time) error 
 }
 
 // DeleteSession removes a single persisted session by token (logout / eviction).
-func (p *ProfilesDB) DeleteSession(token string) error {
+func (p *ProfilesDB) DeleteSession(ctx context.Context, token string) error {
 	if _, err := p.db.ExecContext(
-		context.Background(),
+		ctx,
 		"DELETE FROM sessions WHERE token = ?",
 		token,
 	); err != nil {
@@ -51,9 +51,9 @@ func (p *ProfilesDB) DeleteSession(token string) error {
 // The api session store calls this on profile delete so in-memory tokens go
 // away immediately; the sessions.profile ON DELETE CASCADE FK is the DB-level
 // backstop if a profile row is removed without this call.
-func (p *ProfilesDB) DeleteSessionsForProfile(profile string) error {
+func (p *ProfilesDB) DeleteSessionsForProfile(ctx context.Context, profile string) error {
 	if _, err := p.db.ExecContext(
-		context.Background(),
+		ctx,
 		"DELETE FROM sessions WHERE profile = ?",
 		profile,
 	); err != nil {
@@ -65,9 +65,9 @@ func (p *ProfilesDB) DeleteSessionsForProfile(profile string) error {
 // DeleteExpiredSessions prunes persisted sessions whose expiry has passed.
 // Uses expiry < now (not <=) so the cutoff matches sessionStore's
 // time.Now().After(expiry): a session is still valid at the exact expiry instant.
-func (p *ProfilesDB) DeleteExpiredSessions(now time.Time) error {
+func (p *ProfilesDB) DeleteExpiredSessions(ctx context.Context, now time.Time) error {
 	if _, err := p.db.ExecContext(
-		context.Background(),
+		ctx,
 		"DELETE FROM sessions WHERE expiry < ?",
 		now.UTC().Format(sessionTimeFormat),
 	); err != nil {
@@ -80,9 +80,9 @@ func (p *ProfilesDB) DeleteExpiredSessions(now time.Time) error {
 // whose expiry has passed; rows with an unparseable timestamp are dropped
 // rather than failing the whole load (a corrupt row shouldn't lock everyone
 // out at startup).
-func (p *ProfilesDB) LoadSessions() (out []PersistedSession, err error) {
+func (p *ProfilesDB) LoadSessions(ctx context.Context) (out []PersistedSession, err error) {
 	rows, err := p.db.QueryContext(
-		context.Background(),
+		ctx,
 		"SELECT token, profile, expiry FROM sessions",
 	)
 	if err != nil {

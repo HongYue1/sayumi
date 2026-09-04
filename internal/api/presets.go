@@ -102,8 +102,14 @@ func createPresetHandler(_ *Dependencies) http.HandlerFunc {
 		}
 
 		now := time.Now().UTC().Format(time.DateTime)
+		presetID, err := storage.GeneratePresetID()
+		if err != nil {
+			slog.Error("generate preset id failed", "err", err)
+			writeError(w, http.StatusInternalServerError, "server_error", "failed to create preset")
+			return
+		}
 		rec := storage.PresetRecord{
-			ID:           storage.GeneratePresetID(),
+			ID:           presetID,
 			UserID:       getUserID(r),
 			Name:         body.Name,
 			SettingsJSON: string(settingsBytes),

@@ -52,7 +52,7 @@ func TestPrettyHandlerEscapesGenericControls(t *testing.T) {
 		slog.String(unsafeKey, "visible"),
 	)
 
-	if err := handler.Handle(context.Background(), record); err != nil {
+	if err := handler.Handle(t.Context(), record); err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
 	got := output.String()
@@ -86,7 +86,7 @@ func TestPrettyHandlerEscapesRequestControls(t *testing.T) {
 		slog.Duration("duration", 1500*time.Microsecond),
 	)
 
-	if err := handler.Handle(context.Background(), record); err != nil {
+	if err := handler.Handle(t.Context(), record); err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
 	got := output.String()
@@ -122,7 +122,7 @@ func BenchmarkEscapeLogText(b *testing.B) {
 
 func BenchmarkPrettyHandlerDebugRequest(b *testing.B) {
 	record := benchmarkRequestRecord()
-	ctx := context.Background()
+	ctx := b.Context()
 
 	b.Run("legacy", func(b *testing.B) {
 		handler := newLegacyPrettyHandler(io.Discard, slog.LevelDebug)
@@ -148,7 +148,7 @@ func BenchmarkPrettyHandlerDebugRequestInterleaved(b *testing.B) {
 	const batchSize = 32
 
 	record := benchmarkRequestRecord()
-	ctx := context.Background()
+	ctx := b.Context()
 	legacy := newLegacyPrettyHandler(io.Discard, slog.LevelDebug)
 	escaped := newPrettyHandler(io.Discard, slog.LevelDebug)
 	var legacyElapsed, escapedElapsed time.Duration

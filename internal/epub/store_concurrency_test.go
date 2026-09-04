@@ -23,10 +23,8 @@ func TestStoreConcurrentOpenSamePath(t *testing.T) {
 	const goroutines = 64
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	wg.Add(goroutines)
 	for range goroutines {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			reader, index, err := store.OpenIndexed(zipPath)
 			if err != nil {
@@ -41,7 +39,7 @@ func TestStoreConcurrentOpenSamePath(t *testing.T) {
 				t.Errorf("index missing OEBPS/ch1.xhtml")
 			}
 			store.Release(zipPath)
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
@@ -100,15 +98,13 @@ func TestStoreConcurrentOpenMissingPathRecovers(t *testing.T) {
 	const goroutines = 32
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	wg.Add(goroutines)
 	for range goroutines {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			if _, _, err := store.OpenIndexed(missing); err == nil {
 				t.Errorf("expected error opening missing epub")
 			}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

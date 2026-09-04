@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"strings"
 	"testing"
 )
@@ -22,7 +21,7 @@ func TestListBookSummariesUsesTitleSortIndex(t *testing.T) {
 	db := newTestDB(t)
 	seedBooks(t, db, 200)
 
-	rows, err := db.QueryContext(context.Background(), "EXPLAIN QUERY PLAN "+listBookSummariesQuery)
+	rows, err := db.QueryContext(t.Context(), "EXPLAIN QUERY PLAN "+listBookSummariesQuery)
 	if err != nil {
 		t.Fatalf("explain query plan: %v", err)
 	}

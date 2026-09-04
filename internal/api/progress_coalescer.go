@@ -72,8 +72,7 @@ func newProgressCoalescer(db progressSaver, interval time.Duration, maxPending i
 		flushSignal: make(chan struct{}, 1),
 		done:        make(chan struct{}),
 	}
-	c.wg.Add(1)
-	go c.run()
+	c.wg.Go(c.run)
 	return c
 }
 
@@ -132,8 +131,6 @@ func (c *progressCoalescer) stop() {
 }
 
 func (c *progressCoalescer) run() {
-	defer c.wg.Done()
-
 	ticker := time.NewTicker(c.interval)
 	defer ticker.Stop()
 

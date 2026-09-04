@@ -407,23 +407,21 @@ func (s *Scanner) importFile(
 	}
 
 	record := storage.BookRecord{
-		BookSummary: storage.BookSummary{
-			ID:           id,
-			Title:        meta.Title,
-			Author:       meta.Author,
-			Language:     meta.Language,
-			Publisher:    meta.Publisher,
-			Description:  meta.Description,
-			PubDate:      meta.PubDate,
-			ISBN:         meta.ISBN,
-			FilePath:     absPath,
-			FileHash:     hash,
-			FileSize:     fileSize,
-			Direction:    meta.Direction,
-			ChapterCount: len(meta.Spine),
-		},
-		SpineJSON: string(spineJSON),
-		TocJSON:   string(tocJSON),
+		ID:           id,
+		Title:        meta.Title,
+		Author:       meta.Author,
+		Language:     meta.Language,
+		Publisher:    meta.Publisher,
+		Description:  meta.Description,
+		PubDate:      meta.PubDate,
+		ISBN:         meta.ISBN,
+		FilePath:     absPath,
+		FileHash:     hash,
+		FileSize:     fileSize,
+		Direction:    meta.Direction,
+		ChapterCount: len(meta.Spine),
+		SpineJSON:    string(spineJSON),
+		TocJSON:      string(tocJSON),
 	}
 
 	canonicalID, err := s.db.InsertBookContext(ctx, record)

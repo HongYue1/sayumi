@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"path"
-	"slices"
 	"strings"
 	"sync"
 )
@@ -540,8 +539,10 @@ func normalizeResourcePath(resourcePath string) (string, error) {
 		return "", fmt.Errorf("invalid resource path: %q", resourcePath)
 	}
 
-	if slices.Contains(strings.Split(resourcePath, "/"), "..") {
-		return "", fmt.Errorf("invalid resource path: %q", resourcePath)
+	for part := range strings.SplitSeq(resourcePath, "/") {
+		if part == ".." {
+			return "", fmt.Errorf("invalid resource path: %q", resourcePath)
+		}
 	}
 
 	cleaned := path.Clean(resourcePath)

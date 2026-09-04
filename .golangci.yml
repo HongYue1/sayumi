@@ -76,7 +76,7 @@ linters:
     - prealloc # pre-size slices grown in a loop
     - mirror # bytes/strings: avoid a needless []byte<->string round trip
 
-    # --- modernization (you're on Go 1.26) ---
+    # --- modernization (you're on Go 1.27) ---
     - copyloopvar # drop redundant `x := x` loop copies (Go 1.22+ semantics)
     - intrange # `for i := range n` instead of C-style counting loops
     - fatcontext # no context re-derivation inside loops

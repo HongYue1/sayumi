@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"testing"
@@ -10,7 +9,7 @@ import (
 
 func TestBookmarkScopeAndDefaults(t *testing.T) {
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	mustInsertBook(t, db, sampleBook("book-a", "hash-a", "/lib/a.epub"))
 	mustInsertBook(t, db, sampleBook("book-b", "hash-b", "/lib/b.epub"))
 
@@ -89,7 +88,7 @@ func TestBookmarkScopeAndDefaults(t *testing.T) {
 
 func TestListBookmarksStableTies(t *testing.T) {
 	db := newTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	mustInsertBook(t, db, sampleBook("book-a", "hash-a", "/lib/a.epub"))
 
 	bookmarks := []BookmarkRecord{
