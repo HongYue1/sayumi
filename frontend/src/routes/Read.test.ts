@@ -796,6 +796,24 @@ describe("Read keyboard: forwarded modifier facts", () => {
 });
 
 describe("Read progress", () => {
+  it("reports whole-book progress in the chrome-hidden pill", async () => {
+    let now = 10000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    await bootReader();
+    now = 11000; // past the 650ms post-swap grace
+    frameHandler("onboundary")("end");
+    await vi.waitFor(() => expect(loadChapterCalls().length).toBe(2));
+    frameHandler("onposition")(1, 0.5, undefined);
+    await settle();
+    const pill = document.querySelector(".rdp-pos");
+    if (!pill) throw new Error("position pill missing");
+    // (1 + 0.5) / 5 chapters = 30% book-level — not the 50% chapter percent
+    // the bottom bar (and the paged page pill) already own.
+    expect(pill.textContent).toContain("Ch 2/5");
+    expect(pill.textContent).toContain("30%");
+    expect(pill.getAttribute("aria-label")).toContain("30 percent");
+  });
+
   it("forced-flushes the latest position on back and navigates to the library", async () => {
     await bootReader();
     frameHandler("onposition")(0, 0.3, undefined);

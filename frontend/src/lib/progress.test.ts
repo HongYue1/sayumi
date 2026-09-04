@@ -4,6 +4,7 @@ import {
   chooseBootProgress,
   isBookmarkAtPosition,
   findBookmarkAtPosition,
+  calcBookProgress,
   BOOKMARK_EPSILON,
   PROGRESS_EPSILON,
   PROGRESS_UNSET,
@@ -234,5 +235,24 @@ describe("findBookmarkAtPosition", () => {
     expect(
       findBookmarkAtPosition([{ chapter: 2, percent: 0.5 }], 1, 0.5),
     ).toBeNull();
+  });
+});
+
+describe("calcBookProgress", () => {
+  it("weights chapters uniformly like the server tile value", () => {
+    expect(calcBookProgress(0, 0, 10)).toBe(0);
+    expect(calcBookProgress(4, 0.5, 10)).toBe(0.45);
+    expect(calcBookProgress(9, 1, 10)).toBe(1);
+  });
+
+  it("returns 0 without a chapter count", () => {
+    expect(calcBookProgress(3, 0.5, 0)).toBe(0);
+    expect(calcBookProgress(3, 0.5, -2)).toBe(0);
+  });
+
+  it("clamps out-of-range positions", () => {
+    expect(calcBookProgress(12, 0, 10)).toBe(1);
+    expect(calcBookProgress(-1, 0, 10)).toBe(0);
+    expect(calcBookProgress(2, NaN, 10)).toBe(0);
   });
 });

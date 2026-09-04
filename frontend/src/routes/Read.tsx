@@ -35,6 +35,7 @@ import {
   isProgressDuplicate,
   chooseBootProgress,
   findBookmarkAtPosition,
+  calcBookProgress,
   PROGRESS_UNSET,
 } from "~/lib/progress";
 import {
@@ -1894,17 +1895,27 @@ export default function Read(props: Props) {
 
       {/* Book-level position at a glance. Shown only while the chrome is hidden:
           with the bar up, the title eyebrow already reports the chapter, so the
-          chip takes over as the whereabouts cue once the chrome tucks away. */}
+          chip takes over as the whereabouts cue once the chrome tucks away.
+          The percent is whole-book (same formula as the library tiles), not
+          the chapter: the bottom bar already owns chapter progress in scroll
+          mode, and the page pill owns it in paged modes. */}
       {!isSpecimen && (
         <Show when={book()}>
           {(b) => (
             <div
               class={["rdp-pos tnum", { "rdp-hidden": chromeVisible() }]}
               role="status"
-              aria-label={`Chapter ${currentChapter() + 1} of ${b().chapterCount}, ${Math.round(chapterPercent() * 100)} percent`}
+              aria-label={`Chapter ${currentChapter() + 1} of ${b().chapterCount}, ${Math.round(calcBookProgress(currentChapter(), chapterPercent(), b().chapterCount) * 100)} percent`}
             >
               Ch {currentChapter() + 1}/{b().chapterCount} ·{" "}
-              {Math.round(chapterPercent() * 100)}%
+              {Math.round(
+                calcBookProgress(
+                  currentChapter(),
+                  chapterPercent(),
+                  b().chapterCount,
+                ) * 100,
+              )}
+              %
             </div>
           )}
         </Show>

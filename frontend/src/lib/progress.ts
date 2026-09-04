@@ -17,6 +17,23 @@ export interface ProgressPosition {
 export const PROGRESS_EPSILON = 0.001;
 
 /**
+ * Whole-book progress as a 0..1 ratio: uniform per-chapter weighting,
+ * clamped. Mirrors the server's calcProgress (internal/api/books.go) that
+ * feeds the library tiles — KEEP IN SYNC. The reader needs it live (the
+ * server value snapshots at book load), so the chrome-hidden pill computes it
+ * from the current chapter + percent instead of reading book.progress.
+ */
+export function calcBookProgress(
+  chapter: number,
+  percent: number,
+  chapterCount: number,
+): number {
+  if (!Number.isSafeInteger(chapterCount) || chapterCount <= 0) return 0;
+  if (!Number.isFinite(chapter) || !Number.isFinite(percent)) return 0;
+  return Math.min(1, Math.max(0, (chapter + percent) / chapterCount));
+}
+
+/**
  * The nothing-persisted-yet marker for the last-persisted position. Read.tsx
  * seeds lastPersisted* with this so the first flush of a session is never
  * deduped. It lives here because the unit suite pins the behaviour; a bare -1
