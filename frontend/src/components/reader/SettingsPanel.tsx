@@ -24,6 +24,7 @@ import { settings, DEFAULT_USER_SETTINGS } from "~/lib/settings";
 import { THEMES, getTheme, isBuiltInTheme, type ThemeDef } from "~/lib/themes";
 import { customThemes } from "~/lib/customThemes";
 import CustomThemeDialog from "./CustomThemeDialog";
+import DropSelect from "./DropSelect";
 import { READER_FONTS, getFontById } from "~/lib/fonts";
 import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry";
 import { toast } from "~/lib/toast";
@@ -295,9 +296,9 @@ export default function SettingsPanel(props: Props) {
 
   // The id to *display* as selected. A user font can't be validated until the
   // registry loads; once it has, an id with no matching family (e.g. the user
-  // removed that font) falls back to the default so the <select> shows a real
+  // removed that font) falls back to the default so the dropdown shows a real
   // option instead of going blank. Storage is left untouched (non-destructive);
-  // changing the selection writes the chosen id back via onChange.
+  // changing the selection writes the chosen id back via onSelect.
   const effectiveFontFamily = createMemo(() => {
     const id = s().fontFamily;
     if (isUserFamilyId(id)) {
@@ -478,9 +479,10 @@ export default function SettingsPanel(props: Props) {
 
   return (
     // Escape is handled here, not by focusTrap (which deliberately ignores
-    // Esc): range/select controls are keyboard consumers (isKeyboardConsumer
-    // in Read.tsx), so the reader's window-level Esc never fires with focus on
-    // a slider or font select. Toc/Search/Bookmarks handle Esc locally too.
+    // Esc): range controls are keyboard consumers (isKeyboardConsumer in
+    // Read.tsx), so the reader's window-level Esc never fires with focus on a
+    // slider. The font dropdowns stop Escape at their own menus for the same
+    // reason. Toc/Search/Bookmarks handle Esc locally too.
     <div
       class="stp"
       onKeyDown={(e) => {
@@ -671,37 +673,32 @@ export default function SettingsPanel(props: Props) {
               iframe only applies fontFamily when preserveBookFonts is off, so
               the picker, per-style role overrides, and rescan are disabled to
               match. */}
-          <select
-            class="stp-font-select"
+          <DropSelect
             id="reading-font"
-            name="reading-font"
+            label="Reading font"
             value={effectiveFontFamily()}
-            aria-label="Reading font"
             disabled={s().preserveFonts}
-            onChange={(e) => set("fontFamily", e.currentTarget.value)}
-          >
-            <optgroup label="Built-in">
-              <For each={READER_FONTS}>
-                {(f) => <option value={f.id}>{f.label}</option>}
-              </For>
-            </optgroup>
-            {/* Always mounted, emptied by <For>: on 2.0.0-rc.0 a
-                conditional element child of a <select> is never removed once
-                the <select> has another element child (probe-verified for
-                <Show>, a ternary and a gated <For>, on either side of the
-                sibling). Gating it here strands the stale group after a rescan
-                and its dead user:<dir> options stay selectable, so the empty
-                state lives in the label instead. */}
-            <optgroup
-              label={
-                userFamilies().length > 0 ? "Your fonts" : "Your fonts (none)"
-              }
-            >
-              <For each={userFamilies()}>
-                {(f) => <option value={f.id}>{f.label}</option>}
-              </For>
-            </optgroup>
-          </select>
+            groups={[
+              {
+                label: "Built-in",
+                options: READER_FONTS.map((f) => ({
+                  value: f.id,
+                  label: f.label,
+                })),
+              },
+              {
+                label:
+                  userFamilies().length > 0
+                    ? "Your fonts"
+                    : "Your fonts (none)",
+                options: userFamilies().map((f) => ({
+                  value: f.id,
+                  label: f.label,
+                })),
+              },
+            ]}
+            onSelect={(v) => set("fontFamily", v)}
+          />
 
           <Show when={selectedUserFamily()}>
             {(fam) => (
@@ -713,28 +710,34 @@ export default function SettingsPanel(props: Props) {
                 </p>
                 <For each={fam().variable ? AXIS_ROLES : ROLES}>
                   {(role) => (
-                    <label class="stp-role-row">
+                    <div class="stp-role-row">
                       <span class="stp-role-label">{role.label}</span>
-                      <select
-                        class="stp-role-select"
+                      <DropSelect
                         id={`font-role-${role.key}`}
-                        name={`font-role-${role.key}`}
+                        label={`${role.label} font file`}
+                        compact
                         value={roleValue(role.key)}
                         disabled={s().preserveFonts}
-                        onChange={(e) =>
-                          setRole(role.key, e.currentTarget.value)
-                        }
-                      >
-                        <option value="">
-                          {fam().detected[role.key]
-                            ? `Auto (${fam().detected[role.key]})`
-                            : "Auto"}
-                        </option>
-                        <For each={fam().files}>
-                          {(file) => <option value={file}>{file}</option>}
-                        </For>
-                      </select>
-                    </label>
+                        groups={[
+                          {
+                            label: "",
+                            options: [
+                              {
+                                value: "",
+                                label: fam().detected[role.key]
+                                  ? `Auto (${fam().detected[role.key]})`
+                                  : "Auto",
+                              },
+                              ...fam().files.map((file) => ({
+                                value: file,
+                                label: file,
+                              })),
+                            ],
+                          },
+                        ]}
+                        onSelect={(v) => setRole(role.key, v)}
+                      />
+                    </div>
                   )}
                 </For>
               </div>
@@ -894,35 +897,36 @@ export default function SettingsPanel(props: Props) {
               applies only when the book's own fonts aren't in use, so it's
               disabled while "Use the book's fonts" is on; "Auto" inherits the
               body reading font. */}
-          <select
-            class="stp-font-select"
+          <DropSelect
             id="title-font"
-            name="title-font"
+            label="Chapter title font"
             value={effectiveTitleFont()}
-            aria-label="Chapter title font"
             disabled={s().preserveFonts}
-            onChange={(e) =>
-              set("chapterTitleFontFamily", e.currentTarget.value || null)
-            }
-          >
-            <option value="">Auto (match body)</option>
-            <optgroup label="Built-in">
-              <For each={READER_FONTS}>
-                {(f) => <option value={f.id}>{f.label}</option>}
-              </For>
-            </optgroup>
-            {/* Always mounted for the same <select> reason as the body-font
-                group above. */}
-            <optgroup
-              label={
-                userFamilies().length > 0 ? "Your fonts" : "Your fonts (none)"
-              }
-            >
-              <For each={userFamilies()}>
-                {(f) => <option value={f.id}>{f.label}</option>}
-              </For>
-            </optgroup>
-          </select>
+            groups={[
+              {
+                label: "",
+                options: [{ value: "", label: "Auto (match body)" }],
+              },
+              {
+                label: "Built-in",
+                options: READER_FONTS.map((f) => ({
+                  value: f.id,
+                  label: f.label,
+                })),
+              },
+              {
+                label:
+                  userFamilies().length > 0
+                    ? "Your fonts"
+                    : "Your fonts (none)",
+                options: userFamilies().map((f) => ({
+                  value: f.id,
+                  label: f.label,
+                })),
+              },
+            ]}
+            onSelect={(v) => set("chapterTitleFontFamily", v || null)}
+          />
 
           <div class="stp-row">
             <div class="stp-row-head">

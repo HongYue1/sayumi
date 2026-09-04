@@ -232,10 +232,6 @@ function el(selector: string): HTMLElement {
   return found;
 }
 
-function selectEl(selector: string): HTMLSelectElement {
-  return el(selector) as HTMLSelectElement;
-}
-
 function all<T extends Element>(selector: string): T[] {
   return [...container.querySelectorAll<T>(selector)];
 }
@@ -282,12 +278,38 @@ function headNotes(): string[] {
   return all(".stp-head-note").map((n) => text(n));
 }
 
-function userGroups(): HTMLOptGroupElement[] {
-  return all<HTMLOptGroupElement>('optgroup[label^="Your fonts"]');
+/** Opens the dropdown trigger and settles the entry-focus microtask. */
+async function openDropdown(triggerId: string): Promise<void> {
+  el(`#${triggerId}`).click();
+  flush();
+  await settle();
 }
 
-function userOptions(): HTMLOptionElement[] {
-  return all<HTMLOptionElement>('optgroup[label^="Your fonts"] option');
+/** Group headers + option labels inside one open dropdown, in DOM order. */
+function openMenuText(triggerId: string): {
+  groups: string[];
+  picks: string[];
+} {
+  const root = el(`#${triggerId}`).closest(".ds-root");
+  if (!root) throw new Error(`dropdown root missing for ${triggerId}`);
+  const groups = [...root.querySelectorAll(".ds-group")].map((g) =>
+    (g.textContent ?? "").trim(),
+  );
+  const picks = [...root.querySelectorAll(".ds-pick")].map((b) =>
+    (b.textContent ?? "").trim(),
+  );
+  return { groups, picks };
+}
+
+/** Clicks the open dropdown's option whose label contains the text. */
+function pickOption(triggerId: string, label: string): void {
+  const root = el(`#${triggerId}`).closest(".ds-root");
+  if (!root) throw new Error(`dropdown root missing for ${triggerId}`);
+  const options = [...root.querySelectorAll<HTMLButtonElement>(".ds-pick")];
+  const match = options.find((b) => (b.textContent ?? "").includes(label));
+  if (!match) throw new Error(`option "${label}" missing in ${triggerId}`);
+  match.click();
+  flush();
 }
 
 beforeEach(() => {
@@ -418,36 +440,59 @@ describe("reader settings panel", () => {
     expect(settings.value.fontRoles).not.toBe(saved.settings.fontRoles);
   });
 
-  it("keeps exactly one user font group per select across rescans", async () => {
-    // On 2.0.0-rc.0 a conditional element child of a <select> is never
-    // removed once the <select> has another element child, so gating the group
-    // on userFamilies().length stranded a stale group (and its dead
-    // user:<dir> options) after every rescan. Always-mounted, emptied by <For>.
+  it("keeps the open font menus in sync with the registry across rescans", async () => {
+    // The dropdown contents derive from the registry per render, so a rescan
+    // that empties (or refills) the families reflows the menus instead of
+    // stranding dead user:<dir> options. Opening one menu outside-clicks any
+    // other shut (native-select parity), so each assertion reopens its menu.
     world.setFamilies([family("user:minion")]);
     mount();
     await settle();
     expect(text(el(".stp-rescan"))).toContain("Rescan fonts folder");
-    expect(userGroups()).toHaveLength(2);
-    expect(userOptions()).toHaveLength(2);
+
+    await openDropdown("reading-font");
+    expect(openMenuText("reading-font").groups).toEqual([
+      "Built-in",
+      "Your fonts",
+    ]);
+    expect(openMenuText("reading-font").picks).toEqual([
+      "Literata",
+      "Atkinson Hyperlegible Next",
+      "minion",
+    ]);
+    await openDropdown("title-font");
+    expect(openMenuText("title-font").groups).toEqual([
+      "Built-in",
+      "Your fonts",
+    ]);
+
+    // The open menu re-renders live when the registry changes underneath it.
+    world.setFamilies([]);
+    flush();
+    expect(openMenuText("title-font").groups).toEqual([
+      "Built-in",
+      "Your fonts (none)",
+    ]);
+    expect(openMenuText("title-font").picks).toEqual([
+      "Auto (match body)",
+      "Literata",
+      "Atkinson Hyperlegible Next",
+    ]);
 
     rescanFonts.mockImplementation(() => {
-      world.setFamilies([]);
+      world.setFamilies([family("user:minion"), family("user:garamond")]);
       return Promise.resolve(true);
     });
     el(".stp-rescan").click();
     flush();
     await settle();
-    expect(userGroups()).toHaveLength(2);
-    expect(userOptions()).toHaveLength(0);
-    expect(userGroups().map((g) => g.label)).toEqual([
-      "Your fonts (none)",
-      "Your fonts (none)",
+    await openDropdown("reading-font");
+    expect(openMenuText("reading-font").picks).toEqual([
+      "Literata",
+      "Atkinson Hyperlegible Next",
+      "minion",
+      "garamond",
     ]);
-
-    world.setFamilies([family("user:minion"), family("user:garamond")]);
-    flush();
-    expect(userGroups()).toHaveLength(2);
-    expect(userOptions()).toHaveLength(4);
   });
 
   it("explains a vertical fallback and enables effective-scroll controls", async () => {
@@ -510,21 +555,26 @@ describe("reader settings panel", () => {
     mount();
     await settle();
 
-    const regular = selectEl("#font-role-regular");
-    expect(regular.value).toBe("");
-    expect(text(regular.options.item(0))).toBe("Auto (Regular.otf)");
-    expect(text(selectEl("#font-role-italic").options.item(0))).toBe("Auto");
+    await openDropdown("font-role-regular");
+    expect(openMenuText("font-role-regular").picks).toEqual([
+      "Auto (Regular.otf)",
+      "Regular.otf",
+      "Italic.otf",
+    ]);
+    // The trigger shows Auto (empty value), not the detected file.
+    expect(text(el("#font-role-regular"))).toContain("Auto (Regular.otf)");
+    await openDropdown("font-role-italic");
+    expect(openMenuText("font-role-italic").picks[0]).toBe("Auto");
 
-    regular.value = "Italic.otf";
-    regular.dispatchEvent(new Event("change", { bubbles: true }));
+    await openDropdown("font-role-regular");
+    pickOption("font-role-regular", "Italic.otf");
     flush();
     expect(settings.value.fontRoles).toEqual({
       "user:minion": { regular: "Italic.otf" },
     });
 
-    const cleared = selectEl("#font-role-regular");
-    cleared.value = "";
-    cleared.dispatchEvent(new Event("change", { bubbles: true }));
+    await openDropdown("font-role-regular");
+    pickOption("font-role-regular", "Auto (Regular.otf)");
     flush();
     expect(settings.value.fontRoles).toEqual({});
   });
