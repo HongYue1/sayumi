@@ -60,7 +60,6 @@ func TestHasTokenAndLooksLikeISBN(t *testing.T) {
 func TestParseNavHTMLDirectAndWrappedOL(t *testing.T) {
 	t.Parallel()
 
-	// Build HTML via concatenation so tool input never contains adjacent brace pairs.
 	direct := strings.Join([]string{
 		"<html><body>",
 		"<nav epub:type=\"toc\"><ol>",
@@ -83,7 +82,7 @@ func TestParseNavHTMLDirectAndWrappedOL(t *testing.T) {
 		t.Fatalf("entry1 = %+v", got[1])
 	}
 
-	// Wrapped <ol> (the bug fix): nav > div > ol must still parse.
+	// NAV generators may put heading chrome around the top-level list.
 	wrapped := strings.Join([]string{
 		"<html><body>",
 		"<nav role=\"doc-toc\"><div class=\"toc\"><h1>Contents</h1><ol>",
@@ -197,7 +196,11 @@ func TestParseMinimalEPUB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	defer func() { _ = rc.Close() }()
+	t.Cleanup(func() {
+		if err := rc.Close(); err != nil {
+			t.Errorf("close zip: %v", err)
+		}
+	})
 
 	meta, err := Parse(&rc.Reader)
 	if err != nil {
@@ -235,11 +238,5 @@ func minimalOPF(title, author, chapterHref string) string {
 
 func testZipIndex(t *testing.T, files map[string]string) map[string]*zip.File {
 	t.Helper()
-	path := writeTestEPUB(t, files)
-	rc, err := zip.OpenReader(path)
-	if err != nil {
-		t.Fatalf("open zip: %v", err)
-	}
-	t.Cleanup(func() { _ = rc.Close() })
-	return buildIndex(&rc.Reader)
+	return openTestIndex(t, writeTestEPUB(t, files))
 }

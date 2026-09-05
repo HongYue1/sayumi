@@ -15,6 +15,7 @@ import (
 
 const maxTOCDepth = 50
 
+// BookMeta holds EPUB metadata, spine order, and optional navigation.
 type BookMeta struct {
 	Title       string       `json:"title"`
 	Author      string       `json:"author"`
@@ -29,6 +30,7 @@ type BookMeta struct {
 	TOC         []TocEntry   `json:"toc"`
 }
 
+// SpineEntry identifies a document in reading order, including non-linear items.
 type SpineEntry struct {
 	Href      string `json:"href"`
 	ID        string `json:"id"`
@@ -36,6 +38,7 @@ type SpineEntry struct {
 	Linear    bool   `json:"linear"`
 }
 
+// TocEntry is a navigation item with a zero-based depth and optional children.
 type TocEntry struct {
 	Title    string     `json:"title"`
 	Href     string     `json:"href"`
@@ -43,11 +46,11 @@ type TocEntry struct {
 	Children []TocEntry `json:"children,omitempty"`
 }
 
+// Parse reads metadata and navigation without taking ownership of zr.
+// Missing or unusable optional navigation yields an empty TOC, not an error.
 func Parse(zr *zip.Reader) (BookMeta, error) {
-	// Build the entry index once up front so every OPF/TOC lookup below resolves
-	// in O(1). The previous path rescanned zr.File linearly — and allocated a
-	// lowercased copy of every entry name — on each lookup, which adds up on
-	// EPUBs with thousands of entries during a library scan.
+	// Reuse one entry index for container, package, and navigation lookups.
+	// Large EPUBs can contain thousands of entries.
 	index := buildIndex(zr)
 
 	opfPath, err := findOPFPath(index)
@@ -98,22 +101,28 @@ func findOPFPath(index map[string]*zip.File) (string, error) {
 		return "", fmt.Errorf("parse container.xml: %w", err)
 	}
 
+	// An extension-only fallback must not hide a later declared package.
+	var fallback, opfFallback string
 	for _, rootfile := range container.Rootfiles {
 		fullPath := strings.TrimSpace(rootfile.FullPath)
 		if fullPath == "" {
 			continue
 		}
-		if strings.EqualFold(rootfile.MediaType, "application/oebps-package+xml") ||
-			strings.HasSuffix(strings.ToLower(fullPath), ".opf") {
+		if strings.EqualFold(rootfile.MediaType, "application/oebps-package+xml") {
 			return fullPath, nil
+		}
+		if fallback == "" {
+			fallback = fullPath
+		}
+		if opfFallback == "" && strings.HasSuffix(strings.ToLower(fullPath), ".opf") {
+			opfFallback = fullPath
 		}
 	}
-
-	for _, rootfile := range container.Rootfiles {
-		fullPath := strings.TrimSpace(rootfile.FullPath)
-		if fullPath != "" {
-			return fullPath, nil
-		}
+	if opfFallback != "" {
+		return opfFallback, nil
+	}
+	if fallback != "" {
+		return fallback, nil
 	}
 
 	return "", errors.New("no rootfile found in container.xml")
@@ -147,7 +156,6 @@ type opfMetadata struct {
 type opfCreator struct {
 	Value  string `xml:",chardata"`
 	FileAs string `xml:"file-as,attr"`
-	Role   string `xml:"role,attr"`
 }
 
 type opfIdentifier struct {
@@ -156,10 +164,8 @@ type opfIdentifier struct {
 }
 
 type opfMeta struct {
-	Name     string `xml:"name,attr"`
-	Content  string `xml:"content,attr"`
-	Property string `xml:"property,attr"`
-	Value    string `xml:",chardata"`
+	Name    string `xml:"name,attr"`
+	Content string `xml:"content,attr"`
 }
 
 type opfItem struct {
@@ -219,16 +225,20 @@ func parseOPF(data []byte, opfDir string) (BookMeta, opfPackage, error) {
 		}
 	}
 
+	// Explicit spine progression wins over the legacy package direction.
+	direction := pkg.Spine.Direction
+	if !strings.EqualFold(direction, "ltr") && !strings.EqualFold(direction, "rtl") {
+		direction = pkg.Direction
+	}
 	meta.Direction = "ltr"
-	if strings.EqualFold(pkg.Spine.Direction, "rtl") || strings.EqualFold(pkg.Direction, "rtl") {
+	if strings.EqualFold(direction, "rtl") {
 		meta.Direction = "rtl"
 	}
 
 	meta.CoverPath = findCoverPath(pkg, manifest, opfDir)
 
-	// Preallocate to the itemref count (an upper bound, since some refs may not
-	// resolve). Large books carry thousands of spine entries; growing from nil
-	// would reallocate and copy the backing array ~log2(n) times during parse.
+	// The itemref count is an upper bound: unresolved references are skipped.
+	// Reserving it avoids growing and copying the spine for large books.
 	meta.Spine = make([]SpineEntry, 0, len(pkg.Spine.ItemRefs))
 	for _, ref := range pkg.Spine.ItemRefs {
 		item, ok := manifest[ref.IDRef]
@@ -257,21 +267,27 @@ func findCoverPath(pkg opfPackage, manifest map[string]opfItem, opfDir string) s
 		if strings.EqualFold(meta.Name, "cover") && meta.Content != "" {
 			item, ok := manifest[meta.Content]
 			if ok && strings.HasPrefix(strings.ToLower(item.MediaType), "image/") {
-				return resolvePath(opfDir, item.Href)
+				if coverPath := resolvePath(opfDir, item.Href); coverPath != "" {
+					return coverPath
+				}
 			}
 		}
 	}
 
 	for _, item := range pkg.Manifest.Items {
 		if hasToken(item.Properties, "cover-image") {
-			return resolvePath(opfDir, item.Href)
+			if coverPath := resolvePath(opfDir, item.Href); coverPath != "" {
+				return coverPath
+			}
 		}
 	}
 
 	for _, item := range pkg.Manifest.Items {
 		lowerID := strings.ToLower(item.ID)
 		if strings.Contains(lowerID, "cover") && strings.HasPrefix(strings.ToLower(item.MediaType), "image/") {
-			return resolvePath(opfDir, item.Href)
+			if coverPath := resolvePath(opfDir, item.Href); coverPath != "" {
+				return coverPath
+			}
 		}
 	}
 
@@ -419,6 +435,8 @@ func parseOLNode(ol *html.Node, basePath string, depth int) []TocEntry {
 					if title == "" {
 						title = strings.TrimSpace(nodeText(gc))
 					}
+					// A span can wrap an anchor or a child list, not just text.
+					scanLi(gc, wrapperDepth+1)
 				case atom.Ol:
 					if childOL == nil {
 						childOL = gc
@@ -455,31 +473,30 @@ func parseOLNode(ol *html.Node, basePath string, depth int) []TocEntry {
 }
 
 func nodeText(node *html.Node) string {
-	var builder strings.Builder
 	if node == nil {
 		return ""
 	}
 
-	type frame struct {
-		node  *html.Node
-		depth int
-	}
-	stack := make([]frame, 0, 16)
-	stack = append(stack, frame{node: node})
-	for len(stack) > 0 {
-		last := len(stack) - 1
-		current := stack[last]
-		stack = stack[:last]
-
-		if current.node.Type == html.TextNode {
-			builder.WriteString(current.node.Data)
+	var builder strings.Builder
+	// Follow the DOM links in document order without a width-sized sibling
+	// stack. Stop at node even when it belongs to a larger document.
+	for current, depth := node, 0; ; {
+		if current.Type == html.TextNode {
+			builder.WriteString(current.Data)
 		}
-		if current.depth >= maxSanitizeDepth {
+		if current.FirstChild != nil && depth < maxSanitizeDepth {
+			current = current.FirstChild
+			depth++
 			continue
 		}
-		for child := current.node.LastChild; child != nil; child = child.PrevSibling {
-			stack = append(stack, frame{node: child, depth: current.depth + 1})
+		for current != node && current.NextSibling == nil {
+			current = current.Parent
+			depth--
 		}
+		if current == node {
+			break
+		}
+		current = current.NextSibling
 	}
 
 	return builder.String()
@@ -595,7 +612,9 @@ func resolvePath(dir, href string) string {
 		return ""
 	}
 
-	if dir == "" || dir == "." {
+	// A leading slash addresses the archive root, not the base directory.
+	// Keep URI escapes intact: callers can use the result in resource URLs.
+	if strings.HasPrefix(refPath, "/") || dir == "" || dir == "." {
 		return strings.TrimPrefix(path.Clean("/"+refPath), "/")
 	}
 

@@ -82,10 +82,14 @@ icons, compiled resources, generated frontend output, and `.skills/` are exclude
 - [ ] `internal/epub/chapter_test.go`
 - [ ] `internal/epub/edit.go`
 - [ ] `internal/epub/edit_test.go`
-- [ ] `internal/epub/parser.go`
-- [ ] `internal/epub/parser_test.go`
-- [ ] `internal/epub/reader.go`
-- [ ] `internal/epub/reader_test.go`
+- [x] `internal/epub/parser.go`
+- [x] `internal/epub/parser_bench_test.go`
+- [x] `internal/epub/parser_contract_test.go`
+- [x] `internal/epub/parser_test.go`
+- [x] `internal/epub/reader.go`
+- [x] `internal/epub/reader_bench_test.go`
+- [x] `internal/epub/reader_contract_test.go`
+- [x] `internal/epub/reader_test.go`
 - [ ] `internal/epub/sanitize.go`
 - [ ] `internal/epub/sanitize_test.go`
 - [ ] `internal/epub/search.go`

@@ -56,9 +56,10 @@ func TestReadZipEntryDeclaredSizeTooLarge(t *testing.T) {
 		t.Fatal("missing tiny.txt in index")
 	}
 
-	// Mutate the attacker-controlled declared size past the live ceiling.
-	// Increasing the declared size does not break Open (unlike understating it).
+	// Reject the untrusted declared size before trying to open/decompress it.
+	// An unsupported method would produce a different error if Open ran first.
 	f.UncompressedSize64 = uint64(maxZipEntryBytes) + 1
+	f.Method = 99
 	if _, err := readZipEntry(f); err == nil {
 		t.Fatal("declared oversize: want error")
 	} else if !strings.Contains(err.Error(), "too large") {
@@ -72,8 +73,10 @@ func TestReadLimitedZipBodyPastLimit(t *testing.T) {
 	const limit int64 = 64
 	// Stream longer than limit with no zip header involved.
 	body := io.NopCloser(bytes.NewReader(bytes.Repeat([]byte("x"), int(limit)+10)))
-	if _, err := readLimitedZipBody("big.txt", body, limit); err == nil {
+	if got, err := readLimitedZipBody("big.txt", body, limit); err == nil {
 		t.Fatal("past limit: want error")
+	} else if got != nil {
+		t.Fatalf("oversized body returned data: %q", got)
 	} else if !strings.Contains(err.Error(), "exceeds decompressed size limit") {
 		t.Fatalf("err = %v, want decompressed-limit message", err)
 	}
@@ -84,36 +87,8 @@ func TestReadLimitedZipBodyPastLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("exact limit: %v", err)
 	}
-	if int64(len(got)) != limit {
-		t.Fatalf("len = %d, want %d", len(got), limit)
-	}
-}
-
-func TestReadZipEntryHonestOversizeWithLoweredLimit(t *testing.T) {
-	// Not parallel: temporarily lowers the package-wide ceiling.
-	old := maxZipEntryBytes
-	maxZipEntryBytes = 64
-	t.Cleanup(func() { maxZipEntryBytes = old })
-
-	// Honest header: declared size == real size > lowered limit → early reject.
-	payload := bytes.Repeat([]byte("x"), 200)
-	path := writeTestEPUB(t, map[string]string{"big.txt": string(payload)})
-	index := openTestIndex(t, path)
-	if _, err := readZipFileIndexed(index, "big.txt"); err == nil {
-		t.Fatal("honest oversize: want error")
-	} else if !strings.Contains(err.Error(), "too large") {
-		t.Fatalf("err = %v, want declared-size message", err)
-	}
-
-	// Exact-at-limit entry still readable through the full path.
-	exact := string(bytes.Repeat([]byte("y"), int(maxZipEntryBytes)))
-	path2 := writeTestEPUB(t, map[string]string{"exact.txt": exact})
-	got, err := readZipFileIndexed(openTestIndex(t, path2), "exact.txt")
-	if err != nil {
-		t.Fatalf("exact limit full path: %v", err)
-	}
-	if int64(len(got)) != maxZipEntryBytes {
-		t.Fatalf("len = %d, want %d", len(got), maxZipEntryBytes)
+	if !bytes.Equal(got, exact) {
+		t.Fatalf("body = %q, want %q", got, exact)
 	}
 }
 
@@ -123,6 +98,10 @@ func openTestIndex(t *testing.T, path string) map[string]*zip.File {
 	if err != nil {
 		t.Fatalf("open zip: %v", err)
 	}
-	t.Cleanup(func() { _ = rc.Close() })
+	t.Cleanup(func() {
+		if err := rc.Close(); err != nil {
+			t.Errorf("close zip: %v", err)
+		}
+	})
 	return buildIndex(&rc.Reader)
 }
