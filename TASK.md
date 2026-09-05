@@ -10,41 +10,47 @@ Preserve the local-first design, existing API contracts, and pure-Go build.
 
 ## Current task
 
-**Paused at Checkpoint 4; awaiting the user's `continue`.**
+**Paused at Checkpoint 5; awaiting the user's `continue`.**
 Do not start another batch until the user resumes the review. Continue directly,
 without sub-agents, and stop again after the next verified, committed checkpoint.
 
-Next bounded scope: `internal/storage/progress.go`, `bookmarks.go`,
-`bookmarks_test.go`, `settings.go`, and `settings_test.go`, plus focused tests or
-benchmarks needed for that batch. Preserve profile isolation, progress flush/close
-ordering, settings defaults and migrations, and existing API behavior.
+Next bounded scope: the remaining storage stores, `internal/storage/customthemes.go`,
+`customthemes_test.go`, `flairs.go`, `flairs_test.go`, `presets.go`, and
+`presets_test.go`, plus focused tests or benchmarks needed for that batch. Preserve
+profile scoping, custom/built-in identifier contracts, and frontend compatibility.
 
 Verified current state:
-- CLI/server-entry, selected tooling, storage foundations, and book storage/cache
-  are reviewed. `TRACKER.md` remains the source of truth for completed files.
+- CLI/server-entry, selected tooling, storage foundations, book storage/cache,
+  progress, bookmarks, and settings are reviewed. `TRACKER.md` remains the source
+  of truth for completed files; the overall backend review is incomplete.
 - The current source tree passed `make check`: formatting, vet, lint,
   vulnerability scanning, race/shuffle tests across all Go packages, frontend
   checks, and builds. Storage also passed three consecutive shuffled race runs.
-- Cache regressions cover replacement/removal during failed spine loads, lazy-load
-  deduplication, independent cancellation, and SQLite-compatible title ordering.
-  Read cancellation, independent scan results, and delete rollback are covered.
-- Repeated, alternating comparisons support faster large-cache mutations and
-  lower allocations in populated path scans. Small-cache retitle/removal cycles
-  are modestly slower; retain this measured tradeoff rather than claiming every
-  case improved. Empty/single-row scans were measured too. Treat timings as
-  operation-specific, not application-wide speed claims.
+- Reading-state scans reuse one lazily allocated destination and return value
+  copies. Tests cover user/book scoping, independent results, NULL/empty CFIs,
+  missing-book writes, and canceled reads/writes without persisted mutations.
+- Settings tests exercise every field through insert, replacement, and clearing,
+  plus independent boolean toggles on an existing row. Keep stored NULL/Auto
+  choices distinct from fresh-profile defaults; saves replace a full snapshot.
+- Ten-sample alternating comparisons support lower allocations in populated
+  progress/bookmark scans, with no extra allocation for empty or single-row
+  results. Progress-read timing gains were limited to tested 32/1000-row cases;
+  bookmark-read and progress-write timing changes were not statistically clear.
+  Treat these as operation-specific results, not application-wide speed claims.
 - Baseline/candidate executables and comparison runners remain in ignored
-  `.agents/benchmarks/checkpoint2/`, `checkpoint3/`, and `checkpoint4/`.
-  Never overwrite a baseline with a newer build or compare different benchmark
-  sources. Preserve debug logging correctness despite its earlier measured cost.
+  `.agents/benchmarks/checkpoint2/`, `checkpoint3/`, `checkpoint4/`, and
+  `checkpoint5/`. Never overwrite a baseline with a newer build or compare
+  different benchmark sources. Keep sample identifiers out of benchmark table
+  grouping so repeated samples are analyzed together.
+- Preserve earlier measured tradeoffs: debug logging correctness has a formatting
+  cost, and large-cache ordering gains do not imply every small-cache case is faster.
 - Checkpoint commits are local only; no push is authorized. Check Git history for
   the current commit. No dependency, database schema, or frontend source changes
   were made in this batch.
 - `.skills/` and measurement artifacts remain ignored and untracked; focused Go
   regression tests and benchmark source are tracked with the implementation.
-- The sanitizer received only an obsolete cross-reference comment cleanup and
-  remains pending full review. A passing check or incidental edit is not coverage.
-- The overall backend review remains incomplete.
+- The sanitizer's incidental comment cleanup and partial API contract reads do
+  not count as full reviews; those files remain pending in `TRACKER.md`.
 
 ## Resume instructions
 

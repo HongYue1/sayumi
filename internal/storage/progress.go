@@ -51,12 +51,16 @@ func (db *DB) GetAllProgressContext(ctx context.Context, userID string) (result 
 	}()
 
 	result = make(map[string]ProgressRecord)
+	// Reuse the scan destination, but copy each row into the returned map.
+	var progress *ProgressRecord
 	for rows.Next() {
-		var progress ProgressRecord
+		if progress == nil {
+			progress = new(ProgressRecord)
+		}
 		if err := rows.Scan(&progress.BookID, &progress.UserID, &progress.Chapter, &progress.Percent, &progress.CFI, &progress.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan progress: %w", err)
 		}
-		result[progress.BookID] = progress
+		result[progress.BookID] = *progress
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate progress: %w", err)

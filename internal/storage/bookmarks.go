@@ -39,13 +39,17 @@ func (db *DB) ListBookmarksContext(ctx context.Context, bookID, userID string) (
 		}
 	}()
 
+	// Allocate only for a non-empty result, then copy each scanned value.
+	var bookmark *BookmarkRecord
 	for rows.Next() {
-		var bookmark BookmarkRecord
+		if bookmark == nil {
+			bookmark = new(BookmarkRecord)
+		}
 		if err := rows.Scan(&bookmark.ID, &bookmark.BookID, &bookmark.UserID, &bookmark.Chapter, &bookmark.Percent,
 			&bookmark.CFI, &bookmark.Label, &bookmark.Comment, &bookmark.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan bookmark: %w", err)
 		}
-		out = append(out, bookmark)
+		out = append(out, *bookmark)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate bookmarks: %w", err)
@@ -104,14 +108,7 @@ func (db *DB) UpdateBookmarkContext(
 	if err != nil {
 		return fmt.Errorf("update bookmark: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("update bookmark rows affected: %w", err)
-	}
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return rowsAffectedOrNotFound(res, "update bookmark")
 }
 
 func (db *DB) DeleteBookmarkContext(ctx context.Context, id, bookID, userID string) error {
@@ -126,14 +123,7 @@ func (db *DB) DeleteBookmarkContext(ctx context.Context, id, bookID, userID stri
 	if err != nil {
 		return fmt.Errorf("delete bookmark: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("delete bookmark rows affected: %w", err)
-	}
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return rowsAffectedOrNotFound(res, "delete bookmark")
 }
 
 func GenerateBookmarkID() (string, error) {

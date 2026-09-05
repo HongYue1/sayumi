@@ -85,6 +85,8 @@ func (db *DB) GetSettingsContext(ctx context.Context, userID string) (SettingsRe
 	return settings, nil
 }
 
+// SaveSettingsContext stores a complete preferences snapshot, not a patch.
+// Invalid nullable fields reset to NULL, preserving the reader's Auto choices.
 func (db *DB) SaveSettingsContext(ctx context.Context, settings SettingsRecord) error {
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()

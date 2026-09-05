@@ -1,68 +1,60 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
 	"time"
 )
 
-// The settings columns are kept in step by hand in four places: the SELECT list,
-// the row.Scan targets, the INSERT column list, and the INSERT arguments.
-// Transposing two same-type columns in any one of them still compiles and still
-// passes vet and lint, and it silently swaps two saved reader preferences.
-// TestSettingsUpsert covers six columns by name; the two tests below cover every
-// column, and cover new columns automatically as they are added.
-
-// TestSettingsRoundTripsEveryColumn fills every SettingsRecord field with a
-// value that is unique among the fields sharing its type, saves it, reads it
-// back, and compares field by field. A transposition shows up as two fields
-// reporting each other's value. A field that never reaches SQL comes back as its
-// zero value.
+// SELECT/Scan, INSERT/arguments, and ON CONFLICT assignments must agree.
+// An insert-only round trip cannot catch a missing update assignment.
 func TestSettingsRoundTripsEveryColumn(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
 	ctx := t.Context()
+	rt := reflect.TypeFor[SettingsRecord]()
 
-	var want SettingsRecord
-	set := reflect.ValueOf(&want).Elem()
-	rt := set.Type()
-	for i := range rt.NumField() {
-		field := rt.Field(i)
-		// UserID is the lookup key, set below. UpdatedAt is assigned by
-		// SaveSettingsContext, which ignores whatever the record carried.
-		if field.Name == "UserID" || field.Name == "UpdatedAt" {
-			continue
-		}
-		set.Field(i).Set(distinctSettingsValue(t, field, i))
-	}
-	want.UserID = "round-trip"
-
-	if err := db.SaveSettingsContext(ctx, want); err != nil {
-		t.Fatalf("save settings: %v", err)
-	}
-	got, err := db.GetSettingsContext(ctx, want.UserID)
-	if err != nil {
-		t.Fatalf("get settings: %v", err)
-	}
-
-	if _, err := time.Parse(time.DateTime, got.UpdatedAt); err != nil {
-		t.Errorf("updated_at = %q, want a %s timestamp: %v", got.UpdatedAt, time.DateTime, err)
-	}
-
-	read := reflect.ValueOf(got)
-	for i := range rt.NumField() {
-		field := rt.Field(i)
-		if field.Name == "UpdatedAt" {
-			continue
-		}
-		gotValue := read.Field(i).Interface()
-		wantValue := set.Field(i).Interface()
-		if !reflect.DeepEqual(gotValue, wantValue) {
-			t.Errorf("%s = %+v, want %+v: columns are transposed, or this one is missing from the SELECT or the INSERT",
-				field.Name, gotValue, wantValue)
-		}
+	for phase, name := range []string{"insert", "replace", "clear"} {
+		t.Run(name, func(t *testing.T) {
+			want := SettingsRecord{UserID: "round-trip", UpdatedAt: "client timestamp must be ignored"}
+			set := reflect.ValueOf(&want).Elem()
+			if name != "clear" {
+				for i := range rt.NumField() {
+					field := rt.Field(i)
+					if field.Name == "UserID" || field.Name == "UpdatedAt" {
+						continue
+					}
+					set.Field(i).Set(distinctSettingsValue(t, field, phase*rt.NumField()+i))
+				}
+			}
+			if err := db.SaveSettingsContext(ctx, want); err != nil {
+				t.Fatalf("save settings: %v", err)
+			}
+			got, err := db.GetSettingsContext(ctx, want.UserID)
+			if err != nil {
+				t.Fatalf("get settings: %v", err)
+			}
+			if _, err := time.Parse(time.DateTime, got.UpdatedAt); err != nil {
+				t.Errorf("updated_at = %q, want a %s timestamp: %v", got.UpdatedAt, time.DateTime, err)
+			}
+			read := reflect.ValueOf(got)
+			for i := range rt.NumField() {
+				field := rt.Field(i)
+				if field.Name == "UpdatedAt" {
+					continue
+				}
+				gotValue := read.Field(i).Interface()
+				wantValue := set.Field(i).Interface()
+				if !reflect.DeepEqual(gotValue, wantValue) {
+					t.Errorf("%s = %+v, want %+v: check SELECT, Scan, INSERT, and ON CONFLICT mappings",
+						field.Name, gotValue, wantValue)
+				}
+			}
+		})
 	}
 }
 
@@ -91,7 +83,8 @@ func TestSettingsBoolColumnsRoundTripIndependently(t *testing.T) {
 
 	for _, on := range boolFields {
 		t.Run(rt.Field(on).Name, func(t *testing.T) {
-			rec := SettingsRecord{UserID: "bool-" + rt.Field(on).Name}
+			// Reuse the row so toggles exercise ON CONFLICT as well as INSERT.
+			rec := SettingsRecord{UserID: "bool-columns"}
 			set := reflect.ValueOf(&rec).Elem()
 			for _, i := range boolFields {
 				set.Field(i).Set(reflect.ValueOf(sql.NullBool{Bool: i == on, Valid: true}))
@@ -146,5 +139,48 @@ func distinctSettingsValue(t *testing.T, field reflect.StructField, index int) r
 		t.Fatalf("field %s has type %s, which distinctSettingsValue does not build: add it so the round-trip keeps covering every column",
 			field.Name, field.Type)
 		return reflect.Value{}
+	}
+}
+
+func TestSettingsScopeAndCancellation(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := t.Context()
+	for i, userID := range []string{"reader", "other"} {
+		if err := db.SaveSettingsContext(ctx, SettingsRecord{
+			UserID: userID, FontSize: sql.NullInt64{Int64: int64(20 + i), Valid: true},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := db.GetSettingsContext(ctx, "reader")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := db.GetSettingsContext(ctx, "other")
+	if err != nil || other.UserID != "other" || other.FontSize.Int64 != 21 {
+		t.Fatalf("other user's settings = (%+v, %v)", other, err)
+	}
+	if _, err := db.GetSettingsContext(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("missing user's settings = %v, want ErrNotFound", err)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := db.GetSettingsContext(canceled, "reader"); !errors.Is(err, context.Canceled) {
+		t.Errorf("get canceled settings: %v", err)
+	}
+	if err := db.SaveSettingsContext(canceled, SettingsRecord{UserID: "reader"}); !errors.Is(err, context.Canceled) {
+		t.Errorf("save canceled settings: %v", err)
+	}
+	after, err := db.GetSettingsContext(ctx, "reader")
+	if err != nil || after != before {
+		t.Errorf("canceled save changed settings: before=%+v after=%+v err=%v", before, after, err)
+	}
+	if err := db.SaveSettingsContext(ctx, SettingsRecord{UserID: "reader"}); err != nil {
+		t.Fatal(err)
+	}
+	otherAfter, err := db.GetSettingsContext(ctx, "other")
+	if err != nil || otherAfter != other {
+		t.Errorf("another user's save changed settings: before=%+v after=%+v err=%v", other, otherAfter, err)
 	}
 }

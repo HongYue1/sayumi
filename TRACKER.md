@@ -118,8 +118,8 @@ icons, compiled resources, generated frontend output, and `.skills/` are exclude
 - [x] `internal/storage/bookcache.go`
 - [x] `internal/storage/bookcache_concurrency_test.go`
 - [x] `internal/storage/bookcache_test.go`
-- [ ] `internal/storage/bookmarks.go`
-- [ ] `internal/storage/bookmarks_test.go`
+- [x] `internal/storage/bookmarks.go`
+- [x] `internal/storage/bookmarks_test.go`
 - [x] `internal/storage/books.go`
 - [x] `internal/storage/books_test.go`
 - [x] `internal/storage/cascade_test.go`
@@ -135,13 +135,15 @@ icons, compiled resources, generated frontend output, and `.skills/` are exclude
 - [ ] `internal/storage/presets_test.go`
 - [x] `internal/storage/profiles.go`
 - [x] `internal/storage/profiles_test.go`
-- [ ] `internal/storage/progress.go`
+- [x] `internal/storage/progress.go`
+- [x] `internal/storage/progress_test.go`
 - [x] `internal/storage/queryplan_test.go`
+- [x] `internal/storage/reading_state_bench_test.go`
 - [x] `internal/storage/scan_bench_test.go`
 - [x] `internal/storage/sessions.go`
 - [x] `internal/storage/sessions_test.go`
-- [ ] `internal/storage/settings.go`
-- [ ] `internal/storage/settings_test.go`
+- [x] `internal/storage/settings.go`
+- [x] `internal/storage/settings_test.go`
 - [x] `internal/storage/storage_test.go`
 
 ## Tooling
