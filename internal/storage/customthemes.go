@@ -50,12 +50,16 @@ func (db *DB) ListCustomThemesContext(ctx context.Context, userID string) (out [
 		}
 	}()
 
+	// Reuse scan storage without adding a destination allocation for empty results.
+	var t *CustomThemeRecord
 	for rows.Next() {
-		var t CustomThemeRecord
+		if t == nil {
+			t = new(CustomThemeRecord)
+		}
 		if err := rows.Scan(&t.ID, &t.UserID, &t.Name, &t.Group, &t.Bg, &t.Fg, &t.Accent, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan custom theme: %w", err)
 		}
-		out = append(out, t)
+		out = append(out, *t)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate custom themes: %w", err)
@@ -94,6 +98,8 @@ func (db *DB) UpdateCustomThemeContext(ctx context.Context, t CustomThemeRecord)
 	if t.UpdatedAt == "" {
 		t.UpdatedAt = time.Now().UTC().Format(time.DateTime)
 	}
+	// Keep the cheap no-match path. BenchmarkUpdateCustomTheme found RETURNING
+	// only modestly faster for existing rows, but much slower for missing rows.
 	res, err := db.ExecContext(ctx, `
 		UPDATE custom_themes
 		SET name = ?, theme_group = ?, bg = ?, fg = ?, accent = ?, updated_at = ?
@@ -126,12 +132,5 @@ func (db *DB) DeleteCustomThemeContext(ctx context.Context, id, userID string) e
 	if err != nil {
 		return fmt.Errorf("delete custom theme: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("delete custom theme rows affected: %w", err)
-	}
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return rowsAffectedOrNotFound(res, "delete custom theme")
 }

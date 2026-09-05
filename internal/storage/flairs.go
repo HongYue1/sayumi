@@ -21,6 +21,7 @@ type FlairRecord struct {
 	CreatedAt string
 }
 
+// GenerateFlairID returns a random, collision-resistant custom-flair id.
 func GenerateFlairID() (string, error) {
 	b := make([]byte, 8)
 	if _, err := io.ReadFull(rand.Reader, b); err != nil {
@@ -45,12 +46,16 @@ func (db *DB) ListFlairsContext(ctx context.Context, userID string) (out []Flair
 		}
 	}()
 
+	// Reuse scan storage without adding a destination allocation for empty results.
+	var f *FlairRecord
 	for rows.Next() {
-		var f FlairRecord
+		if f == nil {
+			f = new(FlairRecord)
+		}
 		if err := rows.Scan(&f.ID, &f.UserID, &f.Label, &f.Color, &f.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan flair: %w", err)
 		}
-		out = append(out, f)
+		out = append(out, *f)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate flairs: %w", err)
@@ -76,8 +81,7 @@ func (db *DB) InsertFlairContext(ctx context.Context, f FlairRecord) error {
 	return nil
 }
 
-// DeleteFlairContext removes a custom flair and clears any book assignments
-// that referenced it, so no book is left pointing at a non-existent flair.
+// DeleteFlairContext atomically removes a user's custom flair and its book assignments.
 func (db *DB) DeleteFlairContext(ctx context.Context, id, userID string) error {
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
@@ -92,12 +96,8 @@ func (db *DB) DeleteFlairContext(ctx context.Context, id, userID string) error {
 	if err != nil {
 		return fmt.Errorf("delete flair: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("delete flair rows affected: %w", err)
-	}
-	if n == 0 {
-		return ErrNotFound
+	if err := rowsAffectedOrNotFound(res, "delete flair"); err != nil {
+		return err
 	}
 
 	if _, err := tx.ExecContext(ctx, "DELETE FROM book_flairs WHERE flair_id = ? AND user_id = ?", id, userID); err != nil {
@@ -126,12 +126,19 @@ func (db *DB) GetAllBookFlairsContext(ctx context.Context, userID string) (out m
 	}()
 
 	out = make(map[string]string)
+	// One query-local destination avoids allocating two scan targets per row.
+	type assignment struct {
+		bookID, flairID string
+	}
+	var current *assignment
 	for rows.Next() {
-		var bookID, flairID string
-		if err := rows.Scan(&bookID, &flairID); err != nil {
+		if current == nil {
+			current = new(assignment)
+		}
+		if err := rows.Scan(&current.bookID, &current.flairID); err != nil {
 			return nil, fmt.Errorf("scan book flair: %w", err)
 		}
-		out[bookID] = flairID
+		out[current.bookID] = current.flairID
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate book flairs: %w", err)
@@ -182,16 +189,14 @@ func (db *DB) setBookFlairLocked(ctx context.Context, bookID, userID, flairID st
 	return rowsAffectedOrNotFound(res, "set book flair")
 }
 
-// SetBookFlairCheckedContext validates the target flair and assigns it to a book
-// atomically under the write lock. Holding writeMu across the existence check
-// and the write closes the TOCTOU window against DeleteFlairContext (which also
-// takes writeMu): a concurrent flair delete can no longer slip between the
-// check and the assignment and leave book_flairs pointing at a deleted flair
-// (there is no FK from book_flairs.flair_id to enforce it). An empty flairID
-// clears the assignment. Flair ids present in allowedBuiltins are accepted
-// without a DB lookup (built-in flairs live on the client, not in the flairs
-// table); any other id must exist for the user or ErrNotFound is returned.
-// The book must exist (enforced by the foreign key on book_flairs.book_id).
+// SetBookFlairCheckedContext validates and assigns a flair under writeMu.
+// The lock spans validation and assignment so DeleteFlairContext cannot leave
+// an assignment pointing at a deleted custom flair. There is no flair_id FK:
+// built-ins live on the client and are accepted via allowedBuiltins without a table row.
+//
+// Nonempty assignments require an existing book and either an allowed built-in
+// or a custom flair owned by the user; otherwise ErrNotFound is returned.
+// Empty flairID clears the assignment, even if the book or assignment is absent.
 func (db *DB) SetBookFlairCheckedContext(ctx context.Context, bookID, userID, flairID string, allowedBuiltins map[string]struct{}) error {
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()

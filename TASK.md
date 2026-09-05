@@ -10,37 +10,42 @@ Preserve the local-first design, existing API contracts, and pure-Go build.
 
 ## Current task
 
-**Paused at Checkpoint 5; awaiting the user's `continue`.**
-Do not start another batch until the user resumes the review. Continue directly,
-without sub-agents, and stop again after the next verified, committed checkpoint.
+**Paused after Checkpoint 6: custom themes, flairs, and presets storage.**
+Wait for the user to say **continue** before starting the next batch. Continue
+working directly without sub-agents.
 
-Next bounded scope: the remaining storage stores, `internal/storage/customthemes.go`,
-`customthemes_test.go`, `flairs.go`, `flairs_test.go`, `presets.go`, and
-`presets_test.go`, plus focused tests or benchmarks needed for that batch. Preserve
-profile scoping, custom/built-in identifier contracts, and frontend compatibility.
+Next bounded scope: `internal/library/scanner.go`, `scanner_test.go`, `cover.go`,
+and `cover_test.go`, plus focused regression tests or benchmarks justified by the
+review. Preserve filesystem/DB/cache consistency and replacement lock lifetimes.
 
 Verified current state:
-- CLI/server-entry, selected tooling, storage foundations, book storage/cache,
-  progress, bookmarks, and settings are reviewed. `TRACKER.md` remains the source
-  of truth for completed files; the overall backend review is incomplete.
+- CLI/server-entry, selected tooling, and every Go file under `internal/storage/`
+  are reviewed. `TRACKER.md` remains the source of truth for completed files; the
+  overall backend review is incomplete.
 - The current source tree passed `make check`: formatting, vet, lint,
   vulnerability scanning, race/shuffle tests across all Go packages, frontend
   checks, and builds. Storage also passed three consecutive shuffled race runs.
-- Reading-state scans reuse one lazily allocated destination and return value
-  copies. Tests cover user/book scoping, independent results, NULL/empty CFIs,
-  missing-book writes, and canceled reads/writes without persisted mutations.
-- Settings tests exercise every field through insert, replacement, and clearing,
-  plus independent boolean toggles on an existing row. Keep stored NULL/Auto
-  choices distinct from fresh-profile defaults; saves replace a full snapshot.
-- Ten-sample alternating comparisons support lower allocations in populated
-  progress/bookmark scans, with no extra allocation for empty or single-row
-  results. Progress-read timing gains were limited to tested 32/1000-row cases;
-  bookmark-read and progress-write timing changes were not statistically clear.
-  Treat these as operation-specific results, not application-wide speed claims.
-- Baseline/candidate executables and comparison runners remain in ignored
-  `.agents/benchmarks/checkpoint2/`, `checkpoint3/`, `checkpoint4/`, and
-  `checkpoint5/`. Never overwrite a baseline with a newer build or compare
-  different benchmark sources. Keep sample identifiers out of benchmark table
+- Custom-theme, flair, and preset lists reuse lazy query-local scan destinations
+  and return value copies. Book-flair maps share one query-local pair of scan
+  targets. Empty-result behavior and profile isolation are preserved.
+- Regression coverage protects full-record ordering and ownership, duplicate-ID
+  rejection, exact preset JSON, theme timestamps, cancellation without writes,
+  and scoped transactional flair cleanup with rollback on injected failure.
+  Concurrent ID tests join all workers before reporting errors and verify the
+  existing prefixes and lowercase-hex format; production ID generation is unchanged.
+- Ten alternating 300ms CPU-1 samples on Go 1.27.0 windows/amd64 support 13–20%
+  fewer allocated bytes and 5–33% fewer allocations in tested 1000-row reads.
+  The book-flair map case measured 14% less time; list-read and theme-update
+  timing changes were not statistically clear. These are operation-specific
+  measurements, not application-wide speed claims.
+- Theme updates retain their original update/affected-row-check/reload path.
+  The RETURNING experiment was rejected: its modest successful-update gain did
+  not justify the much slower missing-row path. The reason is beside the code.
+- Baselines, candidates, and runners remain in ignored
+  `.agents/benchmarks/checkpoint*/` directories. The current comparison is in
+  `checkpoint6/`: `before.test.exe` versus `after.test.exe`; `returning.test.exe`
+  is the rejected experiment, not the final candidate. Never overwrite a baseline
+  or compare different benchmark sources. Exclude sample identifiers from table
   grouping so repeated samples are analyzed together.
 - Preserve earlier measured tradeoffs: debug logging correctness has a formatting
   cost, and large-cache ordering gains do not imply every small-cache case is faster.
@@ -49,8 +54,8 @@ Verified current state:
   were made in this batch.
 - `.skills/` and measurement artifacts remain ignored and untracked; focused Go
   regression tests and benchmark source are tracked with the implementation.
-- The sanitizer's incidental comment cleanup and partial API contract reads do
-  not count as full reviews; those files remain pending in `TRACKER.md`.
+- The sanitizer's incidental comment cleanup and API contract reads do not count
+  as full reviews; those files remain pending in `TRACKER.md`.
 
 ## Resume instructions
 
@@ -64,8 +69,8 @@ Verified current state:
    Load their relevant references before applying a technique. Skills remain
    local and untracked.
 5. Finish the current checkpoint before starting the next package. Continue through
-   storage, library, EPUB processing, fonts, and HTTP API using `TRACKER.md` as the
-   file inventory. Reassess package order if a concrete dependency requires it.
+   library, EPUB processing, fonts, HTTP API, and remaining tooling using
+   `TRACKER.md` as the file inventory. Reassess order if a concrete dependency requires it.
 
 ## Working rules
 
@@ -83,7 +88,8 @@ Verified current state:
 - For performance changes: write a representative benchmark first, measure before
   and after on the same toolchain/machine/settings, report allocations, and compare
   repeated samples with `benchstat`. Run measurements serially without concurrent
-  tests/builds. Do not claim gains from noise or a single run.
+  tests/builds. Give long benchmark comparisons and final checks separate job time
+  budgets. Do not claim gains from noise or a single run.
 - Run targeted checks during a batch and `make check` before handing it back.
   Report failures and incomplete work rather than marking them done.
 - `TRACKER.md` contains current file status and completion gates only, never a

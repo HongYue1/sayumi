@@ -1,7 +1,9 @@
 package storage
 
 import (
+	"context"
 	"errors"
+	"slices"
 	"testing"
 )
 
@@ -71,50 +73,75 @@ func TestListPresetsStableTies(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
 	ctx := t.Context()
-
-	// Same created_at forces the id tie-breaker.
-	const ts = "2026-01-02 03:04:05"
-	for _, id := range []string{"preset_z", "preset_a", "preset_m"} {
-		rec := samplePreset(id, "default", id, `{}`)
-		rec.CreatedAt = ts
-		rec.UpdatedAt = ts
+	want := []PresetRecord{
+		samplePreset("preset_z", "reader", "Earlier", "{\n  \"fontSize\": 18, \"theme\": \"rose-pine\"\n}\n"),
+		samplePreset("preset_a", "reader", "Automatic", `{}`),
+		samplePreset("preset_m", "reader", "Night", `{"theme":"rose-pine","fontRoles":{}}`),
+	}
+	for i := range want {
+		want[i].CreatedAt = "2026-01-02 03:04:05"
+		want[i].UpdatedAt = "2026-01-03 04:05:06"
+	}
+	want[0].CreatedAt = "2026-01-01 02:03:04"
+	for _, rec := range slices.Backward(want) {
 		if err := db.InsertPresetContext(ctx, rec); err != nil {
-			t.Fatalf("insert %s: %v", id, err)
+			t.Fatal(err)
 		}
+	}
+	if err := db.InsertPresetContext(ctx, samplePreset("preset_other", "other", "Other", `{}`)); err != nil {
+		t.Fatal(err)
+	}
+	duplicate := want[1]
+	duplicate.Name = "Replacement"
+	duplicate.SettingsJSON = `{"fontSize":30}`
+	duplicate.UserID = "other"
+	if err := db.InsertPresetContext(ctx, duplicate); err == nil {
+		t.Fatal("duplicate ID was accepted")
 	}
 
-	got, err := db.ListPresetsContext(ctx, "default")
-	if err != nil {
-		t.Fatalf("list: %v", err)
+	// Storage must preserve the exact JSON string, including whitespace.
+	got, err := db.ListPresetsContext(ctx, "reader")
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("list = %+v, %v; want %+v", got, err, want)
 	}
-	want := []string{"preset_a", "preset_m", "preset_z"}
-	if len(got) != len(want) {
-		t.Fatalf("count = %d, want %d", len(got), len(want))
+	got[0] = PresetRecord{}
+	again, err := db.ListPresetsContext(ctx, "reader")
+	if err != nil || !slices.Equal(again, want) {
+		t.Fatalf("list after caller mutation = %+v, %v; want %+v", again, err, want)
 	}
-	for i, id := range want {
-		if got[i].ID != id {
-			t.Fatalf("order[%d] = %q, want %q", i, got[i].ID, id)
-		}
-		if got[i].CreatedAt != ts {
-			t.Errorf("created_at[%d] = %q, want %q", i, got[i].CreatedAt, ts)
-		}
+	if empty, err := db.ListPresetsContext(ctx, "missing"); err != nil || empty != nil {
+		t.Fatalf("empty list = %+v, %v; want nil, nil", empty, err)
+	}
+}
+
+func TestPresetCancellationDoesNotWrite(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := t.Context()
+	original := samplePreset("preset_one", "reader", "Original", `{"fontSize":18}`)
+	original.CreatedAt = "2026-01-02 03:04:05"
+	original.UpdatedAt = original.CreatedAt
+	if err := db.InsertPresetContext(ctx, original); err != nil {
+		t.Fatal(err)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := db.ListPresetsContext(canceled, "reader"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled list: %v", err)
+	}
+	if err := db.InsertPresetContext(canceled, samplePreset("preset_new", "reader", "New", `{}`)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled insert: %v", err)
+	}
+	if err := db.DeletePresetContext(canceled, original.ID, "reader"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled delete: %v", err)
+	}
+	got, err := db.ListPresetsContext(ctx, "reader")
+	if err != nil || !slices.Equal(got, []PresetRecord{original}) {
+		t.Fatalf("stored after cancellation = %+v, %v; want %+v", got, err, original)
 	}
 }
 
 func TestGeneratePresetID(t *testing.T) {
 	t.Parallel()
-	a, err := GeneratePresetID()
-	if err != nil {
-		t.Fatalf("generate id: %v", err)
-	}
-	b, err := GeneratePresetID()
-	if err != nil {
-		t.Fatalf("generate id: %v", err)
-	}
-	if a == "" || b == "" || a == b {
-		t.Fatalf("ids not unique/non-empty: %q %q", a, b)
-	}
-	if len(a) < len("preset_")+8 {
-		t.Fatalf("id too short: %q", a)
-	}
+	checkGeneratedCustomizationIDs(t, "preset_", GeneratePresetID)
 }

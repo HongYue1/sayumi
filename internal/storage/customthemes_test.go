@@ -1,8 +1,13 @@
 package storage
 
 import (
+	"context"
 	"errors"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func sampleTheme(id, userID, name string) CustomThemeRecord {
@@ -96,69 +101,158 @@ func TestListCustomThemesStableTies(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
 	ctx := t.Context()
-
-	// Same created_at forces the id tie-breaker.
-	const ts = "2026-01-02 03:04:05"
-	for _, id := range []string{"theme_z", "theme_a", "theme_m"} {
-		rec := sampleTheme(id, "default", id)
-		rec.CreatedAt = ts
-		rec.UpdatedAt = ts
+	want := []CustomThemeRecord{
+		sampleTheme("theme_z", "reader", "Earlier"),
+		sampleTheme("theme_a", "reader", "Forest"),
+		sampleTheme("theme_m", "reader", "Night"),
+	}
+	for i := range want {
+		want[i].CreatedAt = "2026-01-02 03:04:05"
+		want[i].UpdatedAt = "2026-01-03 04:05:06"
+	}
+	want[0].CreatedAt = "2026-01-01 02:03:04"
+	want[0].Accent = ""
+	want[2].Group = "dark"
+	want[2].Bg = "#222222"
+	want[2].Fg = "#dddddd"
+	for _, rec := range slices.Backward(want) {
 		if err := db.InsertCustomThemeContext(ctx, rec); err != nil {
-			t.Fatalf("insert %s: %v", id, err)
+			t.Fatal(err)
 		}
+	}
+	if err := db.InsertCustomThemeContext(ctx, sampleTheme("theme_other", "other", "Other")); err != nil {
+		t.Fatal(err)
+	}
+	duplicate := want[1]
+	duplicate.Name = "Replacement"
+	duplicate.UserID = "other"
+	if err := db.InsertCustomThemeContext(ctx, duplicate); err == nil {
+		t.Fatal("duplicate ID was accepted")
 	}
 
-	got, err := db.ListCustomThemesContext(ctx, "default")
-	if err != nil {
-		t.Fatalf("list: %v", err)
+	got, err := db.ListCustomThemesContext(ctx, "reader")
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("list = %+v, %v; want %+v", got, err, want)
 	}
-	want := []string{"theme_a", "theme_m", "theme_z"}
-	if len(got) != len(want) {
-		t.Fatalf("count = %d, want %d", len(got), len(want))
+	got[0] = CustomThemeRecord{}
+	again, err := db.ListCustomThemesContext(ctx, "reader")
+	if err != nil || !slices.Equal(again, want) {
+		t.Fatalf("list after caller mutation = %+v, %v; want %+v", again, err, want)
 	}
-	for i, id := range want {
-		if got[i].ID != id {
-			t.Fatalf("order[%d] = %q, want %q", i, got[i].ID, id)
+	if empty, err := db.ListCustomThemesContext(ctx, "missing"); err != nil || empty != nil {
+		t.Fatalf("empty list = %+v, %v; want nil, nil", empty, err)
+	}
+}
+
+func TestCustomThemeUpdateTimestamps(t *testing.T) {
+	t.Parallel()
+	for _, updatedAt := range []string{"2026-02-03 04:05:06", ""} {
+		name := "supplied"
+		if updatedAt == "" {
+			name = "generated"
 		}
-		if got[i].CreatedAt != ts {
-			t.Errorf("created_at[%d] = %q, want %q", i, got[i].CreatedAt, ts)
-		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			db := newTestDB(t)
+			ctx := t.Context()
+			original := sampleTheme("theme_one", "reader", "Original")
+			original.CreatedAt = "2000-01-02 03:04:05"
+			original.UpdatedAt = "2001-02-03 04:05:06"
+			if err := db.InsertCustomThemeContext(ctx, original); err != nil {
+				t.Fatal(err)
+			}
+			in := CustomThemeRecord{
+				ID: original.ID, UserID: original.UserID, Name: "Replacement", Group: "dark",
+				Bg: "#010203", Fg: "#fdfcfb", Accent: "",
+				CreatedAt: "1999-01-01 00:00:00", UpdatedAt: updatedAt,
+			}
+			got, err := db.UpdateCustomThemeContext(ctx, in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := in
+			want.CreatedAt = original.CreatedAt
+			if updatedAt == "" {
+				if _, err := time.Parse(time.DateTime, got.UpdatedAt); err != nil {
+					t.Fatalf("generated timestamp %q: %v", got.UpdatedAt, err)
+				}
+				if got.UpdatedAt == original.UpdatedAt {
+					t.Fatal("update retained the old timestamp")
+				}
+				want.UpdatedAt = got.UpdatedAt
+			}
+			if got != want {
+				t.Fatalf("updated = %+v, want %+v", got, want)
+			}
+			stored, err := db.ListCustomThemesContext(ctx, "reader")
+			if err != nil || !slices.Equal(stored, []CustomThemeRecord{want}) {
+				t.Fatalf("stored = %+v, %v; want %+v", stored, err, want)
+			}
+		})
+	}
+}
+
+func TestCustomThemeCancellationDoesNotWrite(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := t.Context()
+	original := sampleTheme("theme_one", "reader", "Original")
+	original.CreatedAt = "2026-01-02 03:04:05"
+	original.UpdatedAt = original.CreatedAt
+	if err := db.InsertCustomThemeContext(ctx, original); err != nil {
+		t.Fatal(err)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := db.ListCustomThemesContext(canceled, "reader"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled list: %v", err)
+	}
+	if err := db.InsertCustomThemeContext(canceled, sampleTheme("theme_new", "reader", "New")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled insert: %v", err)
+	}
+	if got, err := db.UpdateCustomThemeContext(canceled, sampleTheme(original.ID, "reader", "Changed")); !errors.Is(err, context.Canceled) || got != (CustomThemeRecord{}) {
+		t.Fatalf("canceled update: %+v, %v", got, err)
+	}
+	if err := db.DeleteCustomThemeContext(canceled, original.ID, "reader"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled delete: %v", err)
+	}
+	got, err := db.ListCustomThemesContext(ctx, "reader")
+	if err != nil || !slices.Equal(got, []CustomThemeRecord{original}) {
+		t.Fatalf("stored after cancellation = %+v, %v; want %+v", got, err, original)
 	}
 }
 
 func TestGenerateCustomThemeID(t *testing.T) {
 	t.Parallel()
-	a, err := GenerateCustomThemeID()
-	if err != nil {
-		t.Fatalf("generate id: %v", err)
+	checkGeneratedCustomizationIDs(t, "theme_", GenerateCustomThemeID)
+}
+
+func checkGeneratedCustomizationIDs(t *testing.T, prefix string, generate func() (string, error)) {
+	t.Helper()
+	var results [8]struct {
+		id  string
+		err error
 	}
-	b, err := GenerateCustomThemeID()
-	if err != nil {
-		t.Fatalf("generate id: %v", err)
+	var wg sync.WaitGroup
+	for i := range results {
+		wg.Go(func() {
+			results[i].id, results[i].err = generate()
+		})
 	}
-	if a == "" || b == "" || a == b {
-		t.Fatalf("ids not unique/non-empty: %q %q", a, b)
-	}
-	if len(a) < len("theme_")+8 {
-		t.Fatalf("id too short: %q", a)
-	}
-	done := make(chan string, 4)
-	for range 4 {
-		go func() {
-			id, err := GenerateCustomThemeID()
-			if err != nil {
-				t.Errorf("generate id: %v", err)
-				return
-			}
-			done <- id
-		}()
-	}
-	seen := map[string]bool{}
-	for range 4 {
-		id := <-done
-		if seen[id] {
-			t.Fatalf("duplicate id %q", id)
+	// Join workers before reporting errors so a failed generation cannot strand the parent.
+	wg.Wait()
+	seen := make(map[string]bool, len(results))
+	for _, result := range results {
+		if result.err != nil {
+			t.Fatalf("generate ID: %v", result.err)
 		}
-		seen[id] = true
+		suffix, ok := strings.CutPrefix(result.id, prefix)
+		if !ok || len(suffix) != 16 || strings.Trim(suffix, "0123456789abcdef") != "" {
+			t.Fatalf("ID %q must be %s followed by 16 lowercase hex digits", result.id, prefix)
+		}
+		if seen[result.id] {
+			t.Fatalf("duplicate ID %q", result.id)
+		}
+		seen[result.id] = true
 	}
 }

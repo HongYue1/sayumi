@@ -47,12 +47,16 @@ func (db *DB) ListPresetsContext(ctx context.Context, userID string) (out []Pres
 		}
 	}()
 
+	// Reuse scan storage without adding a destination allocation for empty results.
+	var p *PresetRecord
 	for rows.Next() {
-		var p PresetRecord
+		if p == nil {
+			p = new(PresetRecord)
+		}
 		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &p.SettingsJSON, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan preset: %w", err)
 		}
-		out = append(out, p)
+		out = append(out, *p)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate presets: %w", err)
@@ -91,12 +95,5 @@ func (db *DB) DeletePresetContext(ctx context.Context, id, userID string) error 
 	if err != nil {
 		return fmt.Errorf("delete preset: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("delete preset rows affected: %w", err)
-	}
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return rowsAffectedOrNotFound(res, "delete preset")
 }
