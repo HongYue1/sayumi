@@ -114,8 +114,8 @@ func uploadBookHandler(_ *Dependencies) http.HandlerFunc {
 
 		if err := pd.DB.RemoveIgnoredFileContext(r.Context(), destPath); err != nil {
 			// The EPUB landed on disk but its ignored_files entry could not be
-			// cleared, so ImportFile would treat it as ignored and return empty
-			// results. Remove the orphaned file and surface the error instead.
+			// cleared, so ImportUploadedFile would reject the ignored path.
+			// Remove the orphaned file and surface the error instead.
 			if removeErr := os.Remove(destPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 				slog.Error("remove orphaned epub after ignored-entry clear failure", "path", destPath, "err", removeErr)
 			}

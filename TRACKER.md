@@ -106,10 +106,14 @@ icons, compiled resources, generated frontend output, and `.skills/` are exclude
 
 ## Library
 
-- [ ] `internal/library/cover.go`
-- [ ] `internal/library/cover_test.go`
-- [ ] `internal/library/scanner.go`
-- [ ] `internal/library/scanner_test.go`
+- [x] `internal/library/cover.go`
+- [x] `internal/library/cover_bench_test.go`
+- [x] `internal/library/cover_contract_test.go`
+- [x] `internal/library/cover_test.go`
+- [x] `internal/library/scanner.go`
+- [x] `internal/library/scanner_bench_test.go`
+- [x] `internal/library/scanner_contract_test.go`
+- [x] `internal/library/scanner_test.go`
 
 ## Storage
 

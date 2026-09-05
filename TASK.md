@@ -10,52 +10,104 @@ Preserve the local-first design, existing API contracts, and pure-Go build.
 
 ## Current task
 
-**Paused after Checkpoint 6: custom themes, flairs, and presets storage.**
-Wait for the user to say **continue** before starting the next batch. Continue
-working directly without sub-agents.
+**Checkpoint 7 is complete and verified. Pause after its local completion commit.**
 
-Next bounded scope: `internal/library/scanner.go`, `scanner_test.go`, `cover.go`,
-and `cover_test.go`, plus focused regression tests or benchmarks justified by the
-review. Preserve filesystem/DB/cache consistency and replacement lock lifetimes.
+Completion commit subject: `fix(library): preserve scan progress and uploaded covers`.
+Use Git to resolve the hash of the commit containing this handoff.
 
-Verified current state:
-- CLI/server-entry, selected tooling, and every Go file under `internal/storage/`
-  are reviewed. `TRACKER.md` remains the source of truth for completed files; the
-  overall backend review is incomplete.
-- The current source tree passed `make check`: formatting, vet, lint,
-  vulnerability scanning, race/shuffle tests across all Go packages, frontend
-  checks, and builds. Storage also passed three consecutive shuffled race runs.
-- Custom-theme, flair, and preset lists reuse lazy query-local scan destinations
-  and return value copies. Book-flair maps share one query-local pair of scan
-  targets. Empty-result behavior and profile isolation are preserved.
-- Regression coverage protects full-record ordering and ownership, duplicate-ID
-  rejection, exact preset JSON, theme timestamps, cancellation without writes,
-  and scoped transactional flair cleanup with rollback on injected failure.
-  Concurrent ID tests join all workers before reporting errors and verify the
-  existing prefixes and lowercase-hex format; production ID generation is unchanged.
-- Ten alternating 300ms CPU-1 samples on Go 1.27.0 windows/amd64 support 13–20%
-  fewer allocated bytes and 5–33% fewer allocations in tested 1000-row reads.
-  The book-flair map case measured 14% less time; list-read and theme-update
-  timing changes were not statistically clear. These are operation-specific
-  measurements, not application-wide speed claims.
-- Theme updates retain their original update/affected-row-check/reload path.
-  The RETURNING experiment was rejected: its modest successful-update gain did
-  not justify the much slower missing-row path. The reason is beside the code.
-- Baselines, candidates, and runners remain in ignored
-  `.agents/benchmarks/checkpoint*/` directories. The current comparison is in
-  `checkpoint6/`: `before.test.exe` versus `after.test.exe`; `returning.test.exe`
-  is the rejected experiment, not the final candidate. Never overwrite a baseline
-  or compare different benchmark sources. Exclude sample identifiers from table
-  grouping so repeated samples are analyzed together.
-- Preserve earlier measured tradeoffs: debug logging correctness has a formatting
-  cost, and large-cache ordering gains do not imply every small-cache case is faster.
-- Checkpoint commits are local only; no push is authorized. Check Git history for
-  the current commit. No dependency, database schema, or frontend source changes
-  were made in this batch.
-- `.skills/` and measurement artifacts remain ignored and untracked; focused Go
-  regression tests and benchmark source are tracked with the implementation.
-- The sanitizer's incidental comment cleanup and API contract reads do not count
-  as full reviews; those files remain pending in `TRACKER.md`.
+- All eight `internal/library/` Go files are fully reviewed and checked in
+  `TRACKER.md`: scanner/cover source, existing tests, contract tests, and benchmarks.
+- The audited inventory contains 139 files (125 Go files and 14 tooling files):
+  61 complete, 78 pending. Completion gates are not counted as reviewed files.
+- The CLI, selected tooling, storage, and library reviews are complete. The only
+  adjacent API edit is a stale import-method comment in `internal/api/upload.go`;
+  it is not a completed API file review. No dependency, schema, or frontend source
+  changes were needed.
+- No implementation work remains in CP7. Preserve the original benchmark binaries
+  and frozen harnesses below. Keep `.skills/` and `.agents/` ignored and untracked.
+- No sub-agents, push, or amend were used. Stop all jobs before handing off.
+- Next, only after the user says **continue**, choose a bounded EPUB-processing
+  batch from `TRACKER.md`; then fonts, HTTP API, and remaining tooling. No next
+  package review has started. Do not repeat completed checkpoints or reintroduce
+  the rejected storage UPDATE RETURNING experiment.
+
+### Verified CP7 behavior
+
+- Scan cancellation and backfill-query errors retain committed import/path/cover
+  results for callers. Overlapping callers share read-only result slices.
+- Filesystem cover failures remain retryable; malformed EPUBs, missing declared
+  covers, oversized images, and undecodable images are resolved non-results.
+- Cover cancellation is checked around slot acquisition and between read, decode,
+  resize, encode, and publication stages. Decode slots are released on errors and
+  before encoding. The four-slot limit, image limits, JPEG quality 85, slash-form
+  stored paths, and existing resize/filter/compositing behavior are unchanged.
+- Both cover writers serialize only final target validation/publication. Uploads
+  replace regular covers; extraction preserves a cover uploaded during decoding.
+  Non-regular targets are rejected, and discarded extraction temps are removed.
+  This is in-process coordination, not a guarantee against external writers.
+- Hash sizes now count the bytes actually hashed; SHA-256 values and 16-hex IDs
+  remain compatible. Fixed digest/hex buffers avoid unnecessary allocations.
+- Removed unused `Scanner.ImportFile` and `SaveCoverImage` wrappers; migrated all
+  test callers to the live upload and encode/write APIs. Tests no longer mask a
+  missing cover with a skip or exercise cancellation with an assertion-free sleep.
+- Read-only ZIP cleanup is logged rather than turning a committed import into an
+  error that would make the upload handler delete its now-owned EPUB.
+
+### Verification
+
+Passed on the CP7 candidate:
+- `gofumpt -d internal/library` and `goimports -d -local sayumi internal/library`.
+- `go test -race -shuffle=on -count=5 -timeout=120s ./internal/library`.
+- `CGO_ENABLED=0 go test -count=1 -timeout=90s ./internal/library`.
+- `golangci-lint run ./internal/library/... --timeout=5m` (zero issues).
+- Full `make check`, run separately from benchmarks: module tidy, Go/frontend
+  formatting, vet, lint, vulnerability checks, all Go tests with race/shuffle,
+  frontend lint/types/tests, frontend build, and pure-Go production build.
+- Inventory audit: no missing, extra, duplicate, or nonexistent checklist paths.
+  Final staging must remain limited to CP7 code/tests, the API comment, and these
+  two handoff/checklist files.
+
+### CP7 performance evidence
+
+Raw paired samples and benchstat: `.agents/benchmarks/checkpoint7/comparison.log`.
+Full quality-gate output: `.agents/benchmarks/checkpoint7/make-check-final.log`.
+
+One serial comparison: ten alternating before/after samples, 15 frozen cases,
+CPU 1, 300ms/sample, Go 1.27.0 windows/amd64 (GOAMD64=v1, CGO_ENABLED=1),
+AMD Ryzen 7 5800H. No tests/builds ran concurrently with measurement. Production
+remains CGO_ENABLED=0.
+
+- Content hashing: 648 -> 440 B/op and 7 -> 4 allocs/op for all four sizes.
+  Empty/4KiB median time fell 21.43%/15.82%; 1MiB/16MiB timing was not significant.
+- ID generation: median time fell 29.10%/22.73%/15.18% for short/library/long paths.
+  Allocations fell 4 -> 2 (short), 5 -> 3 (other paths); bytes fell
+  224 -> 80, 304 -> 160, and 544 -> 400 B/op respectively.
+- Cover encoding showed no significant timing change and unchanged allocation
+  counts. Safer cover publication costs 616.5 -> 644.3 us/op (+4.51%), roughly
+  528 extra B/op, and 36 -> 46 allocs/op. Retained as an explicit correctness cost.
+- No resize optimization was attempted. Do not attribute the isolated RGBA
+  benchmark movement to an algorithmic gain; its implementation is unchanged.
+
+### Protected CP7 benchmark artifacts
+
+Directory: `.agents/benchmarks/checkpoint7/` (ignored). Never overwrite the two
+original binaries or modify the frozen harnesses to improve a comparison.
+
+- `before.test.exe`: original production, warmed hash harness. SHA256:
+  `0df41a49821e05861ae648cb4bd1aa4a913db7648e327cc56cbbb5504a79d41e`.
+- `before_unwarmed.test.exe`: diagnostic only, NOT the A/B baseline. SHA256:
+  `7d1837c8df31278c058c9221d6a8d0b13e5e74090502e731bced789bd5a5dc93`.
+- Frozen `internal/library/scanner_bench_test.go` SHA256:
+  `32c43975dd730b574b62ac6f70da29553c2344b06ee93c5ca9fed725c8415205`.
+- Frozen `internal/library/cover_bench_test.go` SHA256:
+  `d09559039916a98ee2a514b035381ffbefa94d684259bf2fe791d4cb723f05c6`.
+- `compare_benchmarks.py` SHA256:
+  `e952240e2f8fa049628680cd65f9fa3281e6cbc595df7375db5e1dc77c861316`.
+- Measured `after.test.exe` SHA256:
+  `b6fa31203ea1914d2b7fef5ce4efdcc99a35605dc11cd7d62d1aefffba82e494`.
+- Run `python .agents/benchmarks/checkpoint7/compare_benchmarks.py 10` to repeat
+  the same 15-case comparison. It uses
+  `benchstat -ignore sample -col 'variant@(before after)' -`.
 
 ## Resume instructions
 
@@ -64,13 +116,11 @@ Verified current state:
 2. Read this file, `TRACKER.md`, `AGENTS.md`, and applicable nested `AGENTS.md` files.
 3. Inspect Git status and existing diffs before editing; preserve the user's work.
 4. Read relevant Go skills under `.skills/cc-skills-golang/skills/`, particularly
-   `golang-code-style`, `golang-testing`, `golang-benchmark`, `golang-performance`,
-   `golang-cli`, `golang-database`, `golang-safety`, and `golang-security`.
-   Load their relevant references before applying a technique. Skills remain
-   local and untracked.
-5. Finish the current checkpoint before starting the next package. Continue through
-   library, EPUB processing, fonts, HTTP API, and remaining tooling using
-   `TRACKER.md` as the file inventory. Reassess order if a concrete dependency requires it.
+   code style, testing, benchmarking, performance, concurrency, safety, and security;
+   add CLI/database skills when that batch calls for them. Read relevant references
+   before applying a technique. Skills remain local and untracked.
+5. Finish one bounded checkpoint before starting another package. Use
+   `TRACKER.md` as the file inventory; reassess order for concrete dependencies.
 
 ## Working rules
 
@@ -88,8 +138,8 @@ Verified current state:
 - For performance changes: write a representative benchmark first, measure before
   and after on the same toolchain/machine/settings, report allocations, and compare
   repeated samples with `benchstat`. Run measurements serially without concurrent
-  tests/builds. Give long benchmark comparisons and final checks separate job time
-  budgets. Do not claim gains from noise or a single run.
+  tests/builds. Give long comparisons and final checks separate job time budgets.
+  Do not claim gains from noise or a single run.
 - Run targeted checks during a batch and `make check` before handing it back.
   Report failures and incomplete work rather than marking them done.
 - `TRACKER.md` contains current file status and completion gates only, never a

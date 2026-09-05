@@ -15,15 +15,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
 )
 
-// Covers are normalized to JPEG at maxCoverWidth x maxCoverHeight, sized for a
-// library grid tile at 2x DPR. JPEG rather than WebP or AVIF because neither has
-// a pure-Go encoder and the binary stays CGO_ENABLED=0 (webp is imported above
-// for decoding only).
+// Covers are normalized to JPEG within maxCoverWidth x maxCoverHeight. The
+// standard-library JPEG encoder keeps this path pure Go without additional
+// codec dependencies; WebP is imported above for decoding only.
 const (
 	maxCoverWidth     = 400
 	maxCoverHeight    = 600
@@ -32,21 +32,26 @@ const (
 	maxCoverBytes     = 20 << 20
 )
 
-// maxConcurrentCoverDecodes caps how many cover images may be decoded and
-// resized at the same time. A single decode transiently holds a full-size
-// RGBA buffer (up to maxCoverPixels*4 bytes, ~96 MB at the cap), so without a
-// limit the library scan's worker pool — sized to GOMAXPROCS — could hold one
-// such buffer per core at once. Bounding concurrent decodes keeps peak memory
-// independent of core count without throttling the cheaper hashing/parsing.
+// maxConcurrentCoverDecodes caps simultaneous decoding and resizing. A decode
+// holds a full-size source image whose storage depends on the format and bit
+// depth (RGBA64, for example, uses twice the pixel storage of RGBA). Together
+// with the dimension/pixel limits, four slots bound decoder working sets
+// independently of core count without throttling hashing and EPUB parsing.
 const maxConcurrentCoverDecodes = 4
 
-// coverDecodeSem enforces maxConcurrentCoverDecodes across every goroutine that
-// calls extractCover (notably the scan worker pool).
+// coverDecodeSem is shared by scans and cover uploads. Scan workers acquire it
+// before reading ZIP data so they cannot each buffer a large compressed image
+// while waiting to decode. Upload bodies are already buffered by the API.
 var coverDecodeSem = make(chan struct{}, maxConcurrentCoverDecodes)
 
-// errCoverSkipped is returned by decodeAndResizeCover when a cover is valid but
-// intentionally not rendered (oversized or too many pixels). Callers treat it
-// as a non-fatal skip rather than a failure.
+// coverPublishMu pairs extraction's final existence check with publication by
+// either writer. Uploads replace covers; extraction must preserve an upload
+// that arrived while it was decoding. Keep decoding, encoding and temp writes
+// outside the lock. External filesystem writers do not participate in it.
+var coverPublishMu sync.Mutex
+
+// errCoverSkipped is returned when declared dimensions exceed the render limits.
+// Callers treat it as a non-fatal skip, without attempting a full image decode.
 var errCoverSkipped = errors.New("cover skipped")
 
 // ErrCoverSkipped exposes errCoverSkipped to callers outside this package (the
@@ -54,21 +59,29 @@ var errCoverSkipped = errors.New("cover skipped")
 // instead of a 500. It is the same sentinel, so errors.Is matches either name.
 var ErrCoverSkipped = errCoverSkipped
 
-// decodeAndResizeCover reads the cover bytes from the zip, validates its
-// dimensions, and returns a resized image ready for JPEG encoding. It returns
-// errCoverSkipped when the cover should be skipped (oversized or too many pixels).
-//
-// The entire read + decode + resize runs while holding coverDecodeSem, so both
-// the encoded source buffer (up to maxCoverBytes) and the decoded RGBA buffer
-// (up to maxCoverPixels*4) are bounded by maxConcurrentCoverDecodes rather than
-// by the scan worker count — otherwise every worker could hold a multi-MB
-// encoded buffer while merely waiting for a decode slot. The acquire honors ctx
-// so a canceled scan unblocks here instead of waiting for an in-flight decode.
-func decodeAndResizeCover(ctx context.Context, bookID string, zr *zip.Reader, coverPathInZip string) (image.Image, error) {
+func acquireCoverDecode(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	select {
 	case coverDecodeSem <- struct{}{}:
+		// Both cases can be ready when a slot opens during cancellation.
+		if err := ctx.Err(); err != nil {
+			<-coverDecodeSem
+			return err
+		}
+		return nil
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return ctx.Err()
+	}
+}
+
+// decodeAndResizeCover holds a decode slot across the ZIP read and image work,
+// but releases it before JPEG encoding. The bounded read and image operations
+// do not accept a context; cancellation is observed between those stages.
+func decodeAndResizeCover(ctx context.Context, bookID string, zr *zip.Reader, coverPathInZip string) (image.Image, error) {
+	if err := acquireCoverDecode(ctx); err != nil {
+		return nil, err
 	}
 	defer func() { <-coverDecodeSem }()
 
@@ -76,17 +89,20 @@ func decodeAndResizeCover(ctx context.Context, bookID string, zr *zip.Reader, co
 	if err != nil {
 		return nil, err
 	}
-	return decodeAndResizeCoverData(bookID, coverData)
+	return decodeAndResizeCoverData(ctx, bookID, coverData)
 }
 
-// decodeAndResizeCoverData validates the dimensions of already-read cover bytes
-// and returns a resized image ready for JPEG encoding, returning errCoverSkipped
-// when the cover is oversized or has too many pixels. The caller MUST hold
-// coverDecodeSem: decoding transiently expands to a full RGBA buffer (up to
-// maxCoverPixels*4 bytes), and the semaphore is what bounds peak memory across
-// concurrent decoders.
-func decodeAndResizeCoverData(bookID string, coverData []byte) (image.Image, error) {
+// decodeAndResizeCoverData validates dimensions before allocating image pixels.
+// The caller must hold coverDecodeSem until this function returns; only the
+// thumbnail, not the full-size decoded source, is needed for JPEG encoding.
+func decodeAndResizeCoverData(ctx context.Context, bookID string, coverData []byte) (image.Image, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	config, _, err := image.DecodeConfig(bytes.NewReader(coverData))
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 	if err != nil {
 		return nil, fmt.Errorf("decode cover config: %w", err)
 	}
@@ -94,39 +110,48 @@ func decodeAndResizeCoverData(bookID string, coverData []byte) (image.Image, err
 		slog.Warn("skipping oversized cover", "book", bookID, "width", config.Width, "height", config.Height)
 		return nil, errCoverSkipped
 	}
-	// Reject high pixel counts even when each side is within bounds: decoding
-	// expands to a 4-byte-per-pixel RGBA buffer, so capping total pixels keeps a
-	// crafted cover from exhausting memory.
+	// Bound total pixels as well as each side: a square can satisfy the
+	// dimension limit and still require an excessive decoder working set.
 	if int64(config.Width)*int64(config.Height) > maxCoverPixels {
 		slog.Warn("skipping high-pixel-count cover", "book", bookID, "width", config.Width, "height", config.Height, "pixels", int64(config.Width)*int64(config.Height))
 		return nil, errCoverSkipped
 	}
 
 	img, _, err := image.Decode(bytes.NewReader(coverData))
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 	if err != nil {
 		return nil, fmt.Errorf("decode cover image: %w", err)
 	}
-	return resizeToFit(img, maxCoverWidth, maxCoverHeight), nil
+	img = resizeToFit(img, maxCoverWidth, maxCoverHeight)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return img, nil
 }
 
 // EncodeCoverJPEG validates and resizes an uploaded cover image and returns the
 // normalized JPEG bytes (the same resized JPEG the importer produces, so the
 // served cover stays uniform regardless of the source format/size). Oversized
 // or too-many-pixel images return ErrCoverSkipped, which the API maps to a 400.
-// The decode slot (coverDecodeSem) is acquired honoring ctx and released before
-// encoding so the bounded RGBA buffer is not held longer than the decode.
+// Cancellation is checked between stages, and the decode slot is released
+// before encoding the thumbnail so another full-size decode can proceed.
 func EncodeCoverJPEG(ctx context.Context, bookID string, data []byte) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if int64(len(data)) > maxCoverBytes {
 		return nil, errors.New("cover image too large")
 	}
 
-	select {
-	case coverDecodeSem <- struct{}{}:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-	img, decErr := decodeAndResizeCoverData(bookID, data)
-	<-coverDecodeSem
+	img, decErr := func() (image.Image, error) {
+		if err := acquireCoverDecode(ctx); err != nil {
+			return nil, err
+		}
+		defer func() { <-coverDecodeSem }()
+		return decodeAndResizeCoverData(ctx, bookID, data)
+	}()
 	if decErr != nil {
 		return nil, decErr
 	}
@@ -135,13 +160,17 @@ func EncodeCoverJPEG(ctx context.Context, bookID string, data []byte) ([]byte, e
 	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 85}); err != nil {
 		return nil, fmt.Errorf("encode jpeg: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return buf.Bytes(), nil
 }
 
 // WriteCoverImageJPEG writes pre-encoded cover JPEG bytes to the sidecar cover
-// store (".sayumi/covers/<id>.jpg"), OVERWRITING any existing cover via an
-// atomic temp+rename, and returns the path relative to libraryPath for storage
-// in cover_path.
+// store (".sayumi/covers/<id>.jpg"), replacing an existing regular cover with a
+// completed temp file rather than truncating it in place. It returns the path
+// relative to libraryPath for storage in cover_path. bookID comes from a stored
+// book, not from an EPUB entry name.
 func WriteCoverImageJPEG(libraryPath, bookID string, jpegData []byte) (relPath string, err error) {
 	coversDir := filepath.Join(libraryPath, ".sayumi", "covers")
 	if mkErr := os.MkdirAll(coversDir, 0o755); mkErr != nil {
@@ -166,14 +195,14 @@ func WriteCoverImageJPEG(libraryPath, bookID string, jpegData []byte) (relPath s
 
 	tempPath := tempFile.Name()
 	tempName := filepath.Base(tempPath)
-	closed := false
+	closed, published := false, false
 	defer func() {
 		if !closed {
 			if closeErr := tempFile.Close(); closeErr != nil && err == nil {
 				err = fmt.Errorf("close cover file: %w", closeErr)
 			}
 		}
-		if err != nil {
+		if !published {
 			if removeErr := os.Remove(tempPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 				slog.Error("remove temp cover file failed", "path", tempPath, "err", removeErr)
 			}
@@ -184,15 +213,21 @@ func WriteCoverImageJPEG(libraryPath, bookID string, jpegData []byte) (relPath s
 		return "", fmt.Errorf("write cover file: %w", writeErr)
 	}
 
-	if closeErr := tempFile.Close(); closeErr != nil {
+	closeErr := tempFile.Close()
+	closed = true
+	if closeErr != nil {
 		return "", fmt.Errorf("close cover file: %w", closeErr)
 	}
-	closed = true
 
-	// Rename atomically overwrites any existing cover (POSIX semantics).
+	coverPublishMu.Lock()
+	defer coverPublishMu.Unlock()
+	if _, err := regularCoverExists(coversRoot, coverFilename); err != nil {
+		return "", err
+	}
 	if renameErr := coversRoot.Rename(tempName, coverFilename); renameErr != nil {
 		return "", fmt.Errorf("rename cover file: %w", renameErr)
 	}
+	published = true
 
 	return CoverRelPath(bookID), nil
 }
@@ -217,39 +252,30 @@ func NormalizeCoverPath(coverPath string) string {
 	return strings.ReplaceAll(coverPath, `\`, "/")
 }
 
-// SaveCoverImage validates, resizes, and writes an uploaded cover image for a
-// book, OVERWRITING any existing cover — the deliberate difference from
-// extractCover, which preserves an existing cover. It returns the cover path
-// relative to libraryPath (".sayumi/covers/<id>.jpg") for storage in cover_path.
-// It is the encode-then-write composition of EncodeCoverJPEG + WriteCoverImageJPEG.
-func SaveCoverImage(ctx context.Context, libraryPath, bookID string, data []byte) (relPath string, err error) {
-	jpegData, err := EncodeCoverJPEG(ctx, bookID, data)
-	if err != nil {
-		return "", err
+// regularCoverExists rejects directories, symlinks and special files rather
+// than treating them as rendered covers. A PathError keeps the scanner's
+// backfill retryable after the filesystem obstruction is removed.
+func regularCoverExists(root *os.Root, name string) (bool, error) {
+	info, err := root.Lstat(name)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
 	}
-	return WriteCoverImageJPEG(libraryPath, bookID, jpegData)
+	if err != nil {
+		return false, fmt.Errorf("stat cover file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return false, &os.PathError{Op: "stat", Path: name, Err: errors.New("cover is not a regular file")}
+	}
+	return true, nil
 }
 
 func extractCover(ctx context.Context, libraryPath, bookID string, zr *zip.Reader, coverPathInZip string) (err error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	coversDir := filepath.Join(libraryPath, ".sayumi", "covers")
 	if err := os.MkdirAll(coversDir, 0o755); err != nil {
 		return fmt.Errorf("create covers dir: %w", err)
-	}
-
-	coverFilename := bookID + ".jpg"
-	outPath := filepath.Join(coversDir, coverFilename)
-	if _, err := os.Stat(outPath); err == nil {
-		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("stat cover file: %w", err)
-	}
-
-	img, err := decodeAndResizeCover(ctx, bookID, zr, coverPathInZip)
-	if err != nil {
-		// Propagate every error -- including errCoverSkipped -- so the caller can
-		// tell "no cover file was written" apart from a successful extract and avoid
-		// recording a cover_path for a .jpg that was never created.
-		return err
 	}
 
 	coversRoot, rootErr := os.OpenRoot(coversDir)
@@ -262,6 +288,18 @@ func extractCover(ctx context.Context, libraryPath, bookID string, zr *zip.Reade
 		}
 	}()
 
+	coverFilename := bookID + ".jpg"
+	if exists, err := regularCoverExists(coversRoot, coverFilename); err != nil || exists {
+		return err
+	}
+
+	img, err := decodeAndResizeCover(ctx, bookID, zr, coverPathInZip)
+	if err != nil {
+		// A skip is not a successful extraction: recording a cover_path here
+		// would advertise a JPEG that was never created.
+		return err
+	}
+
 	tempFile, err := os.CreateTemp(coversDir, bookID+".*.jpg")
 	if err != nil {
 		return fmt.Errorf("create temp cover file: %w", err)
@@ -269,14 +307,16 @@ func extractCover(ctx context.Context, libraryPath, bookID string, zr *zip.Reade
 
 	tempPath := tempFile.Name()
 	tempName := filepath.Base(tempPath)
-	closed := false
+	closed, published := false, false
 	defer func() {
 		if !closed {
 			if closeErr := tempFile.Close(); closeErr != nil && err == nil {
 				err = fmt.Errorf("close cover file: %w", closeErr)
 			}
 		}
-		if err != nil {
+		// Preserving a cover published during decoding is also a success, but
+		// leaves our temp behind. A completed rename needs no extra unlink.
+		if !published {
 			if removeErr := os.Remove(tempPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 				slog.Error("remove temp cover file failed", "path", tempPath, "err", removeErr)
 			}
@@ -287,14 +327,24 @@ func extractCover(ctx context.Context, libraryPath, bookID string, zr *zip.Reade
 		return fmt.Errorf("encode jpeg: %w", encodeErr)
 	}
 
-	if closeErr := tempFile.Close(); closeErr != nil {
+	closeErr := tempFile.Close()
+	closed = true
+	if closeErr != nil {
 		return fmt.Errorf("close cover file: %w", closeErr)
 	}
-	closed = true
 
+	coverPublishMu.Lock()
+	defer coverPublishMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if exists, err := regularCoverExists(coversRoot, coverFilename); err != nil || exists {
+		return err
+	}
 	if renameErr := coversRoot.Rename(tempName, coverFilename); renameErr != nil {
 		return fmt.Errorf("rename cover file: %w", renameErr)
 	}
+	published = true
 
 	return nil
 }
@@ -349,9 +399,8 @@ func resizeToFit(img image.Image, maxW, maxH int) image.Image {
 	newHeight := max(int(float64(height)*scale), 1)
 
 	dst := image.NewRGBA(image.Rect(0, 0, newWidth, newHeight))
-	// ApproxBiLinear is markedly faster than BiLinear and the quality
-	// difference is imperceptible when downscaling to cover-thumbnail sizes
-	// (<=400x600), so it is the better tradeoff on the import path.
+	// Keep the filter and compositing mode stable: changing either can alter
+	// persisted cover pixels even when the output dimensions stay the same.
 	draw.ApproxBiLinear.Scale(dst, dst.Bounds(), img, bounds, draw.Over, nil)
 	return dst
 }

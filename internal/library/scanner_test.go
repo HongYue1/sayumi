@@ -2,14 +2,12 @@ package library
 
 import (
 	"archive/zip"
-	"context"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"sayumi/internal/storage"
 )
@@ -145,16 +143,17 @@ func openTestDB(t *testing.T, lib string) *storage.DB {
 	if err != nil {
 		t.Fatalf("open storage: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close storage: %v", err)
+		}
+	})
 	return db
 }
 
-// TestScanNowSingleFlight runs many concurrent ScanNow calls against an empty
-// library and asserts they all succeed with consistent results. It exercises
-// the single-flight guard: overlapping callers must coalesce onto one in-flight
-// scan without data races or errors, and the guard must reset so a later scan
-// still runs.
-func TestScanNowSingleFlight(t *testing.T) {
+// Concurrent calls must finish without races and leave the scanner reusable.
+// The waiter contract tests separately force overlap to verify coalescing.
+func TestScanNowConcurrentCalls(t *testing.T) {
 	dir := t.TempDir()
 	db := openTestDB(t, dir)
 	scanner := NewScanner(dir, db)
@@ -189,7 +188,7 @@ func TestScanNowSingleFlight(t *testing.T) {
 }
 
 func TestCollectEPUBPathsSkipsDots(t *testing.T) {
-	lib := t.TempDir()
+	lib := testLibraryDir(t)
 	db := openTestDB(t, lib)
 	s := NewScanner(lib, db)
 
@@ -197,7 +196,9 @@ func TestCollectEPUBPathsSkipsDots(t *testing.T) {
 	writeMinimalEPUB(t, filepath.Join(lib, ".hidden.epub"), "HiddenFile")
 	writeMinimalEPUB(t, filepath.Join(lib, ".sayumi", "tmp.epub"), "HiddenDir")
 	writeMinimalEPUB(t, filepath.Join(lib, "sub", "nested.epub"), "Nested")
-	_ = os.WriteFile(filepath.Join(lib, "notes.txt"), []byte("x"), 0o644)
+	if err := os.WriteFile(filepath.Join(lib, "notes.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	paths, err := s.collectEPUBPaths(t.Context())
 	if err != nil {
@@ -219,7 +220,7 @@ func TestCollectEPUBPathsSkipsDots(t *testing.T) {
 }
 
 func TestScanNowImportAndDedup(t *testing.T) {
-	lib := t.TempDir()
+	lib := testLibraryDir(t)
 	db := openTestDB(t, lib)
 	s := NewScanner(lib, db)
 	ctx := t.Context()
@@ -274,14 +275,13 @@ func TestScanNowImportAndDedup(t *testing.T) {
 	if len(paths) != 1 || paths[0].ID != firstID {
 		t.Fatalf("books after dedup = %+v", paths)
 	}
-	absCopy, _ := filepath.Abs(copyPath)
-	if paths[0].FilePath != absCopy {
-		t.Fatalf("path not reconciled: got %q want %q", paths[0].FilePath, absCopy)
+	if paths[0].FilePath != copyPath {
+		t.Fatalf("path not reconciled: got %q want %q", paths[0].FilePath, copyPath)
 	}
 }
 
 func TestScanNowWithChangesReportsBackfilledCover(t *testing.T) {
-	lib := t.TempDir()
+	lib := testLibraryDir(t)
 	db := openTestDB(t, lib)
 	s := NewScanner(lib, db)
 	ctx := t.Context()
@@ -339,7 +339,7 @@ func TestScanNowWithChangesReportsBackfilledCover(t *testing.T) {
 }
 
 func TestScanNowSkipsIgnoredPath(t *testing.T) {
-	lib := t.TempDir()
+	lib := testLibraryDir(t)
 	db := openTestDB(t, lib)
 	s := NewScanner(lib, db)
 	ctx := t.Context()
@@ -388,20 +388,6 @@ func TestContentHashAndGenerateID(t *testing.T) {
 		t.Fatalf("contentHash mismatch: %q/%d vs %q/%d err=%v", h2, sz2, h1, sz1, err)
 	}
 
-	// Cancel mid-hash on a larger file.
-	big := filepath.Join(dir, "big.bin")
-	if err := os.WriteFile(big, make([]byte, 2<<20), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cctx, cancel := context.WithCancel(t.Context())
-	// Cancel immediately after start via short timeout.
-	go func() {
-		time.Sleep(time.Millisecond)
-		cancel()
-	}()
-	// Best-effort: either completes or returns ctx error; both OK for tiny files.
-	_, _, _ = contentHash(cctx, big)
-
 	id1 := generateID("/a/path.epub", h1)
 	id2 := generateID("/b/path.epub", h1)
 	if len(id1) != 16 || len(id2) != 16 {
@@ -412,36 +398,36 @@ func TestContentHashAndGenerateID(t *testing.T) {
 	}
 }
 
-func TestImportFile(t *testing.T) {
-	lib := t.TempDir()
+func TestImportUploadedFile(t *testing.T) {
+	lib := testLibraryDir(t)
 	db := openTestDB(t, lib)
 	s := NewScanner(lib, db)
 	ctx := t.Context()
 
 	p := filepath.Join(lib, "one.epub")
 	writeMinimalEPUB(t, p, "OneShot")
-	id, err := s.ImportFile(ctx, p, "")
-	if err != nil || id == "" {
-		t.Fatalf("ImportFile: id=%q err=%v", id, err)
+	id, imported, err := s.ImportUploadedFile(ctx, p, "")
+	if err != nil || !imported || id == "" {
+		t.Fatalf("ImportUploadedFile: id=%q imported=%v err=%v", id, imported, err)
 	}
-	// Re-import same path returns existing id without error.
-	id2, err := s.ImportFile(ctx, p, "")
-	if err != nil || id2 != id {
-		t.Fatalf("reimport: id=%q err=%v want %q", id2, err, id)
+	// Re-importing the same path must not claim a second insertion.
+	id2, imported, err := s.ImportUploadedFile(ctx, p, "")
+	if err != nil || imported || id2 != id {
+		t.Fatalf("reimport: id=%q imported=%v err=%v want %q", id2, imported, err, id)
 	}
 }
 
 func TestImportUploadedFilePreservesCanonicalDuplicatePath(t *testing.T) {
-	lib := t.TempDir()
+	lib := testLibraryDir(t)
 	db := openTestDB(t, lib)
 	s := NewScanner(lib, db)
 	ctx := t.Context()
 
 	canonicalPath := filepath.Join(lib, "canonical.epub")
 	writeMinimalEPUB(t, canonicalPath, "Canonical")
-	id, err := s.ImportFile(ctx, canonicalPath, "")
-	if err != nil {
-		t.Fatalf("import canonical file: %v", err)
+	id, imported, err := s.ImportUploadedFile(ctx, canonicalPath, "")
+	if err != nil || !imported || id == "" {
+		t.Fatalf("import canonical file: id=%q imported=%v err=%v", id, imported, err)
 	}
 
 	duplicatePath := filepath.Join(lib, "duplicate.epub")
@@ -467,12 +453,8 @@ func TestImportUploadedFilePreservesCanonicalDuplicatePath(t *testing.T) {
 	if !found {
 		t.Fatal("canonical book missing")
 	}
-	wantPath, err := filepath.Abs(canonicalPath)
-	if err != nil {
-		t.Fatalf("resolve canonical path: %v", err)
-	}
-	if summary.FilePath != wantPath {
-		t.Fatalf("canonical path = %q, want %q", summary.FilePath, wantPath)
+	if summary.FilePath != canonicalPath {
+		t.Fatalf("canonical path = %q, want %q", summary.FilePath, canonicalPath)
 	}
 }
 
@@ -482,7 +464,7 @@ func TestImportUploadedFilePreservesCanonicalDuplicatePath(t *testing.T) {
 // the book 500s on a missing file, and deleting it tombstones the new path
 // while the unlink targets the stale one — leaving the EPUB on disk forever.
 func TestScanNowWithChangesReportsPathReconciledBooks(t *testing.T) {
-	lib := t.TempDir()
+	lib := testLibraryDir(t)
 	db := openTestDB(t, lib)
 	s := NewScanner(lib, db)
 	ctx := t.Context()
@@ -518,9 +500,8 @@ func TestScanNowWithChangesReportsPathReconciledBooks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list paths: %v", err)
 	}
-	absDst, _ := filepath.Abs(dst)
-	if len(paths) != 1 || paths[0].FilePath != absDst {
-		t.Fatalf("path not reconciled: %+v want %q", paths, absDst)
+	if len(paths) != 1 || paths[0].FilePath != dst {
+		t.Fatalf("path not reconciled: %+v want %q", paths, dst)
 	}
 }
 
@@ -529,7 +510,7 @@ func TestScanNowWithChangesReportsPathReconciledBooks(t *testing.T) {
 // ".sayumi\covers\<id>.jpg", which is one literal filename on macOS/Linux and
 // makes every cover 404 after the folder moves, with no self-heal.
 func TestCoverPathIsStoredWithForwardSlashes(t *testing.T) {
-	lib := t.TempDir()
+	lib := testLibraryDir(t)
 	db := openTestDB(t, lib)
 	s := NewScanner(lib, db)
 	ctx := t.Context()
@@ -545,8 +526,8 @@ func TestCoverPathIsStoredWithForwardSlashes(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("load summary: found=%v err=%v", found, err)
 	}
-	if summary.CoverPath == "" {
-		t.Skip("no cover extracted for the fixture; nothing to assert")
+	if !summary.HasCover || summary.CoverPath == "" {
+		t.Fatalf("fixture cover was not extracted: %+v", summary)
 	}
 	if strings.Contains(summary.CoverPath, `\`) {
 		t.Fatalf("cover_path must not contain OS separators, got %q", summary.CoverPath)

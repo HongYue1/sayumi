@@ -37,9 +37,10 @@ type scanCall struct {
 	err    error
 }
 
-// ScanResult separates newly imported books from existing books whose summary
-// changed during cover backfill. API callers use both sets to refresh their
+// ScanResult separates newly imported books from existing books whose cover
+// or stored file path changed. API callers use both sets to refresh their
 // cache while reporting only the true import count.
+// Overlapping callers share these slices; treat them as read-only.
 type ScanResult struct {
 	ImportedIDs  []string
 	RefreshedIDs []string
@@ -74,6 +75,9 @@ func (s *Scanner) ScanNowWithChanges(ctx context.Context) (ScanResult, error) {
 }
 
 func (s *Scanner) scanNow(ctx context.Context) (ScanResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ScanResult{}, err
+	}
 	s.mu.Lock()
 	if call := s.current; call != nil {
 		s.mu.Unlock()
@@ -129,11 +133,10 @@ func (s *Scanner) scan(ctx context.Context) (ScanResult, error) {
 
 	// Hashing, EPUB parsing, and cover decode/resize/encode dominate a
 	// first-time import and are independent per file, so fan them out across a
-	// bounded worker pool sized to the CPU count. The walk itself stays
-	// single-threaded (WalkDir is not safe to call concurrently); only the heavy
-	// per-file import work runs in parallel. storage.DB already serializes
-	// writes and pools reads, so concurrent importFile calls need no extra
-	// locking beyond the importedIDs append below.
+	// bounded worker pool sized to the CPU count. Discovery walks once before
+	// any worker starts; only the heavy per-file import work runs in parallel.
+	// storage.DB serializes writes and enforces content-hash uniqueness; the
+	// result slices below need their own append lock.
 	workers := min(runtime.GOMAXPROCS(0), len(paths))
 
 	var (
@@ -203,7 +206,7 @@ func (s *Scanner) scan(ctx context.Context) (ScanResult, error) {
 	// fully-completed walk (cancellation returned above), so it never competes with
 	// the import pass for the cover-decode semaphore; steady state its driving
 	// query returns nothing and it is a no-op.
-	refreshedIDs := s.backfillMissingCovers(ctx, workers)
+	refreshedIDs, backfillErr := s.backfillMissingCovers(ctx, workers)
 
 	// Books whose stored path was reconciled join the cover-backfill set: both
 	// are existing rows whose summary changed underneath a cache that was built
@@ -213,8 +216,12 @@ func (s *Scanner) scan(ctx context.Context) (ScanResult, error) {
 	// unlink targets the stale one) until the profile is reopened.
 	refreshedIDs = append(refreshedIDs, reconciledIDs...)
 
+	result := ScanResult{ImportedIDs: importedIDs, RefreshedIDs: refreshedIDs}
+	if backfillErr != nil {
+		return result, backfillErr
+	}
 	slog.Info("scan complete", "imported", len(importedIDs))
-	return ScanResult{ImportedIDs: importedIDs, RefreshedIDs: refreshedIDs}, nil
+	return result, nil
 }
 
 // collectEPUBPaths walks the library directory and returns the paths of all
@@ -224,19 +231,15 @@ func (s *Scanner) scan(ctx context.Context) (ScanResult, error) {
 func (s *Scanner) collectEPUBPaths(ctx context.Context) ([]string, error) {
 	var paths []string
 	err := filepath.WalkDir(s.libraryPath, func(filePath string, dirEntry fs.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if walkErr != nil {
 			slog.Warn("scan access failed", "path", filePath, "err", walkErr)
 			return nil
 		}
 		if dirEntry == nil {
 			return nil
-		}
-
-		// Cancellation is checked once per file entry, not per directory.
-		// A directory with many EPUBs may process several files before the
-		// check fires; this is acceptable given the low per-file overhead.
-		if err := ctx.Err(); err != nil {
-			return err
 		}
 
 		if dirEntry.IsDir() {
@@ -269,11 +272,11 @@ func (s *Scanner) collectEPUBPaths(ctx context.Context) ([]string, error) {
 // across the scan worker pool.
 type dedupSnapshot struct {
 	existingByPath map[string]string   // path identity key -> book ID
-	ignored        map[string]struct{} // ignored absolute file paths
+	ignored        map[string]struct{} // ignored path identity keys
 }
 
 // loadDedupSnapshot builds a dedupSnapshot from the current DB state with two
-// bulk queries, replacing the previous two point reads per scanned file.
+// bulk queries instead of two point reads per scanned file.
 func (s *Scanner) loadDedupSnapshot(ctx context.Context) (*dedupSnapshot, error) {
 	bookPaths, err := s.db.ListBookPathsContext(ctx)
 	if err != nil {
@@ -291,7 +294,7 @@ func (s *Scanner) loadDedupSnapshot(ctx context.Context) (*dedupSnapshot, error)
 	// Keyed by path identity rather than by the exact stored path, so the snapshot
 	// answers the same way as the DB lookups it stands in for (see DB.PathKey).
 	// Both sides derive keys with the same function, so the scan path and the
-	// one-off ImportFile path can never disagree about what is already known.
+	// upload path use the same path-identity rules.
 	for _, bp := range bookPaths {
 		snap.existingByPath[s.db.PathKey(bp.FilePath)] = bp.ID
 	}
@@ -303,7 +306,7 @@ func (s *Scanner) loadDedupSnapshot(ctx context.Context) (*dedupSnapshot, error)
 
 // importFile imports a single EPUB. When snap is non-nil (the scan path) the
 // ignored/known-path pre-checks are served from the snapshot; when nil (a
-// one-off ImportFile) they hit the DB directly.
+// one-off upload) they hit the DB directly.
 func (s *Scanner) importFile(
 	ctx context.Context,
 	filePath string,
@@ -364,8 +367,8 @@ func (s *Scanner) importFile(
 	if found {
 		// Reconcile the stored path: if the file has been moved, renamed, or
 		// copied into a cloned profile, update the DB so future reads use the
-		// correct location. Failures are non-fatal — the book is still usable
-		// at its old path until the next successful reconciliation.
+		// correct location. Failures are non-fatal to the scan and retryable;
+		// the old path may no longer be readable after a move.
 		if reconcileExistingPath && existingPath != absPath {
 			if updateErr := s.db.UpdateBookFilePathContext(ctx, existingID, absPath); updateErr != nil {
 				slog.Warn("reconcile book path after hash match failed",
@@ -384,8 +387,10 @@ func (s *Scanner) importFile(
 		return "", false, false, fmt.Errorf("open zip: %w", err)
 	}
 	defer func() {
-		if closeErr := zr.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("close epub: %w", closeErr)
+		if closeErr := zr.Close(); closeErr != nil {
+			// A read-handle cleanup failure must not turn a committed import
+			// into an error: the upload caller removes its file on failure.
+			slog.Warn("close imported epub failed", "path", absPath, "err", closeErr)
 		}
 	}()
 
@@ -428,11 +433,11 @@ func (s *Scanner) importFile(
 	if err != nil {
 		return "", false, false, fmt.Errorf("insert book: %w", err)
 	}
-	// If a concurrent import of identical content won the race, InsertBookContext
-	// returns that row's ID instead of our proposed one (generateID is
-	// path-dependent, so the winner's ID never matches ours). That import owns the
-	// row and its cover, so don't re-report it as newly imported or redo the cover
-	// decode.
+	// A different canonical ID means another path's importer won the content-
+	// hash race. That row owns its cover; don't report a new import or decode
+	// it again. Same-path races can propose the same ID, so equality alone
+	// does not establish exclusive ownership. Upload cleanup must consult the
+	// stored canonical path before removing its staged file.
 	if canonicalID != id {
 		return canonicalID, false, false, nil
 	}
@@ -453,8 +458,8 @@ func (s *Scanner) importFile(
 // cover-checked). On a definitive non-result -- the EPUB declares no cover, the
 // cover is intentionally skipped (oversized/too many pixels), or it is otherwise
 // undecodable -- it marks the book cover-checked so the backfill won't revisit
-// it. A transient failure (ctx cancellation) is left unchecked so a later scan
-// retries, mirroring the import loop's cancellation handling.
+// it. Cancellation and filesystem failures remain unchecked so a later scan
+// can retry after a file, permission, lock, or disk-space problem is resolved.
 func (s *Scanner) resolveBookCover(ctx context.Context, id, title, coverPathInZip string, zr *zip.Reader) bool {
 	if coverPathInZip == "" {
 		// EPUB declares no cover image; there is nothing to extract now or later.
@@ -476,12 +481,23 @@ func (s *Scanner) resolveBookCover(ctx context.Context, id, title, coverPathInZi
 		// Scan is being torn down; the cover was not really evaluated. Leave it
 		// unchecked (and quiet, like the import loop) so a later scan retries.
 	default:
-		// Genuine extraction failure (missing entry, corrupt image). Retrying will
-		// not change the result, so record it as resolved.
 		slog.Warn("cover extraction failed", "title", title, "err", coverErr)
-		s.markCoverChecked(ctx, id)
+		if !coverIOFailure(coverErr) {
+			// Missing ZIP entries and corrupt images are definitive non-results.
+			s.markCoverChecked(ctx, id)
+		}
 	}
 	return false
+}
+
+// Filesystem failures may clear after a file is restored, a lock is released,
+// or disk space becomes available. They do not prove the cover is unrenderable.
+func coverIOFailure(err error) bool {
+	if _, ok := errors.AsType[*fs.PathError](err); ok {
+		return true
+	}
+	_, ok := errors.AsType[*os.LinkError](err)
+	return ok
 }
 
 // markCoverChecked flags a book as cover-resolved so the backfill skips it. It
@@ -494,32 +510,23 @@ func (s *Scanner) markCoverChecked(ctx context.Context, id string) {
 }
 
 // backfillMissingCovers re-attempts cover extraction for books that were never
-// cover-resolved -- covers that failed transiently on a previous (canceled)
-// scan, or books imported before cover extraction existed. It reuses the import
+// cover-resolved -- covers interrupted by cancellation or filesystem failures,
+// or books imported before cover extraction existed. It reuses the import
 // pass's bounded fan-out and the shared cover-decode semaphore. Each book is
 // revisited only until resolved once (resolveBookCover marks it), so steady
 // state this drains immediately. Runs only after a completed walk, so it never
 // competes with the import pass. The returned IDs are only books whose cover
 // summary was successfully updated in the database.
-func (s *Scanner) backfillMissingCovers(ctx context.Context, workers int) []string {
+func (s *Scanner) backfillMissingCovers(ctx context.Context, workers int) ([]string, error) {
 	pending, err := s.db.ListBooksMissingCoversContext(ctx)
 	if err != nil {
-		if ctx.Err() == nil {
-			slog.Warn("load books missing covers failed", "err", err)
-		}
-		return nil
+		return nil, fmt.Errorf("load books missing covers: %w", err)
 	}
 	if len(pending) == 0 {
-		return nil
+		return nil, ctx.Err()
 	}
 	slog.Info("backfilling covers", "count", len(pending))
-
-	if workers < 1 {
-		workers = 1
-	}
-	if workers > len(pending) {
-		workers = len(pending)
-	}
+	workers = min(max(workers, 1), len(pending))
 
 	var (
 		mu           sync.Mutex
@@ -549,13 +556,12 @@ func (s *Scanner) backfillMissingCovers(ctx context.Context, workers int) []stri
 	}
 	close(bookCh)
 	wg.Wait()
-	return refreshedIDs
+	return refreshedIDs, ctx.Err()
 }
 
-// backfillCover resolves one book's cover by reopening its EPUB. A book whose
-// file cannot be opened or parsed is treated as unparseable and marked resolved
-// (an unreadable file will not fix itself, and leaving it unchecked would reopen
-// it on every scan); transient cancellation is left unchecked to retry later.
+// backfillCover resolves one book's cover by reopening its EPUB. Malformed
+// archives are marked resolved; filesystem errors and cancellation remain
+// retryable because they do not establish whether the cover can be decoded.
 func (s *Scanner) backfillCover(ctx context.Context, bp storage.BookPath) bool {
 	if ctx.Err() != nil {
 		return false
@@ -564,17 +570,25 @@ func (s *Scanner) backfillCover(ctx context.Context, bp storage.BookPath) bool {
 	if err != nil {
 		if ctx.Err() == nil {
 			slog.Warn("backfill cover: open epub failed", "book", bp.ID, "path", bp.FilePath, "err", err)
-			s.markCoverChecked(ctx, bp.ID)
+			if !coverIOFailure(err) {
+				s.markCoverChecked(ctx, bp.ID)
+			}
 		}
 		return false
 	}
-	defer func() { _ = zr.Close() }()
+	defer func() {
+		if closeErr := zr.Close(); closeErr != nil && ctx.Err() == nil {
+			slog.Warn("backfill cover: close epub failed", "book", bp.ID, "err", closeErr)
+		}
+	}()
 
 	meta, err := epub.Parse(&zr.Reader)
 	if err != nil {
 		if ctx.Err() == nil {
 			slog.Warn("backfill cover: parse epub failed", "book", bp.ID, "err", err)
-			s.markCoverChecked(ctx, bp.ID)
+			if !coverIOFailure(err) {
+				s.markCoverChecked(ctx, bp.ID)
+			}
 		}
 		return false
 	}
@@ -598,18 +612,6 @@ func (s *Scanner) CheckDuplicate(ctx context.Context, filePath string) (existing
 	}
 
 	return existingID, h, true
-}
-
-// ImportFile imports a single EPUB file into the library, returning its book ID.
-func (s *Scanner) ImportFile(ctx context.Context, filePath string, knownHash string) (string, error) {
-	id, _, _, err := s.importFile(ctx, filePath, knownHash, nil, true)
-	if err != nil {
-		return "", err
-	}
-	if id != "" {
-		return id, nil
-	}
-	return "", errors.New("book was not imported and could not be found")
 }
 
 // ImportUploadedFile imports a file newly placed by the upload API and reports
@@ -641,15 +643,17 @@ var hashBufPool = sync.Pool{
 	},
 }
 
-// HashFile returns the SHA-256 content hash (hex) and byte size of the file at
-// filePath. It is the exported entry point the API uses to recompute a book's
-// file_hash/file_size after an in-place EPUB edit, sharing the exact hashing of
-// the import path so the value matches what a rescan would compute.
+// HashFile returns the SHA-256 content hash (hex) and number of bytes read.
+// It does not provide a snapshot if another writer changes the file. The API
+// uses the same hashing as imports to refresh file_hash/file_size after edits.
 func HashFile(ctx context.Context, filePath string) (hash string, size int64, err error) {
 	return contentHash(ctx, filePath)
 }
 
 func contentHash(ctx context.Context, filePath string) (hash string, size int64, err error) {
+	if err := ctx.Err(); err != nil {
+		return "", 0, err
+	}
 	file, err := os.Open(filePath)
 	if err != nil {
 		return "", 0, fmt.Errorf("open file for hashing: %w", err)
@@ -659,11 +663,6 @@ func contentHash(ctx context.Context, filePath string) (hash string, size int64,
 			err = fmt.Errorf("close file: %w", closeErr)
 		}
 	}()
-
-	info, err := file.Stat()
-	if err != nil {
-		return "", 0, fmt.Errorf("stat file: %w", err)
-	}
 
 	hasher := sha256.New()
 	bufPtr := hashBufPool.Get().(*[]byte)
@@ -675,9 +674,8 @@ func contentHash(ctx context.Context, filePath string) (hash string, size int64,
 		}
 		n, readErr := file.Read(buf)
 		if n > 0 {
-			if _, writeErr := hasher.Write(buf[:n]); writeErr != nil {
-				return "", 0, fmt.Errorf("hash file content: %w", writeErr)
-			}
+			_, _ = hasher.Write(buf[:n]) // hash.Hash.Write never returns an error.
+			size += int64(n)
 		}
 		if readErr == io.EOF {
 			break
@@ -687,12 +685,19 @@ func contentHash(ctx context.Context, filePath string) (hash string, size int64,
 		}
 	}
 
-	return hex.EncodeToString(hasher.Sum(nil)), info.Size(), nil
+	var digest [sha256.Size]byte
+	var encoded [sha256.Size * 2]byte
+	hex.Encode(encoded[:], hasher.Sum(digest[:0]))
+	return string(encoded[:]), size, nil
 }
 
 func generateID(filePath, contentHash string) string {
 	hasher := sha256.New()
 	_, _ = hasher.Write([]byte(filePath))
 	_, _ = hasher.Write([]byte(contentHash))
-	return hex.EncodeToString(hasher.Sum(nil))[:16]
+	var digest [sha256.Size]byte
+	sum := hasher.Sum(digest[:0])
+	var id [16]byte
+	hex.Encode(id[:], sum[:8])
+	return string(id[:])
 }
