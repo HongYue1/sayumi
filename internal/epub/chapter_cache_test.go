@@ -2,9 +2,14 @@ package epub
 
 import (
 	"archive/zip"
+	"compress/flate"
+	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -39,9 +44,10 @@ func writeTestEPUB(t *testing.T, files map[string]string) string {
 }
 
 // TestProcessChapterSharesStylesheetCache verifies that a stylesheet linked by
-// multiple chapters is decompressed and rewritten once, then replayed from the
+// sequential chapters is decompressed and rewritten once, then replayed from the
 // book-scoped cache, producing byte-identical CSS across chapters.
 func TestProcessChapterSharesStylesheetCache(t *testing.T) {
+	t.Parallel()
 	const css = `@font-face { font-family: "Fancy"; src: url("fonts/fancy.woff2"); }` + "\n" +
 		`body { background: url("img/bg.png"); }`
 	chapter := func(body string) string {
@@ -55,11 +61,32 @@ func TestProcessChapterSharesStylesheetCache(t *testing.T) {
 
 	store := NewStore(10)
 	defer store.Close()
+	// Configure the decompressor before publication; shared readers/indexes must
+	// never be modified after OpenIndexed returns them to callers.
+	var decompressions atomic.Int32
+	if _, err := store.acquireWithOpener(zipPath, func(name string) (*zip.ReadCloser, error) {
+		reader, err := zip.OpenReader(name)
+		if err != nil {
+			return reader, err
+		}
+		reader.RegisterDecompressor(zip.Deflate, func(r io.Reader) io.ReadCloser {
+			decompressions.Add(1)
+			return flate.NewReader(r)
+		})
+		return reader, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store.Release(zipPath)
 	spine := []SpineEntry{{Href: "ch1.xhtml"}, {Href: "ch2.xhtml"}}
 
 	r0, err := ProcessChapter(t.Context(), store, zipPath, spine, 0, "book1", "ltr", "tok123")
 	if err != nil {
 		t.Fatalf("ProcessChapter(0): %v", err)
+	}
+
+	if got := decompressions.Load(); got != 2 {
+		t.Fatalf("first chapter + stylesheet decompressions = %d; want 2", got)
 	}
 
 	// The shared stylesheet must be cached after the first cold render.
@@ -70,6 +97,13 @@ func TestProcessChapterSharesStylesheetCache(t *testing.T) {
 	r1, err := ProcessChapter(t.Context(), store, zipPath, spine, 1, "book1", "ltr", "tok123")
 	if err != nil {
 		t.Fatalf("ProcessChapter(1): %v", err)
+	}
+
+	if got := decompressions.Load(); got != 3 {
+		t.Fatalf("two chapters + shared stylesheet decompressions = %d; want 3", got)
+	}
+	if !strings.Contains(r1.HTML, "<p>Two</p>") {
+		t.Fatalf("second chapter was not rendered: %q", r1.HTML)
 	}
 
 	// Both chapters link the same sheet, so the rewritten output is identical.
@@ -101,6 +135,256 @@ func TestProcessChapterSharesStylesheetCache(t *testing.T) {
 	}
 }
 
+func TestProcessChapterCacheSurvivesZIPClose(t *testing.T) {
+	t.Parallel()
+	filePath := writeTestEPUB(t, map[string]string{
+		"ch.xhtml": `<html dir="rtl"><head><style>@font-face { font-family: Book; src: url(font.woff2); } p { writing-mode: vertical-rl; }</style></head><body><img src="image.png">Text</body></html>`,
+	})
+	store := NewStore(1)
+	t.Cleanup(store.Close)
+	spine := []SpineEntry{{Href: "ch.xhtml"}}
+	store.SetChapter(filePath, 0, "old-render-version", ChapterResponse{HTML: "stale"})
+	want, err := ProcessChapter(t.Context(), store, filePath, spine, 0, "book", "ltr", "token")
+	if err != nil || want.HTML == "stale" || want.CSS == "" || want.FontFaceCSS == "" || want.Direction != "rtl" || want.WritingMode != "vertical-rl" {
+		t.Fatalf("cold render = %+v, %v", want, err)
+	}
+	store.CloseBook(filePath)
+	if err := os.Remove(filePath); err != nil {
+		t.Fatal(err)
+	}
+	// The missing ZIP makes an accidental cache miss observable without mutating
+	// a published reader/index. Derived responses outlive ZIP retention.
+	got, err := ProcessChapter(t.Context(), store, filePath, spine, 0, "book", "ltr", "token")
+	if err != nil || got != want {
+		t.Fatalf("warm render = %+v, %v; want %+v", got, err, want)
+	}
+	store.EvictBook(filePath)
+	got, err = ProcessChapter(t.Context(), store, filePath, spine, 0, "book", "ltr", "token")
+	if err == nil || got != (ChapterResponse{}) {
+		t.Fatalf("evicted render = %+v, %v; want zero response and open error", got, err)
+	}
+	if _, ok := store.GetChapter(filePath, 0, ChapterRenderVersion); ok {
+		t.Error("failed render was cached")
+	}
+}
+
+// Cancellation on decompressor close occurs after a successful archive read but
+// before HTML processing, so the render-error ownership path is deterministic.
+type cancelChapterReadCloser struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (r cancelChapterReadCloser) Close() error {
+	err := r.ReadCloser.Close()
+	r.cancel()
+	return err
+}
+
+func TestProcessChapterBorrowOwnership(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name       string
+		href       string
+		cancelRead bool
+		wantError  bool
+	}{
+		{name: "success", href: "ch.xhtml"},
+		{name: "missing chapter", href: "missing.xhtml", wantError: true},
+		{name: "canceled after read", href: "ch.xhtml", cancelRead: true, wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			filePath := writeTestEPUB(t, map[string]string{"ch.xhtml": "<html><body>Text</body></html>"})
+			store := NewStore(1)
+			t.Cleanup(store.Close)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			func() {
+				// Keep an independent borrow pinned across ProcessChapter to catch
+				// both an extra Release and a missing Release, not merely leaks.
+				if _, err := store.acquireWithOpener(filePath, func(name string) (*zip.ReadCloser, error) {
+					reader, err := zip.OpenReader(name)
+					if err != nil {
+						return reader, err
+					}
+					if tc.cancelRead {
+						reader.RegisterDecompressor(zip.Deflate, func(r io.Reader) io.ReadCloser {
+							return cancelChapterReadCloser{ReadCloser: flate.NewReader(r), cancel: cancel}
+						})
+					}
+					return reader, nil
+				}); err != nil {
+					t.Fatal(err)
+				}
+				defer store.Release(filePath)
+				got, err := ProcessChapter(ctx, store, filePath, []SpineEntry{{Href: tc.href}}, 0, "book", "ltr", "token")
+				if (err != nil) != tc.wantError {
+					t.Errorf("render error = %v; wantError %v", err, tc.wantError)
+				}
+				if tc.cancelRead && !errors.Is(err, context.Canceled) {
+					t.Errorf("render error = %v; want context.Canceled", err)
+				}
+				if tc.wantError && got != (ChapterResponse{}) {
+					t.Errorf("failed render returned a response: %+v", got)
+				}
+				if cached, ok := store.GetChapter(filePath, 0, ChapterRenderVersion); ok != !tc.wantError || ok && cached != got {
+					t.Errorf("cache after render = %+v, %v", cached, ok)
+				}
+				if store.TryCloseForReplace(filePath) {
+					t.Error("ProcessChapter released the independent caller's borrow")
+				}
+			}()
+			if !store.TryCloseForReplace(filePath) {
+				t.Error("ProcessChapter retained a borrow after returning")
+			}
+		})
+	}
+}
+
+func TestProcessChapterReplacementAndIsolation(t *testing.T) {
+	t.Parallel()
+	chapter := func(text string) string {
+		return `<html><head><link rel="stylesheet" href="style.css"></head><body><img src="img.png"><p>` + text + `</p></body></html>`
+	}
+	filePath := writeTestEPUB(t, map[string]string{"ch.xhtml": chapter("old"), "style.css": "p { color: red; }"})
+	otherPath := writeTestEPUB(t, map[string]string{"ch.xhtml": chapter("other"), "style.css": "p { color: blue; }"})
+	store := NewStore(2)
+	t.Cleanup(store.Close)
+	spine := []SpineEntry{{Href: "ch.xhtml"}}
+	old, err := ProcessChapter(t.Context(), store, filePath, spine, 0, "book", "ltr", "old-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := ProcessChapter(t.Context(), store, otherPath, spine, 0, "other-book", "rtl", "other-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.CSS == other.CSS || old.HTML == other.HTML || !strings.Contains(other.HTML, "other-token") {
+		t.Fatalf("book-scoped outputs are not isolated: first=%+v other=%+v", old, other)
+	}
+	// No new acquisitions occur during replacement, matching the API generation
+	// lock contract. Both derived caches must be invalidated for this path only.
+	if !store.TryCloseForReplace(filePath) {
+		t.Fatal("chapter render did not release the old generation")
+	}
+	if _, ok := store.GetChapter(filePath, 0, ChapterRenderVersion); ok {
+		t.Error("old chapter survived replacement invalidation")
+	}
+	if _, ok := store.GetCSSFragment(filePath, "style.css"); ok {
+		t.Error("old stylesheet survived replacement invalidation")
+	}
+	if _, ok := store.GetCSSFragment(otherPath, "style.css"); !ok {
+		t.Error("replacement evicted another book's stylesheet")
+	}
+	newPath := writeTestEPUB(t, map[string]string{"ch.xhtml": chapter("new"), "style.css": "p { color: green; writing-mode: vertical-lr; }"})
+	data, err := os.ReadFile(newPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filePath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ProcessChapter(t.Context(), store, filePath, spine, 0, "book", "rtl", "new-token")
+	if err != nil || got == old || !strings.Contains(got.HTML, "<p>new</p>") || !strings.Contains(got.HTML, "new-token") || strings.Contains(got.HTML, "old-token") || !strings.Contains(got.CSS, "green") || got.Direction != "rtl" || got.WritingMode != "vertical-lr" {
+		t.Fatalf("replacement render = %+v, %v", got, err)
+	}
+	if cached, err := ProcessChapter(t.Context(), store, filePath, spine, 0, "book", "rtl", "new-token"); err != nil || cached != got {
+		t.Fatalf("replacement cache = %+v, %v; want %+v", cached, err, got)
+	}
+	if cached, err := ProcessChapter(t.Context(), store, otherPath, spine, 0, "other-book", "rtl", "other-token"); err != nil || cached != other {
+		t.Fatalf("other book changed = %+v, %v; want %+v", cached, err, other)
+	}
+}
+
+func TestProcessChapterConcurrentRenders(t *testing.T) {
+	t.Parallel()
+	filePath := writeTestEPUB(t, map[string]string{
+		"one.xhtml": `<html><head><link rel="stylesheet" href="style.css"></head><body>One<img src="one.png"></body></html>`,
+		"two.xhtml": `<html><head><link rel="stylesheet" href="style.css"></head><body>Two<img src="two.png"></body></html>`,
+		"style.css": `@font-face { font-family: Book; src: url(book.woff2); } body { background: url(bg.png); }`,
+	})
+	store := NewStore(2)
+	t.Cleanup(store.Close)
+	spine := []SpineEntry{{Href: "one.xhtml"}, {Href: "two.xhtml"}}
+	ctx := t.Context()
+	var want [2]ChapterResponse
+	for i := range want {
+		var err error
+		want[i], err = ProcessChapter(ctx, store, filePath, spine, i, "book", "ltr", "token")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	store.EvictBook(filePath)
+	// Concurrent misses may duplicate work; the cache is not a singleflight
+	// promise. All completed responses must nevertheless be identical and safe.
+	type result struct {
+		chapter int
+		resp    ChapterResponse
+		err     error
+	}
+	const workers = 16
+	start := make(chan struct{})
+	results := make(chan result, workers)
+	for i := range workers {
+		go func() {
+			<-start
+			chapter := i % len(want)
+			resp, err := ProcessChapter(ctx, store, filePath, spine, chapter, "book", "ltr", "token")
+			results <- result{chapter: chapter, resp: resp, err: err}
+		}()
+	}
+	close(start)
+	for range workers {
+		got := <-results
+		if got.err != nil || got.resp != want[got.chapter] {
+			t.Errorf("concurrent chapter %d = %+v, %v; want %+v", got.chapter, got.resp, got.err, want[got.chapter])
+		}
+	}
+	if !store.TryCloseForReplace(filePath) {
+		t.Error("concurrent renders retained ZIP borrows")
+	}
+}
+
+func TestProcessChapterCancellation(t *testing.T) {
+	t.Parallel()
+	for _, warm := range []bool{false, true} {
+		name := "cold"
+		if warm {
+			name = "warm"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			filePath := writeTestEPUB(t, map[string]string{"ch.xhtml": "<html><body>Chapter</body></html>"})
+			store := NewStore(1)
+			t.Cleanup(store.Close)
+			spine := []SpineEntry{{Href: "ch.xhtml"}}
+			if warm {
+				if _, err := ProcessChapter(t.Context(), store, filePath, spine, 0, "book", "ltr", "token"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			got, err := ProcessChapter(ctx, store, filePath, spine, 0, "book", "ltr", "token")
+			if !errors.Is(err, context.Canceled) || got != (ChapterResponse{}) {
+				t.Errorf("canceled render = %+v, %v; want zero response, context.Canceled", got, err)
+			}
+			if _, ok := store.GetChapter(filePath, 0, ChapterRenderVersion); ok != warm {
+				t.Errorf("cache presence = %v; want %v after cancellation", ok, warm)
+			}
+			// Validation remains ahead of cancellation, independent of cache state.
+			if _, err := ProcessChapter(ctx, store, filePath, spine, -1, "book", "ltr", "token"); err == nil || errors.Is(err, context.Canceled) {
+				t.Errorf("invalid chapter index error = %v; want range error", err)
+			}
+			if !store.TryCloseForReplace(filePath) {
+				t.Fatal("chapter render leaked a ZIP borrow")
+			}
+		})
+	}
+}
+
 // Entry counts alone are not a memory bound: one zip entry may decompress to
 // maxZipEntryBytes, and a crafted EPUB compresses ~1000:1, so a few-megabyte
 // book with many spine entries could pin gigabytes across the count-limited
@@ -120,18 +404,13 @@ func TestSizedLRUEvictsOnByteBudget(t *testing.T) {
 	gotBytes, gotLen := cache.bytes, cache.order.Len()
 	cache.mu.Unlock()
 
-	if gotBytes > budget {
-		t.Errorf("cache holds %d bytes, over the %d budget", gotBytes, budget)
+	if gotBytes != 900 || gotLen != 3 {
+		t.Errorf("cache holds %d bytes / %d entries; want 900 bytes / 3 entries", gotBytes, gotLen)
 	}
-	if gotLen > 4 {
-		t.Errorf("cache holds %d entries; 300-byte values under a %d budget should keep ~3", gotLen, budget)
-	}
-	// The most recent write must survive, and the oldest must not.
-	if _, ok := cache.Get(9); !ok {
-		t.Error("most recently written entry was evicted")
-	}
-	if _, ok := cache.Get(0); ok {
-		t.Error("oldest entry survived past the byte budget")
+	for i := range 10 {
+		if _, ok := cache.Get(i); ok != (i >= 7) {
+			t.Errorf("entry %d retained = %v; want %v", i, ok, i >= 7)
+		}
 	}
 }
 

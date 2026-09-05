@@ -1,6 +1,7 @@
 package epub
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 
@@ -225,33 +226,99 @@ func TestRewriteCSSURLsAndImports(t *testing.T) {
 	}, "\n")
 
 	got := rewriteCSSURLs(css, "OEBPS", base, token)
-	lower := strings.ToLower(got)
-
-	if !strings.Contains(lower, `@import "about:invalid"`) && !strings.Contains(lower, "@import 'about:invalid'") {
-		// quote style preserved from source; first import used double quotes
-		if !strings.Contains(got, "about:invalid") {
-			t.Fatalf("remote @import not neutralized: %q", got)
-		}
-	}
-	if strings.Contains(got, "evil.example") {
-		t.Fatalf("evil host leaked: %q", got)
-	}
-	if !strings.Contains(got, base+"/OEBPS/local.css") && !strings.Contains(got, base+"/OEBPS/local.css?token=") {
-		// local.css resolved under OEBPS with token
-		if !strings.Contains(got, "local.css") || !strings.Contains(got, "token=tok") {
-			t.Fatalf("local @import not rewritten with token: %q", got)
-		}
-	}
-	if !strings.Contains(got, base+"/OEBPS/img/bg.png") && !strings.Contains(got, "img/bg.png") {
-		t.Fatalf("url() not rewritten: %q", got)
-	}
-	if !strings.Contains(got, "token=tok") {
-		t.Fatalf("expected token on rewritten URLs: %q", got)
+	want := strings.Join([]string{
+		`@import "about:invalid";`,
+		`@import '/api/books/b1/resources/OEBPS/local.css?token=tok';`,
+		`body { background: url('/api/books/b1/resources/OEBPS/img/bg.png?token=tok'); }`,
+		`.x { background: url(about:invalid); }`,
+	}, "\n")
+	if got != want {
+		t.Fatalf("CSS rewrite:\ngot  %q\nwant %q", got, want)
 	}
 	// Inline path skips @import pass but still rewrites url().
 	inline := rewriteCSSURLsInline(`background: url("x.png")`, "OEBPS", base, "")
-	if !strings.Contains(inline, base+"/OEBPS/x.png") {
-		t.Fatalf("inline url rewrite: %q", inline)
+	if want := `background: url('/api/books/b1/resources/OEBPS/x.png')`; inline != want {
+		t.Fatalf("inline URL rewrite = %q; want %q", inline, want)
+	}
+}
+
+// A URL is reused in HTML attributes, srcset candidates, and quoted CSS strings.
+// Percent escapes already present in EPUB references must not be decoded or
+// double-escaped, including encoded slashes and literal percent characters.
+func TestBuildResourceURLSerialization(t *testing.T) {
+	t.Parallel()
+	const base = "/api/books/b1/resources"
+	for _, tc := range []struct {
+		name  string
+		ref   string
+		token string
+		want  string
+	}{
+		{name: "apostrophe and space", ref: "../Images/it's fine.png", token: "t", want: "/OEBPS/Images/it%27s%20fine.png?token=t"},
+		{name: "double quote and backslash", ref: `../Images/a"b\c.png`, token: "t", want: "/OEBPS/Images/a%22b%5Cc.png?token=t"},
+		{name: "query and fragment quoting", ref: "a.png?label=it's fine#note'1", token: "t", want: "/OEBPS/Text/a.png?token=t&label=it%27s%20fine#note%271"},
+		{name: "existing escapes", ref: "../Images/a%20b%2fc%25.png?x=%26+y#part%20one", token: "t", want: "/OEBPS/Images/a%20b%2fc%25.png?token=t&x=%26+y#part%20one"},
+		{name: "literal invalid escapes", ref: "a%zz%2.png", token: "t", want: "/OEBPS/Text/a%25zz%252.png?token=t"},
+		{name: "srcset comma", ref: "a,b.png#part,", token: "t", want: "/OEBPS/Text/a%2Cb.png?token=t#part%2C"},
+		{name: "controls", ref: "a\tb\nc.png", token: "t", want: "/OEBPS/Text/a%09b%0Ac.png?token=t"},
+		{name: "unicode", ref: "café.png", token: "t", want: "/OEBPS/Text/caf%C3%A9.png?token=t"},
+		{name: "no generated token", ref: "a.png?token=book&x=1#frag", want: "/OEBPS/Text/a.png?token=book&x=1#frag"},
+		{name: "path delimiters", ref: "a+b&c=d.png", token: "t", want: "/OEBPS/Text/a+b&c=d.png?token=t"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := buildResourceURL("OEBPS/Text", base, tc.ref, tc.token)
+			if !ok || got != base+tc.want {
+				t.Errorf("buildResourceURL(%q) = %q, %v; want %q, true", tc.ref, got, ok, base+tc.want)
+			}
+			if _, err := url.Parse(got); err != nil {
+				t.Errorf("invalid serialized URL %q: %v", got, err)
+			}
+		})
+	}
+}
+
+func TestBuildResourceURLTrustedTokenFirst(t *testing.T) {
+	t.Parallel()
+	const token = "trusted &token"
+	for _, query := range []string{"token=old", "%74oken=old&token=older", "token=&x=1&x=2", "x=1;token=old&token=older"} {
+		t.Run(query, func(t *testing.T) {
+			t.Parallel()
+			got, ok := buildResourceURL("", "/api/books/b1/resources", "a.png?"+query+"#frag", token)
+			if !ok {
+				t.Fatal("resource URL was not rewritten")
+			}
+			u, err := url.Parse(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Match the resource handler's first-value authorization contract.
+			if gotToken := u.Query().Get("token"); gotToken != token {
+				t.Errorf("authorized token = %q; want %q", gotToken, token)
+			}
+			if !strings.HasSuffix(u.RawQuery, "&"+query) || u.Fragment != "frag" {
+				t.Errorf("book query or fragment was lost: %q", got)
+			}
+		})
+	}
+}
+
+func TestRewriteSrcsetEscapedURLs(t *testing.T) {
+	t.Parallel()
+	const base = "/api/books/b1/resources"
+	in := "img/a%20b.png 1x, img/c,d.png 2x"
+	want := base + "/OEBPS/img/a%20b.png?token=t 1x, " + base + "/OEBPS/img/c%2Cd.png?token=t 2x"
+	if got := rewriteSrcsetValue(in, "OEBPS", base, "t"); got != want {
+		t.Fatalf("srcset = %q; want %q", got, want)
+	}
+}
+
+func TestRewriteCSSURLQuotedFilename(t *testing.T) {
+	t.Parallel()
+	in := `background: url("img/it's fine.png?token=old#part one")`
+	want := `background: url('/api/books/b1/resources/OEBPS/img/it%27s%20fine.png?token=trusted&token=old#part%20one')`
+	if got := rewriteCSSURLs(in, "OEBPS", "/api/books/b1/resources", "trusted"); got != want {
+		t.Fatalf("CSS string serialization:\ngot  %q\nwant %q", got, want)
 	}
 }
 
@@ -263,17 +330,8 @@ func TestBuildResourceURLTokenAndFragment(t *testing.T) {
 	if !ok {
 		t.Fatal("buildResourceURL failed")
 	}
-	if !strings.HasPrefix(got, base+"/OEBPS/Images/a.png?") {
-		t.Fatalf("path/query prefix: %q", got)
-	}
-	if !strings.Contains(got, "x=1") || !strings.Contains(got, "token=sec+ret") && !strings.Contains(got, "token=sec%20ret") {
-		// QueryEscape encodes space as +
-		if !strings.Contains(got, "token=") {
-			t.Fatalf("missing token: %q", got)
-		}
-	}
-	if !strings.HasSuffix(got, "#frag") {
-		t.Fatalf("missing fragment: %q", got)
+	if want := base + "/OEBPS/Images/a.png?token=sec+ret&x=1#frag"; got != want {
+		t.Fatalf("resource URL = %q; want %q", got, want)
 	}
 
 	if _, ok := buildResourceURL("OEBPS", base, "data:image/png;base64,AA", "t"); ok {
@@ -346,8 +404,7 @@ func TestProcessChapterWritingModeAndCache(t *testing.T) {
 		t.Fatalf("token missing on img: %q", r2.HTML)
 	}
 
-	// Cache hit: mutate underlying file would be heavy; assert GetChapter populated
-	// and a second ProcessChapter returns equal payload.
+	// Every response field must survive publication and a subsequent cache hit.
 	cached, ok := store.GetChapter(zipPath, 2, ChapterRenderVersion)
 	if !ok {
 		t.Fatal("expected chapter cache entry after ProcessChapter")
@@ -356,8 +413,8 @@ func TestProcessChapterWritingModeAndCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cached: %v", err)
 	}
-	if r2b.HTML != cached.HTML || r2b.CSS != cached.CSS || r2b.WritingMode != cached.WritingMode {
-		t.Fatalf("cache miss or mismatch")
+	if cached != r2 || r2b != r2 {
+		t.Fatalf("cache response mismatch: original=%+v stored=%+v hit=%+v", r2, cached, r2b)
 	}
 }
 
@@ -391,8 +448,8 @@ func TestRewriteCSSURLsNeutralizesRemoteRegardlessOfCaseOrQuoting(t *testing.T) 
 	// In-EPUB refs still resolve, including the quoted-with-spaces form that the
 	// previous pattern could not match at all.
 	local := rewriteCSSURLs(`a{background:URL("img/my pic.png")}`, "OEBPS", base, "tok")
-	if !strings.Contains(local, base+"/OEBPS/img/my pic.png") {
-		t.Errorf("local url not rewritten: %q", local)
+	if want := `a{background:url('` + base + `/OEBPS/img/my%20pic.png?token=tok')}`; local != want {
+		t.Errorf("local URL = %q; want %q", local, want)
 	}
 	// data: URIs are inline and must be left intact.
 	data := rewriteCSSURLs(`@font-face{src:url("data:font/woff2;base64,AAA")}`, "OEBPS", base, "tok")

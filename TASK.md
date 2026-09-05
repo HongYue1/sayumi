@@ -10,83 +10,145 @@ Preserve the local-first design, existing API contracts, and pure-Go build.
 
 ## Current task
 
-**Checkpoint 9 is complete and verified: EPUB ZIP-store lifecycle and resource ownership.**
+**Checkpoint 10 is complete and verified: chapter rendering and derived-cache contracts.**
 
-Base commit: `2f326c2 fix(epub): preserve parser and ZIP reader contracts`.
-This handoff accompanies the scoped CP9 commit; use Git history for its hash.
-CP8 and CP7 are finished. No subsequent checkpoint has been started.
+Base commit: `edd048f fix(epub): enforce ZIP-store resource ownership`.
+This handoff accompanies the scoped CP10 commit; use Git history for its hash.
+CP6-CP9 remain finished. No subsequent checkpoint has been started.
+The worktree was verified clean with no running jobs before CP10. Root/internal
+instructions, TASK/TRACKER, the three chapter files, relevant Go skills and
+references, and actual dependency callers were read before implementation.
 
-- Bounded scope: `internal/epub/store.go`, `store_test.go`,
-  `store_concurrency_test.go`, `store_contract_test.go`, and `store_bench_test.go`.
-  Adjacent chapter, search, API replacement/resource, and profile-shutdown callers
-  are dependency inspection only, not completed file reviews.
-- Root/internal instructions, the three store files, relevant concurrency,
-  safety, testing, and benchmark skills, and Git status/diffs were inspected.
-  The worktree was clean at the base commit. All existing benchmark protections
-  below still apply; `.skills/` and `.agents/` remain ignored.
-- The true-original benchmark executable and six-case harness are frozen below.
-  Original resource-close tests reproduced four failing subcases and a real data
-  race. A mechanical private-opener extraction then allowed controlled tests to
-  reproduce live-reader leakage on ErrInsecurePath and a lost CloseBook request
-  during loading; shared loading, failed-load retry, and ordinary eviction passed.
-- Implemented rejected-reader cleanup before error publication, exactly-once
-  resource close/release with retained close errors, and explicit-close intent
-  across loading while preserving later reacquisition. Index construction now
-  runs outside the global store mutex. No LRU algorithm or shutdown redesign.
-- Strengthened existing tests and ownership/retention documentation. Scoped
-  tests, race tests with five shuffled repetitions at CPUs 1 and 4, CGO-disabled
-  tests, formatting/import checks, and scoped lint (zero issues) all passed.
-  Full `make check` also passed: tidy, formatting, vet, lint, vulnerability checks,
-  all-package shuffled race tests, frontend checks/tests, and production builds.
-  The six-case paired benchmark comparison completed separately from all checks.
-- Preserve the ready-channel publication barrier, one Release per successful
-  OpenIndexed, pinned-reader survival during eviction, byte-budgeted derived
-  caches, keep-true DeleteFunc semantics, unknown streaming Size (-1), and MIME
-  behavior. API generation locks and drained Store.Close remain required.
-- `TRACKER.md` now lists 145 files: 74 complete and 71 pending. Only the five
-  store files were completed in this batch. No API, schema, dependency, frontend,
-  shutdown-lifecycle, MIME, or resource-size contract changes were made.
+- Bounded scope: `internal/epub/chapter.go`, `chapter_test.go`,
+  `chapter_cache_test.go`, and new `chapter_bench_test.go`. Parser, ZIP reader/store,
+  sanitizer, and API callers were dependency context only, not completed reviews.
+- The true-original executable and eight-case harness were frozen before any
+  production edit. Regressions reproduced successful warm-cache returns after
+  cancellation, malformed CSS URLs from quoted filenames, unsafe URL bytes, and
+  book-supplied query tokens shadowing the trusted resource token.
+- ProcessChapter now checks cancellation before its cache lookup, preserving
+  chapter-index validation precedence. Resource URLs percent-encode unsafe bytes
+  for CSS strings/srcset without decoding or double-escaping valid URI escapes.
+  The trusted token precedes the preserved book query to match first-value
+  authorization. ChapterRenderVersion is `2026-09-05-1` for response/ETag changes.
+- Tests now prove actual sequential stylesheet decompression reuse, full-response
+  cache replay without a retained ZIP, version separation, generation replacement
+  and book isolation, concurrent cold renders, exactly one Release on success and
+  read/render failure, and exact LRU byte-budget survivors. Weak rewrite assertions
+  were replaced with exact output expectations.
+- Clarified immutable-generation and sanitized-tree preconditions, and the limits
+  of CSS layout/import heuristics. This is not a general CSS parser, import-budget,
+  or shutdown redesign. No production dependencies or adjacent package files changed.
+- Preserved per-generation cache identity/budgets, API generation-lock lifetime,
+  shared read-only indexes, drained Store.Close, ResourceReader.Close ownership,
+  and unknown streaming Size (-1). `.skills/` and benchmark artifacts remain ignored
+  and untracked. All 22 recorded protected inputs/results across CP7-CP10 matched.
+- `TRACKER.md` was recounted: 146 files, 78 complete and 68 pending. Only the four
+  chapter files were completed in CP10. Pause after the scoped local commit.
 
-### CP9 measurement and verification
+### CP10 measurement and tradeoffs
 
-Ten alternating paired samples, six cases at CPUs 1 and 4, 300ms per case,
-Go 1.27.0 windows/amd64, GOAMD64=v1, CGO_ENABLED=1 for matching benchmark
-executables, AMD Ryzen 7 5800H. Production remains CGO_ENABLED=0. Fixtures and
-warmup are outside timing; benchmark runs did not overlap tests or builds.
+Ten alternating paired samples, eight cases at GOMAXPROCS 1 and 4, 300ms per
+case, Go 1.27.0 windows/amd64, GOAMD64=v1, CGO_ENABLED=1 for matching benchmark
+executables, AMD Ryzen 7 5800H. Production remains CGO_ENABLED=0. No benchmark
+run overlapped tests or builds, and no samples/outliers were discarded.
+Medians below use benchstat's rounded display; exact raw rows are archived below.
 
 | Case | CPU 1 median before -> after | CPU 4 median before -> after |
 | --- | --- | --- |
-| Indexed hit, 128 entries | 63.86 -> 63.99 ns | 64.21 -> 64.23 ns |
-| Cold open, 128 entries | 118.2 -> 117.5 us | 119.7 -> 116.9 us |
-| Cold open, 2048 entries | 1.283 -> 1.236 ms | 1.228 -> 1.214 ms |
-| Parallel indexed hit | 64.05 -> 64.57 ns | 169.3 -> 170.5 ns |
-| Resource Store4KiB | 11.79 -> 12.19 us | 11.73 -> 11.84 us |
-| Resource Deflate64KiB | 32.36 -> 32.65 us | 32.36 -> 33.24 us |
+| Warm chapter response | 87.83 -> 87.88 ns | 87.99 -> 88.36 ns |
+| Plain chapter miss | 71.76 -> 72.40 us | 72.39 -> 71.68 us |
+| Resource chapter, warm CSS | 695.8 -> 694.2 us | 695.7 -> 704.8 us |
+| Resource chapter, cold CSS | 874.5 -> 897.9 us | 879.4 -> 892.5 us |
+| Resource URL, safe input | 514.9 -> 553.6 ns | 516.6 -> 548.3 ns |
+| Resource URL, quoting | 671.6 -> 811.3 ns | 670.5 -> 795.5 ns |
+| Resource URL, escapes/query | 677.6 -> 742.9 ns | 661.8 -> 743.1 ns |
+| CSS URL rewrite | 279.6 -> 283.9 us | 272.6 -> 280.5 us |
 
-- No statistically significant timing change except parallel hits at CPU 4:
-  +0.74%, p=.030. Retained as a small measured cost of this ownership batch,
-  not evidence of an application-wide slowdown or speedup.
-- Large cold-open results were especially noisy (26-50% confidence-interval
-  widths). Moving index construction outside the mutex reduces lock scope;
-  these fixtures do not establish a cross-book latency or throughput gain.
-- Warm and parallel indexed hits remain 0 B / 0 allocations. Cold128 remains
-  662 allocations; Cold2048 remains about 10,283, without a significant change.
-- Resource cases remain eight allocations per operation. Store4KiB increases
-  from 336 to 352 B/op at both CPU settings. Deflate64KiB medians increase from
-  349 to 361 B/op at CPU 1 and 349 to 365 B/op at CPU 4. These small cleanup-state
-  costs are accepted for race-free, exactly-once close semantics.
-- Final checks: `go test -count=1 ./internal/epub`;
-  `go test -race -shuffle=on -count=5 -cpu=1,4 ./internal/epub`;
-  `CGO_ENABLED=0 go test -count=1 ./internal/epub`; scoped formatter/import/lint
-  checks; full `make check`; and `git diff --check`. All passed.
+- No statistically significant chapter-render or CSS-rewrite timing differences
+  in these fixtures; this is not proof of equivalence or an application-wide gain.
+- URL-helper costs are significant: safe inputs +7.54%/+6.15%, quoted inputs
+  +20.81%/+18.64%, and escaped/query inputs +9.64%/+12.29% at CPUs 1/4 respectively
+  (all p <= .002). These costs are accepted for correct serialization; no speedup
+  is claimed. The mixed-case timing geomean is +5.12%, not application throughput.
+- Allocation counts are unchanged at both CPU settings: warm response 0, plain
+  miss 359, resource chapter warm/cold CSS 3783/4041, URL safe/quoting/escaped-query
+  5/6/6, and CSS rewrite 787. Warm hits remain 0 B/op; URL cases remain 240/384/384 B/op.
+- CSS rewrite at CPU 4 grows from a median 138634 to 138945 B/op (+311 bytes,
+  +0.22%, p=.009). Other byte differences are not statistically significant.
+  The allocation-count result does not imply identical output size or byte cost.
+- Limits: synthetic fixtures on one host/toolchain; ZIP readers and OS file caches
+  are warm. Chapter misses include the explicit derived-cache deletion plus normal
+  decompression/render/publication, not cold filesystem I/O. CPU settings are not
+  parallel-render throughput tests. Fixtures and validation are outside timing.
+
+### Verification
+
+Focused regressions, full EPUB tests, five shuffled race repetitions at CPUs
+1 and 4, pure-Go EPUB tests, formatter/import checks, and scoped lint all passed.
+Full `make check` passed all gates, including tidy, formatting, vet, lint,
+vulnerability checks, all-package shuffled race tests, frontend lint/types/tests,
+and frontend/production builds. The measured candidate source hashes remained
+unchanged through the final check.
+
+```sh
+go test -count=1 -shuffle=on -timeout=60s ./internal/epub
+go test -race -shuffle=on -count=5 -cpu=1,4 -timeout=120s ./internal/epub
+CGO_ENABLED=0 go test -count=1 -timeout=60s ./internal/epub
+gofumpt -d internal/epub/chapter{,_test,_cache_test,_bench_test}.go
+goimports -d -local sayumi internal/epub/chapter{,_test,_cache_test,_bench_test}.go
+golangci-lint run ./internal/epub/... --timeout=5m
+make check
+git diff --check
+```
+
+### Protected CP10 benchmark artifacts
+
+Directory: `.agents/benchmarks/checkpoint10/` (ignored). The true-original
+executable was compiled with unchanged CP9 production code and the new harness;
+its one-iteration smoke run passed at CPUs 1 and 4. Never overwrite this binary
+or change the frozen harness, even if a later comparison is unfavorable.
+
+- `before.test.exe` SHA256:
+  `1933c4b4e3eb8a69176ec807dceac9f0e3cc3a691cc6bb5e4a91b238ee7348d8`.
+- Frozen `internal/epub/chapter_bench_test.go` SHA256:
+  `38abaed738c66cf6fdf262b66b003c5bb71fb37074e240e8279d57b7f5f06728`.
+- Original `internal/epub/chapter.go` SHA256:
+  `3880e32aafeeca3c481cc4deff76599c54ddb4c0e277ecfdba8faaef477a3de8`.
+- `regression-before.log` reproduces warm-cache cancellation, unsafe URL
+  serialization, and first-query-token shadowing before any production edit.
+- Verified candidate `after.test.exe` SHA256:
+  `a4a5e2d09260a283a06463ffe7a1ae8f4dd1c3ceae45a5dc7cc9d4d9ec2a2ee4`.
+- Frozen `compare_benchmarks.py` SHA256:
+  `addb472762f23f10222b323fb591dbab70f8a882dd0f552ea0a16cb3cb0d9b7a`.
+- `comparison.log` SHA256:
+  `3db12185709bce70d854b3c75d1d0b54d6b7e1e7be4075af55736e628deaaa51`.
+- `make-check.log` SHA256:
+  `3c62009f46ba97c5201dc915ae62698fd500924d46d2fbf73eab55f3b95996b1`.
+- `scoped-checks.log` and `regression-after.log` preserve successful verification.
+- Raw samples and benchstat input/output are in
+  `.agents/benchmarks/checkpoint10/runs/20260905T150319.847692Z/`.
+  All 320 case/CPU rows were validated (16 rows per executable run, ten pairs).
+- Repeat with `python .agents/benchmarks/checkpoint10/compare_benchmarks.py 10`.
+  The runner checks both executables and the harness, alternates variant order,
+  checks every expected case/CPU row, and invokes benchstat with sample ignored.
+  Each rerun creates a fresh raw-output directory; do not overwrite comparison.log
+  or rebuild either protected executable.
+- Reproduce the original failures (expected exit 1) without rebuilding:
+
+```sh
+.agents/benchmarks/checkpoint10/before.test.exe \
+  -test.run='^(TestProcessChapterCancellation|TestBuildResourceURLSerialization|TestBuildResourceURLTrustedTokenFirst|TestRewriteCSSURLQuotedFilename)$' \
+  -test.v -test.timeout=45s
+```
 
 ### Next step
 
-Pause after the scoped CP9 commit and report. On the next explicit continuation,
-select one bounded remaining EPUB batch from `TRACKER.md` (chapter rendering and
-its cache tests are a natural next focus). Reinspect actual files and Git state;
-do not repeat completed parser/reader/store work or treat dependency reads as
-completed reviews. No delegation, push, amend, or unattended follow-on work.
+Pause after the scoped CP10 commit and report. On the next explicit continuation,
+select one bounded remaining EPUB batch from `TRACKER.md`; sanitizer behavior and
+its tests are a natural next boundary to confirm. Reinspect actual files and Git
+state. Do not repeat CP6-CP10 or count dependency reads as completed reviews.
+No delegation, push, amend, or unattended follow-on work.
 
 ### Protected CP9 benchmark artifacts
 

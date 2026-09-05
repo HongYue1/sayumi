@@ -15,7 +15,9 @@ import (
 	"golang.org/x/net/html/atom"
 )
 
-const ChapterRenderVersion = "2026-03-22-1"
+// ChapterRenderVersion invalidates rendered responses and HTTP ETags when the
+// HTML/CSS serialization contract changes.
+const ChapterRenderVersion = "2026-09-05-1"
 
 type ChapterResponse struct {
 	ChapterIndex int    `json:"chapterIndex"`
@@ -27,6 +29,11 @@ type ChapterResponse struct {
 	ResourceBase string `json:"resourceBase"`
 }
 
+// ProcessChapter returns sanitized chapter content for one immutable book
+// generation. Within a store, filePath identifies that generation: spine,
+// bookID, bookDirection (ltr, rtl, or empty), and resourceToken must stay stable
+// until replacement evicts derived caches. Callers must exclude replacement
+// while rendering and using the returned response, including on cache hits.
 func ProcessChapter(
 	ctx context.Context,
 	store *EPUBStore,
@@ -41,6 +48,10 @@ func ProcessChapter(
 		return ChapterResponse{}, fmt.Errorf("chapter index %d out of range (0-%d)", chapterIndex, len(spine)-1)
 	}
 
+	// A warm response must honor cancellation just like a cold render.
+	if err := ctx.Err(); err != nil {
+		return ChapterResponse{}, err
+	}
 	if cached, ok := store.GetChapter(filePath, chapterIndex, ChapterRenderVersion); ok {
 		return cached, nil
 	}
@@ -49,10 +60,6 @@ func ProcessChapter(
 	hrefPath := entry.Href
 	if idx := strings.Index(hrefPath, "#"); idx != -1 {
 		hrefPath = hrefPath[:idx]
-	}
-
-	if err := ctx.Err(); err != nil {
-		return ChapterResponse{}, err
 	}
 
 	_, index, err := store.OpenIndexed(filePath)
@@ -92,9 +99,9 @@ func ProcessChapter(
 	return resp, nil
 }
 
-// writingModeRe matches the CSS writing-mode property set to a vertical value.
-// Anchoring on the property name avoids false positives from class names,
-// comments, or string literals that contain "vertical-rl" / "vertical-lr".
+// writingModeRe is a layout hint, not a CSS parser or cascade evaluator. Requiring
+// the property name avoids bare value matches, but comments and strings containing
+// an entire declaration can still match; do not use this as a safety check.
 var writingModeRe = regexp.MustCompile(`(?i)writing-mode\s*:\s*(vertical-rl|vertical-lr)`)
 
 func processChapterHTML(
@@ -207,6 +214,7 @@ func processChapterHTML(
 	}, nil
 }
 
+// findStructural walks a tree already depth-bounded by Sanitize.
 func findStructural(root *html.Node) (htmlNode, headNode, bodyNode *html.Node) {
 	var walk func(*html.Node) bool
 	walk = func(n *html.Node) bool {
@@ -320,9 +328,9 @@ var cssImportStringRegex = regexp.MustCompile(`(?i)(@import\s+)(['"])([^'"]+)(['
 // condition (media query, layer(), supports()).
 var cssImportRuleRegex = regexp.MustCompile(`(?is)@import\s+(?:url\(\s*(?:"([^"]*)"|'([^']*)'|([^'"()\s]*))\s*\)|"([^"]*)"|'([^']*)')\s*([^;]*);`)
 
-// maxCSSImportDepth caps @import inlining. Two hops covers every real book (a
-// chapter sheet importing a shared sheet that imports a font sheet); the cap is
-// what stops a crafted book from turning a chain of imports into unbounded work.
+// maxCSSImportDepth bounds recursive @import chains, allowing a chapter sheet
+// to import a shared sheet that imports a font sheet. This is a depth bound,
+// not a total imported-byte or breadth budget.
 const maxCSSImportDepth = 3
 
 // inlineCSSImports splices the text of in-EPUB @import targets into cssText so
@@ -730,29 +738,62 @@ func buildResourceURL(baseDir, resourceBase, rawRef, resourceToken string) (stri
 	builder.Grow(len(resourceBase) + len(resolved) + len(rawQuery) + len(fragment) + len(resourceToken) + 16)
 	builder.WriteString(resourceBase)
 	builder.WriteByte('/')
-	builder.WriteString(resolved)
+	writeResourceURLPart(&builder, resolved)
 
-	hasQuery := false
-	if rawQuery != "" {
-		builder.WriteByte('?')
-		builder.WriteString(rawQuery)
-		hasQuery = true
-	}
+	// The resource handler authorizes the first token query value. Put our token
+	// first so a book-supplied token (including an escaped key) cannot shadow it.
+	// Keep the remaining query's order and escapes rather than canonicalizing it.
 	if resourceToken != "" {
-		if hasQuery {
+		builder.WriteString("?token=")
+		builder.WriteString(url.QueryEscape(resourceToken))
+	}
+	if rawQuery != "" {
+		if resourceToken != "" {
 			builder.WriteByte('&')
 		} else {
 			builder.WriteByte('?')
 		}
-		builder.WriteString("token=")
-		builder.WriteString(url.QueryEscape(resourceToken))
+		writeResourceURLPart(&builder, rawQuery)
 	}
 	if fragment != "" {
 		builder.WriteByte('#')
-		builder.WriteString(fragment)
+		writeResourceURLPart(&builder, fragment)
 	}
 
 	return builder.String(), true
+}
+
+// writeResourceURLPart preserves URI delimiters and existing percent escapes,
+// while encoding bytes unsafe in quoted CSS strings or srcset URL tokens. In
+// particular, a literal apostrophe must not close the single-quoted url() output,
+// and whitespace/commas must not create new srcset candidates. Escaping spans
+// directly into the final builder avoids allocating intermediate component strings.
+func writeResourceURLPart(builder *strings.Builder, value string) {
+	const hex = "0123456789ABCDEF"
+	start := 0
+	for i := range len(value) {
+		ch := value[i]
+		escape := ch <= ' ' || ch >= 0x7f
+		switch ch {
+		case '\'', '"', '\\', ',', '<', '>', '`', '{', '}', '|', '^':
+			escape = true
+		case '%':
+			escape = i+2 >= len(value) || !isHexDigit(value[i+1]) || !isHexDigit(value[i+2])
+		}
+		if !escape {
+			continue
+		}
+		builder.WriteString(value[start:i])
+		builder.WriteByte('%')
+		builder.WriteByte(hex[ch>>4])
+		builder.WriteByte(hex[ch&0xf])
+		start = i + 1
+	}
+	builder.WriteString(value[start:])
+}
+
+func isHexDigit(ch byte) bool {
+	return ch >= '0' && ch <= '9' || ch >= 'a' && ch <= 'f' || ch >= 'A' && ch <= 'F'
 }
 
 // isExternalResourceReference reports whether rawRef points at a remote origin

@@ -77,9 +77,10 @@ icons, compiled resources, generated frontend output, and `.skills/` are exclude
 
 ## EPUB processing
 
-- [ ] `internal/epub/chapter.go`
-- [ ] `internal/epub/chapter_cache_test.go`
-- [ ] `internal/epub/chapter_test.go`
+- [x] `internal/epub/chapter.go`
+- [x] `internal/epub/chapter_bench_test.go`
+- [x] `internal/epub/chapter_cache_test.go`
+- [x] `internal/epub/chapter_test.go`
 - [ ] `internal/epub/edit.go`
 - [ ] `internal/epub/edit_test.go`
 - [x] `internal/epub/parser.go`
