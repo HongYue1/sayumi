@@ -10,113 +10,163 @@ Preserve the local-first design, existing API contracts, and pure-Go build.
 
 ## Current task
 
-**Checkpoint 12 is complete and verified: EPUB search text, cancellation, and pagination.**
+**Checkpoint 13 is complete and verified: EPUB rewrite metadata, archive identity, and failure cleanup.**
 
-Base commit: `857600b fix(epub): sanitize SVG attributes at the depth boundary`.
-This handoff accompanies the scoped CP12 commit; use Git history for its hash.
-CP6-CP11 remain finished; CP13 has not been started. The initial worktree was clean
-with no running jobs. Root/internal and applicable frontend instructions, TASK/TRACKER,
-relevant Go skills/references, and actual dependency callers were read before edits.
+Base commit: `abaae48 fix(epub): align search text and cancellation contracts`.
+This handoff accompanies the scoped CP13 commit; use Git history for its hash.
+CP6-CP12 remain finished; CP14 has not been started. The initial worktree was clean
+with no running jobs. Root/internal instructions, TASK/TRACKER, relevant Go skills
+and references, and actual dependency callers were read before edits.
 
-- Reviewed scope: `internal/epub/search.go`, `search_test.go`, and new
-  `search_bench_test.go`. Corrections in `internal/AGENTS.md` and
-  `frontend/src/iframe/searchHighlight.ts` are contract comments only; frontend
-  runtime, API, store, sanitizer, and chapter reads were dependency context, not
-  newly completed file reviews.
-- Reproduced incorrect offsets/text for removed SVG content, inert HTML templates,
-  foreign-namespace elements, unwrapped deep nodes, and the retained depth leaf.
-  Search now sanitizes its private parsed document before indexing, distinguishes
-  HTML-only traversal rules, and includes the sanitizer's retained depth-501 leaf.
-  The sanitizer's policy and 500-depth budget are unchanged.
-- Reproduced canceled searches returning success or a filesystem error instead of
-  cancellation. Nonempty searches now check cancellation before archive access,
-  after extraction, after scans, and before final success. Empty queries remain
-  successful no-ops. Physical archive reads/parsing are still non-interruptible;
-  valid extracted text can remain cached even when the request is canceled.
-- Pagination stops at lookahead before building a discarded snippet or allocating
-  the next chapter's rune slice. Inclusive cursors, non-overlapping matches, exact
-  code-point snippet offsets, default limits, and nonnil empty results are preserved.
-  The one-code-point lowercase implementation is unchanged; inaccurate comments
-  that confused Go's simple mapping with JavaScript's full lowercase were corrected.
-- Added exact cold/warm text and response regressions, Unicode/cursor/snippet cases,
-  boundary limits, missing chapters/archive errors, borrow-release/spine checks,
-  deterministic cancellation during ZIP reads, and bounded rune/cursor fuzzing.
-- Preserved API generation-lock lifetimes, shared read-only ZIP readers/indexes and
+- Reviewed scope: `internal/epub/edit.go`, `edit_test.go`, and new
+  `edit_bench_test.go`. API editing, parser, reader, and store reads were dependency
+  context, not newly completed file reviews. No API, frontend, cache, or dependency
+  changes were needed.
+- Reproduced a failed-copy temp leak and unintended rewrites of unselected ZIP
+  entries. Cleanup now uses the owned file's stable name, accounts for source-close
+  errors before handing back success, and closes each owned handle once. OPF and
+  cover replacement use the selected entry's identity; other entries retain raw
+  compressed bytes, methods, and order. The original archive stays unchanged.
+- Enforced the existing 8 MiB OPF rewrite limit before opening and during reading,
+  rather than after the generic bounded 64 MiB read. The unsupported-compression
+  regression proves an oversized declaration is rejected before opening its body.
+- Reproduced metadata readback failures for nested/out-of-metadata names, self-closed
+  fields, clearing multiple creators, and attribute case/local-name collisions.
+  Splices follow the existing parser's direct ancestry and case-sensitive local-name
+  policy, preserve field attributes, update the decoded file-as value, and clear all
+  creator values when requested. New Dublin Core/OPF nodes bind their namespaces
+  explicitly. Extra roots, unfinished trailing structure, and outside text are refused.
+- Missing declared covers are filled at their existing resolved path, and matching
+  direct manifest media types are repaired, including absent attributes. Parser-selected
+  image bytes are checked rather than assuming any new .jpg file is the selected cover.
+  The unused mediaTypeForHref helper was removed after repository-wide reference tracing.
+- Added deterministic archive/metadata regressions, namespace-aware insertion checks,
+  and bounded immutable/readback/idempotence fuzzing. Strengthened legacy assertions
+  and fixture error checks. No whole-OPF remarshal, new XML depth policy, filesystem
+  abstraction, or injected late-close failure fixture was added.
+- Preserved API generation-lock lifetimes, shared read-only OpenIndexed readers/indexes,
   one Release per borrow, drained Store.Close, exactly-once ResourceReader.Close,
-  unknown streaming Size (-1), and derived-cache budgets/generation identity.
-  ChapterRenderVersion remains `2026-09-05-2`. No new dependencies or shutdown redesign.
-- `TRACKER.md` inventory: 148 files, 84 complete and 64 pending. Only the three search
-  files were newly completed. Pause after the scoped local commit. On continuation,
-  reassess the remaining EPUB editing pair before moving to another package.
+  streaming Size (-1), and all derived-cache budgets/versioning. RewriteBook still owns
+  an independent source reader and requires a stable source generation during the call.
+- `TRACKER.md` inventory: 149 files, 87 complete and 62 pending. Only the three editing
+  files were newly completed; the EPUB processing inventory is now complete. Pause
+  after the scoped local commit. On continuation, reassess one bounded API or fonts
+  batch from the remaining checklist rather than treating dependency reads as reviews.
 
-### CP12 measurement and tradeoffs
+### CP13 measurement and tradeoffs
 
-Ten alternating paired samples, eight cases at GOMAXPROCS 1 and 4, 300ms per case,
+Ten alternating paired samples, six cases at GOMAXPROCS 1 and 4, 300ms per case,
 Go 1.27.0 windows/amd64, GOAMD64=v1, CGO_ENABLED=1 for matching executables,
 AMD Ryzen 7 5800H. Production remains CGO_ENABLED=0. No measurement overlapped tests
-or builds; all 320 rows and outliers were retained. Each (pair, variant, case, CPU)
-key is unique, with ten samples per variant/case/CPU and no missing values.
-An independent pandas/stdlib audit reproduced all 96 metric medians and 48 deltas;
-CSV float parsing used round-trip precision without altering samples.
+or builds. All 240 rows and all twenty executable outputs were retained. An independent
+pandas/stdlib audit reparsed the raw outputs without the runner's regex and reproduced
+all 72 metric medians and 36 deltas. Keys include the full benchmark family, so the two
+CoverReplace cases cannot be merged accidentally. No values or outliers were excluded.
 
 | Case | CPU 1 median before -> after | CPU 4 median before -> after |
 | --- | --- | --- |
-| Warm page | 37.08 -> 35.25 us | 36.57 -> 36.84 us |
-| Warm Unicode page | 54.44 -> 59.80 us | 60.92 -> 60.28 us |
-| Warm cross-chapter lookahead | 389.32 -> 42.85 us | 400.81 -> 44.23 us |
-| Warm no match | 991.15 -> 997.45 ns | 983.60 -> 985.15 ns |
-| Cold plain text | 428.02 -> 432.79 us | 415.29 -> 422.02 us |
-| Cold SVG text | 376.51 -> 392.53 us | 372.78 -> 398.34 us |
-| Cold structural text | 352.13 -> 328.30 us | 355.70 -> 328.62 us |
-| Cold depth boundary | 2.484 -> 2.457 ms | 2.486 -> 2.472 ms |
+| OPF small metadata | 38.44 -> 38.83 us | 38.06 -> 38.05 us |
+| OPF large metadata | 10.829 -> 10.678 ms | 10.797 -> 11.002 ms |
+| OPF cover replacement | 37.00 -> 36.91 us | 36.94 -> 36.89 us |
+| OPF cover insertion | 30.92 -> 32.14 us | 30.88 -> 32.06 us |
+| Archive metadata | 1.595 -> 1.584 ms | 1.568 -> 1.561 ms |
+| Archive cover replacement | 1.505 -> 1.508 ms | 1.481 -> 1.486 ms |
 
-- Cross-chapter lookahead time decreased 88.99%/88.97% at CPUs 1/4 (both p<.001).
-  Median allocation volume fell from 401939.5/401937 B/op to 192 B/op (-99.95%);
-  allocation counts fell from 11 to 8. Before editing, a separate original CPU/heap
-  profile identified the discarded whole-chapter rune slice as the allocation
-  hotspot. Profile timings are not substituted for the paired benchmark samples.
-- Correctness costs: cold SVG at CPU 4 increased 6.86% (p=.029); CPU 1 increased
-  4.25% without a significant difference (p=.143). The new sanitization pass is
-  retained for correct indexed text, rather than reverting it for a favorable number.
-- ColdStructural time decreased 6.77%/7.61% (p=.001/.003), but indexed text changed
-  from 4095 to 2431 runes by excluding inert/removed content. ColdDepthBoundary now
-  indexes the retained six-rune match instead of nothing; allocations rose 1541 ->
-  1546. Neither case is an equivalent-work speedup claim.
-- Other timings were not significant at the usual .05 threshold; that is not proof
-  of equivalence. Warm page/Unicode lookahead uses one fewer allocation (33 -> 32)
-  without a demonstrated timing win. Exact allocation/byte medians are archived.
-- Limits: one host/toolchain, synthetic fixtures, some wide timing intervals, and
-  ordinary unadjusted benchstat comparisons. Cold cases evict only text-cache keys
-  inside timing, with ZIP readers and OS caches warm. Setup, warmup, and response
-  validation are outside timing. CPU settings do not measure parallel-search
-  throughput; no application-wide improvement or aggregate geomean claim is made.
+- No timing comparison was statistically significant at .05; no speedup is claimed.
+  This is not evidence of equivalence. Cover insertion rose 3.94%/3.82% at CPUs 1/4
+  (p=.052/.143); other timing p-values ranged .247-1.000. Correctness is not reverted
+  to obtain a more favorable comparison.
+- OPF allocated bytes/op rose 1.40%-3.81% (all p<.001). Small metadata: 11392 -> 11552
+  B/op and 250 -> 255 allocations; large metadata: about 3.683 -> 3.809 MB/op and
+  67865 -> 67870 allocations. Cover replacement: 10080 -> 10256 B/op with 248
+  allocations unchanged. Cover insertion: 9443 -> 9803 B/op and 201 -> 204 allocations.
+  These are allocation-volume costs, not peak-memory measurements.
+- Archive metadata medians gained 5/4 allocations at CPUs 1/4 (both p<.001); cover
+  replacement allocation counts remained 438. Archive bytes/op differences were not
+  significant; exact byte/count medians and p-values remain in the archived outputs.
+- Limits: one host/toolchain, synthetic fixtures, warm OS/ZIP caches, and ordinary
+  unadjusted benchstat comparisons. The large OPF adds 2048 manifest items; archive
+  fixtures include a 288 KiB stored resource. Setup, JPEG generation, warmup, and
+  semantic checks are outside timing. Archive timing includes creation, copy, Sync,
+  Close, and output removal. CPU settings are not parallel-edit throughput. No
+  application-wide improvement or aggregate geomean claim is made.
 
 ### Verification
 
 Focused regressions, full EPUB tests, five shuffled race repetitions at CPUs 1/4,
-pure-Go EPUB tests, formatter/import checks, and scoped lint passed. A 30-second,
-four-worker rune/cursor fuzz campaign completed 228236 executions without failure
-with a 64 KiB input cap. Full `make check` passed: tidy, Go/frontend formatting,
-vet, lint, vulnerability checks, all-package shuffled race tests, frontend lint/
-types/tests, and frontend/pure-Go builds. The initial embed-build preflight reused
-existing output; the final build gate performed the frontend and Go builds.
-The measured source/executable/harness hashes remained unchanged through that check.
-No new actual-browser/cross-language DOM round-trip test was performed; the parsed
-sanitizer/body-renderer regressions and existing frontend tests are not that guarantee.
-All jobs exited. Skills/artifacts remain ignored/untracked, and the CP7-CP11 protected
-artifacts/historical source hashes were rechecked unchanged.
+pure-Go EPUB tests, formatting/import checks, and scoped lint passed. A 30-second,
+four-worker OPF fuzz campaign completed 343892 executions without failure with a
+64 KiB input cap. Full `make check` passed: tidy, Go/frontend formatting, vet, lint,
+vulnerability checks, all-package shuffled race tests, frontend lint/types/tests,
+and frontend/pure-Go builds. The initial embed preflight reused existing frontend
+output; the final gate performed both builds. Measured source, tests, harness, and
+both executable hashes remained unchanged through the check. All jobs exited.
+Skills and generated benchmark artifacts remain ignored/untracked; CP7-CP12 protected
+artifacts and historical source hashes were rechecked unchanged.
 
 ```sh
-go test -count=1 -shuffle=on -run '^(TestSearch|TestFoldRunes|TestRuneOffsetToByteIndex|TestPlainTextExtractor|FuzzSearchRuneOffsets)' -timeout=60s ./internal/epub
+go test -count=1 -run '^(TestRewrite(Book|OPF)|TestApplySplices|FuzzRewriteOPF)' -timeout=60s ./internal/epub
 go test -count=1 -shuffle=on -timeout=60s ./internal/epub
 go test -race -shuffle=on -count=5 -cpu=1,4 -timeout=120s ./internal/epub
 CGO_ENABLED=0 go test -count=1 -timeout=60s ./internal/epub
-go test -run='^$' -fuzz='^FuzzSearchRuneOffsets$' -fuzztime=30s -parallel=4 -timeout=90s ./internal/epub
-gofumpt -d internal/epub/search{,_test,_bench_test}.go
-goimports -d -local sayumi internal/epub/search{,_test,_bench_test}.go
+go test -run='^$' -fuzz='^FuzzRewriteOPFRoundTrip$' -fuzztime=30s -parallel=4 -timeout=90s ./internal/epub
+gofumpt -d internal/epub/edit{,_test,_bench_test}.go
+goimports -d -local sayumi internal/epub/edit{,_test,_bench_test}.go
 golangci-lint run ./internal/epub/... --timeout=5m
 make check
 git diff --check
+```
+
+### Protected CP13 benchmark artifacts
+
+Directory: `.agents/benchmarks/checkpoint13/` (ignored). The true-original was
+compiled before production edits from CP12 production at `abaae48`, with the initial
+regressions and self-contained frozen harness. Both executables passed all twelve
+one-iteration smoke cases. Never overwrite the protected executables, harness, runner,
+or original logs, including unfavorable comparisons or failed intermediate checks.
+
+- `before.test.exe` SHA256:
+  `32df15f774c80fcc80f7b768addd7636ed0d6b2e3794b1c45b2706b6619e69b0`.
+- Frozen `internal/epub/edit_bench_test.go` SHA256:
+  `d3c6b7f6f614d39b6cd0dc84f2389f3b53dfd0b7585789bf6c3f7b5b0bb62672`.
+- Original `internal/epub/edit.go` at `abaae48` SHA256:
+  `68ab08b9effcf1cd74296c8dd025380b5247b774f87e51538f5283b53ac68691`.
+- Verified/measured `after.test.exe` SHA256:
+  `00d39208813da8a9aabd910fb09bc824d1bf071d01c1b5881805e7bce31171d8`.
+- Frozen `compare_benchmarks.py` SHA256:
+  `41005094c13a8e1345c33e24dd833572a2fee95e9f46337311cb63281df87cc1`.
+- `comparison.log` SHA256:
+  `6e745c9a7d7e28ad4a250141a1a47af19566902635d09663d2baeca4f2f0fd9a`.
+- `scoped-checks-final.log` SHA256:
+  `be78dd36d52acaa18f727257b04e6cd228b43f2c5c282f436eadc564c8c027a4`.
+- `make-check.log` SHA256:
+  `9a077e27d947b5dc07fbc3a7ae62a6eb837609b4c9b45c87622c3488fe532ccc`.
+- Raw `runs/20260905T174311.481897Z/samples.csv` SHA256:
+  `b6ef6b6698308b791ee61ad95e3c23bce114288eac4d2b349cbbaf58ebe336a9`.
+- Exact `runs/20260905T174311.481897Z/medians.csv` SHA256:
+  `6d4e6e949aa4fb81d74fcc0440dd8a3411e3f653977abbce7e57ac9ad3c6a819`.
+- `baseline-hashes.txt` and `candidate-hashes.txt` record build/source provenance;
+  measured source hashes are not permanent production freezes. `regression-before.log`
+  preserves the initial failures; `structural-regression-before.log` preserves the
+  additional attribute/trailing-structure failures against the first candidate.
+  `regression-after.log` contains the compiled final candidate passes. Failed lint
+  and intermediate check logs are retained separately; use scoped-checks-final.log
+  for the successful final scoped gate. `protected-after.log` records the final audit.
+- The run directory contains all twenty raw outputs, complete benchstat input/output,
+  exact medians, and environment settings. Repeat only on the recorded source/test
+  tree with no concurrent tests/builds:
+  `python .agents/benchmarks/checkpoint13/compare_benchmarks.py 10`.
+  The runner checks both binaries, harness, and measured source/tests; alternates
+  order; requires twelve distinct family/case/CPU rows per run; and ignores sample
+  labels in benchstat. Reruns get new output directories. Never overwrite comparison.log
+  or rebuild the originals; use a new checkpoint/harness for later production changes.
+- Reproduce the initial failures (expected exit 1) without rebuilding; substitute
+  `after.test.exe` for the verified passing comparison:
+
+```sh
+.agents/benchmarks/checkpoint13/before.test.exe \
+  -test.run='^(TestRewriteBook(FailedCopyRemovesTemp|PreservesUnselectedEntries|RejectsOversizeOPFBeforeOpening|CoverReadback)|TestRewriteOPF)' \
+  -test.v -test.timeout=60s
 ```
 
 ### Protected CP12 benchmark artifacts
@@ -259,11 +309,11 @@ or change the frozen harness, even if a later comparison is unfavorable.
 
 ### Next step
 
-Pause after the scoped CP11 commit and report. On the next explicit continuation,
-select one bounded remaining EPUB batch from `TRACKER.md`: either search.go and
-its tests or edit.go and its tests, not both automatically. Confirm the dependency
-boundary from actual files and Git state before editing. Do not repeat CP6-CP11
-or count dependency reads as completed reviews. Preserve all protected artifacts.
+Pause after the scoped CP13 commit and report. On the next explicit continuation,
+reassess one bounded remaining API or fonts batch from `TRACKER.md`. The EPUB
+processing inventory is complete. Confirm the dependency boundary from actual
+files and Git state before editing. Do not repeat CP6-CP13 or count dependency
+reads as completed reviews. Preserve all protected artifacts.
 No delegation, push, amend, or unattended follow-on work.
 
 ### Protected CP9 benchmark artifacts

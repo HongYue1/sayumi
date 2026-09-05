@@ -3,6 +3,10 @@ package epub
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/xml"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -251,8 +255,9 @@ func TestRewriteBookInsertAuthorAndNewCover(t *testing.T) {
 	t.Cleanup(func() { _ = os.Remove(tmp) })
 
 	opf := string(mustReadEPUBEntry(t, tmp, "OEBPS/content.opf"))
-	if !strings.Contains(opf, "<dc:creator>") || !strings.Contains(opf, "New Author") {
-		t.Fatalf("creator not inserted: %s", opf)
+	meta, _, err := parseOPF([]byte(opf), "OEBPS")
+	if err != nil || meta.Author != author {
+		t.Fatalf("inserted creator did not round-trip: %q, %v", meta.Author, err)
 	}
 	if !strings.Contains(opf, `name="cover"`) {
 		t.Fatalf("cover meta missing: %s", opf)
@@ -284,11 +289,9 @@ func TestRewriteBookInsertAuthorAndNewCover(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Remove(tmp2) })
 	opf2 := string(mustReadEPUBEntry(t, tmp2, "OEBPS/content.opf"))
-	if strings.Contains(opf2, "<dc:creator>") {
-		t.Fatalf("empty author should not insert creator: %s", opf2)
-	}
-	if !strings.Contains(opf2, "Solo2") {
-		t.Fatalf("title not set: %s", opf2)
+	meta2, pkg2, err := parseOPF([]byte(opf2), "OEBPS")
+	if err != nil || meta2.Title != title || meta2.Author != "" || len(pkg2.Metadata.Creators) != 0 {
+		t.Fatalf("empty-author edit did not round-trip: %+v, %v", meta2, err)
 	}
 }
 
@@ -322,20 +325,26 @@ func TestRewriteBookCleansTempOnFailure(t *testing.T) {
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.epub")
-	f, err := os.Create(path)
-	if err != nil {
+	var archive bytes.Buffer
+	zw := zip.NewWriter(&archive)
+	for _, entry := range []struct{ name, body string }{
+		{"mimetype", "application/epub+zip"},
+		{"META-INF/container.xml", `<container><rootfiles><rootfile full-path="missing.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`},
+	} {
+		w, err := zw.CreateHeader(&zip.FileHeader{Name: entry.name, Method: zip.Store})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.WriteString(w, entry.body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
 		t.Fatal(err)
 	}
-	zw := zip.NewWriter(f)
-	w, _ := zw.CreateHeader(&zip.FileHeader{Name: "mimetype", Method: zip.Store})
-	_, _ = w.Write([]byte("application/epub+zip"))
-	w2, _ := zw.Create("META-INF/container.xml")
-	_, _ = w2.Write([]byte(`<?xml version="1.0"?>
-<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
-  <rootfiles><rootfile full-path="missing.opf" media-type="application/oebps-package+xml"/></rootfiles>
-</container>`))
-	_ = zw.Close()
-	_ = f.Close()
+	if err := os.WriteFile(path, archive.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	title := "x"
 	tmp, err := RewriteBook(path, MetadataEdit{Title: &title})
@@ -345,7 +354,10 @@ func TestRewriteBookCleansTempOnFailure(t *testing.T) {
 	if tmp != "" {
 		t.Fatalf("tmpPath should be empty on failure, got %q", tmp)
 	}
-	entries, _ := os.ReadDir(dir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, e := range entries {
 		if strings.HasPrefix(e.Name(), ".") && strings.Contains(e.Name(), ".tmp") {
 			t.Fatalf("leftover temp: %s", e.Name())
@@ -353,11 +365,8 @@ func TestRewriteBookCleansTempOnFailure(t *testing.T) {
 	}
 }
 
-// parseOPF prefers <dc:creator opf:file-as="…"> over the element's text, and
-// every Calibre-produced creator carries one. Rewriting only the text therefore
-// left this package reading back the PREVIOUS author from the file it had just
-// written — so the edit "took" in the UI and DB while the file, and any other
-// reader or re-import, still showed the old name.
+// parseOPF prefers a creator's file-as attribute over its text. Author edits
+// must update that sort key too, without discarding unrelated creator metadata.
 func TestRewriteBookUpdatesCreatorFileAs(t *testing.T) {
 	t.Parallel()
 
@@ -403,11 +412,8 @@ func TestRewriteBookUpdatesCreatorFileAs(t *testing.T) {
 	}
 }
 
-// findCoverPath resolves the manifest href without consulting the archive, so a
-// repacked EPUB that declares a cover entry it does not actually contain made
-// the rewrite loop match nothing and RewriteBook abort — every cover upload
-// 500'd, permanently, with no way to recover. A declared-but-absent entry must
-// fall through to appending a fresh cover.
+// A missing declared cover must become readable at the path selected by the
+// parser. Checking only for a new .jpg file can miss a stale earlier reference.
 func TestRewriteBookAddsCoverWhenDeclaredEntryIsMissing(t *testing.T) {
 	t.Parallel()
 
@@ -432,16 +438,12 @@ func TestRewriteBookAddsCoverWhenDeclaredEntryIsMissing(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Remove(tmp) })
 
-	var coverEntry string
-	for _, name := range zipEntryNames(t, tmp) {
-		if strings.Contains(name, "cover") && strings.HasSuffix(name, ".jpg") {
-			coverEntry = name
-			break
-		}
+	rewritten := mustReadEPUBEntry(t, tmp, "OEBPS/content.opf")
+	meta, _, err := parseOPF(rewritten, "OEBPS")
+	if err != nil || meta.CoverPath != "OEBPS/cover.jpeg" {
+		t.Fatalf("declared cover did not round-trip: %q, %v", meta.CoverPath, err)
 	}
-	if coverEntry == "" {
-		t.Fatalf("no cover entry was added; entries = %v", zipEntryNames(t, tmp))
-	}
+	coverEntry := meta.CoverPath
 	if got := mustReadEPUBEntry(t, tmp, coverEntry); !bytes.Equal(got, minimalJPEG) {
 		t.Errorf("cover entry %q does not hold the supplied JPEG", coverEntry)
 	}
@@ -479,4 +481,333 @@ func TestRewriteBookRejectsSelfClosedMetadataRatherThanCorruptingIt(t *testing.T
 	if !strings.Contains(err.Error(), "metadata") {
 		t.Fatalf("expected a metadata-related refusal, got: %v", err)
 	}
+}
+
+// A missing OPF fails before CreateTemp; corrupting a later local header reaches
+// the cleanup path after the output exists, without a timing-dependent I/O fault.
+func TestRewriteBookFailedCopyRemovesTemp(t *testing.T) {
+	t.Parallel()
+	src := writeMinimalEPUB(t, opfWithMeta, nil)
+	data, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nameAt := bytes.Index(data, []byte("OEBPS/ch.xhtml"))
+	if nameAt < 30 || !bytes.Equal(data[nameAt-30:nameAt-26], []byte{'P', 'K', 3, 4}) {
+		t.Fatal("fixture has no expected chapter local header")
+	}
+	data[nameAt-30] = 0
+	if err := os.WriteFile(src, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	title := "Replacement"
+	tmp, err := RewriteBook(src, MetadataEdit{Title: &title})
+	if err == nil || !strings.Contains(err.Error(), "copy entry") {
+		t.Fatalf("rewrite = (%q, %v); want copy failure", tmp, err)
+	}
+	if tmp != "" {
+		t.Errorf("failure returned temp path %q", tmp)
+	}
+	entries, err := os.ReadDir(filepath.Dir(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(src) {
+		t.Errorf("failure left files beside source: %v", entries)
+	}
+	got, err := os.ReadFile(src)
+	if err != nil || !bytes.Equal(got, data) {
+		t.Fatalf("failure modified source: %v", err)
+	}
+}
+
+func TestRewriteBookPreservesUnselectedEntries(t *testing.T) {
+	t.Parallel()
+	for _, duplicate := range []bool{false, true} {
+		t.Run(fmt.Sprintf("duplicate_exact_name=%t", duplicate), func(t *testing.T) {
+			extra := map[string][]byte{
+				"OEBPS/CONTENT.OPF": []byte("unselected package"),
+				"OEBPS/cover.png":   []byte("selected cover"),
+				"OEBPS/COVER.PNG":   []byte("unselected image"),
+			}
+			if duplicate {
+				extra["OEBPS/content.opf"] = []byte(opfWithMeta)
+			}
+			src := writeMinimalEPUB(t, opfWithMeta, extra)
+			before, err := os.ReadFile(src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r, err := zip.OpenReader(src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := r.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			index := buildIndex(&r.Reader)
+			title := "Changed"
+			tmp, err := RewriteBook(src, MetadataEdit{Title: &title, CoverJPEG: minimalJPEG})
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := zip.OpenReader(tmp)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := out.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			if len(r.File) != len(out.File) {
+				t.Fatalf("entry count = %d; want %d", len(out.File), len(r.File))
+			}
+			for i, f := range r.File {
+				g := out.File[i]
+				if g.Name != f.Name {
+					t.Fatalf("entry order changed at %d: %q -> %q", i, f.Name, g.Name)
+				}
+				if f == index["OEBPS/content.opf"] || f == index["OEBPS/cover.png"] {
+					continue
+				}
+				rawBefore, err := f.OpenRaw()
+				if err != nil {
+					t.Fatal(err)
+				}
+				rawAfter, err := g.OpenRaw()
+				if err != nil {
+					t.Fatal(err)
+				}
+				b, err := io.ReadAll(rawBefore)
+				if err != nil {
+					t.Fatal(err)
+				}
+				a, err := io.ReadAll(rawAfter)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if f.Method != g.Method || !bytes.Equal(a, b) {
+					t.Errorf("unselected entry %d (%q) changed", i, f.Name)
+				}
+			}
+			after, err := os.ReadFile(src)
+			if err != nil || !bytes.Equal(after, before) {
+				t.Fatalf("successful rewrite modified source: %v", err)
+			}
+		})
+	}
+}
+
+func TestRewriteBookRejectsOversizeOPFBeforeOpening(t *testing.T) {
+	t.Parallel()
+	var archive bytes.Buffer
+	zw := zip.NewWriter(&archive)
+	container, err := zw.Create("META-INF/container.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(container, `<container><rootfiles><rootfile full-path="content.opf"/></rootfiles></container>`); err != nil {
+		t.Fatal(err)
+	}
+	// Unsupported compression proves the size guard runs before opening a body.
+	if _, err := zw.CreateRaw(&zip.FileHeader{Name: "content.opf", Method: 99, UncompressedSize64: maxOPFBytes + 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(t.TempDir(), "large.epub")
+	if err := os.WriteFile(src, archive.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	title := "New"
+	tmp, err := RewriteBook(src, MetadataEdit{Title: &title})
+	if tmp != "" || err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("rewrite = (%q, %v); want size refusal before compression error", tmp, err)
+	}
+}
+
+func TestRewriteOPFMetadataRoundTrip(t *testing.T) {
+	t.Parallel()
+	const title = `New & <Title>`
+	for _, tt := range []struct {
+		name, before, metadata, author, preserved string
+	}{
+		{"nested_fields", "", `<meta><title>nested title</title><creator>nested author</creator></meta><dc:title>Old</dc:title><dc:creator>Old</dc:creator>`, "New Author", `<title>nested title</title>`},
+		{"outside_metadata", `<guide><title>guide title</title><creator>guide author</creator></guide>`, `<dc:title>Old</dc:title><dc:creator>Old</dc:creator>`, "New Author", `<title>guide title</title>`},
+		{"self_closed_creator", "", `<dc:title/><dc:title>Alternate</dc:title><dc:creator opf:file-as="Old sort"/><dc:creator>Other</dc:creator>`, "New Author", `<dc:creator>Other</dc:creator>`},
+		{"clear_authors", "", `<dc:title>Old</dc:title><dc:creator opf:file-as="Old sort">Old</dc:creator><dc:creator>Other</dc:creator>`, "", `<dc:title>New &amp; &lt;Title&gt;</dc:title>`},
+		{"attribute_case", "", `<dc:title>Old</dc:title><dc:creator FILE-AS="extension" opf:file-as="Old sort">Old</dc:creator>`, "New Author", `FILE-AS="extension"`},
+		{"attribute_local_collision", "", `<dc:title>Old</dc:title><dc:creator xmlns:x="urn:extension" x:file-as="extension" opf:file-as="Old sort">Old</dc:creator>`, "New Author", `x:file-as="extension"`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			data := []byte(`<package xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">` + tt.before + `<metadata>` + tt.metadata + `</metadata><manifest></manifest><spine/></package>`)
+			newTitle := title
+			got, _, _, err := rewriteOPF(data, "", MetadataEdit{Title: &newTitle, Author: &tt.author}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta, _, err := parseOPF(got, "")
+			if err != nil || meta.Title != title || meta.Author != tt.author {
+				t.Errorf("readback = title %q, author %q, err %v; want %q, %q", meta.Title, meta.Author, err, title, tt.author)
+			}
+			if !bytes.Contains(got, []byte(tt.preserved)) {
+				t.Errorf("lost unrelated content %q in %s", tt.preserved, got)
+			}
+		})
+	}
+}
+
+func TestRewriteOPFInsertedDublinCoreNamespace(t *testing.T) {
+	t.Parallel()
+	for _, binding := range []string{"", ` xmlns:dc="urn:unrelated"`} {
+		t.Run(fmt.Sprintf("binding=%q", binding), func(t *testing.T) {
+			data := []byte(`<package xmlns="http://www.idpf.org/2007/opf"` + binding + `><metadata></metadata><manifest></manifest></package>`)
+			title, author := "New title", "New author"
+			got, _, _, err := rewriteOPF(data, "", MetadataEdit{Title: &title, Author: &author}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dec := xml.NewDecoder(bytes.NewReader(got))
+			found := 0
+			for {
+				token, err := dec.Token()
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if start, ok := token.(xml.StartElement); ok && (start.Name.Local == "title" || start.Name.Local == "creator") {
+					found++
+					if start.Name.Space != "http://purl.org/dc/elements/1.1/" {
+						t.Errorf("inserted %s has namespace %q", start.Name.Local, start.Name.Space)
+					}
+				}
+			}
+			if found != 2 {
+				t.Fatalf("inserted fields = %d; want 2", found)
+			}
+		})
+	}
+}
+
+func TestRewriteBookCoverReadback(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name, opf string
+		extra     map[string][]byte
+	}{
+		{"missing_declared_entry", opfWithMeta, nil},
+		{"missing_media_type", strings.Replace(opfWithMeta, `media-type="image/png"`, `properties="cover-image"`, 1), map[string][]byte{"OEBPS/cover.png": []byte("old")}},
+		{"nested_item", strings.Replace(opfWithMeta, "<manifest>", `<guide><item href="cover.png" media-type="image/png"/></guide><manifest>`, 1), map[string][]byte{"OEBPS/cover.png": []byte("old")}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			src := writeMinimalEPUB(t, tt.opf, tt.extra)
+			tmp, err := RewriteBook(src, MetadataEdit{CoverJPEG: minimalJPEG})
+			if err != nil {
+				t.Fatal(err)
+			}
+			opf := mustReadEPUBEntry(t, tmp, "OEBPS/content.opf")
+			meta, pkg, err := parseOPF(opf, "OEBPS")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := mustReadEPUBEntry(t, tmp, meta.CoverPath); !bytes.Equal(got, minimalJPEG) {
+				t.Fatalf("parser-selected cover %q has wrong bytes", meta.CoverPath)
+			}
+			for _, item := range pkg.Manifest.Items {
+				if resolvePath("OEBPS", item.Href) == meta.CoverPath && item.MediaType != "image/jpeg" {
+					t.Errorf("cover media type = %q; want image/jpeg", item.MediaType)
+				}
+			}
+			if tt.name == "nested_item" && !bytes.Contains(opf, []byte(`<guide><item href="cover.png" media-type="image/png"/></guide>`)) {
+				t.Error("unrelated guide item changed")
+			}
+		})
+	}
+}
+
+func TestRewriteOPFRejectsTrailingStructure(t *testing.T) {
+	t.Parallel()
+	title := "New"
+	for _, tail := range []string{"<package><metadata></metadata></package>", "<unfinished>", "trailing text"} {
+		t.Run(tail, func(t *testing.T) {
+			data := []byte(opfWithMeta + tail)
+			if _, _, _, err := rewriteOPF(data, "OEBPS", MetadataEdit{Title: &title}, nil); err == nil {
+				t.Fatal("accepted malformed content after the package")
+			}
+		})
+	}
+}
+
+func TestRewriteOPFInsertedCoverNamespace(t *testing.T) {
+	t.Parallel()
+	data := []byte(`<opf:package xmlns:opf="http://www.idpf.org/2007/opf"><opf:metadata></opf:metadata><opf:manifest></opf:manifest></opf:package>`)
+	got, cover, isNew, err := rewriteOPF(data, "OPS", MetadataEdit{CoverJPEG: minimalJPEG}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, _, err := parseOPF(got, "OPS")
+	if err != nil || !isNew || cover == "" || meta.CoverPath != cover {
+		t.Fatalf("cover did not round-trip: %q, %t, %+v, %v", cover, isNew, meta, err)
+	}
+	dec := xml.NewDecoder(bytes.NewReader(got))
+	found := 0
+	for {
+		token, err := dec.Token()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if start, ok := token.(xml.StartElement); ok && (start.Name.Local == "meta" || start.Name.Local == "item") {
+			found++
+			if start.Name.Space != "http://www.idpf.org/2007/opf" {
+				t.Errorf("inserted %s has namespace %q", start.Name.Local, start.Name.Space)
+			}
+		}
+	}
+	if found != 2 {
+		t.Fatalf("inserted nodes = %d; want 2", found)
+	}
+}
+
+// Exercise raw offsets with malformed XML, namespace prefixes, self-closing
+// fields, and extension nodes. A successful edit must be immutable, parseable,
+// authoritative on readback, and byte-stable when applied a second time.
+func FuzzRewriteOPFRoundTrip(f *testing.F) {
+	f.Add(opfWithMeta)
+	f.Add(opfNoCoverNoCreator)
+	f.Add(`<package><metadata><title/><creator file-as="Old"/></metadata><manifest></manifest></package>`)
+	f.Add(`<package><metadata><meta><title>extension</title></meta><title>Old</title></metadata><manifest></manifest></package>`)
+	f.Add("\ufeff" + opfWithMeta)
+	f.Add(opfWithMeta + "<unfinished>")
+	f.Fuzz(func(t *testing.T, raw string) {
+		if len(raw) > 64<<10 {
+			t.Skip()
+		}
+		data := []byte(raw)
+		title, author := `Edited & <Title>`, `Edited "Author"`
+		edit := MetadataEdit{Title: &title, Author: &author, CoverJPEG: minimalJPEG}
+		got, cover, _, err := rewriteOPF(data, "OEBPS", edit, nil)
+		if string(data) != raw {
+			t.Fatal("rewrite mutated the input")
+		}
+		if err != nil {
+			return
+		}
+		meta, _, err := parseOPF(got, "OEBPS")
+		if err != nil || meta.Title != title || meta.Author != author || cover == "" || meta.CoverPath != cover {
+			t.Fatalf("successful edit did not round-trip: %+v, %q, %v\n%s", meta, cover, err, got)
+		}
+		next, nextCover, _, err := rewriteOPF(got, "OEBPS", edit, nil)
+		if err != nil || nextCover != cover || !bytes.Equal(next, got) {
+			t.Fatalf("repeated edit changed the result: %v", err)
+		}
+	})
 }

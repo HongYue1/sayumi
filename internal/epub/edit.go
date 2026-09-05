@@ -44,30 +44,52 @@ const maxOPFBytes = 8 << 20
 // then atomically rename the temp file over it (and remove the temp file if it
 // decides not to).
 //
-// Every untouched zip entry is copied verbatim with (*zip.Writer).Copy, which
-// preserves its raw compressed bytes, compression method, and order -- so the
-// mandatory uncompressed "mimetype"-first entry is retained byte-for-byte. Only
-// the OPF (recompressed) and the cover image (stored) are rewritten. The OPF is
-// edited by splicing byte ranges located with a raw XML token scan rather than
-// by re-marshaling, because encoding/xml normalizes/reorders nodes and would
-// corrupt many real-world package documents.
+// Untouched zip entries retain their raw compressed bytes, compression method,
+// and order via (*zip.Writer).Copy, including the mandatory uncompressed
+// "mimetype"-first entry. Only the OPF (recompressed) and cover image (stored)
+// are rewritten. A raw XML token scan locates byte ranges for splicing rather
+// than re-marshaling, preserving untouched extensions, prefixes, and layout.
 //
+// The caller must keep the source generation stable throughout this call. The
+// reader opened here is independently owned, not borrowed from EPUBStore.
 // The temp file is dot-prefixed so a concurrent library scan (which skips
-// dotfiles) ignores the in-progress rewrite.
+// dotfiles) ignores the in-progress rewrite. On error, no temp path is returned.
 func RewriteBook(srcPath string, edit MetadataEdit) (tmpPath string, err error) {
 	if edit.isEmpty() {
 		return "", errors.New("epub rewrite: no edits requested")
 	}
 
 	zr, err := zip.OpenReader(srcPath)
+	var tmp *os.File
+	tmpClosed := false
+	defer func() {
+		// OpenReader can return both a reader and an error. Close our owned
+		// source before deciding whether a completed temp can be handed back.
+		if zr != nil {
+			if closeErr := zr.Close(); closeErr != nil && err == nil {
+				err = fmt.Errorf("close epub: %w", closeErr)
+			}
+		}
+		if tmp == nil {
+			return
+		}
+		if !tmpClosed {
+			if closeErr := tmp.Close(); closeErr != nil && err == nil {
+				err = fmt.Errorf("close temp epub: %w", closeErr)
+			}
+		}
+		if err != nil {
+			// Named return assignments may already have cleared tmpPath. The
+			// file's own name remains stable on every failure path.
+			if rmErr := os.Remove(tmp.Name()); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+				slog.Error("remove temp epub failed", "path", tmp.Name(), "err", rmErr)
+			}
+			tmpPath = ""
+		}
+	}()
 	if err != nil {
 		return "", fmt.Errorf("open epub: %w", err)
 	}
-	defer func() {
-		if closeErr := zr.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("close epub: %w", closeErr)
-		}
-	}()
 
 	index := buildIndex(&zr.Reader)
 
@@ -75,16 +97,25 @@ func RewriteBook(srcPath string, edit MetadataEdit) (tmpPath string, err error) 
 	if err != nil {
 		return "", fmt.Errorf("find OPF: %w", err)
 	}
-	// findOPFPath returns the raw container rootfile path, which may carry a
-	// leading slash; normalize it to the same form buildIndex stores and the
-	// rewrite loop compares against (zip entry names, leading slash trimmed).
+	// Match the reader's tolerated leading slash before resolving OPF-relative
+	// references; archive replacement itself uses the selected entry identity.
 	opfPath = strings.TrimPrefix(strings.TrimSpace(opfPath), "/")
-	opfData, err := readZipFileIndexed(index, opfPath)
+	opfFile, err := lookupInIndex(index, opfPath)
 	if err != nil {
 		return "", fmt.Errorf("read OPF: %w", err)
 	}
-	if len(opfData) > maxOPFBytes {
-		return "", fmt.Errorf("opf too large: %d bytes", len(opfData))
+	// Enforce the smaller rewrite limit before opening and while reading;
+	// checking after the generic 64 MiB read has already spent that memory.
+	if opfFile.UncompressedSize64 > maxOPFBytes {
+		return "", fmt.Errorf("opf too large: declared %d bytes", opfFile.UncompressedSize64)
+	}
+	opfBody, err := opfFile.Open()
+	if err != nil {
+		return "", fmt.Errorf("open OPF: %w", err)
+	}
+	opfData, err := readLimitedZipBody(opfPath, opfBody, maxOPFBytes)
+	if err != nil {
+		return "", fmt.Errorf("read OPF: %w", err)
 	}
 
 	opfDir := pathDir(opfPath)
@@ -93,40 +124,33 @@ func RewriteBook(srcPath string, edit MetadataEdit) (tmpPath string, err error) 
 		return "", fmt.Errorf("rewrite OPF: %w", err)
 	}
 
+	var coverFile *zip.File
+	if coverZipName != "" && !coverIsNew {
+		coverFile, err = lookupInIndex(index, coverZipName)
+		if err != nil {
+			return "", fmt.Errorf("find cover entry: %w", err)
+		}
+	}
+
 	dir := filepath.Dir(srcPath)
 	base := filepath.Base(srcPath)
-	tmp, err := os.CreateTemp(dir, "."+base+".*.tmp")
+	tmp, err = os.CreateTemp(dir, "."+base+".*.tmp")
 	if err != nil {
 		return "", fmt.Errorf("create temp epub: %w", err)
 	}
-	tmpPath = tmp.Name()
-	committed := false
-	defer func() {
-		if committed {
-			return
-		}
-		if closeErr := tmp.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("close temp epub: %w", closeErr)
-		}
-		if rmErr := os.Remove(tmpPath); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
-			slog.Error("remove temp epub failed", "path", tmpPath, "err", rmErr)
-		}
-		tmpPath = ""
-	}()
-
 	zw := zip.NewWriter(tmp)
 
 	wroteOPF := false
 	wroteCover := false
 	for _, f := range zr.File {
-		name := strings.TrimPrefix(f.Name, "/")
-		switch {
-		case strings.EqualFold(name, opfPath):
+		// Replace the entry we read, not every case variant or duplicate name.
+		switch f {
+		case opfFile:
 			if err := writeZipBytes(zw, f, zip.Deflate, newOPF); err != nil {
 				return "", fmt.Errorf("write OPF entry: %w", err)
 			}
 			wroteOPF = true
-		case coverZipName != "" && !coverIsNew && strings.EqualFold(name, coverZipName):
+		case coverFile:
 			if err := writeZipBytes(zw, f, zip.Store, edit.CoverJPEG); err != nil {
 				return "", fmt.Errorf("write cover entry: %w", err)
 			}
@@ -165,11 +189,11 @@ func RewriteBook(srcPath string, edit MetadataEdit) (tmpPath string, err error) 
 	if err := tmp.Sync(); err != nil {
 		return "", fmt.Errorf("sync epub: %w", err)
 	}
+	tmpClosed = true
 	if err := tmp.Close(); err != nil {
 		return "", fmt.Errorf("close temp epub: %w", err)
 	}
-	committed = true
-	return tmpPath, nil
+	return tmp.Name(), nil
 }
 
 // writeZipBytes writes data as a fresh entry that reuses the original entry's
@@ -230,12 +254,13 @@ func rewriteOPF(opfData []byte, opfDir string, edit MetadataEdit, index map[stri
 	var ops []spliceOp
 
 	if edit.Title != nil {
-		repl := escapeXMLText(*edit.Title)
 		switch {
-		case scan.titleStart >= 0:
-			ops = append(ops, spliceOp{scan.titleStart, scan.titleEnd, repl})
+		case scan.title.start >= 0:
+			ops = append(ops, editOPFText(opfData, scan.title, *edit.Title, false))
 		case scan.metadataInsertAt >= 0:
-			ins := append([]byte("\n    <dc:title>"), repl...)
+			// A document may bind dc to another URI, or use another prefix.
+			ins := []byte("\n    <dc:title xmlns:dc=\"http://purl.org/dc/elements/1.1/\">")
+			ins = append(ins, escapeXMLText(*edit.Title)...)
 			ins = append(ins, "</dc:title>"...)
 			ops = append(ops, spliceOp{scan.metadataInsertAt, scan.metadataInsertAt, ins})
 		default:
@@ -244,24 +269,21 @@ func rewriteOPF(opfData []byte, opfDir string, edit MetadataEdit, index map[stri
 	}
 
 	if edit.Author != nil {
-		repl := escapeXMLText(*edit.Author)
 		switch {
-		case scan.creatorStart >= 0:
-			// parseOPF prefers the creator's file-as attribute over its text, and
-			// every Calibre-produced <dc:creator> carries one — so replacing only
-			// the text left this package reading back the PREVIOUS author from the
-			// file it had just written. Keep the sort key in step with the name.
-			if scan.creatorTagStart >= 0 {
-				tag := opfData[scan.creatorTagStart:scan.creatorTagEnd]
-				if fixed, ok := replaceAttrValue(tag, "file-as", *edit.Author); ok {
-					ops = append(ops, spliceOp{scan.creatorTagStart, scan.creatorTagEnd, fixed})
+		case len(scan.creators) > 0:
+			for _, creator := range scan.creators {
+				ops = append(ops, editOPFText(opfData, creator, *edit.Author, true))
+				if strings.TrimSpace(*edit.Author) != "" {
+					break
 				}
+				// Clearing only the first creator would make parseOPF expose the
+				// next one as the author, so clear all creator values and sort keys.
 			}
-			ops = append(ops, spliceOp{scan.creatorStart, scan.creatorEnd, repl})
 		case strings.TrimSpace(*edit.Author) == "":
-			// Clearing an author that has no <dc:creator> element: nothing to do.
+			// No creator exists: clearing the field is already satisfied.
 		case scan.metadataInsertAt >= 0:
-			ins := append([]byte("\n    <dc:creator>"), repl...)
+			ins := []byte("\n    <dc:creator xmlns:dc=\"http://purl.org/dc/elements/1.1/\">")
+			ins = append(ins, escapeXMLText(*edit.Author)...)
 			ins = append(ins, "</dc:creator>"...)
 			ops = append(ops, spliceOp{scan.metadataInsertAt, scan.metadataInsertAt, ins})
 		default:
@@ -271,35 +293,27 @@ func rewriteOPF(opfData []byte, opfDir string, edit MetadataEdit, index map[stri
 
 	if edit.CoverJPEG != nil {
 		coverResolved := findCoverPath(pkg, manifest, opfDir)
-		// findCoverPath resolves the manifest href without checking the archive.
-		// A repacked EPUB whose OPF declares a cover entry that is not actually
-		// present made the rewrite loop match nothing, so RewriteBook aborted with
-		// "cover entry was not written" and every cover upload 500'd forever with
-		// no way out. Treat a declared-but-absent entry as no cover, which falls
-		// through to appending a fresh one.
-		if coverResolved != "" {
-			if _, exists := index[coverResolved]; !exists {
-				if _, existsLower := index[strings.ToLower(coverResolved)]; !existsLower {
-					coverResolved = ""
-				}
-			}
-		}
 		if coverResolved != "" {
 			coverZipName = coverResolved
-			coverIsNew = false
-			// Keep the manifest media-type consistent with the JPEG we write into
-			// the (possibly non-JPEG) existing cover entry.
+			_, lookupErr := lookupInIndex(index, coverResolved)
+			coverIsNew = lookupErr != nil
+			// Fulfill a missing declared entry at its existing href. Adding a
+			// different image leaves earlier EPUB2/EPUB3 cover references stale.
 			for _, it := range scan.items {
-				if resolvePath(opfDir, it.href) != coverResolved {
+				if resolvePath(opfDir, it.href) != coverResolved || isJPEGMediaType(it.mediaType) {
 					continue
 				}
-				if !isJPEGMediaType(mediaTypeForHref(pkg, it.href, opfDir)) {
-					tag := opfData[it.tagStart:it.tagEnd]
-					if fixed, ok := replaceAttrValue(tag, "media-type", "image/jpeg"); ok {
-						ops = append(ops, spliceOp{it.tagStart, it.tagEnd, fixed})
+				tag := opfData[it.tagStart:it.tagEnd]
+				fixed, found := replaceAttrValue(tag, "media-type", "image/jpeg")
+				if !found {
+					at := len(tag) - 1
+					if tag[at-1] == '/' {
+						at--
 					}
+					fixed = append(bytes.Clone(tag[:at]), ` media-type="image/jpeg"`...)
+					fixed = append(fixed, tag[at:]...)
 				}
-				break
+				ops = append(ops, spliceOp{it.tagStart, it.tagEnd, fixed})
 			}
 		} else {
 			if scan.manifestInsertAt < 0 || scan.metadataInsertAt < 0 {
@@ -309,9 +323,9 @@ func rewriteOPF(opfData []byte, opfDir string, edit MetadataEdit, index map[stri
 			itemID := uniqueItemID(manifest)
 			coverZipName = zipName
 			coverIsNew = true
-			itemXML := fmt.Sprintf("\n    <item id=%s href=%s media-type=\"image/jpeg\" properties=\"cover-image\"/>", xmlAttr(itemID), xmlAttr(href))
+			itemXML := fmt.Sprintf("\n    <item xmlns=\"http://www.idpf.org/2007/opf\" id=%s href=%s media-type=\"image/jpeg\" properties=\"cover-image\"/>", xmlAttr(itemID), xmlAttr(href))
 			ops = append(ops, spliceOp{scan.manifestInsertAt, scan.manifestInsertAt, []byte(itemXML)})
-			metaXML := fmt.Sprintf("\n    <meta name=\"cover\" content=%s/>", xmlAttr(itemID))
+			metaXML := fmt.Sprintf("\n    <meta xmlns=\"http://www.idpf.org/2007/opf\" name=\"cover\" content=%s/>", xmlAttr(itemID))
 			ops = append(ops, spliceOp{scan.metadataInsertAt, scan.metadataInsertAt, []byte(metaXML)})
 		}
 	}
@@ -343,121 +357,165 @@ func applySplices(src []byte, ops []spliceOp) []byte {
 	return out.Bytes()
 }
 
-// opfItemSpan records a manifest <item>'s raw start-tag byte range plus its raw
-// href attribute, so a targeted attribute splice can be applied later.
+// A text span includes its start tag, so self-closing fields and creator sort
+// keys can be updated atomically without overlapping splices or losing attrs.
+type opfTextSpan struct {
+	start, content, end int
+	name                string
+	selfClose           bool
+}
+
+func editOPFText(src []byte, span opfTextSpan, value string, fileAs bool) spliceOp {
+	tag := src[span.start:span.content]
+	if fileAs {
+		// parseOPF prefers file-as to text; keep both values in step.
+		tag, _ = replaceAttrValue(tag, "file-as", value)
+	}
+	if span.selfClose && value == "" {
+		return spliceOp{span.start, span.end, tag}
+	}
+	var repl []byte
+	if span.selfClose {
+		repl = append(bytes.Clone(tag[:len(tag)-2]), '>')
+	} else {
+		repl = bytes.Clone(tag)
+	}
+	repl = append(repl, escapeXMLText(value)...)
+	if span.selfClose {
+		repl = append(repl, "</"...)
+		repl = append(repl, span.name...)
+		repl = append(repl, '>')
+	}
+	return spliceOp{span.start, span.end, repl}
+}
+
+// opfItemSpan records a direct manifest item's start tag and parsed attributes.
 type opfItemSpan struct {
-	href             string
+	href, mediaType  string
 	tagStart, tagEnd int
 }
 
 type opfScanResult struct {
-	titleStart, titleEnd     int
-	creatorStart, creatorEnd int
-	// creatorTagStart/End bound the first <dc:creator> START TAG (not its text),
-	// so an opf:file-as attribute on it can be rewritten alongside the text.
-	creatorTagStart, creatorTagEnd int
-	manifestInsertAt               int
-	metadataInsertAt               int
-	items                          []opfItemSpan
+	title            opfTextSpan
+	creators         []opfTextSpan
+	manifestInsertAt int
+	metadataInsertAt int
+	items            []opfItemSpan
 }
 
-// scanOPF walks the raw OPF tokens recording byte offsets we need to splice:
-// the chardata range of the first <title> and <creator>, the start offset of
-// the </manifest> and </metadata> end tags (insertion points), and every
-// <item> start-tag span. It uses RawToken (no namespace resolution, no
-// auto-matching) so offsets map exactly onto the original bytes; element local
-// names are compared without prefixes.
+// scanOPF records only direct package metadata fields and manifest items, as
+// opfPackage does. Same-named extension elements must never become edit targets.
+// RawToken retains the original qualified names and byte offsets for splicing.
+// Unmarshal reads only the first root; reject extra roots and non-whitespace
+// outside it while tracking ancestry across the complete token stream.
 func scanOPF(data []byte) (opfScanResult, error) {
 	res := opfScanResult{
-		titleStart: -1, titleEnd: -1,
-		creatorStart: -1, creatorEnd: -1,
-		creatorTagStart: -1, creatorTagEnd: -1,
-		manifestInsertAt: -1, metadataInsertAt: -1,
+		title:            opfTextSpan{start: -1},
+		manifestInsertAt: -1,
+		metadataInsertAt: -1,
 	}
 	dec := xml.NewDecoder(bytes.NewReader(data))
-	dec.Strict = false
-
 	type frame struct {
-		local      string
+		name       xml.Name
 		contentBeg int
 		selfClose  bool
 		tagStart   int
 	}
 	var stack []frame
-
+	seenRoot := false
 	for {
 		startOff := int(dec.InputOffset())
 		tok, err := dec.RawToken()
 		if errors.Is(err, io.EOF) {
+			if len(stack) != 0 {
+				return res, fmt.Errorf("scan OPF: %w", io.ErrUnexpectedEOF)
+			}
 			break
 		}
 		if err != nil {
 			return res, fmt.Errorf("scan OPF token: %w", err)
 		}
 		endOff := int(dec.InputOffset())
-
 		switch t := tok.(type) {
-		case xml.StartElement:
-			selfClose := endOff-startOff >= 2 && data[endOff-1] == '>' && data[endOff-2] == '/'
-			stack = append(stack, frame{local: t.Name.Local, contentBeg: endOff, selfClose: selfClose, tagStart: startOff})
-			if t.Name.Local == "item" {
-				href := ""
-				for _, a := range t.Attr {
-					if a.Name.Local == "href" {
-						href = a.Value
-						break
+		case xml.CharData:
+			if len(stack) == 0 {
+				text := []byte(t)
+				if startOff == 0 {
+					text = bytes.TrimPrefix(text, []byte("\ufeff"))
+				}
+				for _, c := range text {
+					if !isXMLSpace(c) {
+						return res, errors.New("text outside OPF package")
 					}
 				}
-				res.items = append(res.items, opfItemSpan{href: href, tagStart: startOff, tagEnd: endOff})
+			}
+		case xml.StartElement:
+			if len(stack) == 0 {
+				if seenRoot {
+					return res, errors.New("multiple OPF roots")
+				}
+				seenRoot = true
+			}
+			selfClose := endOff-startOff >= 2 && data[endOff-2] == '/'
+			stack = append(stack, frame{t.Name, endOff, selfClose, startOff})
+			if len(stack) == 3 && stack[0].name.Local == "package" && stack[1].name.Local == "manifest" && t.Name.Local == "item" {
+				item := opfItemSpan{tagStart: startOff, tagEnd: endOff}
+				for _, a := range t.Attr {
+					switch a.Name.Local {
+					case "href":
+						item.href = a.Value
+					case "media-type":
+						item.mediaType = a.Value
+					}
+				}
+				res.items = append(res.items, item)
 			}
 		case xml.EndElement:
-			beg := -1
-			selfClose := false
-			tagStart := -1
-			for i, open := range slices.Backward(stack) {
-				if open.local == t.Name.Local {
-					beg = open.contentBeg
-					selfClose = open.selfClose
-					tagStart = open.tagStart
-					stack = stack[:i]
-					break
+			if len(stack) == 0 || stack[len(stack)-1].name != t.Name {
+				return res, errors.New("mismatched OPF end tag")
+			}
+			open := stack[len(stack)-1]
+			if len(stack) == 3 && stack[0].name.Local == "package" && stack[1].name.Local == "metadata" {
+				name := t.Name.Local
+				if t.Name.Space != "" {
+					name = t.Name.Space + ":" + name
+				}
+				span := opfTextSpan{open.tagStart, open.contentBeg, startOff, name, open.selfClose}
+				switch t.Name.Local {
+				case "title":
+					if res.title.start < 0 {
+						res.title = span
+					}
+				case "creator":
+					res.creators = append(res.creators, span)
 				}
 			}
-			switch t.Name.Local {
-			case "title":
-				if res.titleStart < 0 && beg >= 0 && !selfClose {
-					res.titleStart, res.titleEnd = beg, startOff
-				}
-			case "creator":
-				if res.creatorStart < 0 && beg >= 0 && !selfClose {
-					res.creatorStart, res.creatorEnd = beg, startOff
-					res.creatorTagStart, res.creatorTagEnd = tagStart, beg
-				}
-			// An insertion point is "just before the end tag", which only exists
-			// when the element is not self-closed. RawToken emits a synthetic
-			// EndElement for <metadata/> at the offset AFTER the whole element, so
-			// recording it there splices the new node outside the element: a title
-			// added to a self-closed <metadata/> becomes a sibling under <package>,
-			// which this package's own parser then reads back as empty.
-			case "manifest":
-				if res.manifestInsertAt < 0 && !selfClose {
-					res.manifestInsertAt = startOff
-				}
-			case "metadata":
-				if res.metadataInsertAt < 0 && !selfClose {
-					res.metadataInsertAt = startOff
+			if len(stack) == 2 && stack[0].name.Local == "package" && !open.selfClose {
+				// Synthetic ends for <metadata/> and <manifest/> are not valid
+				// insertion points: inserting there would create sibling nodes.
+				switch t.Name.Local {
+				case "manifest":
+					if res.manifestInsertAt < 0 {
+						res.manifestInsertAt = startOff
+					}
+				case "metadata":
+					if res.metadataInsertAt < 0 {
+						res.metadataInsertAt = startOff
+					}
 				}
 			}
+			stack = stack[:len(stack)-1]
 		}
 	}
 	return res, nil
 }
 
-// replaceAttrValue replaces the value of the attribute whose local name matches
-// attrLocal within a single raw start-tag's bytes, preserving the rest of the
+// replaceAttrValue replaces the last case-sensitive local-name match, just as
+// encoding/xml decodes attributes into opfPackage. It preserves the rest of the
 // tag (other attributes, quoting style, spacing) exactly. It returns the
 // modified tag and true when the attribute was found.
 func replaceAttrValue(tag []byte, attrLocal, newVal string) ([]byte, bool) {
+	matchStart, matchEnd := -1, -1
 	n := len(tag)
 	i := 0
 	if i < n && tag[i] == '<' {
@@ -506,22 +564,25 @@ func replaceAttrValue(tag []byte, attrLocal, newVal string) ([]byte, bool) {
 		valEnd := i
 		i++ // closing quote
 		if attrLocalMatches(name, attrLocal) {
-			var out bytes.Buffer
-			out.Write(tag[:valStart])
-			out.Write(escapeXMLText(newVal))
-			out.Write(tag[valEnd:])
-			return out.Bytes(), true
+			matchStart, matchEnd = valStart, valEnd
 		}
 	}
-	return tag, false
+	if matchStart < 0 {
+		return tag, false
+	}
+	var out bytes.Buffer
+	out.Write(tag[:matchStart])
+	out.Write(escapeXMLText(newVal))
+	out.Write(tag[matchEnd:])
+	return out.Bytes(), true
 }
 
 func attrLocalMatches(name, local string) bool {
-	if strings.EqualFold(name, local) {
+	if name == local {
 		return true
 	}
 	if _, after, ok := strings.Cut(name, ":"); ok {
-		return strings.EqualFold(after, local)
+		return after == local
 	}
 	return false
 }
@@ -533,16 +594,6 @@ func isXMLSpace(b byte) bool {
 func isJPEGMediaType(mt string) bool {
 	mt = strings.ToLower(strings.TrimSpace(mt))
 	return mt == "image/jpeg" || mt == "image/jpg"
-}
-
-func mediaTypeForHref(pkg opfPackage, href, opfDir string) string {
-	target := resolvePath(opfDir, href)
-	for _, it := range pkg.Manifest.Items {
-		if resolvePath(opfDir, it.Href) == target {
-			return it.MediaType
-		}
-	}
-	return ""
 }
 
 // uniqueCoverHref returns an OPF-relative href (and the resolved zip entry name)
