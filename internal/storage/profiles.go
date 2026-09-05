@@ -82,8 +82,9 @@ func (p *ProfilesDB) ListProfilesContext(ctx context.Context) (out []ProfileReco
 			err = fmt.Errorf("close rows: %w", cerr)
 		}
 	}()
+	// Reuse the escaping Scan destination; append copies each profile value.
+	var profile ProfileRecord
 	for rows.Next() {
-		var profile ProfileRecord
 		if err := rows.Scan(&profile.Name, &profile.PinHash, &profile.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan profile: %w", err)
 		}

@@ -124,22 +124,23 @@ icons, compiled resources, generated frontend output, and `.skills/` are exclude
 - [ ] `internal/storage/cover_test.go`
 - [ ] `internal/storage/customthemes.go`
 - [ ] `internal/storage/customthemes_test.go`
-- [ ] `internal/storage/db.go`
-- [ ] `internal/storage/db_test.go`
-- [ ] `internal/storage/errors.go`
+- [x] `internal/storage/db.go`
+- [x] `internal/storage/db_test.go`
+- [x] `internal/storage/errors.go`
 - [ ] `internal/storage/flairs.go`
 - [ ] `internal/storage/flairs_test.go`
 - [ ] `internal/storage/presets.go`
 - [ ] `internal/storage/presets_test.go`
-- [ ] `internal/storage/profiles.go`
-- [ ] `internal/storage/profiles_test.go`
+- [x] `internal/storage/profiles.go`
+- [x] `internal/storage/profiles_test.go`
 - [ ] `internal/storage/progress.go`
 - [ ] `internal/storage/queryplan_test.go`
-- [ ] `internal/storage/sessions.go`
-- [ ] `internal/storage/sessions_test.go`
+- [x] `internal/storage/scan_bench_test.go`
+- [x] `internal/storage/sessions.go`
+- [x] `internal/storage/sessions_test.go`
 - [ ] `internal/storage/settings.go`
 - [ ] `internal/storage/settings_test.go`
-- [ ] `internal/storage/storage_test.go`
+- [x] `internal/storage/storage_test.go`
 
 ## Tooling
 

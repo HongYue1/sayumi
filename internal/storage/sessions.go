@@ -93,9 +93,10 @@ func (p *ProfilesDB) LoadSessions(ctx context.Context) (out []PersistedSession, 
 			err = fmt.Errorf("close rows: %w", cerr)
 		}
 	}()
+	// Reuse the escaping Scan destinations; returned sessions are value copies.
+	var s PersistedSession
+	var expiry string
 	for rows.Next() {
-		var s PersistedSession
-		var expiry string
 		if err := rows.Scan(&s.Token, &s.Profile, &expiry); err != nil {
 			return nil, fmt.Errorf("scan session: %w", err)
 		}

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -220,6 +221,72 @@ func TestEscapeDSNPathOnlyRewritesAmbiguousPaths(t *testing.T) {
 		if got := escapeDSNPath(tc.in); got != tc.want {
 			t.Errorf("escapeDSNPath(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+func TestDBCloseRejectsProgressWrites(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// A closed database should return an error, not dereference a cleared handle.
+	defer func() {
+		if got := recover(); got != nil {
+			t.Errorf("SaveProgressContext after Close panicked: %v", got)
+		}
+	}()
+	if err := db.SaveProgressContext(t.Context(), ProgressRecord{BookID: "closed", UserID: "default"}); err == nil {
+		t.Error("SaveProgressContext after Close succeeded")
+	}
+}
+
+func TestDBCloseConcurrent(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			<-start
+			if err := db.Close(); err != nil {
+				t.Errorf("concurrent Close: %v", err)
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+	if err := db.PingContext(t.Context()); err == nil {
+		t.Error("database remained open after Close")
+	}
+}
+
+func TestRekeyPathsPreservesDistinctRows(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := t.Context()
+	paths := []string{"/library/Alpha.epub", "/library/Beta.epub", "/library/Gamma.epub"}
+	for _, path := range paths {
+		mustInsertBook(t, db, sampleBook(path, path, path))
+	}
+	if _, err := db.ExecContext(ctx, "UPDATE books SET file_path_key = ''"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.backfillPathKeys(); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		var got string
+		if err := db.QueryRowContext(ctx, "SELECT file_path_key FROM books WHERE file_path = ?", path).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if want := db.PathKey(path); got != want {
+			t.Errorf("key for %q = %q, want %q", path, got, want)
+		}
+	}
+	pending, err := db.pendingRekeys("SELECT file_path, file_path_key FROM books")
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("rekeys after backfill = %v, err=%v", pending, err)
 	}
 }
 

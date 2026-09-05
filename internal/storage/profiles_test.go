@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -14,15 +15,15 @@ import (
 )
 
 // newTestProfilesDB opens a fresh profiles.db under a temp library root.
-func newTestProfilesDB(t *testing.T) *ProfilesDB {
-	t.Helper()
-	pdb, err := OpenProfilesDB(t.TempDir())
+func newTestProfilesDB(tb testing.TB) *ProfilesDB {
+	tb.Helper()
+	pdb, err := OpenProfilesDB(tb.TempDir())
 	if err != nil {
-		t.Fatalf("open profiles db: %v", err)
+		tb.Fatalf("open profiles db: %v", err)
 	}
-	t.Cleanup(func() {
+	tb.Cleanup(func() {
 		if err := pdb.Close(); err != nil {
-			t.Errorf("close profiles db: %v", err)
+			tb.Errorf("close profiles db: %v", err)
 		}
 	})
 	return pdb
@@ -62,6 +63,32 @@ func TestOpenProfilesDBInLibraryPathWithQuestionMark(t *testing.T) {
 	}
 	if !strings.EqualFold(journalMode, "wal") {
 		t.Errorf("journal_mode = %q, want wal", journalMode)
+	}
+}
+
+func TestProfilesHonorCancellation(t *testing.T) {
+	t.Parallel()
+	pdb := newTestProfilesDB(t)
+	if err := pdb.CreateProfileContext(t.Context(), "reader", "hash"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := pdb.ListProfilesContext(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("ListProfilesContext = %v, want context.Canceled", err)
+	}
+	if _, err := pdb.GetProfileContext(ctx, "reader"); !errors.Is(err, context.Canceled) {
+		t.Errorf("GetProfileContext = %v, want context.Canceled", err)
+	}
+	if err := pdb.CreateProfileContext(ctx, "canceled", ""); !errors.Is(err, context.Canceled) {
+		t.Errorf("CreateProfileContext = %v, want context.Canceled", err)
+	}
+	if err := pdb.DeleteProfileContext(ctx, "reader"); !errors.Is(err, context.Canceled) {
+		t.Errorf("DeleteProfileContext = %v, want context.Canceled", err)
+	}
+	got, err := pdb.ListProfilesContext(t.Context())
+	if err != nil || len(got) != 1 || got[0].Name != "reader" {
+		t.Fatalf("profiles changed after canceled writes: %v, err=%v", got, err)
 	}
 }
 

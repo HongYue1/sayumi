@@ -10,35 +10,35 @@ Preserve the local-first design, existing API contracts, and pure-Go build.
 
 ## Current task
 
-**In progress toward Checkpoint 3: storage foundations, profiles, and sessions.**
-Review directly through Local_MCP. Do not spawn sub-agents or delegate reviews;
-this user restriction overrides skill instructions that request sub-agents.
-Stop after this verified batch and wait for the user to continue.
+**Paused at Checkpoint 3: storage foundations, profiles, and sessions are verified.**
+Wait for the user to say **continue** before starting another review batch.
+Do not use sub-agents or delegate reviews.
 
-Current scope: `internal/storage/db.go`, `db_test.go`, `errors.go`, `profiles.go`,
-`profiles_test.go`, `sessions.go`, `sessions_test.go`, and `storage_test.go`, plus
-any focused regression tests or benchmarks added for this batch.
-Preserve profile isolation, database lifecycle contracts, and the pure-Go driver.
+Next task: review storage book records and BookCache, with their tests and
+query-plan/benchmark coverage as needed. Preserve title ordering, path identity,
+profile isolation, and immutable shared cache slices. Use `TRACKER.md` for the
+remaining file inventory and keep the next batch bounded.
 
-Current working-tree state:
-- All `cmd/sayumi/*.go` files and the selected tooling (`Makefile`, `check.sh`,
-  `build.sh`, `fix.sh`, `.golangci.yml`) are reviewed and verified.
-- The verified CLI/tooling baseline passed `make check`, including race/shuffle tests across all Go packages,
-  formatting, lint, vulnerability scanning, frontend checks, and builds.
-- Windows CLI smoke tests cover help/version, usage and runtime exit codes,
-  isolated startup, an OS-assigned port, plain output, and command-driven shutdown.
-- Repeated, alternating A/B benchmarks support the retained performance changes.
-  These are operation-level measurements, not application-wide speed claims.
-  Complete debug request formatting has a measured correctness cost; preserve
-  attribute resolution, escaping, and extra context rather than dropping them.
-- Baseline/candidate benchmark executables and the comparison runner are in the
-  ignored `.agents/benchmarks/checkpoint2/` directory. Do not overwrite the
-  baseline executable with a newer build or compare mismatched benchmark sources.
-- Verified CLI and tooling changes are committed locally. No dependency or
-  frontend source changes were made. Storage review and verification are pending.
-- `.skills/` remains ignored and has no tracked files.
-- The other backend packages and remaining tooling are pending in `TRACKER.md`.
-  A passing automated check is not a completed file review.
+Current verified state:
+- CLI/server-entry, selected tooling, and the storage foundation batch are reviewed.
+  `TRACKER.md` is the source of truth for completed and remaining file coverage.
+- The source tree passes `make check`, including race/shuffle tests across all Go
+  packages, formatting, lint, vulnerability scanning, frontend checks, and builds.
+  The storage tests also passed three consecutive shuffled race-enabled runs.
+- Repeated, alternating A/B benchmarks support reduced allocations in storage
+  row scans. Most timings are statistically unchanged; do not turn allocation
+  reductions or individual operation results into application-wide speed claims.
+- Baseline/candidate benchmark executables and comparison runners are retained in
+  ignored `.agents/benchmarks/checkpoint2/` and `.agents/benchmarks/checkpoint3/`.
+  Do not overwrite a baseline executable with a newer build or compare mismatched
+  benchmark sources. Complete debug request formatting retains its measured
+  correctness cost; preserve attribute resolution, escaping, and extra context.
+- Verified review changes are committed locally. No push is authorized.
+  No dependency, database schema, or frontend source changes were made.
+- `.skills/` and local measurement artifacts remain ignored and untracked;
+  the focused Go benchmark source is tracked with the code.
+- The overall backend review remains incomplete. A passing automated check is not
+  a completed file review.
 
 ## Resume instructions
 

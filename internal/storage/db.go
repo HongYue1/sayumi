@@ -155,8 +155,9 @@ func Open(libraryPath string) (*DB, error) {
 func (db *DB) Close() error {
 	var stmtErr error
 	if db.saveProgressStmt != nil {
+		// Keep the handle immutable: sql.Stmt.Close is safe to repeat, and
+		// progress writes racing with shutdown must get an error, not a nil panic.
 		stmtErr = db.saveProgressStmt.Close()
-		db.saveProgressStmt = nil
 	}
 	var dbErr error
 	if err := db.DB.Close(); err != nil {
@@ -251,8 +252,9 @@ func dataSourceName(dbPath string) string {
 }
 
 func (db *DB) migrate() error {
-	// Migrations run once at startup and must complete atomically, so they use
-	// context.Background() rather than a cancelable request context.
+	// Migrations run before the database is exposed to requests, using a
+	// background context. Steps are idempotent so an interrupted open can retry;
+	// only individual reconciliation batches are transactional.
 	//
 	// Order matters for upgrades:
 	//  1) CREATE TABLE IF NOT EXISTS (idempotent base shape)
@@ -269,8 +271,7 @@ func (db *DB) migrate() error {
 	// CREATE TABLE IF NOT EXISTS above is a no-op on such DBs, so new columns
 	// must be added explicitly. ADD COLUMN is idempotent here via the guard.
 	// Read each table's existing columns once rather than re-querying
-	// pragma_table_info for every column migration (12 of the 13 migrations
-	// target the same `settings` table).
+	// pragma_table_info for every column migration; most target settings.
 	tableCols := make(map[string]map[string]bool)
 	for _, mig := range columnMigrations {
 		cols, ok := tableCols[mig.table]
@@ -375,8 +376,10 @@ func (db *DB) pendingRekeys(selectSQL string) ([]rekey, error) {
 	defer func() { _ = rows.Close() }()
 
 	var pending []rekey
+	// Scan destinations escape through database/sql; reuse them rather than
+	// allocating two string headers per row. Pending entries copy the values.
+	var path, key string
 	for rows.Next() {
-		var path, key string
 		if err := rows.Scan(&path, &key); err != nil {
 			return nil, fmt.Errorf("scan path: %w", err)
 		}
@@ -470,8 +473,8 @@ func (db *DB) tableColumns(table string) (map[string]bool, error) {
 	defer func() { _ = rows.Close() }()
 
 	cols := make(map[string]bool)
+	var name string // Reuse the escaping Scan destination across rows.
 	for rows.Next() {
-		var name string
 		if err := rows.Scan(&name); err != nil {
 			return nil, fmt.Errorf("scan column: %w", err)
 		}

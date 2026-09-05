@@ -129,6 +129,40 @@ func TestDeleteExpiredSessionsBoundary(t *testing.T) {
 	}
 }
 
+func TestLoadSessionsKeepsRowsIndependent(t *testing.T) {
+	t.Parallel()
+	pdb := newTestProfilesDB(t)
+	ctx := t.Context()
+	for _, profile := range []string{"first", "second"} {
+		if err := pdb.CreateProfileContext(ctx, profile, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []PersistedSession{
+		{Token: "token-a", Profile: "first", Expiry: time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)},
+		{Token: "token-b", Profile: "second", Expiry: time.Date(2031, 2, 3, 4, 5, 6, 0, time.FixedZone("offset", 3*60*60))},
+	}
+	for _, session := range want {
+		if err := pdb.SaveSession(ctx, session.Token, session.Profile, session.Expiry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := pdb.LoadSessions(ctx)
+	if err != nil || len(got) != len(want) {
+		t.Fatalf("LoadSessions = %v, err=%v", got, err)
+	}
+	byToken := make(map[string]PersistedSession, len(got))
+	for _, session := range got {
+		byToken[session.Token] = session
+	}
+	for _, session := range want {
+		actual, ok := byToken[session.Token]
+		if !ok || actual.Profile != session.Profile || !actual.Expiry.Equal(session.Expiry) {
+			t.Errorf("session %q = %+v, want %+v", session.Token, actual, session)
+		}
+	}
+}
+
 func TestLoadSessionsSkipsCorruptExpiry(t *testing.T) {
 	t.Parallel()
 	pdb := newTestProfilesDB(t)

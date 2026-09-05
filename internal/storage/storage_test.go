@@ -9,15 +9,15 @@ import (
 // newTestDB opens a fresh, isolated profile database in a temp directory and
 // registers cleanup. Each test gets its own database so tests never share
 // state.
-func newTestDB(t *testing.T) *DB {
-	t.Helper()
-	db, err := Open(t.TempDir())
+func newTestDB(tb testing.TB) *DB {
+	tb.Helper()
+	db, err := Open(tb.TempDir())
 	if err != nil {
-		t.Fatalf("open test db: %v", err)
+		tb.Fatalf("open test db: %v", err)
 	}
-	t.Cleanup(func() {
+	tb.Cleanup(func() {
 		if err := db.Close(); err != nil {
-			t.Errorf("close test db: %v", err)
+			tb.Errorf("close test db: %v", err)
 		}
 	})
 	return db
