@@ -17,7 +17,7 @@ import (
 
 // ChapterRenderVersion invalidates rendered responses and HTTP ETags when the
 // HTML/CSS serialization contract changes.
-const ChapterRenderVersion = "2026-09-05-1"
+const ChapterRenderVersion = "2026-09-05-2"
 
 type ChapterResponse struct {
 	ChapterIndex int    `json:"chapterIndex"`

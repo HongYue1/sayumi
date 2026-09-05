@@ -91,8 +91,9 @@ icons, compiled resources, generated frontend output, and `.skills/` are exclude
 - [x] `internal/epub/reader_bench_test.go`
 - [x] `internal/epub/reader_contract_test.go`
 - [x] `internal/epub/reader_test.go`
-- [ ] `internal/epub/sanitize.go`
-- [ ] `internal/epub/sanitize_test.go`
+- [x] `internal/epub/sanitize.go`
+- [x] `internal/epub/sanitize_bench_test.go`
+- [x] `internal/epub/sanitize_test.go`
 - [ ] `internal/epub/search.go`
 - [ ] `internal/epub/search_test.go`
 - [x] `internal/epub/store.go`

@@ -57,6 +57,10 @@ var dangerousURIPrefixes = []string{
 
 const maxSanitizeDepth = 500
 
+// Sanitize applies the chapter markup policy to a non-nil document from html.Parse.
+// It mutates the tree and attribute slices in place; the caller must own them
+// exclusively. The cutoff node is retained as a sanitized leaf. Resource URL
+// rewriting and the reader's sandbox/CSP are separate, required defenses.
 func Sanitize(doc *html.Node) {
 	sanitizeNode(doc, 0)
 }
@@ -229,6 +233,10 @@ func needsURINormalization(value string) bool {
 }
 
 func sanitizeSVG(n *html.Node, depth int) {
+	// The HTML walker delegates SVG roots without checking their attributes.
+	// Own that check here, before the cutoff: pruning children must not leave
+	// an onload handler or dangerous href on the retained boundary element.
+	sanitizeAttributes(n)
 	if depth > maxSanitizeDepth {
 		// Fail closed, same rationale as sanitizeNode: a <script> or
 		// <foreignObject> nested past the budget must not survive inside an
@@ -266,19 +274,17 @@ func sanitizeSVG(n *html.Node, depth int) {
 			continue
 		}
 
-		sanitizeAttributes(c)
-
-		// <desc>, <title> and <foreignObject> are HTML integration points, so
-		// an HTML-namespace child carries an HTML subtree: hand it to the HTML
-		// walker, which applies the full element policy at every level.
+		// HTML integration points contain HTML-namespace children. That walker
+		// checks descendants, not its root, so check this child's attributes
+		// before handing it over. SVG children own their check on entry above.
 		if c.Namespace == "" {
+			sanitizeAttributes(c)
 			sanitizeNode(c, depth+1)
 			continue
 		}
 
 		sanitizeSVG(c, depth+1)
 	}
-	sanitizeAttributes(n)
 }
 
 // urlAnimationElements are the SMIL elements that can rewrite an attribute's

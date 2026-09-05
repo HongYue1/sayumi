@@ -1,6 +1,8 @@
 package epub
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -330,5 +332,250 @@ func TestSanitizeStripsURLAnimation(t *testing.T) {
 	out := sanitizeHTML(t, `<svg><rect><animate attributeName="width" values="0;100"/></rect></svg>`)
 	if !strings.Contains(strings.ToLower(out), "animate") {
 		t.Errorf("non-URL animation should be kept: %s", out)
+	}
+}
+
+// At the cutoff the SVG root is retained as a leaf, just like an HTML element.
+// Its own handlers and dangerous URIs must be removed even when its children
+// cannot be visited. Cover both walker handoffs and an all-SVG ancestor chain.
+func TestSanitizeSVGDepthBoundary(t *testing.T) {
+	t.Parallel()
+	for _, ancestry := range []string{"html", "svg", "integration"} {
+		for _, depth := range []int{maxSanitizeDepth, maxSanitizeDepth + 1, maxSanitizeDepth + 2} {
+			t.Run(fmt.Sprintf("%s/depth=%d", ancestry, depth), func(t *testing.T) {
+				t.Parallel()
+				doc := &html.Node{Type: html.DocumentNode}
+				parent := doc
+				for i := range depth - 1 {
+					level := i + 1
+					tag, namespace := "div", ""
+					switch ancestry {
+					case "svg":
+						tag, namespace = "g", "svg"
+						if level == 1 {
+							tag = "svg"
+						}
+					case "integration":
+						switch level {
+						case 1:
+							tag, namespace = "svg", "svg"
+						case 2:
+							tag, namespace = "desc", "svg"
+						}
+					}
+					child := &html.Node{
+						Type: html.ElementNode, DataAtom: atom.Lookup([]byte(tag)), Data: tag, Namespace: namespace,
+					}
+					parent.AppendChild(child)
+					parent = child
+				}
+				edge := &html.Node{
+					Type: html.ElementNode, DataAtom: atom.Svg, Data: "svg", Namespace: "svg",
+					Attr: []html.Attribute{
+						{Key: "id", Val: "edge"},
+						{Key: "onload", Val: "drop()"},
+						{Key: "href", Val: "javascript:drop()"},
+					},
+				}
+				edge.AppendChild(&html.Node{Type: html.TextNode, Data: "inside"})
+				parent.AppendChild(edge)
+				doc.AppendChild(&html.Node{Type: html.TextNode, Data: "outside"})
+
+				Sanitize(doc)
+				assertSanitizedTreeLinks(t, doc)
+				out := renderSanitizerTestTree(t, doc)
+				wantEdge := depth <= maxSanitizeDepth+1
+				if got := strings.Contains(out, `id="edge"`); got != wantEdge {
+					t.Fatalf("retained boundary node = %v, want %v", got, wantEdge)
+				}
+				if wantEdge && !slices.Equal(edge.Attr, []html.Attribute{{Key: "id", Val: "edge"}}) {
+					t.Errorf("boundary attributes = %+v; want only safe id", edge.Attr)
+				}
+				if got := strings.Contains(out, "inside"); got != (depth <= maxSanitizeDepth) {
+					t.Errorf("boundary child retained = %v at depth %d", got, depth)
+				}
+				if !strings.HasSuffix(out, "outside") {
+					t.Error("pruning lost a sibling outside the deep subtree")
+				}
+			})
+		}
+	}
+}
+
+func TestSanitizeParsedSVGDepthBoundary(t *testing.T) {
+	t.Parallel()
+	// This is within html.Parse's open-element limit: the bug is reachable
+	// from a real chapter, not just an artificially constructed node tree.
+	in := `<html><body>` + strings.Repeat(`<div>`, maxSanitizeDepth-2) +
+		`<svg id="edge" onload="drop()" href="javascript:drop()"><g>inside</g></svg>` +
+		strings.Repeat(`</div>`, maxSanitizeDepth-2) + `<p>outside</p></body></html>`
+	store := NewStore(1)
+	t.Cleanup(store.Close)
+	resp, err := processChapterHTML(
+		t.Context(),
+		[]byte(in),
+		"OPS",
+		"/api/books/test/resources",
+		0,
+		"ltr",
+		nil,
+		store,
+		"unused.epub",
+		"token",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, out := range map[string]string{"sanitizer": sanitizeHTML(t, in), "chapter": resp.HTML} {
+		t.Run(name, func(t *testing.T) {
+			if !strings.Contains(out, `id="edge"`) || !strings.Contains(out, `<p>outside</p>`) {
+				t.Fatal("boundary leaf or outside content was lost")
+			}
+			for _, forbidden := range []string{"onload", "javascript:", "drop()", "inside"} {
+				if strings.Contains(out, forbidden) {
+					t.Errorf("%q survived the SVG cutoff", forbidden)
+				}
+			}
+		})
+	}
+}
+
+func TestSanitizePreservesBenignMarkup(t *testing.T) {
+	t.Parallel()
+	in := `<!DOCTYPE html><html lang="en"><head>` +
+		`<meta name="viewport" content="width=device-width">` +
+		`<link rel="alternate stylesheet" href="Styles/Book.CSS"></head><body class="book">` +
+		`<p id="p1" data-note="Authored" contenteditable="true">Read <em>this</em> &amp; that.</p>` +
+		`<a href="Text/Ch%20One.xhtml?x=1&amp;y=2#Part">go</a>` +
+		`<svg viewBox="0 0 10 10"><title>Illustration</title><rect width="10">` +
+		`<animate attributeName="width" values="0;10"></animate></rect>` +
+		`<image xlink:href="../Images/Cover.PNG"></image></svg><math><mi>x</mi></math></body></html>`
+	doc, err := html.Parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := renderSanitizerTestTree(t, doc)
+	Sanitize(doc)
+	assertSanitizedTreeLinks(t, doc)
+	if got := renderSanitizerTestTree(t, doc); got != want {
+		t.Errorf("benign markup changed\ngot:  %s\nwant: %s", got, want)
+	}
+}
+
+func TestSanitizePromotedChildrenOrder(t *testing.T) {
+	t.Parallel()
+	content := `<form>before<button><span onclick="drop()">keep</span><script>drop()</script></button>after</form>`
+	for _, tc := range []struct {
+		name, in, want string
+	}{
+		{
+			name: "html",
+			in:   content + `<p>tail</p>`,
+			want: `<html><head></head><body>before<span>keep</span>after<p>tail</p></body></html>`,
+		},
+		{
+			name: "svg integration point",
+			in:   `<svg><desc>` + content + `</desc></svg><p>tail</p>`,
+			want: `<html><head></head><body><svg><desc>before<span>keep</span>after</desc></svg><p>tail</p></body></html>`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			doc, err := html.Parse(strings.NewReader(tc.in))
+			if err != nil {
+				t.Fatal(err)
+			}
+			Sanitize(doc)
+			assertSanitizedTreeLinks(t, doc)
+			if got := renderSanitizerTestTree(t, doc); got != tc.want {
+				t.Errorf("promoted content\ngot:  %s\nwant: %s", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeURIForSafetyCheck(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, in, want string
+	}{
+		{name: "empty"},
+		{name: "lowercase path", in: "../images/a%20b.png?x=1#part", want: "../images/a%20b.png?x=1#part"},
+		{name: "mixed case", in: "JaVaScRiPt:alert(1)", want: "javascript:alert(1)"},
+		{name: "controls", in: "\x00java\t\n\r\x7fscript: x", want: "javascript:x"},
+		{name: "non ASCII", in: "java\u00a0\u200b\ufffdscript:x", want: "javascript:x"},
+		{name: "invalid UTF8", in: "java\xffscript:x", want: "javascript:x"},
+		{name: "do not percent decode", in: "java%73cript:x", want: "java%73cript:x"},
+		{name: "comparison only", in: "Images/日本語 Cover.PNG", want: "images/cover.png"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := normalizeURIForSafetyCheck(tc.in); got != tc.want {
+				t.Errorf("normalized %q = %q, want %q", tc.in, got, tc.want)
+			}
+			if got := needsURINormalization(tc.in); got != (tc.in != tc.want) {
+				t.Errorf("normalization needed for %q = %v", tc.in, got)
+			}
+		})
+	}
+}
+
+func FuzzSanitizeStableTree(f *testing.F) {
+	f.Add(`<form><button><span onclick="drop()">keep</span></button><script>drop()</script></form>`)
+	f.Add(`<svg onload="drop()"><desc><form><a href="java&#10;script:x">keep</a></form></desc><image xlink:href="a.png"></image></svg>`)
+	f.Add(`<math><mtext><svg><set attributeName="href" to="javascript:x"></set></svg></mtext></math>`)
+	f.Add(strings.Repeat(`<div>`, maxSanitizeDepth-2) + `<svg onload="drop()"></svg>` + strings.Repeat(`</div>`, maxSanitizeDepth-2))
+	f.Fuzz(func(t *testing.T, input string) {
+		if len(input) > 64<<10 {
+			t.Skip()
+		}
+		doc, err := html.Parse(strings.NewReader(input))
+		if err != nil {
+			t.Skip()
+		}
+		Sanitize(doc)
+		assertSanitizedTreeLinks(t, doc)
+		want := renderSanitizerTestTree(t, doc)
+		Sanitize(doc)
+		assertSanitizedTreeLinks(t, doc)
+		if got := renderSanitizerTestTree(t, doc); got != want {
+			t.Fatalf("sanitizing the same tree is not idempotent\ngot: %q\nwant: %q", truncateForTest(got, 400), truncateForTest(want, 400))
+		}
+	})
+}
+
+func renderSanitizerTestTree(t *testing.T, doc *html.Node) string {
+	t.Helper()
+	var out strings.Builder
+	if err := html.Render(&out, doc); err != nil {
+		t.Fatal(err)
+	}
+	return out.String()
+}
+
+// Promotion and pruning must leave a valid bidirectional tree. The visited set
+// also catches sibling cycles without hanging the regression or fuzz runner.
+func assertSanitizedTreeLinks(t *testing.T, root *html.Node) {
+	t.Helper()
+	seen := map[*html.Node]bool{root: true}
+	pending := []*html.Node{root}
+	for len(pending) > 0 {
+		n := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		var previous *html.Node
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			if seen[c] {
+				t.Fatal("cycle or multiply owned node after sanitizing")
+			}
+			seen[c] = true
+			if c.Parent != n || c.PrevSibling != previous {
+				t.Fatal("inconsistent parent or previous-sibling link")
+			}
+			pending = append(pending, c)
+			previous = c
+		}
+		if n.LastChild != previous {
+			t.Fatal("inconsistent last-child link")
+		}
 	}
 }
