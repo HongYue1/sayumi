@@ -2,9 +2,9 @@
 # Thin wrapper over the build scripts; see build.sh / check.sh / release.sh.
 
 .DEFAULT_GOAL := build
-.PHONY: build run check fix release web clean fmt version
+.PHONY: build run check fix release web clean fmt version bench
 
-# Optimized local build (GOAMD64=v3 when supported) → ./sayumi
+# Optimized local build (GOAMD64=v3 when supported) → ./sayumi or ./sayumi.exe
 build:
 	./build.sh
 
@@ -15,6 +15,14 @@ run:
 # All quality gates (frontend + backend), read-only/CI-safe.
 check:
 	./check.sh
+
+# Repeatable Go-only benchmarks; e.g. make bench PKG=./cmd/sayumi BENCH=PrettyHandler.
+PKG ?= ./...
+BENCH ?= .
+COUNT ?= 10
+BENCHTIME ?= 1s
+bench:
+	go test -run='^$$' -bench='$(BENCH)' -benchmem -count=$(COUNT) -benchtime=$(BENCHTIME) $(PKG)
 
 # Auto-fix pass (mutates files): imports, formatting, lint --fix, mod tidy.
 fix:

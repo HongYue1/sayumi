@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
 # check.sh — read-only quality gates for the whole project (CI-safe).
 set -uo pipefail
-cd "$(dirname "$0")"
-FAST=0; [[ "${1:-}" == "--fast" ]] && FAST=1
+cd "$(dirname "$0")" || exit 1
+FAST=0
+for arg in "$@"; do
+  case "$arg" in
+    --fast) FAST=1 ;;
+    --help|-h) printf 'Usage: ./check.sh [--fast]\n'; exit 0 ;;
+    *) printf 'unknown option: %s\n' "$arg" >&2; exit 2 ;;
+  esac
+done
 bold=$'\033[1m'; green=$'\033[32m'; yellow=$'\033[33m'; red=$'\033[31m'; dim=$'\033[2m'; reset=$'\033[0m'
+if [[ ! -t 1 || -n "${NO_COLOR:-}" || "${TERM:-}" == dumb ]]; then
+  bold=; green=; yellow=; red=; dim=; reset=
+fi
 overall=0
 ok(){ echo "   ${green}✓${reset} $*"; }; warn(){ echo "   ${yellow}⚠${reset} $*"; }
 fail(){ echo "   ${red}✗${reset} $*"; overall=1; }; skip(){ echo "   ${dim}– skipped: $*${reset}"; }

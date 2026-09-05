@@ -15,7 +15,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-BIN="sayumi"
+# Keep the native executable suffix so Windows Explorer can launch the build.
+BIN="sayumi$(go env GOEXE)"
 RUN=0
 SKIP_WEB=0
 for arg in "$@"; do
