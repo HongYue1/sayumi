@@ -38,6 +38,10 @@ type searchCursor struct {
 
 const snippetContextRunes = 80
 
+// Search returns non-overlapping matches in spine order. Offsets and lengths
+// count Unicode code points, not UTF-8 bytes or UTF-16 code units. The caller
+// must keep filePath and the read-only spine on one book generation throughout
+// the call (the API holds its generation read lock).
 func Search(
 	ctx context.Context,
 	store *EPUBStore,
@@ -51,16 +55,14 @@ func Search(
 		limit = 20
 	}
 
-	// foldRunes applies unicode.ToLower per-rune rather than strings.ToLower.
-	// strings.ToLower uses full Unicode case mappings that can expand a single
-	// rune into multiple runes (e.g. Turkish İ → "i\u0307"), breaking the 1:1
-	// rune correspondence between the folded text and the original that the
-	// offset arithmetic below relies on. unicode.ToLower always returns exactly
-	// one rune, so rune position i in the folded string equals rune position i
-	// in the original.
+	// Fold the query exactly like cached chapter text and the reader frame;
+	// offsets rely on one folded code point per original rune (see foldRunes).
 	query = foldRunes(strings.TrimSpace(query))
 	if query == "" {
 		return SearchResponse{Results: []SearchResult{}}, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return SearchResponse{}, err
 	}
 
 	startChapter := 0
@@ -76,7 +78,6 @@ func Search(
 
 	qLen := utf8.RuneCountInString(query)
 	queryByteLen := len(query)
-	resultCap := limit + 1
 	// Non-nil so a no-match search marshals as [] like the empty-query path,
 	// rather than null. ([]SearchResult{} shares the zero-base pointer and does
 	// not allocate until the first append.)
@@ -98,6 +99,12 @@ func Search(
 			return SearchResponse{}, err
 		}
 		orig, textLower, err := chapterPlainText(store, filePath, index, spine, chapterIndex)
+		// ZIP reads and parsing are not interruptible here. Observe cancellation
+		// after that work even if extraction failed or this is the last chapter;
+		// otherwise the skip/no-match paths can turn cancellation into success.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return SearchResponse{}, ctxErr
+		}
 		if err != nil {
 			slog.Warn("skipping chapter during search: failed to extract text",
 				"chapter", chapterIndex, "err", err)
@@ -115,6 +122,9 @@ func Search(
 
 		for bytePos := byteSearchFrom; bytePos <= len(textLower)-queryByteLen; {
 			idx := strings.Index(textLower[bytePos:], query)
+			if err := ctx.Err(); err != nil {
+				return SearchResponse{}, err
+			}
 			if idx < 0 {
 				break
 			}
@@ -122,6 +132,16 @@ func Search(
 			matchByteStart := bytePos + idx
 			runePos += utf8.RuneCountInString(textLower[bytePos:matchByteStart])
 			matchStart := runePos
+
+			// Lookahead needs only a position. Building its discarded snippet can
+			// allocate a whole chapter-sized rune slice for the next chapter.
+			if len(results) == limit {
+				return SearchResponse{
+					Results:    results,
+					HasMore:    true,
+					NextCursor: encodeCursor(searchCursor{ChapterIndex: chapterIndex, CharOffset: matchStart}),
+				}, nil
+			}
 
 			if origRunes == nil {
 				origRunes = []rune(orig)
@@ -132,9 +152,8 @@ func Search(
 			snippet := string(origRunes[snippetFrom:snippetTo])
 
 			snippetStart := matchStart - snippetFrom
-			// Clamp to zero: near the end of a chapter snippetTo-snippetFrom-snippetStart
-			// can be smaller than qLen, producing a negative value without the guard.
-			snippetLen := max(0, min(qLen, (snippetTo-snippetFrom)-snippetStart))
+			// A match in the 1:1 folded text fits in orig too; clipping the
+			// surrounding context never clips the match itself.
 
 			results = append(results, SearchResult{
 				ChapterIndex: chapterIndex,
@@ -142,23 +161,17 @@ func Search(
 				MatchLen:     qLen,
 				Snippet:      snippet,
 				SnippetStart: snippetStart,
-				SnippetLen:   snippetLen,
+				SnippetLen:   qLen,
 			})
-
-			if len(results) == resultCap {
-				extra := results[limit]
-				return SearchResponse{
-					Results:    results[:limit],
-					HasMore:    true,
-					NextCursor: encodeCursor(searchCursor{ChapterIndex: extra.ChapterIndex, CharOffset: extra.CharOffset}),
-				}, nil
-			}
 
 			bytePos = matchByteStart + queryByteLen
 			runePos += qLen
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return SearchResponse{}, err
+	}
 	return SearchResponse{Results: results, HasMore: false}, nil
 }
 
@@ -192,13 +205,15 @@ func chapterPlainText(
 		return "", "", fmt.Errorf("parse html for text extraction: %w", err)
 	}
 
+	// Match the chapter tree sent to the frame: removed subtrees and unwrapped
+	// elements must not contribute text or consume its effective depth budget.
+	// This document is private to extraction, not a shared cached tree.
+	Sanitize(doc)
 	var extractor plainTextExtractor
 	extractor.extract(doc)
 	orig = extractor.String()
-	// Use foldRunes (unicode.ToLower per-rune) instead of strings.ToLower so
-	// that the rune count of lower always equals the rune count of orig. Some
-	// Unicode code points (e.g. Turkish İ) expand to two runes under
-	// strings.ToLower, which would shift rune offsets and corrupt snippets.
+	// Preserve the original text for snippets; the folded text has the same
+	// rune count but may have different UTF-8 byte widths.
 	lower = foldRunes(orig)
 
 	store.SetText(filePath, chapterIndex, orig, lower)
@@ -240,20 +255,28 @@ func (e *plainTextExtractor) extract(node *html.Node) {
 }
 
 func (e *plainTextExtractor) extractDepth(node *html.Node, depth int) {
-	if node == nil || depth > maxSanitizeDepth {
+	// Sanitize retains the node at depth maxSanitizeDepth+1 as a leaf. Count
+	// its text/boundary too, but never descend beyond the sanitized tree.
+	if node == nil || depth > maxSanitizeDepth+1 {
 		return
 	}
 
 	if node.Type == html.ElementNode {
-		switch node.DataAtom {
-		case atom.Head, atom.Script, atom.Style, atom.Noscript:
-			return
-		case atom.Br:
-			e.writeBoundary()
-			return
+		// The frame uses uppercase HTML tagName checks. Applying these rules
+		// to same-named SVG/MathML nodes would change its code-point offsets.
+		if node.Namespace == "" {
+			switch node.DataAtom {
+			case atom.Head, atom.Script, atom.Style, atom.Noscript, atom.Template:
+				// Browser template content lives in a separate DocumentFragment,
+				// not in the childNodes traversed by the frame's search index.
+				return
+			case atom.Br:
+				e.writeBoundary()
+				return
+			}
 		}
 
-		boundary := isTextBoundaryElement(node.DataAtom, node.Data)
+		boundary := node.Namespace == "" && isTextBoundaryElement(node.DataAtom)
 		if boundary {
 			e.writeBoundary()
 		}
@@ -276,16 +299,7 @@ func (e *plainTextExtractor) extractDepth(node *html.Node, depth int) {
 	}
 }
 
-func isTextBoundaryElement(tag atom.Atom, rawTag string) bool {
-	if tag == 0 {
-		switch strings.ToLower(rawTag) {
-		case "svg", "math":
-			return true
-		default:
-			return false
-		}
-	}
-
+func isTextBoundaryElement(tag atom.Atom) bool {
 	// atom.Form is deliberately absent below: sanitize.go unwraps <form>,
 	// promoting its children, before a chapter reaches the reader frame, so
 	// the DOM the frontend indexes has no form element to score. A boundary
@@ -307,9 +321,11 @@ func isTextBoundaryElement(tag atom.Atom, rawTag string) bool {
 	}
 }
 
-// foldRunes returns s with each rune replaced by unicode.ToLower(r). Unlike
-// strings.ToLower it never expands a single rune into multiple runes, so
-// utf8.RuneCountInString(foldRunes(s)) == utf8.RuneCountInString(s) always.
+// foldRunes applies simple, per-rune lowercase without normalization or full
+// case folding. Go's strings.ToLower also uses simple mappings; JavaScript's
+// full lowercase can expand İ to i + combining dot. Keep the frame's
+// foldSearchCodePoint in frontend/src/lib/searchText.ts aligned with this
+// one-code-point-per-rune contract so snippet and cursor offsets remain valid.
 func foldRunes(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))

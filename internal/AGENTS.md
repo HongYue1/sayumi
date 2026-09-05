@@ -27,8 +27,9 @@ Handlers don't reach past `storage`'s API into SQL, and `storage` never imports 
   no in-place mutation, no retained append. Same for `fonts.Scanner.Families()`.
 - **Library title ordering is a three-place contract** across `storage/books.go`,
   `storage/bookcache.go`, and `api/library.go`. See the root `AGENTS.md`.
-- **Search offsets depend on `foldRunes`** (per-rune `unicode.ToLower`).
-  `strings.ToLower` can expand one rune into two and corrupt every offset after it.
+- **Search offsets depend on `foldRunes`** (per-rune `unicode.ToLower`) matching
+  `frontend/src/lib/searchText.ts`: one code point per rune, unlike JavaScript's full
+  lowercase mappings. Keep the extractor and frame's whitespace/boundary rules aligned.
 - **The progress coalescer must drain before its DB closes:** `stop()` in `closeProfile`
   after refs reach zero, before `DB.Close()`. Deleting a book must also drop its pending
   entry, or a staged write retries forever against a cascaded-away row.

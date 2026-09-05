@@ -16,10 +16,10 @@
 // backend extractor in internal/epub/search.go, which produces every charOffset
 // consumed here; one extra or missing character silently highlights the wrong
 // words from that point on. The boundary list and whitespace rules below are a
-// single contract maintained on both sides. It also has to absorb one
-// asymmetry: the backend extracts from the raw chapter HTML while this module
-// indexes the sanitized DOM, so an element internal/epub/sanitize.go unwraps
-// must not be a boundary on either side (see TEXT_BOUNDARY_TAGS).
+// single contract maintained on both sides. The backend applies the chapter
+// sanitizer before extracting, while this module indexes the resulting DOM.
+// HTML template content is inert; foreign-namespace tag names must not acquire
+// HTML boundaries merely because they share a spelling (see TEXT_BOUNDARY_TAGS).
 
 import {
   SEARCH_MARK_ATTRIBUTE,

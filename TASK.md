@@ -10,107 +10,163 @@ Preserve the local-first design, existing API contracts, and pure-Go build.
 
 ## Current task
 
-**Checkpoint 11 is complete and verified: SVG sanitizer depth-boundary contracts.**
+**Checkpoint 12 is complete and verified: EPUB search text, cancellation, and pagination.**
 
-Base commit: `1c2044d fix(epub): preserve chapter rendering and cache contracts`.
-This handoff accompanies the scoped CP11 commit; use Git history for its hash.
-CP6-CP10 remain finished; CP12 has not been started. The initial worktree was clean
-with no running jobs. Root/internal and applicable nested instructions, TASK/TRACKER,
+Base commit: `857600b fix(epub): sanitize SVG attributes at the depth boundary`.
+This handoff accompanies the scoped CP12 commit; use Git history for its hash.
+CP6-CP11 remain finished; CP13 has not been started. The initial worktree was clean
+with no running jobs. Root/internal and applicable frontend instructions, TASK/TRACKER,
 relevant Go skills/references, and actual dependency callers were read before edits.
 
-- Reviewed scope: `internal/epub/sanitize.go`, `sanitize_test.go`, and new
-  `sanitize_bench_test.go`. `chapter.go` has only the required render-version bump;
-  its CP10 review was not repeated. API, parser, store, and frontend reads were
-  dependency context, not newly completed file reviews.
-- Reproduced unsafe attributes surviving on an SVG leaf at document depth 501
-  after HTML-to-SVG and SVG/HTML-integration handoffs. A real parsed chapter
-  retained `onload` in returned HTML; direct sanitizer output also retained the
-  dangerous href, which the later chapter URL rewrite independently neutralized.
-  No browser execution or CSP bypass was demonstrated.
-- SVG attribute filtering now runs on entry, before the depth guard, rather than
-  after traversal. SVG children are no longer filtered twice; HTML children still
-  have their own attributes checked before delegation. The existing 500-depth
-  budget and sanitized-leaf-at-501 convention are unchanged.
-- Added exact boundary tests at depths 500/501/502 for three ancestry shapes,
-  parsed/chapter-pipeline reproduction, benign HTML/SVG/MathML preservation,
-  promoted-child ordering, comparison-only URI normalization, and tree-link/
-  same-tree idempotence fuzz properties. Existing URL, SMIL, and element policy
-  remains unchanged; no speculative sanitizer-policy expansion was made.
-- Documented exclusive ownership of the mutable parsed tree and the complementary
-  resource-rewrite/sandbox/CSP defenses. ChapterRenderVersion is `2026-09-05-2` to
-  invalidate prior rendered responses and HTTP ETags.
-- Preserved cache budgets/generation identity, API generation-lock lifetimes,
-  shared read-only ZIP indexes and one Release per borrow, drained Store.Close,
-  exactly-once ResourceReader.Close, and unknown streaming Size (-1). No new
-  dependencies or adjacent package changes. Skills/artifacts remain ignored and
-  untracked. All 23 prior protected disk artifacts and the CP10 historical source
-  hash matched, as did the CP11 comparison inputs/results.
-- `TRACKER.md` was recounted: 147 files, 81 complete and 66 pending. Only the three
-  sanitizer files were newly completed. Pause after the scoped local commit.
+- Reviewed scope: `internal/epub/search.go`, `search_test.go`, and new
+  `search_bench_test.go`. Corrections in `internal/AGENTS.md` and
+  `frontend/src/iframe/searchHighlight.ts` are contract comments only; frontend
+  runtime, API, store, sanitizer, and chapter reads were dependency context, not
+  newly completed file reviews.
+- Reproduced incorrect offsets/text for removed SVG content, inert HTML templates,
+  foreign-namespace elements, unwrapped deep nodes, and the retained depth leaf.
+  Search now sanitizes its private parsed document before indexing, distinguishes
+  HTML-only traversal rules, and includes the sanitizer's retained depth-501 leaf.
+  The sanitizer's policy and 500-depth budget are unchanged.
+- Reproduced canceled searches returning success or a filesystem error instead of
+  cancellation. Nonempty searches now check cancellation before archive access,
+  after extraction, after scans, and before final success. Empty queries remain
+  successful no-ops. Physical archive reads/parsing are still non-interruptible;
+  valid extracted text can remain cached even when the request is canceled.
+- Pagination stops at lookahead before building a discarded snippet or allocating
+  the next chapter's rune slice. Inclusive cursors, non-overlapping matches, exact
+  code-point snippet offsets, default limits, and nonnil empty results are preserved.
+  The one-code-point lowercase implementation is unchanged; inaccurate comments
+  that confused Go's simple mapping with JavaScript's full lowercase were corrected.
+- Added exact cold/warm text and response regressions, Unicode/cursor/snippet cases,
+  boundary limits, missing chapters/archive errors, borrow-release/spine checks,
+  deterministic cancellation during ZIP reads, and bounded rune/cursor fuzzing.
+- Preserved API generation-lock lifetimes, shared read-only ZIP readers/indexes and
+  one Release per borrow, drained Store.Close, exactly-once ResourceReader.Close,
+  unknown streaming Size (-1), and derived-cache budgets/generation identity.
+  ChapterRenderVersion remains `2026-09-05-2`. No new dependencies or shutdown redesign.
+- `TRACKER.md` inventory: 148 files, 84 complete and 64 pending. Only the three search
+  files were newly completed. Pause after the scoped local commit. On continuation,
+  reassess the remaining EPUB editing pair before moving to another package.
 
-### CP11 measurement and tradeoffs
+### CP12 measurement and tradeoffs
 
 Ten alternating paired samples, eight cases at GOMAXPROCS 1 and 4, 300ms per case,
 Go 1.27.0 windows/amd64, GOAMD64=v1, CGO_ENABLED=1 for matching executables,
-AMD Ryzen 7 5800H. Production remains CGO_ENABLED=0. No benchmark overlapped tests
-or builds; no samples or outliers were discarded. All 320 rows have a unique
-(pair, variant, case, CPU) key, with ten samples per variant/case/CPU and no missing
-values. An independent CSV/pandas audit reproduced all 96 grouped metric medians.
-Medians below use benchstat's rounded display; exact raw rows are archived below.
+AMD Ryzen 7 5800H. Production remains CGO_ENABLED=0. No measurement overlapped tests
+or builds; all 320 rows and outliers were retained. Each (pair, variant, case, CPU)
+key is unique, with ten samples per variant/case/CPU and no missing values.
+An independent pandas/stdlib audit reproduced all 96 metric medians and 48 deltas;
+CSV float parsing used round-trip precision without altering samples.
 
 | Case | CPU 1 median before -> after | CPU 4 median before -> after |
 | --- | --- | --- |
-| Warm chapter response | 87.82 -> 88.60 ns | 88.47 -> 88.63 ns |
-| Plain chapter miss | 77.32 -> 78.09 us | 78.73 -> 78.20 us |
-| Resource chapter, warm CSS | 735.7 -> 744.5 us | 726.4 -> 732.0 us |
-| Resource chapter, cold CSS | 905.0 -> 897.4 us | 926.5 -> 913.3 us |
-| Parse + sanitize, plain | 311.7 -> 310.5 us | 312.7 -> 307.2 us |
-| Parse + sanitize, SVG | 510.9 -> 469.9 us | 508.1 -> 469.4 us |
-| Parse + sanitize, hostile | 477.8 -> 475.5 us | 475.2 -> 478.1 us |
-| Parse + sanitize, depth boundary | 2.384 -> 2.399 ms | 2.406 -> 2.407 ms |
+| Warm page | 37.08 -> 35.25 us | 36.57 -> 36.84 us |
+| Warm Unicode page | 54.44 -> 59.80 us | 60.92 -> 60.28 us |
+| Warm cross-chapter lookahead | 389.32 -> 42.85 us | 400.81 -> 44.23 us |
+| Warm no match | 991.15 -> 997.45 ns | 983.60 -> 985.15 ns |
+| Cold plain text | 428.02 -> 432.79 us | 415.29 -> 422.02 us |
+| Cold SVG text | 376.51 -> 392.53 us | 372.78 -> 398.34 us |
+| Cold structural text | 352.13 -> 328.30 us | 355.70 -> 328.62 us |
+| Cold depth boundary | 2.484 -> 2.457 ms | 2.486 -> 2.472 ms |
 
-- SVG fixture time decreased 8.04% at CPU 1 (p=.001) and 7.61% at CPU 4 (p=.004).
-  Removing duplicate SVG checks also reduced allocations from 5599 to 5407
-  (-192, -3.43%) and median bytes from 140937 to 136840/136840.5 at CPUs 1/4
-  (about 4 KiB, -2.91%; both allocation metrics p<.001).
-- No other timing differences were statistically significant at the usual .05
-  threshold. This is not proof of equivalence or an application-wide speedup.
-  The cutoff fix retains the intended pruning behavior while removing the unsafe
-  attributes; its allocation-count/byte medians did not increase in this fixture.
-- All non-SVG allocation-count medians were unchanged. Warm chapter hits remain
-  0 B/op and 0 allocations. Plain chapter miss at CPU 1 used 33890 -> 33838 B/op
-  (-52, -0.15%, p=.003); other non-SVG byte differences were not significant.
-  No separate optimization claim is made from that small plain-miss byte change.
-- Limits: one host/toolchain and synthetic fixtures. New benchmarks include a
-  fresh html.Parse on every timed iteration, not just sanitizer walking or a
-  repeatedly sanitized tree. Setup/warmup and output validation are outside timing.
-  The depth fixture intentionally produces safer output after the fix. The four
-  unchanged CP10 chapter cases include cache invalidation and normal rendering;
-  ZIP/OS caches are warm, and these CPU settings are not parallel-render throughput.
+- Cross-chapter lookahead time decreased 88.99%/88.97% at CPUs 1/4 (both p<.001).
+  Median allocation volume fell from 401939.5/401937 B/op to 192 B/op (-99.95%);
+  allocation counts fell from 11 to 8. Before editing, a separate original CPU/heap
+  profile identified the discarded whole-chapter rune slice as the allocation
+  hotspot. Profile timings are not substituted for the paired benchmark samples.
+- Correctness costs: cold SVG at CPU 4 increased 6.86% (p=.029); CPU 1 increased
+  4.25% without a significant difference (p=.143). The new sanitization pass is
+  retained for correct indexed text, rather than reverting it for a favorable number.
+- ColdStructural time decreased 6.77%/7.61% (p=.001/.003), but indexed text changed
+  from 4095 to 2431 runes by excluding inert/removed content. ColdDepthBoundary now
+  indexes the retained six-rune match instead of nothing; allocations rose 1541 ->
+  1546. Neither case is an equivalent-work speedup claim.
+- Other timings were not significant at the usual .05 threshold; that is not proof
+  of equivalence. Warm page/Unicode lookahead uses one fewer allocation (33 -> 32)
+  without a demonstrated timing win. Exact allocation/byte medians are archived.
+- Limits: one host/toolchain, synthetic fixtures, some wide timing intervals, and
+  ordinary unadjusted benchstat comparisons. Cold cases evict only text-cache keys
+  inside timing, with ZIP readers and OS caches warm. Setup, warmup, and response
+  validation are outside timing. CPU settings do not measure parallel-search
+  throughput; no application-wide improvement or aggregate geomean claim is made.
 
 ### Verification
 
 Focused regressions, full EPUB tests, five shuffled race repetitions at CPUs 1/4,
 pure-Go EPUB tests, formatter/import checks, and scoped lint passed. A 30-second,
-four-worker fuzz campaign completed 180798 executions without failure, checking
-same-tree idempotence and link consistency with a 64 KiB input cap; it is not a
-browser round-trip or exhaustive security oracle. Full `make check` passed all
-gates: tidy, Go/frontend formatting, vet, lint, vulnerability checks, all-package
-shuffled race tests, frontend lint/types/tests, and frontend/pure-Go builds.
-The measured candidate source/executable/harness hashes remained unchanged through
-that check. All jobs exited before handoff.
+four-worker rune/cursor fuzz campaign completed 228236 executions without failure
+with a 64 KiB input cap. Full `make check` passed: tidy, Go/frontend formatting,
+vet, lint, vulnerability checks, all-package shuffled race tests, frontend lint/
+types/tests, and frontend/pure-Go builds. The initial embed-build preflight reused
+existing output; the final build gate performed the frontend and Go builds.
+The measured source/executable/harness hashes remained unchanged through that check.
+No new actual-browser/cross-language DOM round-trip test was performed; the parsed
+sanitizer/body-renderer regressions and existing frontend tests are not that guarantee.
+All jobs exited. Skills/artifacts remain ignored/untracked, and the CP7-CP11 protected
+artifacts/historical source hashes were rechecked unchanged.
 
 ```sh
-go test -count=1 -shuffle=on -run '^(TestSanitize|TestNormalizeURIForSafetyCheck|FuzzSanitizeStableTree)' -timeout=60s ./internal/epub
+go test -count=1 -shuffle=on -run '^(TestSearch|TestFoldRunes|TestRuneOffsetToByteIndex|TestPlainTextExtractor|FuzzSearchRuneOffsets)' -timeout=60s ./internal/epub
 go test -count=1 -shuffle=on -timeout=60s ./internal/epub
 go test -race -shuffle=on -count=5 -cpu=1,4 -timeout=120s ./internal/epub
 CGO_ENABLED=0 go test -count=1 -timeout=60s ./internal/epub
-go test -run='^$' -fuzz='^FuzzSanitizeStableTree$' -fuzztime=30s -parallel=4 -timeout=90s ./internal/epub
-gofumpt -d internal/epub/sanitize{,_test,_bench_test}.go internal/epub/chapter.go
-goimports -d -local sayumi internal/epub/sanitize{,_test,_bench_test}.go internal/epub/chapter.go
+go test -run='^$' -fuzz='^FuzzSearchRuneOffsets$' -fuzztime=30s -parallel=4 -timeout=90s ./internal/epub
+gofumpt -d internal/epub/search{,_test,_bench_test}.go
+goimports -d -local sayumi internal/epub/search{,_test,_bench_test}.go
 golangci-lint run ./internal/epub/... --timeout=5m
 make check
 git diff --check
+```
+
+### Protected CP12 benchmark artifacts
+
+Directory: `.agents/benchmarks/checkpoint12/` (ignored). The true-original was
+compiled before production edits from CP11 production at `857600b` plus the new
+regressions and frozen harness. Both executables passed all sixteen one-iteration
+benchmark smoke cases. Never overwrite the protected executables, harness, runner,
+profiles, or original logs, including when a comparison is unfavorable.
+
+- `before.test.exe` SHA256:
+  `1143e33572839f9e763b56a59241093bf703878595fddfeaad5731ef5e8fdab5`.
+- Frozen `internal/epub/search_bench_test.go` SHA256:
+  `c813c2153dbd1f992753103b93a0f64183d6de22915d6133ab44b34acaa9c6e4`.
+- Original `internal/epub/search.go` at `857600b` SHA256:
+  `6ac069f2d413847af60bd77bc020dc44ceffe657976dd0842a1935a2a5c0e26b`.
+- Verified/measured `after.test.exe` SHA256:
+  `ae16dcddeb5659f8999eaf3e8db657cf6da6ded363ad00821442e0dddcc9221c`.
+- Frozen `compare_benchmarks.py` SHA256:
+  `d487f1f78d06dccda644efcbc8e1964c5b290eb114427e7eda56e6076affbd26`.
+- `comparison.log` SHA256:
+  `53006dbaec5bc2fa749ad00e7184151dfa0fc06df695a9e31afca222dc790fcd`.
+- `make-check.log` SHA256:
+  `e673b2bd4c02c81b0dfd082fb67d1c6b84f4a61c27769a1fb32d8b8ea44f4a1e`.
+- `scoped-checks.log` SHA256:
+  `6377a42866d7f8da81ced2428882bfb7bdf3663276de77f697f99d4c86d1d177`.
+- Raw `runs/20260905T165700.925196Z/samples.csv` SHA256:
+  `6b7e5e94c7a4499af25fc3a7b1968423d478121b6253a948b1905962a6cc359d`.
+- `before-cpu.pprof` SHA256:
+  `93d2459cbb6ee49d89689392a6598be7d854d0772bc58c4c3527dbfa72c4b35f`.
+- `before-mem.pprof` SHA256:
+  `2073250a72bc69773e55953f286aa71c0e8fefbc50b11c3558f26e968628d547`.
+- `baseline-hashes.txt` and `candidate-hashes.txt` record build/source provenance;
+  source hashes identify measured trees, not permanently frozen production files.
+  `regression-before.log` retains the failing originals; `regression-after.log`
+  retains the compiled candidate passes. Original pprof listings remain saved.
+- The run directory also contains all twenty raw executable outputs, complete
+  benchstat input/output, exact medians, and environment settings. Repeat only on
+  the recorded source/test tree with no concurrent tests/builds:
+  `python .agents/benchmarks/checkpoint12/compare_benchmarks.py 10`.
+  The runner checks both executables, harness, and measured source/tests; alternates
+  order; requires all sixteen rows per run; and invokes benchstat with sample ignored.
+  Reruns get a new output directory; never overwrite comparison.log or rebuild the
+  protected originals. Use a new checkpoint/harness for subsequent production changes.
+- Reproduce the original failures (expected exit 1) without rebuilding; substitute
+  `after.test.exe` for the verified passing comparison:
+
+```sh
+.agents/benchmarks/checkpoint12/before.test.exe \
+  -test.run='^TestSearch(SanitizedText|Cancellation)$' -test.v -test.timeout=60s
 ```
 
 ### Protected CP11 benchmark artifacts
