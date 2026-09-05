@@ -10,77 +10,110 @@ Preserve the local-first design, existing API contracts, and pure-Go build.
 
 ## Current task
 
-**Checkpoint 8 is complete and verified. Pause after its local completion commit.**
+**Checkpoint 9 is complete and verified: EPUB ZIP-store lifecycle and resource ownership.**
 
-Completion commit subject: `fix(epub): preserve parser and ZIP reader contracts`.
-Use Git to resolve the hash of the commit containing this handoff.
+Base commit: `2f326c2 fix(epub): preserve parser and ZIP reader contracts`.
+This handoff accompanies the scoped CP9 commit; use Git history for its hash.
+CP8 and CP7 are finished. No subsequent checkpoint has been started.
 
-- Fully reviewed: `internal/epub/parser.go`, `parser_test.go`, `reader.go`, and
-  `reader_test.go`, plus their contract tests and benchmarks (eight Go files).
-- The audited inventory contains 143 files (129 Go and 14 tooling): 69 complete,
-  74 pending. Completion gates are not counted as reviewed files.
-- Adjacent EPUB store, chapter, and edit code was inspected for dependencies, not
-  reviewed as whole files. It remains unchecked. No API, schema, dependency,
-  frontend source, or other-package changes were needed in CP8.
-- No implementation work remains in CP8. Keep the original benchmark executables
-  and frozen harnesses below intact, and keep `.skills/` and `.agents/` ignored.
-- No sub-agents, push, or amend were used. Stop all jobs before handing off.
-- Next, only after the user says **continue**, choose another bounded EPUB batch;
-  the ZIP-store lifecycle/resource-ownership files and their tests are a useful
-  next scope. Then finish remaining EPUB, fonts, HTTP API, and tooling files.
-  Do not repeat completed checkpoints or reopen the storage UPDATE RETURNING
-  experiment. No next batch has started.
+- Bounded scope: `internal/epub/store.go`, `store_test.go`,
+  `store_concurrency_test.go`, `store_contract_test.go`, and `store_bench_test.go`.
+  Adjacent chapter, search, API replacement/resource, and profile-shutdown callers
+  are dependency inspection only, not completed file reviews.
+- Root/internal instructions, the three store files, relevant concurrency,
+  safety, testing, and benchmark skills, and Git status/diffs were inspected.
+  The worktree was clean at the base commit. All existing benchmark protections
+  below still apply; `.skills/` and `.agents/` remain ignored.
+- The true-original benchmark executable and six-case harness are frozen below.
+  Original resource-close tests reproduced four failing subcases and a real data
+  race. A mechanical private-opener extraction then allowed controlled tests to
+  reproduce live-reader leakage on ErrInsecurePath and a lost CloseBook request
+  during loading; shared loading, failed-load retry, and ordinary eviction passed.
+- Implemented rejected-reader cleanup before error publication, exactly-once
+  resource close/release with retained close errors, and explicit-close intent
+  across loading while preserving later reacquisition. Index construction now
+  runs outside the global store mutex. No LRU algorithm or shutdown redesign.
+- Strengthened existing tests and ownership/retention documentation. Scoped
+  tests, race tests with five shuffled repetitions at CPUs 1 and 4, CGO-disabled
+  tests, formatting/import checks, and scoped lint (zero issues) all passed.
+  Full `make check` also passed: tidy, formatting, vet, lint, vulnerability checks,
+  all-package shuffled race tests, frontend checks/tests, and production builds.
+  The six-case paired benchmark comparison completed separately from all checks.
+- Preserve the ready-channel publication barrier, one Release per successful
+  OpenIndexed, pinned-reader survival during eviction, byte-budgeted derived
+  caches, keep-true DeleteFunc semantics, unknown streaming Size (-1), and MIME
+  behavior. API generation locks and drained Store.Close remain required.
+- `TRACKER.md` now lists 145 files: 74 complete and 71 pending. Only the five
+  store files were completed in this batch. No API, schema, dependency, frontend,
+  shutdown-lifecycle, MIME, or resource-size contract changes were made.
 
-### Verified CP8 behavior
+### CP9 measurement and verification
 
-- A declared package media type wins over an earlier extension-only rootfile.
-  The original extension and arbitrary-rootfile fallbacks remain available.
-- Explicit spine LTR/RTL progression wins over legacy package direction.
-  Creator file-as precedence and metadata/spine ordering remain unchanged.
-- Empty cover references no longer suppress later valid candidates. Legacy
-  metadata, cover-image properties, and cover-ID priority are preserved.
-- Span-wrapped NAV links retain their hrefs without taking a child-list link as
-  the parent link. Logical TOC depth and HTML wrapper-depth limits remain bounded.
-- Leading-slash references resolve from the archive root. Relative traversal
-  still clamps within the archive; URI escapes and query/fragment handling are
-  preserved for chapter/resource/edit callers.
-- In-memory ZIP reads keep the fixed 64 MiB ceiling. Read, checksum, size, and
-  close failures return no partial data; read/limit failures remain primary over
-  a secondary close failure. Invalid private-helper limits reject before reading.
-- Removed the test-only mutable ZIP ceiling and duplicated index lookup logic.
-  Test ZIP cleanup errors are checked. Unused decoded XML fields were removed
-  after tracing parsing and token-based editing consumers.
-- Text extraction follows DOM links without a width-sized sibling stack, while
-  preserving document order, the supplied subtree boundary, and depth inclusion.
+Ten alternating paired samples, six cases at CPUs 1 and 4, 300ms per case,
+Go 1.27.0 windows/amd64, GOAMD64=v1, CGO_ENABLED=1 for matching benchmark
+executables, AMD Ryzen 7 5800H. Production remains CGO_ENABLED=0. Fixtures and
+warmup are outside timing; benchmark runs did not overlap tests or builds.
 
-### Verification and performance evidence
+| Case | CPU 1 median before -> after | CPU 4 median before -> after |
+| --- | --- | --- |
+| Indexed hit, 128 entries | 63.86 -> 63.99 ns | 64.21 -> 64.23 ns |
+| Cold open, 128 entries | 118.2 -> 117.5 us | 119.7 -> 116.9 us |
+| Cold open, 2048 entries | 1.283 -> 1.236 ms | 1.228 -> 1.214 ms |
+| Parallel indexed hit | 64.05 -> 64.57 ns | 169.3 -> 170.5 ns |
+| Resource Store4KiB | 11.79 -> 12.19 us | 11.73 -> 11.84 us |
+| Resource Deflate64KiB | 32.36 -> 32.65 us | 32.36 -> 33.24 us |
 
-All passed on the CP8 candidate:
-- The initial 14 failing regression subcases now pass. Original-code failures:
-  `.agents/benchmarks/checkpoint8/regression-before.log`.
-- Formatting/import checks for all eight files, scoped lint with zero issues,
-  repeated shuffled race tests (`-count=5`), and CGO-disabled EPUB tests.
-- Two 30-second fuzz campaigns with two workers each: 24,224 node-text oracle
-  executions and 614,857 bounded-reader executions; no failures. Subsequent
-  changes were test lint cleanup and handoff/checklist edits; production and
-  fuzz targets were unchanged.
-- Full `make check`: tidy, Go/frontend formatting, vet, lint, vulnerability
-  checks, all Go race/shuffle tests, frontend lint/types/tests, frontend build,
-  and pure-Go production build. Output: `.agents/benchmarks/checkpoint8/make-check.log`.
-- Inventory, scoped diff, ignore, and protected-artifact audits.
+- No statistically significant timing change except parallel hits at CPU 4:
+  +0.74%, p=.030. Retained as a small measured cost of this ownership batch,
+  not evidence of an application-wide slowdown or speedup.
+- Large cold-open results were especially noisy (26-50% confidence-interval
+  widths). Moving index construction outside the mutex reduces lock scope;
+  these fixtures do not establish a cross-book latency or throughput gain.
+- Warm and parallel indexed hits remain 0 B / 0 allocations. Cold128 remains
+  662 allocations; Cold2048 remains about 10,283, without a significant change.
+- Resource cases remain eight allocations per operation. Store4KiB increases
+  from 336 to 352 B/op at both CPU settings. Deflate64KiB medians increase from
+  349 to 361 B/op at CPU 1 and 349 to 365 B/op at CPU 4. These small cleanup-state
+  costs are accepted for race-free, exactly-once close semantics.
+- Final checks: `go test -count=1 ./internal/epub`;
+  `go test -race -shuffle=on -count=5 -cpu=1,4 ./internal/epub`;
+  `CGO_ENABLED=0 go test -count=1 ./internal/epub`; scoped formatter/import/lint
+  checks; full `make check`; and `git diff --check`. All passed.
 
-Raw paired samples and benchstat: `.agents/benchmarks/checkpoint8/comparison.log`.
-Ten alternating before/after samples, nine frozen cases, CPU 1, 300ms/sample,
-Go 1.27.0 windows/amd64, GOAMD64=v1, CGO_ENABLED=1, AMD Ryzen 7 5800H.
-No tests/builds ran concurrently with measurement. Production remains CGO_ENABLED=0.
+### Next step
 
-- Node text, short inline markup: 270.2 -> 199.7 ns/op (-26.11%).
-- Node text, wide markup: 100.89 -> 38.73 us/op (-61.61%);
-  146,808 -> 46,584 B/op (-68.27%), 24 -> 16 allocs/op.
-- Style/deep text, full EPUB parsing, and ZIP reads had no significant timing
-  change. Full parse uses six fewer allocations and approximately 144 fewer
-  bytes per operation in all three fixtures. Reader allocations are unchanged.
-- Do not turn the mixed benchmark geomean into an application-wide speed claim.
+Pause after the scoped CP9 commit and report. On the next explicit continuation,
+select one bounded remaining EPUB batch from `TRACKER.md` (chapter rendering and
+its cache tests are a natural next focus). Reinspect actual files and Git state;
+do not repeat completed parser/reader/store work or treat dependency reads as
+completed reviews. No delegation, push, amend, or unattended follow-on work.
+
+### Protected CP9 benchmark artifacts
+
+Directory: `.agents/benchmarks/checkpoint9/` (ignored). Never overwrite the
+true-original executable or change the frozen harness to improve the comparison.
+
+- `before.test.exe` SHA256:
+  `4d0917acb19b6f1f4fd8aacf4fe04e81627aa54371b441fac824f9f8eb93c3df`.
+- Frozen `internal/epub/store_bench_test.go` SHA256:
+  `ba50de2ba213dbef39b332ff077e0da620c27b7d968bd1cb19c18b176b6cbec7`.
+- `compare_benchmarks.py` SHA256:
+  `6e5c2af5157e6df816d6d688630025682e0be96af36e4c0fb9b781ff975d4b01`.
+- Measured `after.test.exe` SHA256:
+  `4f51b52b0473415c19adb36a2111107237ae45c29ea8c979a74d79c762281e2b`.
+- `comparison.log` SHA256:
+  `5e4861ac4a71e89304102c48f06ac6dc48df356dfa72513b4bcffc6fd2c65464`.
+- Full-check output is preserved in `make-check.log` in this directory.
+- Repeat with `python .agents/benchmarks/checkpoint9/compare_benchmarks.py 10`.
+  The runner verifies protected inputs, checks all twelve case/CPU rows in every
+  sample, alternates variant order, and invokes benchstat with sample ignored.
+- `regression-before.log` and `race-before.log` capture true-original close
+  failures. `regression-loading-before.log` captures the additional controlled
+  failures with only the private-opener extraction applied, not candidate fixes.
+- The blocked-close test was adjusted after reproduction because synctest cannot
+  treat sync.Once mutex waits as durably blocked. Its final form checks reference
+  retention through cleanup and repeat-call errors; barrier tests cover concurrent
+  closes. The original close-guard race remains independently reproduced.
 
 ### Protected CP8 benchmark artifacts
 

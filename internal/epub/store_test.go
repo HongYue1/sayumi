@@ -2,40 +2,41 @@ package epub
 
 import (
 	"io"
-	"strings"
 	"testing"
 )
 
 func TestNormalizeResourcePath(t *testing.T) {
 	t.Parallel()
 
-	okCases := map[string]string{
-		"OEBPS/ch1.xhtml": "OEBPS/ch1.xhtml",
-		"img/a.png":       "img/a.png",
-		"./fonts/x.woff2": "fonts/x.woff2",
-	}
-	for in, want := range okCases {
-		got, err := normalizeResourcePath(in)
-		if err != nil || got != want {
-			t.Fatalf("normalizeResourcePath(%q) = %q, %v; want %q", in, got, err, want)
-		}
-	}
-
-	// Any raw ".." segment is rejected (even if path.Clean would stay in-tree).
-	bad := []string{
-		"",
-		"   ",
-		`OEBPS\win.xhtml`,
-		"../evil",
-		"a/../../evil",
-		"a/b/../c/d.css",
-		"/abs/path",
-		"..",
-	}
-	for _, in := range bad {
-		if _, err := normalizeResourcePath(in); err == nil {
-			t.Fatalf("normalizeResourcePath(%q): want error", in)
-		}
+	for _, tt := range []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{name: "chapter", input: "OEBPS/ch1.xhtml", want: "OEBPS/ch1.xhtml"},
+		{name: "image", input: "img/a.png", want: "img/a.png"},
+		{name: "dot prefix", input: "./fonts/x.woff2", want: "fonts/x.woff2"},
+		{name: "clean separators", input: "  img//./a.png  ", want: "img/a.png"},
+		{name: "literal URI escape", input: "img/a%23b.png", want: "img/a%23b.png"},
+		{name: "empty", wantErr: true},
+		{name: "whitespace", input: "   ", wantErr: true},
+		{name: "dot", input: ".", wantErr: true},
+		{name: "backslash", input: `OEBPS\win.xhtml`, wantErr: true},
+		{name: "parent", input: "../evil", wantErr: true},
+		{name: "escaping parent", input: "a/../../evil", wantErr: true},
+		// Reject raw parent segments even when cleaning would stay in-tree.
+		{name: "in-tree parent", input: "a/b/../c/d.css", wantErr: true},
+		{name: "absolute", input: "/abs/path", wantErr: true},
+		{name: "parent only", input: "..", wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := normalizeResourcePath(tt.input)
+			if (err != nil) != tt.wantErr || got != tt.want {
+				t.Errorf("normalizeResourcePath(%q) = %q, %v; want %q, error=%v", tt.input, got, err, tt.want, tt.wantErr)
+			}
+		})
 	}
 }
 
@@ -83,7 +84,7 @@ func TestTryCloseForReplaceAndOpenResource(t *testing.T) {
 		"OEBPS/img.png":  "PNGDATA",
 	})
 	store := NewStore(4)
-	t.Cleanup(func() { store.Close() })
+	t.Cleanup(store.Close)
 
 	// Idle book can be closed for replace.
 	if !store.TryCloseForReplace(zipPath) {
@@ -91,34 +92,39 @@ func TestTryCloseForReplaceAndOpenResource(t *testing.T) {
 	}
 
 	// Hold a ref: replace must refuse.
-	_, _, err := store.OpenIndexed(zipPath)
-	if err != nil {
-		t.Fatalf("OpenIndexed: %v", err)
-	}
+	_, _, release := openStoreTestEntry(t, store, zipPath)
 	if store.TryCloseForReplace(zipPath) {
 		t.Fatal("in-use TryCloseForReplace want false")
 	}
-	store.Release(zipPath)
+	release()
 	if !store.TryCloseForReplace(zipPath) {
 		t.Fatal("after release TryCloseForReplace want true")
 	}
 
-	// Path traversal rejected; store ref not leaked (subsequent open works).
+	// Invalid and missing resources must leave no reference blocking replacement.
 	if _, err := store.OpenResource(zipPath, "../evil"); err == nil {
 		t.Fatal("traversal: want error")
 	}
 	if _, err := store.OpenResource(zipPath, "missing.bin"); err == nil {
 		t.Fatal("missing: want error")
 	}
+	if !store.TryCloseForReplace(zipPath) {
+		t.Fatal("failed resource opens leaked a reference")
+	}
 
 	rr, err := store.OpenResource(zipPath, "OEBPS/img.png")
 	if err != nil {
 		t.Fatalf("OpenResource: %v", err)
 	}
+	t.Cleanup(func() {
+		if err := rr.Close(); err != nil {
+			t.Errorf("cleanup resource: %v", err)
+		}
+	})
 	if rr.Size != -1 {
 		t.Fatalf("Size = %d, want -1 (untrusted zip size)", rr.Size)
 	}
-	if !strings.HasPrefix(rr.ContentType, "image/png") {
+	if rr.ContentType != "image/png" {
 		t.Fatalf("ContentType = %q", rr.ContentType)
 	}
 	body, err := io.ReadAll(rr)
@@ -134,6 +140,9 @@ func TestTryCloseForReplaceAndOpenResource(t *testing.T) {
 	// Double-close must not panic or double-release into negative refs.
 	if err := rr.Close(); err != nil {
 		t.Fatalf("second close: %v", err)
+	}
+	if !store.TryCloseForReplace(zipPath) {
+		t.Fatal("closed resource still pins the book")
 	}
 
 	// Cache seed + EvictBook clears derived text entries.

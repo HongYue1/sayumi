@@ -11,6 +11,8 @@ import (
 	"sync"
 )
 
+// LRUCache is a mutex-protected, entry-count-bounded cache. Values are stored
+// and returned without deep copying. A cache must not be copied after use.
 type LRUCache[K comparable, V any] struct {
 	mu    sync.Mutex
 	cap   int
@@ -143,6 +145,8 @@ func (c *LRUCache[K, V]) Delete(key K) (V, bool) {
 	return item.val, true
 }
 
+// DeleteFunc retains entries for which keep returns true and removes the rest.
+// The callback runs under the cache mutex and must not call cache methods.
 func (c *LRUCache[K, V]) DeleteFunc(keep func(K) bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -176,6 +180,11 @@ type zipEntry struct {
 	index    map[string]*zip.File
 	refs     int
 	evicted  bool
+
+	// closePending distinguishes an explicit CloseBook during loading from
+	// ordinary LRU eviction. Publication may restore the latter, not the former.
+	// A later acquire cancels the close request and retains this entry again.
+	closePending bool
 
 	// ready is closed once the entry finishes loading (reader+index attached,
 	// or loadErr set). A goroutine that finds an existing entry must wait on
@@ -258,6 +267,8 @@ type cssFragment struct {
 	fontFace string
 }
 
+// EPUBStore shares ZIP readers and bounded derived-content caches within one
+// profile. Initialize it with NewStore and drain borrowers before calling Close.
 type EPUBStore struct {
 	mu        sync.Mutex
 	lru       *zipLRU
@@ -280,6 +291,9 @@ const (
 	cssCacheBytes     = 8 << 20  // 8 MB of processed stylesheet fragments
 )
 
+// NewStore creates a store retaining at most maxSize ZIP entries; values below
+// one select the default of ten. Active borrowers can temporarily exceed this
+// retention limit because eviction must not close a reader still in use.
 func NewStore(maxSize int) *EPUBStore {
 	if maxSize < 1 {
 		maxSize = 10
@@ -317,19 +331,26 @@ func buildIndex(zr *zip.Reader) map[string]*zip.File {
 	return idx
 }
 
-// acquire returns a referenced entry for filePath, opening the zip on a cache
-// miss. The disk open runs WITHOUT s.mu held: a miss installs a loading
-// placeholder (holding one ref, with a fresh ready channel), releases the lock
-// to run zip.OpenReader, then re-acquires the lock to attach the reader.
-// Concurrent callers for the same path find the placeholder and block on
-// e.ready rather than opening the file again, so a burst of first requests
-// collapses to a single open and opens of other books never serialize behind
-// this one. The caller must Release the returned entry.
+// acquire returns a referenced entry for filePath, opening the ZIP on a miss.
+// A miss installs a referenced placeholder, then opens and indexes the archive
+// outside s.mu. Same-path callers wait on ready without blocking other books'
+// loads. Closing ready publishes the complete reader/index or the load error.
+// Only successful callers own a reference and must Release it.
 func (s *EPUBStore) acquire(filePath string) (*zipEntry, error) {
+	return s.acquireWithOpener(filePath, zip.OpenReader)
+}
+
+// acquireWithOpener runs openZIP on a miss. Like zip.OpenReader, openZIP may
+// return a non-nil reader together with an error.
+func (s *EPUBStore) acquireWithOpener(
+	filePath string,
+	openZIP func(string) (*zip.ReadCloser, error),
+) (*zipEntry, error) {
 	s.mu.Lock()
 	if e, ok := s.openFiles[filePath]; ok {
 		e.refs++
 		e.evicted = false
+		e.closePending = false
 		s.lru.touch(filePath, e)
 		s.evictExcess()
 		s.mu.Unlock()
@@ -351,7 +372,20 @@ func (s *EPUBStore) acquire(filePath string) (*zipEntry, error) {
 	s.lru.touch(filePath, e)
 	s.mu.Unlock()
 
-	rc, err := zip.OpenReader(filePath)
+	rc, err := openZIP(filePath)
+	var index map[string]*zip.File
+	if err != nil {
+		// ErrInsecurePath can accompany a live reader. We reject the archive,
+		// so cleanup belongs here, before publishing the failure to waiters.
+		if rc != nil {
+			if closeErr := rc.Close(); closeErr != nil {
+				slog.Error("failed to close rejected epub reader", "path", filePath, "err", closeErr)
+			}
+		}
+	} else {
+		// Large central directories should not block unrelated cache hits.
+		index = buildIndex(&rc.Reader)
+	}
 
 	s.mu.Lock()
 	if err != nil {
@@ -367,14 +401,14 @@ func (s *EPUBStore) acquire(filePath string) (*zipEntry, error) {
 		return nil, e.loadErr
 	}
 	e.reader = rc
-	e.index = buildIndex(&rc.Reader)
-	// If a concurrent open evicted this placeholder during the unlocked
-	// zip.OpenReader window, our ref kept it alive but marked it evicted and
-	// dropped it from the LRU order. Resurrect it so the first Release doesn't
-	// close the just-opened reader after a single use: clear the flag and
-	// re-touch before counting it against the cap.
-	e.evicted = false
-	s.lru.touch(filePath, e)
+	e.index = index
+	// Restore ordinary LRU-evicted loads so a freshly opened reader can be
+	// reused. An explicit close requested after the last acquire must instead
+	// survive publication: the final Release will close that reader.
+	if !e.closePending {
+		e.evicted = false
+		s.lru.touch(filePath, e)
+	}
 	// Reader attached and protected by our ref; safe to count against the cap.
 	s.evictExcess()
 	s.mu.Unlock()
@@ -401,6 +435,9 @@ func (s *EPUBStore) evictExcess() {
 	}
 }
 
+// OpenIndexed borrows a shared reader and index. Both are read-only and valid
+// until the matching Release(filePath). Every successful call needs exactly one
+// Release using the same path; a failed call owns no reference.
 func (s *EPUBStore) OpenIndexed(filePath string) (*zip.Reader, map[string]*zip.File, error) {
 	e, err := s.acquire(filePath)
 	if err != nil {
@@ -411,6 +448,8 @@ func (s *EPUBStore) OpenIndexed(filePath string) (*zip.Reader, map[string]*zip.F
 	return &e.reader.Reader, e.index, nil
 }
 
+// Release ends one successful OpenIndexed borrow. An evicted reader closes
+// after its final borrower releases it; otherwise it remains cached for reuse.
 func (s *EPUBStore) Release(filePath string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -441,6 +480,9 @@ func (s *EPUBStore) SetChapter(filePath string, chapterIndex int, renderVersion 
 	s.chapters.Put(chapterRenderKey{filePath: filePath, chapterIndex: chapterIndex, renderVersion: renderVersion}, resp)
 }
 
+// CloseBook removes a ZIP from retention, closing it after existing borrowers
+// finish. This includes in-flight opens. A later acquire may retain it again.
+// Derived content is independent; use EvictBook to invalidate those caches.
 func (s *EPUBStore) CloseBook(filePath string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -458,17 +500,20 @@ func (s *EPUBStore) CloseBook(filePath string) {
 		delete(s.openFiles, filePath)
 	} else {
 		e.evicted = true
+		e.closePending = true
 	}
 }
 
 // TryCloseForReplace fully releases any cached reader for filePath so the
 // on-disk EPUB can be atomically replaced (an in-place metadata/cover edit).
 // It returns false WITHOUT touching the entry when a request currently holds
-// the book open (refs > 0): the file must not be swapped while a reader has it
-// mapped (notably on Windows), so the caller surfaces a "close the book and
+// the book open (refs > 0): the file must not be swapped while a reader uses it
+// (notably on Windows), so the caller surfaces a "close the book and
 // retry" conflict instead. When the book is not open, or is cached but idle, it
 // closes and drops the cached reader, clears the derived chapter/text/css
-// caches for the book, and returns true.
+// caches for the book, and returns true. The caller must exclude new acquires
+// through replacement and the following metadata/cache refresh; this method
+// does not reserve the path against another request.
 func (s *EPUBStore) TryCloseForReplace(filePath string) bool {
 	s.mu.Lock()
 	if e, ok := s.openFiles[filePath]; ok {
@@ -501,25 +546,28 @@ func (s *EPUBStore) EvictBook(filePath string) {
 // ResourceReader streams one zip entry while holding a store ref on the book.
 // Size is -1 (unknown): zip UncompressedSize64 is attacker-controlled and must
 // not be advertised as Content-Length. Callers should stream without a fixed
-// length (chunked HTTP) unless they measure the body themselves.
+// length (chunked HTTP) unless they measure the body themselves. It must not be
+// copied. Read calls must not run concurrently with other Reads or with Close.
 type ResourceReader struct {
 	rc          io.ReadCloser
 	ContentType string
 	Size        int64 // always -1 from OpenResource; reserved for measured sizes
 	store       *EPUBStore
 	filePath    string
-	released    bool
+	closeOnce   sync.Once
+	closeErr    error
 }
 
 func (r *ResourceReader) Read(p []byte) (int, error) { return r.rc.Read(p) }
 
+// Close closes the entry and releases its store reference exactly once, even
+// when called concurrently. Every call waits for cleanup and returns its error.
 func (r *ResourceReader) Close() error {
-	err := r.rc.Close()
-	if !r.released {
-		r.released = true
+	r.closeOnce.Do(func() {
+		r.closeErr = r.rc.Close()
 		r.store.Release(r.filePath)
-	}
-	return err
+	})
+	return r.closeErr
 }
 
 func lookupInIndex(index map[string]*zip.File, name string) (*zip.File, error) {

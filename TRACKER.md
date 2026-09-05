@@ -94,9 +94,11 @@ icons, compiled resources, generated frontend output, and `.skills/` are exclude
 - [ ] `internal/epub/sanitize_test.go`
 - [ ] `internal/epub/search.go`
 - [ ] `internal/epub/search_test.go`
-- [ ] `internal/epub/store.go`
-- [ ] `internal/epub/store_concurrency_test.go`
-- [ ] `internal/epub/store_test.go`
+- [x] `internal/epub/store.go`
+- [x] `internal/epub/store_bench_test.go`
+- [x] `internal/epub/store_concurrency_test.go`
+- [x] `internal/epub/store_contract_test.go`
+- [x] `internal/epub/store_test.go`
 
 ## Fonts
 
