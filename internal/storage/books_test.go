@@ -1,11 +1,14 @@
 package storage
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sync"
 	"testing"
 )
@@ -55,13 +58,9 @@ func idsOf(books []BookSummary) []string {
 	return out
 }
 
-// TestBookSummaryFieldsAreValueTypes pins the invariant that makes the reused
-// scan-destination slice in ListBookSummariesContext safe: every BookSummary
-// field must be a value type, so appending the reused struct copies it and no
-// returned row can alias another. Adding a pointer, slice, map, or interface
-// field would silently make every row share state with the last one scanned --
-// a bug that would not show up as a compile error and only some of the time in
-// behavioral tests. Fail loudly here instead.
+// Require scalar fields so adding mutable backing storage forces a review of
+// row ownership. Copying a struct alone would not isolate slices or maps if a
+// future scanner reused their backing storage across result rows.
 func TestBookSummaryFieldsAreValueTypes(t *testing.T) {
 	t.Parallel()
 	typ := reflect.TypeFor[BookSummary]()
@@ -305,5 +304,125 @@ func TestInsertBookConcurrentSameHash(t *testing.T) {
 	}
 	if len(books) != 1 {
 		t.Fatalf("book count = %d, want 1", len(books))
+	}
+}
+
+func TestBookReadsHonorCancellation(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	mustInsertBook(t, db, sampleBook("book", "hash", "/lib/book.epub"))
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	for name, read := range map[string]func() error{
+		"summaries": func() error {
+			_, err := db.ListBookSummariesContext(ctx)
+			return err
+		},
+		"paths": func() error {
+			_, err := db.ListBookPathsContext(ctx)
+			return err
+		},
+		"content": func() error {
+			_, _, err := db.GetBookContentContext(ctx, "book")
+			return err
+		},
+		"summary": func() error {
+			_, _, err := db.GetBookSummaryContext(ctx, "book")
+			return err
+		},
+		"book": func() error {
+			_, err := db.GetBookContext(ctx, "book")
+			return err
+		},
+		"hash": func() error {
+			_, _, _, err := db.GetBookIDByHashContext(ctx, "hash")
+			return err
+		},
+		"path_lookup": func() error {
+			_, _, err := db.BookExistsByPathContext(ctx, "/lib/book.epub")
+			return err
+		},
+		"covers": func() error {
+			_, err := db.ListBooksMissingCoversContext(ctx)
+			return err
+		},
+		"ignored_lookup": func() error {
+			_, err := db.IsFileIgnoredContext(ctx, "/lib/book.epub")
+			return err
+		},
+		"ignored_paths": func() error {
+			_, err := db.ListIgnoredPathsContext(ctx)
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := read(); !errors.Is(err, context.Canceled) {
+				t.Fatalf("canceled read error = %v, want context.Canceled", err)
+			}
+		})
+	}
+}
+
+func TestBookPathScansKeepRowsIndependent(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	want := make(map[string]string)
+	for _, id := range []string{"alpha", "beta", "gamma"} {
+		path := "/lib/" + id + ".epub"
+		mustInsertBook(t, db, sampleBook(id, id, path))
+		want[id] = path
+	}
+	paths, err := db.ListBookPathsContext(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make(map[string]string)
+	for _, path := range paths {
+		got[path.ID] = path.FilePath
+	}
+	if len(paths) != len(want) || !maps.Equal(got, want) {
+		t.Fatalf("book paths = %v, want %v", paths, want)
+	}
+
+	for id := range want {
+		if err := db.DeleteBookContext(t.Context(), id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ignored, err := db.ListIgnoredPathsContext(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(ignored)
+	if !slices.Equal(ignored, []string{"/lib/alpha.epub", "/lib/beta.epub", "/lib/gamma.epub"}) {
+		t.Fatalf("ignored paths = %v", ignored)
+	}
+}
+
+func TestDeleteBookRollsBackWhenIgnoringFails(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := t.Context()
+	mustInsertBook(t, db, sampleBook("book", "hash", "/lib/book.epub"))
+	if err := db.SaveProgressContext(ctx, ProgressRecord{BookID: "book", UserID: "reader", Chapter: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		CREATE TRIGGER reject_ignored BEFORE INSERT ON ignored_files
+		BEGIN SELECT RAISE(ABORT, 'tombstone write rejected'); END
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DeleteBookContext(ctx, "book"); err == nil {
+		t.Fatal("delete succeeded despite a failed tombstone write")
+	}
+	if _, err := db.GetBookContext(ctx, "book"); err != nil {
+		t.Fatalf("book was not restored: %v", err)
+	}
+	if progress, err := db.GetProgressContext(ctx, "book", "reader"); err != nil || progress.Chapter != 2 {
+		t.Fatalf("cascaded progress was not restored: %+v, %v", progress, err)
+	}
+	if ignored, err := db.IsFileIgnoredContext(ctx, "/lib/book.epub"); err != nil || ignored {
+		t.Fatalf("failed deletion left a tombstone: ignored=%v err=%v", ignored, err)
 	}
 }

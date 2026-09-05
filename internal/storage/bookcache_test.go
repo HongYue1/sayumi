@@ -4,7 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
+	"fmt"
+	"slices"
 	"testing"
 
 	"sayumi/internal/epub"
@@ -246,24 +247,103 @@ func TestAddPlacesDuplicateTitlesWhereARestartWould(t *testing.T) {
 	}
 }
 
-// TestCompareASCIIFoldMatchesAsciiToLower keeps the allocation-free comparison
-// semantically identical to folding each side with asciiToLower first. The fold
-// must stay ASCII-only to match SQLite's NOCASE collation: a Unicode-aware
-// comparison would order the cache differently from the database it mirrors.
-func TestCompareASCIIFoldMatchesAsciiToLower(t *testing.T) {
+func newMemoryBookCache(books ...BookRecord) *BookCache {
+	cache := &BookCache{
+		byID:        make(map[string]BookRecord, len(books)),
+		order:       make([]string, 0, len(books)),
+		spines:      make(map[string][]epub.SpineEntry),
+		generations: make(map[string]uint64),
+	}
+	for _, book := range books {
+		cache.Add(book)
+	}
+	return cache
+}
+
+// SQLite itself is the ordering oracle, including its embedded-NUL behavior.
+// Comparing against a second Go fold implementation would share its blind spots.
+func TestCompareASCIIFoldMatchesSQLite(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	words := []string{
 		"", "a", "A", "ab", "aB", "Ab", "AB", "abc", "ABD",
 		"Dune", "dune", "dunes", "Zoo", "[", "{", "@", "_",
-		"\u00c5ngstr\u00f6m", "\u00e5ngstr\u00f6m", "\u00c6on", "\u00e6on", "na\u00efve", "NA\u00cfVE",
-		"book 2", "Book 10", "book\x00b",
+		"Ångström", "ångström", "Æon", "æon", "naïve", "NAÏVE",
+		"book 2", "Book 10", "book", "book\x00", "book\x00a", "BOOK\x00z",
+		"book\x00long", "\x00", "\x00a", "\x00z", "\x00aa",
 	}
 	for _, a := range words {
 		for _, b := range words {
-			got := compareASCIIFold(a, b)
-			want := strings.Compare(asciiToLower(a), asciiToLower(b))
-			if got != want {
-				t.Errorf("compareASCIIFold(%q, %q) = %d, want %d", a, b, got, want)
+			var want int
+			err := db.QueryRowContext(t.Context(), `
+				SELECT CASE WHEN ? COLLATE NOCASE < ? THEN -1
+				            WHEN ? COLLATE NOCASE > ? THEN 1 ELSE 0 END
+			`, a, b, a, b).Scan(&want)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := compareASCIIFold(a, b); got != want {
+				t.Errorf("compareASCIIFold(%q, %q) = %d, SQLite = %d", a, b, got, want)
 			}
 		}
+	}
+}
+
+func TestBookCacheMutationsMatchSQLiteOrder(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	cache, err := NewBookCache(t.Context(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkOrder := func() {
+		t.Helper()
+		want, err := db.ListBookSummariesContext(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := cache.ListSummaries(); !slices.Equal(idsOf(got), idsOf(want)) {
+			t.Fatalf("live order = %v, database order = %v", idsOf(got), idsOf(want))
+		}
+	}
+
+	for i, title := range []string{"Zulu", "book\x00z", "alpha", "BOOK\x00a", "ALPHA", "Ångström", "ångström"} {
+		id := fmt.Sprintf("id%d", i)
+		book := sampleBook(id, id, "/lib/"+id+".epub")
+		book.Title = title
+		mustInsertBook(t, db, book)
+		cache.Add(book)
+		checkOrder()
+	}
+	for _, title := range []string{"Aardvark", "zzzz", "alpha", "book\x00x"} {
+		if err := db.UpdateBookMetadataAndFileContext(t.Context(), "id0", title, "Author", "id0", 1); err != nil {
+			t.Fatal(err)
+		}
+		book, err := db.GetBookContext(t.Context(), "id0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		cache.Add(book)
+		checkOrder()
+	}
+
+	snapshot := cache.ListSummaries()
+	original := snapshot[0]
+	snapshot[0].Title = "caller mutation"
+	if got, _ := cache.Get(original.ID); got.Title != original.Title {
+		t.Fatal("ListSummaries returned mutable cache-owned state")
+	}
+	for _, id := range []string{"missing", "id0", "id6", "id2", "id1", "id3", "id4", "id5"} {
+		if id != "missing" {
+			if err := db.DeleteBookContext(t.Context(), id); err != nil {
+				t.Fatal(err)
+			}
+		}
+		cache.Remove(id)
+		cache.Remove(id)
+		checkOrder()
+	}
+	if cache.Len() != 0 {
+		t.Fatalf("cache length = %d, want 0", cache.Len())
 	}
 }

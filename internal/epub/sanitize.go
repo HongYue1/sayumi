@@ -194,8 +194,7 @@ func normalizeURIForSafetyCheck(value string) string {
 	// left unchanged by the strip+lowercase below (the common case -- most EPUB
 	// resource refs are plain lowercase relative paths). Returning it directly
 	// avoids allocating a strings.Builder for every href/src/action/xlink:href
-	// attribute on the cold sanitize path. Same no-alloc shortcut as asciiToLower
-	// in internal/storage.
+	// attribute on the cold sanitize path.
 	if !needsURINormalization(value) {
 		return value
 	}

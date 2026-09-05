@@ -15,7 +15,7 @@ import (
 	"sayumi/internal/epub"
 )
 
-// BookCache mirrors the books table in memory for fast lookups.
+// BookCache holds ordered book summaries and lazily parsed spines.
 type BookCache struct {
 	// loadBookContent backs lazy spine loads. The cache is built from book
 	// summaries, so the heavy spine/toc JSON is fetched only when a book opens.
@@ -29,13 +29,9 @@ type BookCache struct {
 	nextGeneration uint64
 	spineLoads     singleflight.Group
 
-	// spines memoizes parsed spine entries per book ID. It is populated lazily
-	// on the first GetSpine for a book rather than eagerly at construction:
-	// unmarshalling every book's spine JSON up front dominated cold-start
-	// profile-open time, yet a spine is only needed when a book is actually
-	// opened for reading -- never for the library list view. Entries are
-	// invalidated in Add and Remove so a re-imported book re-parses from its new
-	// SpineJSON.
+	// spines is populated on first use, avoiding JSON parsing for books that
+	// are only listed. Add and Remove invalidate entries so replacements never
+	// reuse parsed content from an older generation.
 	spines map[string][]epub.SpineEntry
 }
 
@@ -55,17 +51,12 @@ func NewBookCache(ctx context.Context, db *DB) (*BookCache, error) {
 		generations:     make(map[string]uint64),
 	}
 	for _, s := range summaries {
-		// SpineJSON / TocJSON are intentionally left empty here: the list query
-		// no longer reads them. GetSpine backfills the spine from db on demand;
-		// the book-detail / toc handlers fetch the JSON via GetBookContentContext.
+		// Summaries omit the large spine/toc JSON; book reads fetch it on demand.
 		c.byID[s.ID] = BookRecord{BookSummary: s}
 		c.order = append(c.order, s.ID)
 	}
 
-	// Spines are parsed lazily and the heavy spine/toc columns are no longer
-	// read at construction (see the loadBookContent field doc). Logging the
-	// summary-list duration makes cold-start attribution explicit: the profile-open
-	// "book_cache" timing should collapse to roughly this value.
+	// Separate SQL list time from in-memory cache construction in diagnostics.
 	slog.Debug("book cache built", "books", len(summaries), "list_books", listDur)
 
 	return c, nil
@@ -84,6 +75,8 @@ type spineLoadResult struct {
 	retry bool
 }
 
+// GetSpine returns shared, immutable entries. Callers must not modify the slice
+// or its elements; a missing book returns found=false without an error.
 func (c *BookCache) GetSpine(ctx context.Context, id string) ([]epub.SpineEntry, bool, error) {
 	for {
 		if err := ctx.Err(); err != nil {
@@ -134,50 +127,56 @@ func (c *BookCache) loadSpine(
 	book BookRecord,
 	generation uint64,
 ) (spineLoadResult, error) {
+	// A late caller can enter singleflight after another flight has finished.
+	// Recheck the memo and generation before doing duplicate or obsolete work.
+	c.mu.RLock()
+	result, done := c.spineLoadStateLocked(id, book, generation)
+	c.mu.RUnlock()
+	if done {
+		return result, nil
+	}
+
 	spineJSON := book.SpineJSON
+	var err error
 	if spineJSON == "" {
-		loaded, _, err := c.loadBookContent(ctx, id)
+		spineJSON, _, err = c.loadBookContent(ctx, id)
 		if err != nil {
-			return spineLoadResult{}, fmt.Errorf("load spine for book %s: %w", id, err)
+			err = fmt.Errorf("load spine for book %s: %w", id, err)
 		}
-		spineJSON = loaded
+	}
+	var parsed []epub.SpineEntry
+	if err == nil {
+		parsed, err = parseSpine(id, spineJSON)
 	}
 
-	parsed, err := parseSpine(id, spineJSON)
-	if err != nil {
-		return spineLoadResult{}, err
-	}
-
-	// Add or Remove may have changed this book while the load ran unlocked. A
-	// generation mismatch discards the stale result and makes GetSpine retry
-	// against the newest record instead of repopulating an invalidated entry.
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if spine, ok := c.spines[id]; ok {
-		return spineLoadResult{spine: spine, found: true}, nil
+	// Invalidation applies to failures too: a removed or replaced book must
+	// not inherit a read/parse error from its obsolete generation.
+	if result, done := c.spineLoadStateLocked(id, book, generation); done {
+		return result, nil
 	}
-	current, stillExists := c.byID[id]
-	if !stillExists {
-		return spineLoadResult{}, nil
-	}
-	if c.generations[id] != generation || current != book {
-		return spineLoadResult{retry: true}, nil
+	if err != nil {
+		return spineLoadResult{}, err
 	}
 	c.spines[id] = parsed
 	return spineLoadResult{spine: parsed, found: true}, nil
 }
 
-func (c *BookCache) List() []BookRecord {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	out := make([]BookRecord, 0, len(c.order))
-	for _, id := range c.order {
-		if b, ok := c.byID[id]; ok {
-			out = append(out, b)
-		}
+// spineLoadStateLocked requires mu to be held for reading or writing. done is
+// true when a memo, removal, or replacement has already resolved this load.
+func (c *BookCache) spineLoadStateLocked(id string, book BookRecord, generation uint64) (result spineLoadResult, done bool) {
+	if spine, ok := c.spines[id]; ok {
+		return spineLoadResult{spine: spine, found: true}, true
 	}
-	return out
+	current, exists := c.byID[id]
+	if !exists {
+		return spineLoadResult{}, true
+	}
+	if c.generations[id] != generation || current != book {
+		return spineLoadResult{retry: true}, true
+	}
+	return spineLoadResult{}, false
 }
 
 func (c *BookCache) ListSummaries() []BookSummary {
@@ -193,43 +192,9 @@ func (c *BookCache) ListSummaries() []BookSummary {
 	return out
 }
 
-// asciiToLower folds only ASCII A–Z to lower case, matching SQLite's NOCASE
-// collation. Unlike strings.ToLower it does not Unicode-fold characters outside
-// the ASCII range, keeping insertion order consistent with the ORDER BY title
-// COLLATE NOCASE results from the database.
-//
-// The implementation avoids allocating a []byte unless the input actually
-// contains an uppercase ASCII letter, which is the common case for book titles
-// that are already stored in their display form.
-func asciiToLower(s string) string {
-	// Fast path: scan for the first uppercase ASCII letter.
-	upper := -1
-	for i := range len(s) {
-		if s[i] >= 'A' && s[i] <= 'Z' {
-			upper = i
-			break
-		}
-	}
-	if upper == -1 {
-		return s // no allocation needed
-	}
-	b := []byte(s)
-	for i := upper; i < len(b); i++ {
-		if b[i] >= 'A' && b[i] <= 'Z' {
-			b[i] += 32
-		}
-	}
-	return string(b)
-}
-
-// compareASCIIFold orders a and b exactly as strings.Compare would after both
-// were folded with asciiToLower, but without allocating: asciiToLower copies the
-// string whenever it holds an uppercase letter, which insertPosition's binary
-// search paid once per comparison (~log2(N) allocations per insert).
-//
-// Folding stays ASCII-only for the same reason asciiToLower's does -- it must
-// match SQLite's NOCASE collation, or the cache orders books differently from
-// the ORDER BY that seeds it. Bytes >= 0x80 are compared unchanged.
+// compareASCIIFold matches SQLite's NOCASE collation without allocating folded
+// strings. Folding is ASCII-only; bytes >= 0x80 are compared unchanged so live
+// cache updates preserve the database order used at construction.
 func compareASCIIFold(a, b string) int {
 	n := min(len(a), len(b))
 	for i := range n {
@@ -245,6 +210,10 @@ func compareASCIIFold(a, b string) int {
 				return -1
 			}
 			return 1
+		}
+		if x == 0 {
+			// NOCASE stops at equal NUL bytes, then compares original lengths.
+			break
 		}
 	}
 	switch {
@@ -266,8 +235,8 @@ func (c *BookCache) insertPosition(title, id string) int {
 	pos, _ := slices.BinarySearchFunc(c.order, title, func(existingID, target string) int {
 		existing, ok := c.byID[existingID]
 		if !ok {
-			// Orphaned ID (invariant violation): push to end so it never
-			// blocks a correct insertion position.
+			// A valid cache has no orphaned IDs. Keep insertion bounds safe if
+			// an incomplete fixture violates that invariant.
 			return 1
 		}
 		if cmp := compareASCIIFold(existing.Title, target); cmp != 0 {
@@ -276,6 +245,15 @@ func (c *BookCache) insertPosition(title, id string) int {
 		return strings.Compare(existingID, id)
 	})
 	return pos
+}
+
+// removeFromOrder requires mu to be held and byID to still contain the old
+// record, since its title participates in the binary search.
+func (c *BookCache) removeFromOrder(title, id string) {
+	pos := c.insertPosition(title, id)
+	if pos < len(c.order) && c.order[pos] == id {
+		c.order = slices.Delete(c.order, pos, pos+1)
+	}
 }
 
 // Add inserts or replaces a book record. If the book already exists and its
@@ -298,10 +276,8 @@ func (c *BookCache) Add(b BookRecord) {
 		return
 	}
 
-	if _, exists := c.byID[b.ID]; exists {
-		// Remove the old position before re-inserting so the sort position
-		// reflects any title change.
-		c.order = slices.DeleteFunc(c.order, func(s string) bool { return s == b.ID })
+	if existing, exists := c.byID[b.ID]; exists {
+		c.removeFromOrder(existing.Title, b.ID)
 	}
 
 	pos := c.insertPosition(b.Title, b.ID)
@@ -316,13 +292,15 @@ func (c *BookCache) Remove(id string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	book, exists := c.byID[id]
+	if !exists {
+		return
+	}
+	c.removeFromOrder(book.Title, id)
 	c.nextGeneration++
 	delete(c.generations, id)
 	delete(c.byID, id)
 	delete(c.spines, id)
-	c.order = slices.DeleteFunc(c.order, func(s string) bool {
-		return s == id
-	})
 }
 
 func (c *BookCache) Len() int {

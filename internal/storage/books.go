@@ -71,10 +71,8 @@ func (db *DB) ListBookSummariesContext(ctx context.Context) (out []BookSummary, 
 		}
 	}()
 
-	// One reusable scan-destination slice for the whole result set: Rows.Scan is
-	// variadic, so scanning 17 columns per row otherwise allocates a fresh []any
-	// of 17 words on every iteration. BookSummary is all value types, so appending
-	// the reused struct copies it and no aliasing survives the loop.
+	// Reuse the 17 scan destinations instead of rebuilding them for every row.
+	// BookSummary has only scalar fields; appending copies each complete value.
 	var summary BookSummary
 	dest := bookSummaryScanDest(&summary)
 	for rows.Next() {
@@ -113,12 +111,16 @@ func (db *DB) ListBookPathsContext(ctx context.Context) (out []BookPath, err err
 		}
 	}()
 
+	// Reuse one destination without allocating it for an empty result set.
+	var bp *BookPath
 	for rows.Next() {
-		var bp BookPath
+		if bp == nil {
+			bp = new(BookPath)
+		}
 		if scanErr := rows.Scan(&bp.ID, &bp.FilePath); scanErr != nil {
 			return nil, fmt.Errorf("scan book path: %w", scanErr)
 		}
-		out = append(out, bp)
+		out = append(out, *bp)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate book paths: %w", err)
@@ -448,12 +450,16 @@ func (db *DB) ListBooksMissingCoversContext(ctx context.Context) (out []BookPath
 		}
 	}()
 
+	// Reuse one destination without allocating it for an empty result set.
+	var bp *BookPath
 	for rows.Next() {
-		var bp BookPath
+		if bp == nil {
+			bp = new(BookPath)
+		}
 		if scanErr := rows.Scan(&bp.ID, &bp.FilePath); scanErr != nil {
 			return nil, fmt.Errorf("scan book path: %w", scanErr)
 		}
-		out = append(out, bp)
+		out = append(out, *bp)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate books missing covers: %w", err)
@@ -469,12 +475,7 @@ func (db *DB) DeleteBookContext(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
-		}
-	}()
+	defer func() { _ = tx.Rollback() }() // A completed transaction is already closed.
 
 	var filePath string
 	if err := tx.QueryRowContext(ctx, "SELECT file_path FROM books WHERE id = ?", id).Scan(&filePath); err != nil {
@@ -496,7 +497,6 @@ func (db *DB) DeleteBookContext(ctx context.Context, id string) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit delete book %s: %w", id, err)
 	}
-	committed = true
 	return nil
 }
 
@@ -544,12 +544,16 @@ func (db *DB) ListIgnoredPathsContext(ctx context.Context) (out []string, err er
 		}
 	}()
 
+	// Allocate the reusable destination only when a tombstone is present.
+	var path *string
 	for rows.Next() {
-		var path string
-		if scanErr := rows.Scan(&path); scanErr != nil {
+		if path == nil {
+			path = new(string)
+		}
+		if scanErr := rows.Scan(path); scanErr != nil {
 			return nil, fmt.Errorf("scan ignored path: %w", scanErr)
 		}
-		out = append(out, path)
+		out = append(out, *path)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate ignored paths: %w", err)

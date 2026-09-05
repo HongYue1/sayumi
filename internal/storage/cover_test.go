@@ -136,6 +136,11 @@ func TestMigrateNormalizesWindowsCoverPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close: %v", err)
+		}
+	})
 	insertCoverTestBook(t, db, "b1", "/lib/b1.epub", "h1")
 	insertCoverTestBook(t, db, "b2", "/lib/b2.epub", "h2")
 

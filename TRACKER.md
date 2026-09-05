@@ -113,15 +113,17 @@ icons, compiled resources, generated frontend output, and `.skills/` are exclude
 
 ## Storage
 
-- [ ] `internal/storage/bench_test.go`
-- [ ] `internal/storage/bookcache.go`
-- [ ] `internal/storage/bookcache_test.go`
+- [x] `internal/storage/bench_test.go`
+- [x] `internal/storage/book_operations_bench_test.go`
+- [x] `internal/storage/bookcache.go`
+- [x] `internal/storage/bookcache_concurrency_test.go`
+- [x] `internal/storage/bookcache_test.go`
 - [ ] `internal/storage/bookmarks.go`
 - [ ] `internal/storage/bookmarks_test.go`
-- [ ] `internal/storage/books.go`
-- [ ] `internal/storage/books_test.go`
-- [ ] `internal/storage/cascade_test.go`
-- [ ] `internal/storage/cover_test.go`
+- [x] `internal/storage/books.go`
+- [x] `internal/storage/books_test.go`
+- [x] `internal/storage/cascade_test.go`
+- [x] `internal/storage/cover_test.go`
 - [ ] `internal/storage/customthemes.go`
 - [ ] `internal/storage/customthemes_test.go`
 - [x] `internal/storage/db.go`
@@ -134,7 +136,7 @@ icons, compiled resources, generated frontend output, and `.skills/` are exclude
 - [x] `internal/storage/profiles.go`
 - [x] `internal/storage/profiles_test.go`
 - [ ] `internal/storage/progress.go`
-- [ ] `internal/storage/queryplan_test.go`
+- [x] `internal/storage/queryplan_test.go`
 - [x] `internal/storage/scan_bench_test.go`
 - [x] `internal/storage/sessions.go`
 - [x] `internal/storage/sessions_test.go`

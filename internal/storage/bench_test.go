@@ -90,10 +90,6 @@ func seedBooksWithSpines(tb testing.TB, db *DB, n, spineLen int) {
 	}
 }
 
-// BenchmarkNewBookCache measures profile-open cache construction over a
-// realistic library (books carry full spines). Because spine parsing is now
-// lazy, this should track ListBookSummariesContext cost and NOT the former
-// per-book unmarshal that dominated cold start.
 // BenchmarkOpenExistingLibrary measures startup against a library that already
 // holds rows. Schema creation, additive column migrations, index creation, and
 // the path-key reconcile all run inside Open, so this is what a user waits for
@@ -105,11 +101,17 @@ func BenchmarkOpenExistingLibrary(b *testing.B) {
 	if err != nil {
 		b.Fatalf("seed open: %v", err)
 	}
+	b.Cleanup(func() {
+		if err := seed.Close(); err != nil {
+			b.Errorf("close seed: %v", err)
+		}
+	})
 	seedBooks(b, seed, 200)
 	if err := seed.Close(); err != nil {
 		b.Fatalf("seed close: %v", err)
 	}
 
+	b.ReportAllocs()
 	for b.Loop() {
 		db, err := Open(dir)
 		if err != nil {
@@ -126,17 +128,10 @@ func BenchmarkOpenExistingLibrary(b *testing.B) {
 // this thousands of times back to back. Paths deliberately contain uppercase so
 // the key derivation does the work it would do on a real library.
 func BenchmarkInsertBook(b *testing.B) {
-	db, err := Open(b.TempDir())
-	if err != nil {
-		b.Fatalf("open: %v", err)
-	}
-	b.Cleanup(func() {
-		if err := db.Close(); err != nil {
-			b.Errorf("close: %v", err)
-		}
-	})
+	db := newTestDB(b)
 	ctx := b.Context()
 
+	b.ReportAllocs()
 	i := 0
 	for b.Loop() {
 		book := sampleBook(
@@ -158,15 +153,7 @@ func BenchmarkInsertBook(b *testing.B) {
 // growth. Alternating between a first-position and a last-position title keeps
 // every iteration a real title change rather than Add's unchanged-title fast path.
 func BenchmarkBookCacheAddRetitle(b *testing.B) {
-	db, err := Open(b.TempDir())
-	if err != nil {
-		b.Fatalf("open: %v", err)
-	}
-	b.Cleanup(func() {
-		if err := db.Close(); err != nil {
-			b.Errorf("close: %v", err)
-		}
-	})
+	db := newTestDB(b)
 	seedBooks(b, db, 2000)
 
 	cache, err := NewBookCache(b.Context(), db)
@@ -191,12 +178,10 @@ func BenchmarkBookCacheAddRetitle(b *testing.B) {
 	}
 }
 
+// BenchmarkNewBookCache measures summary loading and cache construction with
+// realistic spine JSON on disk, without eagerly reading or parsing those spines.
 func BenchmarkNewBookCache(b *testing.B) {
-	db, err := Open(b.TempDir())
-	if err != nil {
-		b.Fatalf("open: %v", err)
-	}
-	b.Cleanup(func() { _ = db.Close() })
+	db := newTestDB(b)
 	seedBooksWithSpines(b, db, 200, 120)
 	ctx := b.Context()
 
@@ -213,11 +198,7 @@ const spineBurstCallers = 16
 // BenchmarkGetSpineColdBurst compares the old independent-load behavior with
 // the singleflight path when many requests open the same uncached book at once.
 func BenchmarkGetSpineColdBurst(b *testing.B) {
-	db, err := Open(b.TempDir())
-	if err != nil {
-		b.Fatalf("open: %v", err)
-	}
-	b.Cleanup(func() { _ = db.Close() })
+	db := newTestDB(b)
 	seedBooksWithSpines(b, db, 1, 120)
 	ctx := b.Context()
 	cache, err := NewBookCache(ctx, db)
@@ -226,7 +207,7 @@ func BenchmarkGetSpineColdBurst(b *testing.B) {
 	}
 	const bookID = "id0000"
 
-	b.Run("before/no_dedupe", func(b *testing.B) {
+	b.Run("independent_loads", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ReportMetric(spineBurstCallers, "loads/op")
 		for b.Loop() {
@@ -243,8 +224,9 @@ func BenchmarkGetSpineColdBurst(b *testing.B) {
 		}
 	})
 
-	b.Run("after/singleflight", func(b *testing.B) {
+	b.Run("cache", func(b *testing.B) {
 		originalLoad := cache.loadBookContent
+		b.Cleanup(func() { cache.loadBookContent = originalLoad })
 		var loads atomic.Uint64
 		cache.loadBookContent = func(ctx context.Context, id string) (string, string, error) {
 			loads.Add(1)
@@ -296,11 +278,7 @@ func runSpineBurst(callers int, fn func() error) error {
 }
 
 func BenchmarkListBookSummariesUnsortedTitles(b *testing.B) {
-	db, err := Open(b.TempDir())
-	if err != nil {
-		b.Fatalf("open: %v", err)
-	}
-	b.Cleanup(func() { _ = db.Close() })
+	db := newTestDB(b)
 	seedBooksShuffledTitles(b, db, 200)
 	ctx := b.Context()
 
@@ -313,11 +291,7 @@ func BenchmarkListBookSummariesUnsortedTitles(b *testing.B) {
 }
 
 func BenchmarkListBookSummaries(b *testing.B) {
-	db, err := Open(b.TempDir())
-	if err != nil {
-		b.Fatalf("open: %v", err)
-	}
-	b.Cleanup(func() { _ = db.Close() })
+	db := newTestDB(b)
 	seedBooks(b, db, 200)
 	ctx := b.Context()
 
@@ -330,11 +304,7 @@ func BenchmarkListBookSummaries(b *testing.B) {
 }
 
 func BenchmarkGetAllProgress(b *testing.B) {
-	db, err := Open(b.TempDir())
-	if err != nil {
-		b.Fatalf("open: %v", err)
-	}
-	b.Cleanup(func() { _ = db.Close() })
+	db := newTestDB(b)
 	ctx := b.Context()
 	seedBooks(b, db, 200)
 	for i := range 200 {
@@ -357,11 +327,7 @@ func BenchmarkGetAllProgress(b *testing.B) {
 }
 
 func BenchmarkSaveProgress(b *testing.B) {
-	db, err := Open(b.TempDir())
-	if err != nil {
-		b.Fatalf("open: %v", err)
-	}
-	b.Cleanup(func() { _ = db.Close() })
+	db := newTestDB(b)
 	ctx := b.Context()
 	if _, err := db.InsertBookContext(ctx, sampleBook("id1", "hash-a", "/lib/a.epub")); err != nil {
 		b.Fatalf("insert book: %v", err)
@@ -442,12 +408,16 @@ func openRawForBench(b *testing.B, maxConns int) *sql.DB {
 	if err != nil {
 		b.Fatalf("open: %v", err)
 	}
+	b.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			b.Errorf("close: %v", err)
+		}
+	})
 	sqlDB.SetMaxOpenConns(maxConns)
 	sqlDB.SetMaxIdleConns(maxConns)
-	if _, err := sqlDB.Exec(schema); err != nil {
+	if _, err := sqlDB.ExecContext(b.Context(), schema); err != nil {
 		b.Fatalf("schema: %v", err)
 	}
-	b.Cleanup(func() { _ = sqlDB.Close() })
 	return sqlDB
 }
 
@@ -480,7 +450,8 @@ func warmRawPool(b *testing.B, db *sql.DB, n int) {
 func seedRawBooks(b *testing.B, db *sql.DB, n int) {
 	b.Helper()
 	for i := range n {
-		_, err := db.Exec(
+		_, err := db.ExecContext(
+			b.Context(),
 			"INSERT INTO books (id, title, author, file_path) VALUES (?, ?, ?, ?)",
 			fmt.Sprintf("id%04d", i),
 			fmt.Sprintf("Title %04d", i),
