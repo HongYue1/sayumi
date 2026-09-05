@@ -34,6 +34,7 @@ type prettyHandler struct {
 	// group prefix that was active at the time of the WithAttrs call. This
 	// satisfies the slog.Handler contract: attributes added before a WithGroup
 	// call must not be rendered with that group's prefix.
+	// Immutable after construction; WithAttrs copies before adding values.
 	preAttrs    map[string]string
 	groupPrefix string
 }
@@ -68,7 +69,7 @@ func (h *prettyHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	merged := make(map[string]string, len(h.preAttrs)+len(attrs))
 	maps.Copy(merged, h.preAttrs)
 	for _, a := range attrs {
-		merged[h.groupPrefix+a.Key] = logValueString(a.Value)
+		collectLogAttr(merged, h.groupPrefix, a)
 	}
 	return &prettyHandler{mu: h.mu, w: h.w, level: h.level, preAttrs: merged, groupPrefix: h.groupPrefix}
 }
@@ -80,45 +81,39 @@ func (h *prettyHandler) WithGroup(name string) slog.Handler {
 		return h
 	}
 	prefix := h.groupPrefix + name + "."
-	// Copy preAttrs — they were keyed at their own prefix and must not change.
-	copied := make(map[string]string, len(h.preAttrs))
-	maps.Copy(copied, h.preAttrs)
-	return &prettyHandler{mu: h.mu, w: h.w, level: h.level, preAttrs: copied, groupPrefix: prefix}
+	// Sharing immutable pre-attributes avoids copying the map for every group.
+	// WithAttrs and Handle allocate their own maps before writing to them.
+	return &prettyHandler{mu: h.mu, w: h.w, level: h.level, preAttrs: h.preAttrs, groupPrefix: prefix}
 }
 
 func (h *prettyHandler) Handle(_ context.Context, r slog.Record) error {
-	isRequest := r.Message == "request"
 	all := make(map[string]string, len(h.preAttrs)+r.NumAttrs())
-	// Pre-attrs are already fully-qualified; copy them directly.
 	maps.Copy(all, h.preAttrs)
-	// Record attrs are keyed relative to the current group prefix.
-	if isRequest {
-		r.Attrs(func(a slog.Attr) bool {
-			all[h.groupPrefix+a.Key] = a.Value.String()
-			return true
-		})
-		if path, ok := all["path"]; ok {
-			all["path"] = escapeLogText(path)
-		}
-	} else {
-		r.Attrs(func(a slog.Attr) bool {
-			all[h.groupPrefix+a.Key] = logValueString(a.Value)
-			return true
-		})
-	}
+	r.Attrs(func(a slog.Attr) bool {
+		collectLogAttr(all, h.groupPrefix, a)
+		return true
+	})
+	// Grouped records use the generic layout so qualified keys are not lost.
+	isRequest := r.Message == "request" && h.groupPrefix == "" && all["method"] != "" && all["status"] != ""
 
 	var sb strings.Builder
 
-	sb.WriteString(ansiDim)
-	sb.WriteString(r.Time.Format(time.TimeOnly))
-	sb.WriteString(ansiReset)
-	sb.WriteString("  ")
+	if !r.Time.IsZero() {
+		sb.WriteString(ansiDim)
+		sb.WriteString(r.Time.Format(time.TimeOnly))
+		sb.WriteString(ansiReset)
+		sb.WriteString("  ")
+	}
 
 	sb.WriteString(levelTag(r.Level))
 	sb.WriteString("  ")
 
 	if isRequest {
 		h.writeRequest(&sb, all)
+		for _, key := range []string{"method", "path", "status", "duration", "size"} {
+			delete(all, key)
+		}
+		h.writeGeneric(&sb, "", all)
 	} else {
 		h.writeGeneric(&sb, escapeLogText(r.Message), all)
 	}
@@ -127,7 +122,7 @@ func (h *prettyHandler) Handle(_ context.Context, r slog.Record) error {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	_, err := fmt.Fprint(h.w, sb.String())
+	_, err := io.WriteString(h.w, sb.String())
 	return err
 }
 
@@ -249,6 +244,25 @@ func fmtDuration(s string) string {
 		}
 	}
 	return s
+}
+
+// collectLogAttr applies slog's resolution, empty-attribute, and group rules
+// before escaping values. WithAttrs resolves once; record values resolve per call.
+func collectLogAttr(dst map[string]string, prefix string, attr slog.Attr) {
+	attr.Value = attr.Value.Resolve()
+	if attr.Equal(slog.Attr{}) {
+		return
+	}
+	if attr.Value.Kind() == slog.KindGroup {
+		if attr.Key != "" {
+			prefix += attr.Key + "."
+		}
+		for _, child := range attr.Value.Group() {
+			collectLogAttr(dst, prefix, child)
+		}
+		return
+	}
+	dst[prefix+attr.Key] = logValueString(attr.Value)
 }
 
 // logValueString escapes only value kinds that can carry caller-controlled

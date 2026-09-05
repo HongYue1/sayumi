@@ -55,33 +55,48 @@ const (
 )
 
 func main() {
-	port := flag.Int("port", 8080, "Port to listen on")
-	libraryPath := flag.String("library", "", "Path to the library root directory")
-	fontsPath := flag.String("fonts", "", "Path to the user fonts directory")
-	network := flag.Bool("network", false, "Allow LAN access (bind to 0.0.0.0)")
-	debugFlag := flag.Bool("debug", false, "Enable verbose debug logging")
-	showVersion := flag.Bool("version", false, "Print version and exit")
-	pprofFlag := flag.Bool("pprof", false, "Expose net/http/pprof on 127.0.0.1:<pprof-port> (diagnostics)")
-	pprofPort := flag.Int("pprof-port", 6060, "Port for the localhost-only pprof debug server")
-	cpuProfile := flag.String("cpuprofile", "", "Write a CPU profile to this file (diagnostics)")
-	traceFile := flag.String("trace", "", "Write an execution trace to this file (diagnostics)")
-	flag.Parse()
-
-	if *showVersion {
+	opts, err := parseCLI(os.Args[1:], os.Stdout)
+	if errors.Is(err, flag.ErrHelp) {
+		return
+	}
+	if err != nil {
+		writeCLIError(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, "Run sayumi -help for usage.")
+		os.Exit(2)
+	}
+	if opts.showVersion {
 		fmt.Printf("sayumi %s (built %s, %s)\n", version, buildDate, runtime.Version())
 		return
 	}
+	// Only main exits the process, after run's deferred cleanup has completed.
+	if err := run(opts); err != nil {
+		writeCLIError(os.Stderr, err)
+		os.Exit(1)
+	}
+}
 
-	debugMode = *debugFlag
+func run(opts cliOptions) error {
+	debugMode = opts.debug
+	level := slog.LevelWarn
+	if debugMode {
+		level = slog.LevelDebug
+	}
+	slog.SetDefault(slog.New(newPrettyHandler(consoleOutput(os.Stderr, useANSI(os.Stderr, opts.noColor)), level)))
+	if !debugMode {
+		log.SetOutput(io.Discard)
+	}
 
-	libRoot := *libraryPath
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	libRoot := opts.libraryPath
 	if libRoot == "" {
 		if envPath := os.Getenv("SAYUMI_LIBRARY"); envPath != "" {
 			libRoot = envPath
 		} else {
 			exe, err := os.Executable()
 			if err != nil {
-				fatalf("cannot determine executable path: %v", err)
+				return fmt.Errorf("cannot determine executable path: %w", err)
 			}
 			libRoot = filepath.Join(filepath.Dir(exe), "Library")
 		}
@@ -89,29 +104,20 @@ func main() {
 
 	absLibRoot, err := filepath.Abs(libRoot)
 	if err != nil {
-		fatalf("invalid library path %q: %v", libRoot, err)
+		return fmt.Errorf("invalid library path %q: %w", libRoot, err)
 	}
 	if err := os.MkdirAll(absLibRoot, 0o755); err != nil {
-		fatalf("cannot create library directory %q: %v", absLibRoot, err)
+		return fmt.Errorf("cannot create library directory %q: %w", absLibRoot, err)
 	}
 
-	if debugMode {
-		slog.SetDefault(slog.New(newPrettyHandler(os.Stderr, slog.LevelDebug)))
-	} else {
-		slog.SetDefault(slog.New(newPrettyHandler(os.Stderr, slog.LevelWarn)))
-		log.SetOutput(io.Discard)
-	}
-
-	// Diagnostics (all no-ops unless the matching flag is set): an optional CPU
-	// profile / execution trace written to a file, and an optional localhost-only
-	// pprof server. See cmd/sayumi/debug.go.
-	stopProfiling := startProfiling(*cpuProfile, *traceFile)
+	stopProfiling := startProfiling(opts.cpuProfile, opts.tracePath)
 	defer stopProfiling()
-	startDebugServer(*pprofFlag, *pprofPort)
+	stopDebugServer := startDebugServer(opts.pprof, opts.pprofPort)
+	defer stopDebugServer()
 
 	profilesDB, err := storage.OpenProfilesDB(absLibRoot)
 	if err != nil {
-		fatalf("cannot open profiles database: %v", err)
+		return fmt.Errorf("cannot open profiles database: %w", err)
 	}
 	defer func() {
 		if err := profilesDB.Close(); err != nil {
@@ -122,11 +128,11 @@ func main() {
 	profileMgr := api.NewProfileManager(absLibRoot)
 	defer profileMgr.CloseAll()
 
-	fontScanner := fonts.NewScanner(resolveFontsDir(*fontsPath))
+	fontScanner := fonts.NewScanner(resolveFontsDir(opts.fontsPath))
 
 	deps, err := api.NewDependencies(profilesDB, profileMgr, absLibRoot, fontScanner)
 	if err != nil {
-		fatalf("cannot initialize server dependencies: %v", err)
+		return fmt.Errorf("cannot initialize server dependencies: %w", err)
 	}
 	// Hand the linker-stamped build metadata over once, before any request can
 	// reach it: GET /api/version is what lets the About sheet name the binary it
@@ -140,55 +146,61 @@ func main() {
 		slog.Error("restore sessions", "err", err)
 	}
 
-	handler := buildHandler(deps)
+	handler, err := buildHandler(deps)
+	if err != nil {
+		return err
+	}
 
 	manager := &serverManager{
 		handler:     handler,
-		port:        *port,
-		networkMode: *network,
+		port:        opts.port,
+		networkMode: opts.network,
 		libraryPath: absLibRoot,
 		serverErrs:  make(chan error, 1),
 	}
 
 	if err := manager.start(); err != nil {
-		fatalf("%v", err)
+		return err
 	}
-	manager.render()
-	// manager.port, not *port: with -port 0 the listener chose the real one.
-	openBrowser(fmt.Sprintf("http://localhost:%d", manager.port))
+	defer manager.stop()
+	color := useANSI(os.Stdout, opts.noColor)
+	output := consoleOutput(os.Stdout, color)
+	redraw := color && !debugMode
+	manager.render(output, redraw)
+	if !opts.noBrowser {
+		// Use the listener's assigned port when -port 0 was requested.
+		openBrowser(fmt.Sprintf("http://localhost:%d", manager.port))
+	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	go deps.StartBackgroundTasks(ctx)
-
-	shutdownCtx, shutdown := context.WithCancel(context.Background())
-	defer shutdown()
-	go closeReadCloserOnDone(shutdownCtx, os.Stdin)
-
+	backgroundDone := make(chan struct{})
+	go func() {
+		defer close(backgroundDone)
+		deps.StartBackgroundTasks(ctx)
+	}()
+	defer func() {
+		// Maintenance must stop before its databases are closed.
+		stop()
+		<-backgroundDone
+	}()
+	go closeReadCloserOnDone(ctx, os.Stdin)
 	inputCh := make(chan string, 1)
-	go readInput(inputCh)
+	go readInput(ctx, os.Stdin, inputCh)
 
 	for {
 		select {
 		case <-ctx.Done():
-			shutdown()
-			manager.stop()
-			return
+			return nil
 		case err := <-manager.Errors():
-			shutdown()
-			manager.stop()
-			fmt.Fprintf(os.Stderr, "\n  %sserver error: %v%s\n\n", ansiRed, err, ansiReset)
-			return
+			return fmt.Errorf("server error: %w", err)
 		case cmd := <-inputCh:
 			switch cmd {
 			case "n":
 				manager.toggleNetwork()
-				manager.render()
+				manager.render(output, redraw)
 			case "q", "quit", "exit":
-				shutdown()
-				manager.stop()
-				return
+				return nil
+			default:
+				_, _ = fmt.Fprintln(output, "Unknown command. Enter n to toggle network access or q to quit.")
 			}
 		}
 	}
@@ -236,10 +248,7 @@ func (sm *serverManager) start() error {
 		return fmt.Errorf("cannot listen on %s: %w", addr, err)
 	}
 
-	// Adopt the port the OS actually assigned. With -port 0 the server came up
-	// on an ephemeral port while the console banner and the browser we launch
-	// both said "localhost:0", so everything the app told the user to open
-	// refused the connection.
+	// With -port 0, the banner and browser need the port assigned by the OS.
 	if tcpAddr, ok := listener.Addr().(*net.TCPAddr); ok {
 		sm.port = tcpAddr.Port
 	}
@@ -299,15 +308,14 @@ func (sm *serverManager) toggleNetwork() {
 	sm.mu.Unlock()
 
 	if err := sm.start(); err != nil {
-		fmt.Fprintf(os.Stderr, "\n  %serror: %v%s\n\n", ansiRed, err, ansiReset)
+		writeCLIError(os.Stderr, err)
 
 		sm.mu.Lock()
 		sm.networkMode = !sm.networkMode
 		sm.mu.Unlock()
 
 		if restoreErr := sm.start(); restoreErr != nil {
-			fmt.Fprintf(os.Stderr, "  %serror: could not restore server: %v%s\n\n",
-				ansiRed, restoreErr, ansiReset)
+			writeCLIError(os.Stderr, fmt.Errorf("could not restore server: %w", restoreErr))
 			// Both listen attempts failed; signal the main loop to exit cleanly
 			// rather than leaving the process alive with no TCP listener.
 			sm.reportServeError(fmt.Errorf("server failed and could not be restored: %w", restoreErr))
@@ -315,46 +323,35 @@ func (sm *serverManager) toggleNetwork() {
 	}
 }
 
-func (sm *serverManager) render() {
+func (sm *serverManager) render(out io.Writer, redraw bool) {
 	const sep = "────────────────────────────────────────"
 
-	fmt.Print(ansiClear)
-	fmt.Println()
-
-	// App name
-	fmt.Printf("  %s%ssayumi%s\n", ansiBold, ansiCyan, ansiReset)
-	fmt.Println()
-
-	// Status indicator + URLs
+	// This banner is best-effort informational output, not a server operation.
+	// Preserve diagnostics and redirected output instead of erasing the screen.
+	if redraw {
+		_, _ = fmt.Fprint(out, ansiClear)
+	}
+	_, _ = fmt.Fprintf(out, "\n  %s%ssayumi%s\n\n", ansiBold, ansiCyan, ansiReset)
 	if sm.networkMode {
-		fmt.Printf("  %s◉%s  %s%shttp://localhost:%d%s\n",
+		_, _ = fmt.Fprintf(out, "  %s◉%s  %s%shttp://localhost:%d%s\n",
 			ansiYellow, ansiReset, ansiBold, ansiYellow, sm.port, ansiReset)
 		if ip := lanIP(); ip != "" {
-			fmt.Printf("     %s%shttp://%s:%d%s\n",
+			_, _ = fmt.Fprintf(out, "     %s%shttp://%s:%d%s\n",
 				ansiBold, ansiYellow, ip, sm.port, ansiReset)
 		}
 	} else {
-		fmt.Printf("  %s●%s  %s%shttp://localhost:%d%s\n",
+		_, _ = fmt.Fprintf(out, "  %s●%s  %s%shttp://localhost:%d%s\n",
 			ansiGreen, ansiReset, ansiBold, ansiGreen, sm.port, ansiReset)
 	}
-
-	// Library path, indented under the URL
-	fmt.Printf("     %s%s%s\n", ansiDim, shortenPath(sm.libraryPath), ansiReset)
-	fmt.Println()
-
-	// Divider
-	fmt.Printf("  %s%s%s\n", ansiDim, sep, ansiReset)
-	fmt.Println()
-
-	// Actions — full English labels so they're immediately obvious
+	_, _ = fmt.Fprintf(out, "     %s%s%s\n\n", ansiDim, escapeLogText(shortenPath(sm.libraryPath)), ansiReset)
+	_, _ = fmt.Fprintf(out, "  %s%s%s\n\n", ansiDim, sep, ansiReset)
 	if sm.networkMode {
-		fmt.Printf("  %s[N]%s  Restrict to this device\n", ansiBold, ansiReset)
+		_, _ = fmt.Fprintf(out, "  %s[N]%s  Restrict to this device\n", ansiBold, ansiReset)
 	} else {
-		fmt.Printf("  %s[N]%s  Expose to network\n", ansiBold, ansiReset)
+		_, _ = fmt.Fprintf(out, "  %s[N]%s  Expose to network\n", ansiBold, ansiReset)
 	}
-	fmt.Printf("  %s[Q]%s  Quit\n", ansiBold, ansiReset)
-	fmt.Println()
-	fmt.Printf("  %s›%s ", ansiDim, ansiReset)
+	_, _ = fmt.Fprintf(out, "  %s[Q]%s  Quit\n\n", ansiBold, ansiReset)
+	_, _ = fmt.Fprintln(out, "  Enter a command and press Enter; Ctrl+C also quits.")
 }
 
 // resolveFontsDir determines the user-fonts directory. Precedence: --fonts
@@ -384,12 +381,12 @@ func resolveFontsDir(flagValue string) string {
 	return abs
 }
 
-func buildHandler(deps *api.Dependencies) http.Handler {
+func buildHandler(deps *api.Dependencies) (http.Handler, error) {
 	fontHandler := http.StripPrefix("/fonts", fonts.Handler(deps.Fonts))
 
 	distFS, err := fs.Sub(frontendDist, "dist")
 	if err != nil {
-		fatalf("cannot access embedded frontend: %v", err)
+		return nil, fmt.Errorf("cannot access embedded frontend: %w", err)
 	}
 	fileServer := http.FileServer(http.FS(distFS))
 
@@ -434,13 +431,7 @@ func buildHandler(deps *api.Dependencies) http.Handler {
 	})
 
 	handler := api.NewHandler(deps, fontHandler, staticHandler)
-	// A single middleware both recovers panics and access-logs the request,
-	// sharing one statusWriter so each request pays for just one wrapper instead
-	// of two. The deferred closure recovers first (writing a 500 if the handler
-	// panicked before writing anything), then logs the request with the final
-	// status — so panicking requests are still access-logged.
-	handler = instrumentMiddleware(handler)
-	return handler
+	return instrumentMiddleware(handler), nil
 }
 
 func sanitizeStaticRequestPath(rawPath string) (string, bool) {
@@ -513,7 +504,7 @@ func shortenPath(p string) string {
 	}
 
 	rel, err := filepath.Rel(home, p)
-	if err != nil || strings.HasPrefix(rel, "..") {
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return p
 	}
 	if rel == "." {
@@ -540,30 +531,23 @@ func openBrowser(url string) {
 	}()
 }
 
-func fatalf(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "\n  %serror: %s%s\n\n", ansiRed, fmt.Sprintf(format, args...), ansiReset)
-	os.Exit(1)
-}
-
-func readInput(ch chan string) {
-	scanner := bufio.NewScanner(os.Stdin)
+func readInput(ctx context.Context, input io.Reader, ch chan<- string) {
+	scanner := bufio.NewScanner(input)
 	for scanner.Scan() {
 		line := strings.TrimSpace(strings.ToLower(scanner.Text()))
 		if line == "" {
 			continue
 		}
 
-		// Block until the main loop consumes the command. Console input is
-		// low-rate, so backpressure here is harmless. The previous coalescing
-		// select drained a full buffer with <-ch in its default branch, which
-		// raced the main loop's own receive: if main consumed the buffered
-		// command in that window, the drain blocked forever (this goroutine is
-		// the channel's only sender), permanently wedging console input until
-		// the process was signaled.
-		ch <- line
+		// Preserve command order, but do not strand a sender when main exits.
+		select {
+		case ch <- line:
+		case <-ctx.Done():
+			return
+		}
 	}
 
-	if err := scanner.Err(); err != nil && debugMode {
+	if err := scanner.Err(); err != nil && debugMode && ctx.Err() == nil {
 		slog.Debug("stdin read error", "err", err)
 	}
 }
@@ -586,8 +570,12 @@ func (w *responseTracker) markWritten() {
 }
 
 func (w *responseTracker) WriteHeader(code int) {
-	w.markWritten()
 	w.ResponseWriter.WriteHeader(code)
+	// Informational responses do not commit the final response. A protocol
+	// switch is the exception, matching net/http's 101 handling.
+	if code >= 200 || code == http.StatusSwitchingProtocols {
+		w.markWritten()
+	}
 }
 
 func (w *responseTracker) Write(p []byte) (int, error) {
@@ -615,7 +603,12 @@ func (w *responseTracker) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if !ok {
 		return nil, nil, errors.New("response writer does not support hijacking")
 	}
-	return hijacker.Hijack()
+	conn, rw, err := hijacker.Hijack()
+	if err == nil {
+		// Once ownership transfers, recovery must not write an HTTP error body.
+		w.markWritten()
+	}
+	return conn, rw, err
 }
 
 func (w *responseTracker) Unwrap() http.ResponseWriter { return w.ResponseWriter }
@@ -627,10 +620,11 @@ type statusWriter struct {
 }
 
 func (w *statusWriter) WriteHeader(code int) {
-	if !w.wrote {
+	wasWritten := w.wrote
+	w.responseTracker.WriteHeader(code)
+	if !wasWritten && w.wrote {
 		w.status = code
 	}
-	w.responseTracker.WriteHeader(code)
 }
 
 func (w *statusWriter) Write(p []byte) (int, error) {
@@ -681,6 +675,10 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 
 		defer func() {
 			if rec := recover(); rec != nil {
+				// Let net/http abort the connection without logging a stack trace.
+				if rec == http.ErrAbortHandler { //nolint:errorlint // net/http only suppresses the exact sentinel, not wrapped errors.
+					panic(rec)
+				}
 				slog.Error("panic recovered", "panic", rec, "stack", string(debug.Stack()))
 				if !writer.wrote {
 					writeInternalServerError(writer, r)
@@ -702,6 +700,10 @@ func debugInstrumentMiddleware(next http.Handler) http.Handler {
 
 		defer func() {
 			if rec := recover(); rec != nil {
+				// Let net/http abort the connection without logging a stack trace.
+				if rec == http.ErrAbortHandler { //nolint:errorlint // net/http only suppresses the exact sentinel, not wrapped errors.
+					panic(rec)
+				}
 				slog.Error("panic recovered", "panic", rec, "stack", string(debug.Stack()))
 				if !writer.wrote {
 					writeInternalServerError(writer, r)
@@ -729,11 +731,11 @@ func debugInstrumentMiddleware(next http.Handler) http.Handler {
 func humanizeBytes(n int64) string {
 	switch {
 	case n < 1024:
-		return fmt.Sprintf("%dB", n)
+		return strconv.FormatInt(n, 10) + "B"
 	case n < 1024*1024:
-		return fmt.Sprintf("%.1fKB", float64(n)/1024)
+		return strconv.FormatFloat(float64(n)/1024, 'f', 1, 64) + "KB"
 	default:
-		return fmt.Sprintf("%.1fMB", float64(n)/(1024*1024))
+		return strconv.FormatFloat(float64(n)/(1024*1024), 'f', 1, 64) + "MB"
 	}
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net"
@@ -17,7 +18,7 @@ import (
 // startProfiling optionally starts a CPU profile and/or an execution trace,
 // writing each to the given file path. It returns a stop function (safe to call
 // even when nothing was started) that flushes and closes both, intended to be
-// invoked via defer in main. When a path is empty the corresponding profiler is
+// invoked via defer in run. When a path is empty the corresponding profiler is
 // not started, so normal runs pay nothing.
 func startProfiling(cpuProfilePath, tracePath string) func() {
 	var cleanups []func()
@@ -82,13 +83,11 @@ func startTrace(path string) func() {
 	}
 }
 
-// startDebugServer starts a localhost-only HTTP server exposing the
-// net/http/pprof handlers when enabled. It binds to 127.0.0.1 exclusively
-// (never the LAN, even in --network mode) so profiling data is never exposed
-// off-device. The server runs until the process exits.
-func startDebugServer(enabled bool, port int) {
+// startDebugServer exposes diagnostics only on loopback, regardless of --network.
+// Its returned cleanup closes the listener even when application startup fails.
+func startDebugServer(enabled bool, port int) func() {
 	if !enabled {
-		return
+		return func() {}
 	}
 
 	mux := http.NewServeMux()
@@ -99,16 +98,25 @@ func startDebugServer(enabled bool, port int) {
 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", addr)
+	if err != nil {
+		slog.Error("pprof debug server error", "err", err)
+		return func() {}
+	}
 	srv := &http.Server{
-		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-
+	// Announce only a successful bind, using the actual port for -pprof-port 0.
+	slog.Warn("pprof debug server listening", "addr", "http://"+listener.Addr().String()+"/debug/pprof/")
 	go func() {
-		slog.Warn("pprof debug server listening", "addr", "http://"+addr+"/debug/pprof/")
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("pprof debug server error", "err", err)
 		}
 	}()
+	return func() {
+		_ = srv.Close()
+		// Close also covers cleanup before Serve has registered the listener.
+		_ = listener.Close()
+	}
 }
