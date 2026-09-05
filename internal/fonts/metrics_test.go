@@ -333,6 +333,50 @@ func TestReadMetricsDistrustsBadXHeight(t *testing.T) {
 	}
 }
 
+// Negate in a wider representation: -32768 is a valid int16, but its positive
+// distance is not. hhea and USE_TYPO_METRICS must preserve the same convention.
+func TestReadMetricsMinimumDescender(t *testing.T) {
+	t.Parallel()
+	for _, typo := range []bool{false, true} {
+		t.Run(map[bool]string{false: "hhea", true: "OS2"}[typo], func(t *testing.T) {
+			t.Parallel()
+			hhea := craftHhea(800, -32768, 100)
+			os2 := craftOS2(4, 900, -32768, 150, 500, 700)
+			if typo {
+				hhea = craftHhea(800, -200, 100)
+				binary.BigEndian.PutUint16(os2[62:], 1<<7)
+			}
+			got, err := ReadMetrics(craftSFNT(craftHead(1000), hhea, os2))
+			if err != nil || got.Descent != 32.768 {
+				t.Fatalf("minimum descender = %+v, %v; want descent 32.768", got, err)
+			}
+		})
+	}
+}
+
+func TestReadMetricsOptionalOS2(t *testing.T) {
+	t.Parallel()
+	typo := craftOS2(4, 900, -300, 150, 500, 700)
+	binary.BigEndian.PutUint16(typo[62:], 1<<7)
+	for _, tc := range []struct {
+		name string
+		os2  []byte
+		want Metrics
+	}{
+		{"missing", nil, Metrics{UnitsPerEm: 1000, Ascent: 0.8, Descent: 0.2, LineGap: 0.1}},
+		{"truncated typo falls back", typo[:73], Metrics{UnitsPerEm: 1000, Ascent: 0.8, Descent: 0.2, LineGap: 0.1}},
+		{"complete typo", typo, Metrics{UnitsPerEm: 1000, XHeight: 0.5, CapHeight: 0.7, Ascent: 0.9, Descent: 0.3, LineGap: 0.15}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := ReadMetrics(craftSFNT(craftHead(1000), craftHhea(800, -200, 100), tc.os2))
+			if err != nil || got != tc.want {
+				t.Fatalf("metrics = %+v, %v; want %+v", got, err, tc.want)
+			}
+		})
+	}
+}
+
 // The scan is how metrics reach the client, so it has to measure a real face on
 // disk, let family.json override what it found, and survive a file that is not
 // a font at all.

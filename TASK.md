@@ -10,112 +10,164 @@ Preserve the local-first design, existing API contracts, and pure-Go build.
 
 ## Current task
 
-**Checkpoint 13 is complete and verified: EPUB rewrite metadata, archive identity, and failure cleanup.**
+**Checkpoint 14 is complete and verified: font metrics and SFNT/WOFF container validation.**
 
-Base commit: `abaae48 fix(epub): align search text and cancellation contracts`.
-This handoff accompanies the scoped CP13 commit; use Git history for its hash.
-CP6-CP12 remain finished; CP14 has not been started. The initial worktree was clean
+Base commit: `4cdf722 fix(epub): preserve rewrite metadata and archive contracts`.
+This handoff accompanies the scoped CP14 commit; use Git history for its hash.
+CP6-CP13 remain finished; CP15 has not been started. The initial worktree was clean
 with no running jobs. Root/internal instructions, TASK/TRACKER, relevant Go skills
 and references, and actual dependency callers were read before edits.
 
-- Reviewed scope: `internal/epub/edit.go`, `edit_test.go`, and new
-  `edit_bench_test.go`. API editing, parser, reader, and store reads were dependency
-  context, not newly completed file reviews. No API, frontend, cache, or dependency
-  changes were needed.
-- Reproduced a failed-copy temp leak and unintended rewrites of unselected ZIP
-  entries. Cleanup now uses the owned file's stable name, accounts for source-close
-  errors before handing back success, and closes each owned handle once. OPF and
-  cover replacement use the selected entry's identity; other entries retain raw
-  compressed bytes, methods, and order. The original archive stays unchanged.
-- Enforced the existing 8 MiB OPF rewrite limit before opening and during reading,
-  rather than after the generic bounded 64 MiB read. The unsupported-compression
-  regression proves an oversized declaration is rejected before opening its body.
-- Reproduced metadata readback failures for nested/out-of-metadata names, self-closed
-  fields, clearing multiple creators, and attribute case/local-name collisions.
-  Splices follow the existing parser's direct ancestry and case-sensitive local-name
-  policy, preserve field attributes, update the decoded file-as value, and clear all
-  creator values when requested. New Dublin Core/OPF nodes bind their namespaces
-  explicitly. Extra roots, unfinished trailing structure, and outside text are refused.
-- Missing declared covers are filled at their existing resolved path, and matching
-  direct manifest media types are repaired, including absent attributes. Parser-selected
-  image bytes are checked rather than assuming any new .jpg file is the selected cover.
-  The unused mediaTypeForHref helper was removed after repository-wide reference tracing.
-- Added deterministic archive/metadata regressions, namespace-aware insertion checks,
-  and bounded immutable/readback/idempotence fuzzing. Strengthened legacy assertions
-  and fixture error checks. No whole-OPF remarshal, new XML depth policy, filesystem
-  abstraction, or injected late-close failure fixture was added.
+- Reviewed scope: existing `internal/fonts/metrics.go`, `metrics_test.go`, `sfnt.go`,
+  and new `sfnt_test.go` and frozen `metrics_bench_test.go`. Font embedding/scanning,
+  API, and frontend reads were dependency context, not completed file reviews.
+  No API, frontend, tooling, cache, or dependency changes were made.
+- Reproduced negative descent for the int16 minimum in both hhea and OS/2 typo
+  metrics. Widen before negating; optional OS/2 fallback, normalization thresholds,
+  and the shared read-only OnceValue metrics map retain their contracts.
+- Reject duplicate SFNT/WOFF table tags, WOFF1 stored lengths larger than original
+  lengths, and cumulative WOFF1 original lengths exceeding the existing 24 MiB
+  expanded-table budget, including raw tables. The budget is checked before
+  expanding the offending table.
+- Exact-size decompression now includes a bounded one-byte EOF probe, rejecting
+  excess decoded output and deferred zlib checksum errors without an unbounded
+  drain. Existing truncation rejection and exactly-once zlib Close are preserved.
+  WOFF2 collection flavor, reserved transform versions, and nonzero transformed
+  loca lengths are refused. WOFF2 duplicate checking remains after bounded
+  decompression; this is not a complete font-conformance validator.
+- Added independent valid/damaged-container fixtures, boundary regressions, and
+  bounded determinism/input-immutability fuzzing. Source byte slices remain
+  read-only aliases; no speculative unitsPerEm range change, raw-SFNT size cap,
+  full checksum/alignment validator, or new dependency was introduced.
 - Preserved API generation-lock lifetimes, shared read-only OpenIndexed readers/indexes,
   one Release per borrow, drained Store.Close, exactly-once ResourceReader.Close,
   streaming Size (-1), and all derived-cache budgets/versioning. RewriteBook still owns
   an independent source reader and requires a stable source generation during the call.
-- `TRACKER.md` inventory: 149 files, 87 complete and 62 pending. Only the three editing
-  files were newly completed; the EPUB processing inventory is now complete. Pause
-  after the scoped local commit. On continuation, reassess one bounded API or fonts
-  batch from the remaining checklist rather than treating dependency reads as reviews.
+- Reconciled `TRACKER.md` against the actual Go inventory: 151 files, 92 complete,
+  59 pending. Only these five font files were newly completed. EPUB remains complete;
+  47 API files, four font embedding/scanning files, and eight tooling files remain.
+  Pause after the scoped local commit. Do not start CP15 without explicit continuation.
 
-### CP13 measurement and tradeoffs
+### CP14 measurement and tradeoffs
 
-Ten alternating paired samples, six cases at GOMAXPROCS 1 and 4, 300ms per case,
-Go 1.27.0 windows/amd64, GOAMD64=v1, CGO_ENABLED=1 for matching executables,
-AMD Ryzen 7 5800H. Production remains CGO_ENABLED=0. No measurement overlapped tests
-or builds. All 240 rows and all twenty executable outputs were retained. An independent
-pandas/stdlib audit reparsed the raw outputs without the runner's regex and reproduced
-all 72 metric medians and 36 deltas. Keys include the full benchmark family, so the two
-CoverReplace cases cannot be merged accidentally. No values or outliers were excluded.
+Ten alternating serial pairs, seven cases at GOMAXPROCS 1 and 4, 200ms per case,
+Go 1.27.0 windows/amd64, GOAMD64=v1, CGO_ENABLED=0 for both matching executables,
+AMD Ryzen 7 5800H, GOGC=100 and GOMEMLIMIT=off. No measurement overlapped tests or
+builds. All 280 rows and twenty executable outputs were retained. An independent
+parser bound each full case/CPU name to its fixture size/hash, reconciled every
+CSV field through a canonical full-row hash, and used pandas plus stdlib to verify
+all 84 metric medians and 42 relative changes. No missing, duplicate, or excluded
+measurements were found. Benchstat used its ordinary unadjusted comparisons.
 
-| Case | CPU 1 median before -> after | CPU 4 median before -> after |
+| Case | CPU 1 median time change (p) | CPU 4 median time change (p) |
 | --- | --- | --- |
-| OPF small metadata | 38.44 -> 38.83 us | 38.06 -> 38.05 us |
-| OPF large metadata | 10.829 -> 10.678 ms | 10.797 -> 11.002 ms |
-| OPF cover replacement | 37.00 -> 36.91 us | 36.94 -> 36.89 us |
-| OPF cover insertion | 30.92 -> 32.14 us | 30.88 -> 32.06 us |
-| Archive metadata | 1.595 -> 1.584 ms | 1.568 -> 1.561 ms |
-| Archive cover replacement | 1.505 -> 1.508 ms | 1.481 -> 1.486 ms |
+| SFNT minimal | +16.26% (<.001) | +14.20% (<.001) |
+| SFNT 256 KiB glyph payload | +16.93% (<.001) | +17.55% (<.001) |
+| WOFF1 raw 256 KiB | +25.54% (<.001) | +26.44% (<.001) |
+| WOFF1 zlib 256 KiB | -1.16% (.631) | +1.18% (.796) |
+| WOFF2 synthetic 256 KiB | +1.68% (.529) | +1.61% (.247) |
+| WOFF2 embedded Atkinson | +0.41% (.684) | -0.07% (.912) |
+| WOFF2 embedded Literata italic | -0.04% (1.000) | -0.10% (.796) |
 
-- No timing comparison was statistically significant at .05; no speedup is claimed.
-  This is not evidence of equivalence. Cover insertion rose 3.94%/3.82% at CPUs 1/4
-  (p=.052/.143); other timing p-values ranged .247-1.000. Correctness is not reverted
-  to obtain a more favorable comparison.
-- OPF allocated bytes/op rose 1.40%-3.81% (all p<.001). Small metadata: 11392 -> 11552
-  B/op and 250 -> 255 allocations; large metadata: about 3.683 -> 3.809 MB/op and
-  67865 -> 67870 allocations. Cover replacement: 10080 -> 10256 B/op with 248
-  allocations unchanged. Cover insertion: 9443 -> 9803 B/op and 201 -> 204 allocations.
-  These are allocation-volume costs, not peak-memory measurements.
-- Archive metadata medians gained 5/4 allocations at CPUs 1/4 (both p<.001); cover
-  replacement allocation counts remained 438. Archive bytes/op differences were not
-  significant; exact byte/count medians and p-values remain in the archived outputs.
-- Limits: one host/toolchain, synthetic fixtures, warm OS/ZIP caches, and ordinary
-  unadjusted benchstat comparisons. The large OPF adds 2048 manifest items; archive
-  fixtures include a 288 KiB stored resource. Setup, JPEG generation, warmup, and
-  semantic checks are outside timing. Archive timing includes creation, copy, Sync,
-  Close, and output removal. CPU settings are not parallel-edit throughput. No
-  application-wide improvement or aggregate geomean claim is made.
+- Raw-container validation adds 47.5-94.4 ns/op to these tiny directory/header
+  workloads; all 60 corresponding within-pair time differences were positive.
+  Their B/op and allocation counts were unchanged. Retained as measured
+  correctness/validation costs, not as a speed optimization.
+- None of the eight compressed-font timing comparisons was significant at .05;
+  no speedup or equivalence is claimed. WOFF1 zlib gained 9 median B/op and two
+  allocations (26 -> 28). WOFF2 synthetic gained 5 B/op and one allocation
+  (22 -> 23); Atkinson gained 4.5 median B/op at each CPU setting (23 -> 24);
+  Literata gained 14/13.5 median B/op at CPUs 1/4 (24 -> 25). These byte/count
+  increases were significant at p<.001 despite rounded benchstat byte percentages
+  displaying +0.00%. They are allocation-volume costs, not peak-memory measurements.
+- Limits: one host/toolchain, five synthetic cases and the smallest/largest embedded
+  WOFF2 faces. Fixture construction, compression, and fingerprint logging are outside
+  the timed loops; ReadMetrics and success/em checks are inside. Raw SFNT/WOFF cases
+  alias the large glyph payload rather than traversing it, so their reported MB/s is
+  not full-font throughput. CPU settings are not parallel-reader throughput. No
+  application-wide improvement or aggregate-geomean claim is made.
 
 ### Verification
 
-Focused regressions, full EPUB tests, five shuffled race repetitions at CPUs 1/4,
-pure-Go EPUB tests, formatting/import checks, and scoped lint passed. A 30-second,
-four-worker OPF fuzz campaign completed 343892 executions without failure with a
-64 KiB input cap. Full `make check` passed: tidy, Go/frontend formatting, vet, lint,
-vulnerability checks, all-package shuffled race tests, frontend lint/types/tests,
-and frontend/pure-Go builds. The initial embed preflight reused existing frontend
-output; the final gate performed both builds. Measured source, tests, harness, and
-both executable hashes remained unchanged through the check. All jobs exited.
-Skills and generated benchmark artifacts remain ignored/untracked; CP7-CP12 protected
-artifacts and historical source hashes were rechecked unchanged.
+Focused regressions, full shuffled fonts tests, five shuffled race repetitions at
+CPUs 1/4, pure-Go fonts tests, formatting/import checks, and scoped lint passed.
+A 30-second, four-worker container fuzz campaign completed 872921 executions without
+failure with a 64 KiB input cap. Full `make check` passed: tidy, Go/frontend formatting,
+vet, lint, vulnerability checks, all-package shuffled race tests, frontend lint/types/
+tests, and frontend/pure-Go builds. The initial embed preflight reused existing output;
+the final gate performed both builds. Measured source, tests, harness, and both
+executable hashes remained unchanged. All jobs exited. Skills and generated benchmark
+artifacts remain ignored/untracked. All 179 files in CP7-CP13 artifact directories,
+recorded protected artifacts, and historical source hashes were rechecked unchanged.
+
+Non-overwriting verification commands:
 
 ```sh
-go test -count=1 -run '^(TestRewrite(Book|OPF)|TestApplySplices|FuzzRewriteOPF)' -timeout=60s ./internal/epub
-go test -count=1 -shuffle=on -timeout=60s ./internal/epub
-go test -race -shuffle=on -count=5 -cpu=1,4 -timeout=120s ./internal/epub
-CGO_ENABLED=0 go test -count=1 -timeout=60s ./internal/epub
-go test -run='^$' -fuzz='^FuzzRewriteOPFRoundTrip$' -fuzztime=30s -parallel=4 -timeout=90s ./internal/epub
-gofumpt -d internal/epub/edit{,_test,_bench_test}.go
-goimports -d -local sayumi internal/epub/edit{,_test,_bench_test}.go
-golangci-lint run ./internal/epub/... --timeout=5m
+go test -count=1 -run '^(TestFont|TestWOFF|TestReadMetricsMinimumDescender|TestReadMetricsOptionalOS2)' -v -timeout=60s ./internal/fonts
+go test -count=1 -shuffle=on -timeout=90s ./internal/fonts
+go test -race -shuffle=on -count=5 -cpu=1,4 -timeout=180s ./internal/fonts
+CGO_ENABLED=0 go test -count=1 -timeout=90s ./internal/fonts
+go test -run='^$' -fuzz='^FuzzReadMetricsContainers$' -fuzztime=30s -parallel=4 -timeout=90s ./internal/fonts
+gofumpt -d internal/fonts/{metrics,metrics_test,metrics_bench_test,sfnt,sfnt_test}.go
+goimports -d -local sayumi internal/fonts/{metrics,metrics_test,metrics_bench_test,sfnt,sfnt_test}.go
+golangci-lint run ./internal/fonts/... --timeout=5m
 make check
+python .agents/benchmarks/checkpoint14/verify_protected.py --final
 git diff --check
 ```
+
+### Protected CP14 benchmark artifacts
+
+Keep `.agents/benchmarks/checkpoint14/` ignored and untracked. Do not overwrite its
+binaries, runner, raw samples, failed/intermediate logs, or the tracked frozen harness.
+The original executable was built once from base `4cdf722` production with the same
+CP14 tests/harness as the candidate. Both use the pure-Go build and identical recorded
+toolchain/settings. The candidate's source hashes identify the measured revision,
+not permanent freezes on production code. Baseline failures are intentional regression
+evidence, not candidate failures. Keep the initial lint-failure `baseline-setup.log` too.
+
+- Original executable: `.agents/benchmarks/checkpoint14/before.test.exe`
+  SHA-256 `968182c15bee06bdcf48068bf8b842b37ba6d431a17340330855d6cbbb6b2182`.
+- Candidate executable: `.agents/benchmarks/checkpoint14/after.test.exe`
+  SHA-256 `71d212ff6db36ece9b22b146ee7c1a8b5cd65bc2cb3d9b559258163814486a06`.
+- Frozen harness: `internal/fonts/metrics_bench_test.go`
+  SHA-256 `45dbc106c0f21c047ea3f04f9fb84996af4496c7aaa232dcae575c207c577ddc`.
+- Runner: `.agents/benchmarks/checkpoint14/compare_benchmarks.py`
+  SHA-256 `ee3729bcbb51a0438b78ee9c31e2ae1d885a75f260348c757d9dc3b58b7aec8d`.
+- Original `internal/fonts/metrics.go` / `sfnt.go` at `4cdf722`:
+  `043980b742f394235f75dc359eece2aafc4a7e5809a9c636808eec2716f11624` /
+  `b215b8c96f79a9cecb551b50c74863077b339a4fc5220b1ab1bbd3e1dfe7dce2`.
+- Candidate `internal/fonts/metrics.go` / `sfnt.go`:
+  `7b7e509f35025c2c82f94803e8b69dd977dac8d7eac25b572afaf667d87ad83c` /
+  `af6174a516709402dd4723be15b8be85e482f0fe33e32da61e75d501c58b9369`.
+- Matching `internal/fonts/metrics_test.go` / `sfnt_test.go`:
+  `9b550322508b4a57cdec7251a14efb1f5d21a3817645a190466b381343565e28` /
+  `9a75338715f306ef74a538516148dbd4dc412b331971a08b452149bccfee4541`.
+- Comparison log: `.agents/benchmarks/checkpoint14/comparison.log`
+  SHA-256 `54d7e142338933eb30f11d7b2cbb36c6801d3d381b2ad97182d20a8ab6afcae7`.
+- Scoped checks: `.agents/benchmarks/checkpoint14/scoped-checks.log`
+  SHA-256 `4fd5ed6c7f2c2192091bca58f605c8c42a7d035aeedef3b5ae26fdc778fa7b01`.
+- Full check: `.agents/benchmarks/checkpoint14/make-check.log`
+  SHA-256 `21e990a3ff28f3481881a6155cf19708b781d01ae37a53dd70e7b93453d39010`.
+- Run directory: `.agents/benchmarks/checkpoint14/runs/20260905T185916.341529Z/`.
+  `samples.csv`: `6e85f57613cec827e6ab3917742168be6a3051fe26e4e9d6ed8254f3beda5e00`;
+  `medians.json`: `9f844ec2b6b6c5c7f585a2818c5677c462ead8c720ea711e2d8863c7422ec457`;
+  `benchstat.txt`: `7277a1ad514affa99b71b758f9fbd870a5b02717bf05260458b483a1f0635445`;
+  `environment.json`: `624073227e041d4b68e1ec645b9337add0fd7a9199d9a4e810f091d5d3f3507a`.
+  Preserve all twenty per-executable raw outputs and both benchstat inputs/outputs.
+- Independent numerical audit: `.agents/benchmarks/checkpoint14/independent-audit.json`
+  SHA-256 `59d45941eabf1d31681b8b1e0a6da2bcb5827916a614b9581d3e756b5d6f08f4`.
+- Protection helper: `.agents/benchmarks/checkpoint14/verify_protected.py`
+  SHA-256 `62d58503b79a07a690da3c91a7608fb7884420847c3f0ddbeea989e257259e8c`;
+  final protection log `protected-after.log`:
+  `3504e7c6588d10c4fcc656e7ed0b832b82b171d4e0e3cce3a6348bae92c080c8`.
+  The old CP11 helper covers CP7-CP10 only; this helper adds CP11-CP13 and compares
+  all CP7-CP13 directory fingerprints with `protected-before.log`. It does not cover
+  the new CP14 directory; preserve the separate CP14 snapshot below as well.
+- Complete CP14 directory snapshot: 47 files,
+  SHA-256 `d7b16fcd8fe6ab625f0f96a76ac4bb7e2717b964a2e74cba89ad9c226f045924`.
+  Fingerprint: sorted relative POSIX paths, each followed by NUL and its file's
+  SHA-256 digest bytes. This includes failed/unfavorable evidence and all run files.
 
 ### Protected CP13 benchmark artifacts
 

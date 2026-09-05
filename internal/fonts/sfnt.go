@@ -43,7 +43,7 @@ const (
 )
 
 var (
-	// errUnsupportedFont is a container this package does not read. The caller
+	// errUnsupportedFont is a container or transform this package cannot read. The caller
 	// is expected to carry on without metrics for that face.
 	errUnsupportedFont = errors.New("fonts: unsupported font container")
 
@@ -59,7 +59,7 @@ var (
 const maxFontTables = 24 << 20
 
 // readTables opens a font container and returns its tables keyed by tag. The
-// returned slices alias data, or one decompressed buffer, so callers must treat
+// returned slices alias data or decompressed buffers, so callers must treat
 // them as read-only.
 func readTables(data []byte) (map[string][]byte, error) {
 	if len(data) < sfntHeaderSize {
@@ -98,6 +98,11 @@ func sfntTables(data []byte) (map[string][]byte, error) {
 	for i := range numTables {
 		record := data[sfntHeaderSize+i*sfntEntrySize:]
 		tag := string(record[:4])
+		// A tag must identify one table, not depend on which duplicate a
+		// different font consumer happens to select.
+		if _, exists := tables[tag]; exists {
+			return nil, fmt.Errorf("%w: duplicate table %q", errMalformedFont, tag)
+		}
 		offset := int64(binary.BigEndian.Uint32(record[8:12]))
 		length := int64(binary.BigEndian.Uint32(record[12:16]))
 		if offset+length > int64(len(data)) {
@@ -124,25 +129,35 @@ func woff1Tables(data []byte) (map[string][]byte, error) {
 	}
 
 	tables := make(map[string][]byte, numTables)
+	var total int64
 	for i := range numTables {
 		record := data[woff1HeaderSize+i*woff1EntrySize:]
 		tag := string(record[:4])
+		if _, exists := tables[tag]; exists {
+			return nil, fmt.Errorf("%w: duplicate woff table %q", errMalformedFont, tag)
+		}
 		offset := int64(binary.BigEndian.Uint32(record[4:8]))
 		storedLength := int64(binary.BigEndian.Uint32(record[8:12]))
 		origLength := int64(binary.BigEndian.Uint32(record[12:16]))
 		if offset+storedLength > int64(len(data)) {
 			return nil, fmt.Errorf("%w: woff table %q runs past the end of the file", errMalformedFont, tag)
 		}
+		if storedLength > origLength {
+			return nil, fmt.Errorf("%w: woff table %q is larger than its original length", errMalformedFont, tag)
+		}
+		// All expanded tables remain live in the returned map. A per-table
+		// bound alone lets a face allocate the whole budget over and over.
+		total += origLength
+		if total > maxFontTables {
+			return nil, fmt.Errorf("%w: woff tables claim more than %d bytes", errMalformedFont, maxFontTables)
+		}
 		stored := data[offset : offset+storedLength]
 
 		// A table that would not shrink is stored verbatim, which the format
 		// signals by making the stored length equal to the original length.
-		if storedLength >= origLength {
+		if storedLength == origLength {
 			tables[tag] = stored
 			continue
-		}
-		if origLength > maxFontTables {
-			return nil, fmt.Errorf("%w: woff table %q claims %d bytes", errMalformedFont, tag, origLength)
 		}
 		expanded, err := inflate(stored, origLength)
 		if err != nil {
@@ -153,9 +168,8 @@ func woff1Tables(data []byte) (map[string][]byte, error) {
 	return tables, nil
 }
 
-// inflate zlib-expands compressed into exactly size bytes. Reading a fixed
-// length bounds the allocation and rejects a table that expands to less than
-// its directory entry promised.
+// inflate zlib-expands compressed into exactly size bytes, including checking
+// the stream's end and checksum rather than trusting its directory length.
 func inflate(compressed []byte, size int64) ([]byte, error) {
 	reader, err := zlib.NewReader(bytes.NewReader(compressed))
 	if err != nil {
@@ -163,9 +177,29 @@ func inflate(compressed []byte, size int64) ([]byte, error) {
 	}
 	defer func() { _ = reader.Close() }()
 
+	expanded, err := readFontData(reader, size)
+	if err != nil {
+		return nil, fmt.Errorf("zlib body: %w", err)
+	}
+	return expanded, nil
+}
+
+// readFontData bounds expansion without mistaking a full buffer for a valid
+// stream. ReadFull may discard an error returned with the last promised byte;
+// one more bounded read catches that error, a missing trailer, or extra output.
+func readFontData(reader io.Reader, size int64) ([]byte, error) {
+	if size < 0 || size > maxFontTables {
+		return nil, fmt.Errorf("%w: table data claims %d bytes", errMalformedFont, size)
+	}
 	expanded := make([]byte, size)
 	if _, err := io.ReadFull(reader, expanded); err != nil {
-		return nil, fmt.Errorf("zlib body: %w", err)
+		return nil, fmt.Errorf("%w: table data: %w", errMalformedFont, err)
+	}
+	var extra [1]byte
+	if n, err := io.ReadFull(reader, extra[:]); n != 0 {
+		return nil, fmt.Errorf("%w: table data exceeds its declared length", errMalformedFont)
+	} else if !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("%w: table stream: %w", errMalformedFont, err)
 	}
 	return expanded, nil
 }
@@ -188,6 +222,9 @@ const (
 func woff2Tables(data []byte) (map[string][]byte, error) {
 	if len(data) < woff2HeaderSize {
 		return nil, fmt.Errorf("%w: woff2 header is %d bytes", errMalformedFont, len(data))
+	}
+	if string(data[4:8]) == sigTTCF {
+		return nil, fmt.Errorf("%w: a woff2 collection has no single set of metrics", errUnsupportedFont)
 	}
 	numTables := int(binary.BigEndian.Uint16(data[12:14]))
 	if numTables == 0 {
@@ -225,6 +262,11 @@ func woff2Tables(data []byte) (map[string][]byte, error) {
 			tag = woff2KnownTags[index]
 		}
 
+		transformVersion := flags >> woff2TransformShift
+		if !woff2TransformSupported(tag, transformVersion) {
+			return nil, fmt.Errorf("%w: woff2 table %q transform version %d", errUnsupportedFont, tag, transformVersion)
+		}
+
 		origLength, read, err := uintBase128(data[pos:])
 		if err != nil {
 			return nil, fmt.Errorf("fonts: woff2 table %q length: %w", tag, err)
@@ -234,12 +276,15 @@ func woff2Tables(data []byte) (map[string][]byte, error) {
 		// A transformed table occupies its transformed length in the stream, not
 		// its original length. Getting this wrong shifts every later table.
 		length := origLength
-		if woff2Transformed(tag, flags>>woff2TransformShift) {
+		if woff2Transformed(tag, transformVersion) {
 			transformLength, readTransform, err := uintBase128(data[pos:])
 			if err != nil {
 				return nil, fmt.Errorf("fonts: woff2 table %q transformed length: %w", tag, err)
 			}
 			pos += readTransform
+			if tag == "loca" && transformLength != 0 {
+				return nil, fmt.Errorf("%w: transformed woff2 loca must be empty", errMalformedFont)
+			}
 			length = transformLength
 		}
 
@@ -255,18 +300,35 @@ func woff2Tables(data []byte) (map[string][]byte, error) {
 	}
 	stream := data[pos : int64(pos)+compressedSize]
 
-	// Reading exactly the promised total bounds the allocation by the
-	// directory's own arithmetic and rejects a stream that expands to less.
-	expanded := make([]byte, total)
-	if _, err := io.ReadFull(brotli.NewReader(bytes.NewReader(stream)), expanded); err != nil {
+	// The directory bounds the allocation, but only a complete stream can
+	// confirm that it described the data actually stored in this face.
+	expanded, err := readFontData(brotli.NewReader(bytes.NewReader(stream)), total)
+	if err != nil {
 		return nil, fmt.Errorf("fonts: woff2 brotli stream: %w", err)
 	}
 
 	tables := make(map[string][]byte, numTables)
 	for _, s := range spans {
+		if _, exists := tables[s.tag]; exists {
+			return nil, fmt.Errorf("%w: duplicate woff2 table %q", errMalformedFont, s.tag)
+		}
 		tables[s.tag] = expanded[s.at : s.at+s.length]
 	}
 	return tables, nil
+}
+
+// woff2TransformSupported prevents transformed metrics or reserved versions
+// from being interpreted as ordinary table bytes. Only known transforms can
+// be skipped safely without reconstructing the glyph or horizontal tables.
+func woff2TransformSupported(tag string, version byte) bool {
+	switch tag {
+	case "glyf", "loca":
+		return version == 0 || version == 3
+	case "hmtx":
+		return version <= 1
+	default:
+		return version == 0
+	}
 }
 
 // woff2Transformed reports whether a table is stored in transformed form, which

@@ -91,8 +91,9 @@ func ReadMetrics(data []byte) (Metrics, error) {
 		Ascent:     float64(ascender) / em,
 		// hhea stores the descender as a negative offset from the baseline.
 		// CSS descent-override wants the distance, so the sign is dropped here
-		// rather than at each call site.
-		Descent: float64(-descender) / em,
+		// rather than at each call site. Widen first: -32768 cannot be negated
+		// in int16 even though its positive distance is representable here.
+		Descent: -float64(descender) / em,
 		LineGap: float64(lineGap) / em,
 	}
 
@@ -116,7 +117,7 @@ func ReadMetrics(data []byte) (Metrics, error) {
 		typoLineGap, hasTypoLineGap := readI16(os2, os2TypoLineGap)
 		if hasTypoAscender && hasTypoDescender && hasTypoLineGap {
 			metrics.Ascent = float64(typoAscender) / em
-			metrics.Descent = float64(-typoDescender) / em
+			metrics.Descent = -float64(typoDescender) / em
 			metrics.LineGap = float64(typoLineGap) / em
 		}
 	}

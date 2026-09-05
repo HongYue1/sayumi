@@ -108,11 +108,13 @@ icons, compiled resources, generated frontend output, and `.skills/` are exclude
 
 - [ ] `internal/fonts/embed.go`
 - [ ] `internal/fonts/embed_test.go`
-- [ ] `internal/fonts/metrics.go`
-- [ ] `internal/fonts/metrics_test.go`
+- [x] `internal/fonts/metrics.go`
+- [x] `internal/fonts/metrics_bench_test.go`
+- [x] `internal/fonts/metrics_test.go`
 - [ ] `internal/fonts/scan.go`
 - [ ] `internal/fonts/scan_test.go`
-- [ ] `internal/fonts/sfnt.go`
+- [x] `internal/fonts/sfnt.go`
+- [x] `internal/fonts/sfnt_test.go`
 
 ## Library
 
