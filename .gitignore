@@ -27,9 +27,10 @@ node_modules/
 # Personal Claude Code settings (per-user, not shared)
 /.claude/settings.local.json
 
-# Local skills / Claude Code tooling (per-user, not part of the project)
+# Local skills / agent tooling (per-user, not part of the project)
 /.claude/
 /.agents/
+/.skills/
 /skills-lock.json
 *.test
 *.test.exe
