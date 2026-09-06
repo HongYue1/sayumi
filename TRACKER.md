@@ -37,7 +37,8 @@ icons, compiled resources, generated frontend output, and `.skills/` are exclude
 - [ ] `internal/api/books_test.go`
 - [ ] `internal/api/chapters.go`
 - [ ] `internal/api/chapters_test.go`
-- [ ] `internal/api/context.go`
+- [x] `internal/api/context.go`
+- [x] `internal/api/context_test.go`
 - [ ] `internal/api/customthemes.go`
 - [ ] `internal/api/customthemes_test.go`
 - [ ] `internal/api/download.go`
@@ -49,8 +50,9 @@ icons, compiled resources, generated frontend output, and `.skills/` are exclude
 - [ ] `internal/api/gofile_test.go`
 - [ ] `internal/api/library.go`
 - [ ] `internal/api/library_test.go`
-- [ ] `internal/api/middleware.go`
-- [ ] `internal/api/middleware_test.go`
+- [x] `internal/api/middleware.go`
+- [x] `internal/api/middleware_bench_test.go`
+- [x] `internal/api/middleware_test.go`
 - [x] `internal/api/middleware/gzip.go`
 - [x] `internal/api/middleware/gzip_bench_test.go`
 - [x] `internal/api/middleware/gzip_contract_test.go`

@@ -25,8 +25,8 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst any) bool {
 	}
 	// A JSON request is exactly one value. Decode once more so trailing
 	// non-whitespace data (including a second valid value) cannot be silently
-	// ignored. The same bounded reader remains in place, so oversized trailing
-	// data still maps to 413 rather than a generic syntax error.
+	// ignored. This second pass uses the same bounded reader; a read beyond
+	// the limit still maps to 413, while earlier syntax errors remain 400.
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		writeJSONDecodeError(w, err)
 		return false
@@ -47,9 +47,8 @@ type apiError struct {
 	Code  string `json:"code"`
 }
 
-// jsonNewline is the trailing newline appended after every JSON response body.
-// It is a shared package-level slice so writeJSON can emit it as a separate
-// tiny write rather than reallocating the marshaled body to append one byte.
+// jsonNewline is shared so writeJSON can emit it separately without potentially
+// growing and copying the marshaled body just to append one byte.
 var jsonNewline = []byte{'\n'}
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -67,13 +66,14 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
-	// Write the body and its trailing newline as two writes instead of
-	// append(data, '\n'): json.Marshal returns a len==cap slice, so appending
-	// would reallocate and copy the entire body on every response. gzip buffers
-	// internally (the 1-byte write is not a flush) and net/http's response bufio
-	// coalesces both writes on the uncompressed path, so this stays a single
-	// effective write without the per-response copy.
-	_, _ = w.Write(data)
+	// Spare capacity in json.Marshal's result is not guaranteed. Keep the
+	// newline separate to avoid a possible body copy; net/http and gzip
+	// normally buffer these writes, and the newline does not request a flush.
+	// After a failed or short body write, do not try to continue the response
+	// or replace its already committed status with another error response.
+	if n, err := w.Write(data); err != nil || n != len(data) {
+		return
+	}
 	_, _ = w.Write(jsonNewline)
 }
 
