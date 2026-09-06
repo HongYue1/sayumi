@@ -34,13 +34,39 @@ function percent(ratio: number): string {
   return `${Number((ratio * 100).toFixed(3))}%`;
 }
 
-// A size-adjust outside this range is a lying x-height, not an unusual
-// design: Ovo and Rosarivo report ~0.17 while inking ~0.46-0.51, which sized
-// them near 300% until the glyphs overflowed the line box and lines
-// overlapped. Skipping (natural size) is always safe; a wrong scale is not.
-// Honest text faces land near 1.0 against the Literata reference.
+// Conservative text-font policy, not a font-validity test: extreme scaling
+// can overflow the line box. Decline uncertain/exotic matches rather than
+// force every design to fit; absent calibration leaves native sizing intact.
 const MIN_SIZE_ADJUST = 0.7;
 const MAX_SIZE_ADJUST = 1.5;
+
+export function isSafeFontAdjust(ratio: number): boolean {
+  return (
+    Number.isFinite(ratio) &&
+    ratio >= MIN_SIZE_ADJUST &&
+    ratio <= MAX_SIZE_ADJUST
+  );
+}
+
+export function regularFontFile(
+  family: UserFontFamily,
+  roles: Record<string, FontRoleMap> | undefined,
+): string {
+  return roles?.[family.id]?.regular ?? family.detected.regular;
+}
+
+function usableXHeight(
+  metrics: FontMetrics | undefined,
+): metrics is FontMetrics {
+  return (
+    !!metrics &&
+    Number.isFinite(metrics.unitsPerEm) &&
+    metrics.unitsPerEm > 0 &&
+    Number.isFinite(metrics.xHeight) &&
+    metrics.xHeight >= 0.3 &&
+    metrics.xHeight <= 0.7
+  );
+}
 
 /**
  * The @font-face descriptors that make a family look the same size as the
@@ -60,43 +86,42 @@ const MAX_SIZE_ADJUST = 1.5;
  * against the already-adjusted size; without the divide, scaling glyphs down
  * would drag the line box down with them.
  *
- * `measuredAdjust` is the family's ink-measured ratio (see lib/fontMeasure)
- * and wins over the server metrics when sane: OS/2 x-heights can lie while
- * staying inside the server's plausibility band, but ink cannot. Either
- * source outside the sane range degrades to natural size rather than a
- * blowup.
+ * `measuredAdjust` is the coverage-checked ink ratio (see lib/fontMeasure).
+ * It wins over plausible server x-heights, which can still be inaccurate.
+ * If reference vertical metrics are absent or invalid, a measured size can
+ * still be applied while retaining the font's native leading.
  */
 export function normalizeToReference(
   face: FontMetrics | undefined,
   reference: FontMetrics | undefined,
   measuredAdjust?: number,
 ): string {
-  // Without the reference there is nothing to normalize against — not even a
-  // measured ratio, whose line-box overrides still come from its verticals.
-  if (!reference) return "";
-  const serverAdjust = face?.xHeight
-    ? reference.xHeight / face.xHeight
-    : Number.NaN;
-  // The first sane ratio wins, measured before server. An insane measurement
-  // (a fallback font measured by mistake) falls through to the server value
-  // instead of skipping straight to natural size.
-  const candidates =
-    measuredAdjust === undefined
-      ? [serverAdjust]
-      : [measuredAdjust, serverAdjust];
-  const adjust = candidates.find(
-    (ratio) =>
-      Number.isFinite(ratio) &&
-      ratio >= MIN_SIZE_ADJUST &&
-      ratio <= MAX_SIZE_ADJUST,
+  const serverAdjust =
+    usableXHeight(face) && usableXHeight(reference)
+      ? reference.xHeight / face.xHeight
+      : Number.NaN;
+  const adjust = [measuredAdjust ?? Number.NaN, serverAdjust].find(
+    isSafeFontAdjust,
   );
   if (adjust === undefined) return "";
-  return [
-    `  size-adjust: ${percent(adjust)};`,
-    `  ascent-override: ${percent(reference.ascent / adjust)};`,
-    `  descent-override: ${percent(reference.descent / adjust)};`,
-    `  line-gap-override: ${percent(reference.lineGap / adjust)};`,
-  ].join("\n");
+  const descriptors = [`  size-adjust: ${percent(adjust)};`];
+  // CSS overrides require nonnegative finite percentages. Absurd total leading
+  // is also untrustworthy; no override is better than propagating damaged data.
+  if (
+    reference &&
+    reference.ascent > 0 &&
+    [reference.ascent, reference.descent, reference.lineGap].every(
+      (value) => Number.isFinite(value) && value >= 0,
+    ) &&
+    reference.ascent + reference.descent + reference.lineGap <= 4
+  ) {
+    descriptors.push(
+      `  ascent-override: ${percent(reference.ascent / adjust)};`,
+      `  descent-override: ${percent(reference.descent / adjust)};`,
+      `  line-gap-override: ${percent(reference.lineGap / adjust)};`,
+    );
+  }
+  return descriptors.join("\n");
 }
 
 let cachedReaderFontFaces: string | null = null;
@@ -192,11 +217,6 @@ function buildUserFontFaces(
   for (const fam of families) {
     const dir = userFamilyDir(fam.id);
     const family = userFamilyCSSName(fam.id);
-    // fam.metrics describes the family's regular face, and every role takes
-    // that same adjustment so roman, italic and bold keep their relationship
-    // to one another. Absent metrics leave the family at its natural size
-    // until the ink measurement (measured[family id]) reports its true ratio.
-    const fit = normalizeToReference(fam.metrics, reference, measured[fam.id]);
     const map = roles?.[fam.id] ?? {};
     // Fall back to the backend's detected roles when the user hasn't chosen.
     //
@@ -206,10 +226,18 @@ function buildUserFontFaces(
     // so a partial entry never serializes its empty siblings. Were either
     // side to emit "", these lines would suppress the face instead of
     // falling back to the detected file. Both halves are pinned by tests.
-    const regular = map.regular ?? fam.detected.regular;
+    const regular = regularFontFile(fam, roles);
     const italic = map.italic ?? fam.detected.italic;
     const bold = map.bold ?? fam.detected.bold;
     const boldItalic = map.boldItalic ?? fam.detected.boldItalic;
+    // Server metrics belong to the DETECTED regular file, not an arbitrary
+    // override. All styles still share the chosen upright adjustment so the
+    // designer's roman/italic/bold relationships survive normalization.
+    const fit = normalizeToReference(
+      regular === fam.detected.regular ? fam.metrics : undefined,
+      reference,
+      measured[fam.id],
+    );
 
     if (fam.variable) {
       // The upright file carries the whole weight axis, so a single 100–900

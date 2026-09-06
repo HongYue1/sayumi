@@ -10,43 +10,126 @@ Preserve the local-first design, existing API contracts, and pure-Go build.
 
 ## Current task
 
-**Checkpoint 14 is complete and verified: font metrics and SFNT/WOFF container validation.**
+**The font-normalization reliability side quest is complete and verified. CP15 has not started.**
 
-Base commit: `4cdf722 fix(epub): preserve rewrite metadata and archive contracts`.
-This handoff accompanies the scoped CP14 commit; use Git history for its hash.
-CP6-CP13 remain finished; CP15 has not been started. The initial worktree was clean
-with no running jobs. Root/internal instructions, TASK/TRACKER, relevant Go skills
-and references, and actual dependency callers were read before edits.
+Base commit: `1980f572e65a74bcbc499dde38b41617028b58b9`
+(`fix(fonts): validate container bounds and metric extrema`, completed CP14).
+This handoff accompanies one scoped local side-quest commit; use Git history for its
+hash. The user's request was to improve unreliable font-size normalization, not to
+resume the backend inventory. Initial state was clean; root/frontend/iframe instructions,
+Solid 2 skills, actual font/API/registry callers, and existing tests were inspected.
 
-- Reviewed scope: existing `internal/fonts/metrics.go`, `metrics_test.go`, `sfnt.go`,
-  and new `sfnt_test.go` and frozen `metrics_bench_test.go`. Font embedding/scanning,
-  API, and frontend reads were dependency context, not completed file reviews.
-  No API, frontend, tooling, cache, or dependency changes were made.
-- Reproduced negative descent for the int16 minimum in both hhea and OS/2 typo
-  metrics. Widen before negating; optional OS/2 fallback, normalization thresholds,
-  and the shared read-only OnceValue metrics map retain their contracts.
-- Reject duplicate SFNT/WOFF table tags, WOFF1 stored lengths larger than original
-  lengths, and cumulative WOFF1 original lengths exceeding the existing 24 MiB
-  expanded-table budget, including raw tables. The budget is checked before
-  expanding the offending table.
-- Exact-size decompression now includes a bounded one-byte EOF probe, rejecting
-  excess decoded output and deferred zlib checksum errors without an unbounded
-  drain. Existing truncation rejection and exactly-once zlib Close are preserved.
-  WOFF2 collection flavor, reserved transform versions, and nonzero transformed
-  loca lengths are refused. WOFF2 duplicate checking remains after bounded
-  decompression; this is not a complete font-conformance validator.
-- Added independent valid/damaged-container fixtures, boundary regressions, and
-  bounded determinism/input-immutability fuzzing. Source byte slices remain
-  read-only aliases; no speculative unitsPerEm range change, raw-SFNT size cap,
-  full checksum/alignment validator, or new dependency was introduced.
-- Preserved API generation-lock lifetimes, shared read-only OpenIndexed readers/indexes,
-  one Release per borrow, drained Store.Close, exactly-once ResourceReader.Close,
-  streaming Size (-1), and all derived-cache budgets/versioning. RewriteBook still owns
-  an independent source reader and requires a stable source generation during the call.
-- Reconciled `TRACKER.md` against the actual Go inventory: 151 files, 92 complete,
-  59 pending. Only these five font files were newly completed. EPUB remains complete;
-  47 API files, four font embedding/scanning files, and eight tooling files remain.
-  Pause after the scoped local commit. Do not start CP15 without explicit continuation.
+- Changed only `frontend/src/lib/fontMeasure.ts`, `readerFontFaces.ts`, their tests,
+  `frontend/src/routes/Read.tsx`, its tests, and this handoff. No Go, API, iframe,
+  dependency, or backend-cache contracts changed. No subagents were used.
+- The old code already measured a rendered x, so missing OS/2 metadata alone was
+  not a universal failure. Reproduced a cached reference-load failure and the
+  missing-glyph substitution problem: a loaded font without x was measured using
+  another font. Original unit, route-race, and browser failures are retained.
+- Measure corresponding lowercase glyphs with distinct generic fallback controls;
+  use corresponding capitals only when no lowercase probe is shared. Require
+  multiple agreeing, bounded ratios instead of guessing x-height from cap-height.
+  Rasterize when extended TextMetrics are missing/nonpositive; decline blank,
+  clipped, denied, inconsistent, and extreme measurements. Do not clamp unsafe fits.
+- Failed loads remain retryable on subsequent requests; five-second per-load waits,
+  caller cancellation, four workers per call, bounded success-only identity/URL
+  caches, and temporary FontFace cleanup keep optional calibration contained.
+  FontFace.load itself cannot be aborted; late native loads are observed but not
+  registered or published after cancellation/timeout. No reader-ready gate was added.
+- Snapshot regular-file selection and bind results to registry-object/file identity.
+  Old completions cannot replace newer calibration, old-file ratios are removed
+  while a new file loads, fresh registry responses remeasure, and disposal aborts.
+  Preserve exact token URLs, role-clearing semantics, weight ranges, style relationships,
+  and the existing font-CSS/settings delivery order.
+- Safe measured sizing works without reference vertical metadata, using native
+  leading. Plausible server metrics remain a fallback, but only for the detected
+  regular file they describe. Invalid vertical values are not emitted into CSS.
+- Limits: family-level Latin calibration at regular weight/100px is not perceptual
+  equivalence across every script, design, browser, or optical/variation axis.
+  Glyph coverage is inferred from fallback controls, not a new cmap parser.
+  Registry identity invalidates the JS cache, not the browser HTTP cache: same-name
+  replacements still follow existing font caching. No claim of universal perfection.
+- `TRACKER.md` is unchanged and reconciled: **151 files, 92 complete, 59 pending**.
+  API 47, font embedding/scanning four, tooling eight remain. Dependency reads and
+  this frontend feature do not complete backend files. CP6-CP14 remain finished.
+  **Pause here. Do not start CP15 without explicit continuation.**
+
+### Side-quest verification
+
+- Full frontend lint, types, formatting and tests passed: 73 test files, 979 passed,
+  one pre-existing conditional CSSOM skip. Tests cover retry, fallback coverage,
+  consensus/outliers, raster failure, timeout/abort/cleanup, bounded caches/workers,
+  role snapshots, metadata/leading guards, and five reader ownership/settings cases.
+- Chrome 152 on Windows passed all 13 frozen browser cases (the original passed
+  seven and failed six), including TTF, WOFF1, CFF-OTF and a real variable WOFF2.
+  Five additional integration cases applied the generated CSS and verified painted
+  ink plus line-box heights. No temporary probe faces or test Chrome processes remain.
+- Ten generated fonts were fully decompiled by local FontTools 4.63.0 and their
+  metadata/cmap coverage independently checked. Fixture generation used FontTools
+  4.64.0 on the computer. The local CLI and uv were already installed; no installation
+  or project dependency was added.
+- Fresh full `make check` passed: tidy, Go/frontend formatting, vet, lint,
+  vulnerability checks, all-package shuffled race tests, frontend types/tests,
+  and final frontend/pure-Go builds. The initial embed preflight reused existing dist;
+  the final build gate rebuilt both. Go parser code was unchanged; no new Go fuzz
+  campaign was needed (the protected CP14 campaign below is prior evidence).
+- All 226 CP7-CP14 artifact files and all 18 tracked Go benchmark harnesses were
+  reverified unchanged. Skills and generated evidence remain ignored/untracked.
+
+### Side-quest measurement and tradeoffs
+
+Ten alternating, strictly serial before/after pairs used the frozen original bundle
+and verified candidate with identical inputs/flags, without overlapping tests/builds.
+Three workloads produce **60 observations in 20 raw outputs**, with no exclusions.
+Reference/font HTTP caches are warmed in both variants. The synthetic missing.ttf
+fixture is used for 120 fresh-registry calls, 500 same-registry calls, and 2000 CSS
+builds per output. This is one Windows 11/Chrome 152 host, not app-level performance.
+
+| Workload | Before median ms/call | After median ms/call | Change of medians |
+| --- | --- | --- | --- |
+| Fresh registry identity | 0.1150 | 0.3875 | +236.96% |
+| Same registry identity | 0.1313 | 0.0093 | -92.92% |
+| Build font CSS | 0.005900 | 0.005925 | +0.42% |
+
+Fresh calibration was slower in all ten pairs; the paired median absolute cost was
++0.2642 ms/call (paired percentage range +164.04% to +337.19%). Retained as a
+correctness/coverage cost, not an optimization. Same-identity calls were faster in
+all ten pairs, but the old reader already avoided repeated same-file measurements;
+this module-cache result is **not an application speedup**. CSS-building results were
+inconclusive (four slower/six faster). Exact paired sign-test p-values were .001953,
+.001953 and .753906, unadjusted across three workloads. Marginal-median changes above
+are not the median of within-pair percentages. Full audit records both. No startup,
+throughput, JS allocation-volume, peak-memory, or cross-browser claim is made.
+
+### Protected font-normalization evidence
+
+Keep all of `.agents/benchmarks/font-normalization/` ignored/untracked, including
+failed/setup logs and unused transfer drafts. Do not overwrite the frozen bundles,
+entry, harnesses, fixture corpus, raw results, or audit. `evidence-manifest.json`
+records 108 evidence files (excluding itself), plus CP7-CP14 tree fingerprints and
+tracked benchmark hashes; SHA-256
+`a16c92e1bdf5a46c0c655b8cc0542f37697d7b625b840d6bbc9c1f48eee72258`.
+
+- `before.mjs`: `011a6ddd21992937f19a89c254988f0d7796ceb361497ce73d5ff687ed880912`.
+- `after.mjs`: `9f4eea081b82c5eb03c0aaa7eb0e37e34e44b65d957766129e4ef12dddc3df20`.
+- `fixtures.json`: `f6c79a190a796b3d8f5a6d1af1c0ebc5f9be659c724949f0c05c1456650a95c8`.
+- `before-provenance.json`: `511ea674fa52f150fdd0e7afb38138b756c3b626a552488cc86c8da95452e303`;
+  captures pre-edit sources, embedded fonts, harness hashes and CP7-CP14 protections.
+- `measurement-provenance.json`: `92227e65dededacdb7e24e3f0eb1d9442f25bc8deb515d82620c4be12857d607`;
+  captures all six measured source/test hashes and the candidate. These are provenance,
+  not permanent bans on legitimate future production changes.
+- Paired run: `runs/20260906T044945.609844Z/`; `samples.json` SHA-256
+  `5c22ad3876f7fbed927d468d4b5bffb596c030b4eca09337492c27cd551ad2fb`.
+  All 60 rows were transferred with an exact byte/hash check and independently audited
+  using pandas/stdlib. `audit_measurements.py` preserves the portable audit procedure;
+  `measurement-audit.json`: `72f6c166f2779206f33422a4dda0f5cc8ca7facc713f929139d80e63a527a50f`.
+- Original browser run: `runs/20260905T200139.641283Z/`; candidate:
+  `runs/20260906T044721.205664Z/`; rendered CSS: `layout-runs/20260906T044721.177920Z/`.
+- `comparison.log`: `6bef3d79602efafb170c422ce44e39bde1537d415613d2e1534264e755d2eec0`.
+- `make-check.log`: `4a45ae4f193229c1de070dde5297e30ae5d1939c298dd769a01728500ebff0df`.
+
+The CP14 measurement/verification material below is retained baseline provenance,
+not work repeated as part of this side quest.
 
 ### CP14 measurement and tradeoffs
 

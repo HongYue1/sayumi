@@ -334,12 +334,77 @@ describe("normalizeToReference", () => {
     expect(normalizeToReference(faceMetrics(0.17), REFERENCE, 3)).toBe("");
   });
 
-  it("needs the reference verticals even with a measurement", () => {
-    expect(normalizeToReference(undefined, undefined, 1.1)).toBe("");
+  it("keeps measured size with native leading when reference metadata is absent", () => {
+    expect(normalizeToReference(undefined, undefined, 1.1)).toBe(
+      "  size-adjust: 110%;",
+    );
   });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    "does not trust an invalid em (%s)",
+    (unitsPerEm) => {
+      expect(
+        normalizeToReference({ ...REFERENCE, unitsPerEm }, REFERENCE),
+      ).toBe("");
+    },
+  );
+
+  it.each([
+    { ascent: Number.NaN },
+    { ascent: 0 },
+    { ascent: 9 },
+    { descent: -0.2 },
+    { descent: Number.POSITIVE_INFINITY },
+    { lineGap: -0.1 },
+  ])("retains native leading for invalid reference verticals %j", (invalid) => {
+    expect(
+      normalizeToReference(undefined, { ...REFERENCE, ...invalid }, 1.1),
+    ).toBe("  size-adjust: 110%;");
+  });
+
+  it("compensates leading for size-adjust exactly once", () => {
+    const css = normalizeToReference(undefined, REFERENCE, 1.1);
+    expect(css).toContain("ascent-override: 107%;");
+    expect(css).toContain("descent-override: 28%;");
+    expect(css).toContain("line-gap-override: 0%;");
+  });
+
+  it.each([0, -1, 0.699, 1.501, Number.NaN, Number.POSITIVE_INFINITY])(
+    "declines unsafe measurement %s",
+    (ratio) => {
+      expect(normalizeToReference(undefined, REFERENCE, ratio)).toBe("");
+    },
+  );
 });
 
 describe("buildAllFontFaces with measurements", () => {
+  it("does not reuse detected-file metadata for an explicitly chosen file", () => {
+    const metrics = embeddedMetrics();
+    const saved = metrics["Literata-VariableFont.woff2"];
+    metrics["Literata-VariableFont.woff2"] = REFERENCE;
+    try {
+      const family = fam({ metrics: faceMetrics(0.4) });
+      const roles = { "user:Minion": { regular: "Chosen.otf" } };
+      const userRules = (css: string) =>
+        css.split("@font-face").slice(1 + EMBEDDED_FACE_COUNT);
+      expect(
+        userRules(buildAllFontFaces([family], roles)).every(
+          (rule) => !rule.includes("size-adjust"),
+        ),
+      ).toBe(true);
+      const measured = userRules(
+        buildAllFontFaces([family], roles, { "user:Minion": 1.1 }),
+      );
+      expect(measured).toHaveLength(3);
+      expect(
+        measured.every((rule) => rule.includes("size-adjust: 110%;")),
+      ).toBe(true);
+    } finally {
+      if (saved) metrics["Literata-VariableFont.woff2"] = saved;
+      else delete metrics["Literata-VariableFont.woff2"];
+    }
+  });
+
   it("sizes a metrics-less family from its ink ratio", () => {
     embeddedMetrics()["Literata-VariableFont.woff2"] = REFERENCE;
     try {

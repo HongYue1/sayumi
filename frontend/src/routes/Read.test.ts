@@ -11,6 +11,9 @@ import type ChapterFrameReal from "~/components/reader/ChapterFrame";
 import type { FrameModeFallback } from "~/lib/frameMessages";
 import Read from "~/routes/Read";
 import { settings } from "~/lib/settings";
+import { fontRegistry } from "~/lib/fontRegistry";
+import * as fontMeasure from "~/lib/fontMeasure";
+import { embeddedMetrics } from "~/api/client";
 import { ui } from "~/lib/ui";
 
 type FrameProps = Parameters<typeof ChapterFrameReal>[0];
@@ -293,6 +296,148 @@ async function bootToBookError(): Promise<void> {
     expect(document.querySelector('[role="alert"]')).not.toBeNull(),
   );
 }
+
+describe("Read font calibration ownership", () => {
+  const referenceKey = "Literata-VariableFont.woff2";
+  let savedReference: ApiClient.FontMetrics | undefined;
+  const family = (): ApiClient.UserFontFamily => ({
+    id: "user:Calibration",
+    label: "Calibration",
+    category: "serif",
+    variable: false,
+    files: ["Regular.woff2", "Chosen.woff2"],
+    detected: {
+      regular: "Regular.woff2",
+      italic: "",
+      bold: "",
+      boldItalic: "",
+    },
+  });
+  const lastCSS = () =>
+    (vi.mocked(frame.api.setFontFaces).mock.calls.at(-1)?.[0] ?? "")
+      .split("@font-face")
+      .find((rule) => rule.includes("font-family: 'Calibration';")) ?? "";
+  const pendingCleanups: (() => void)[] = [];
+  function pendingRatio() {
+    let resolve: (value: Record<string, number>) => void = () => {};
+    const promise = new Promise<Record<string, number>>((done) => {
+      resolve = done;
+    });
+    pendingCleanups.push(() => resolve({}));
+    return { promise, resolve };
+  }
+  async function setupFamily() {
+    savedReference = embeddedMetrics()[referenceKey];
+    embeddedMetrics()[referenceKey] = {
+      unitsPerEm: 1000,
+      xHeight: 0.507,
+      capHeight: 0.7,
+      ascent: 1.177,
+      descent: 0.308,
+      lineGap: 0,
+    };
+    api.getFonts.mockResolvedValue([family()]);
+    await fontRegistry.reload();
+    // Settings are bootstrapped by the app, not by mounting the reader route.
+    settings.update({
+      fontFamily: "user:Calibration",
+      fontRoles: { "user:Calibration": { regular: "Regular.woff2" } },
+    });
+    await bootReader();
+  }
+  afterEach(async () => {
+    dispose?.();
+    dispose = null;
+    for (const finish of pendingCleanups.splice(0)) finish();
+    await settle();
+    if (savedReference) embeddedMetrics()[referenceKey] = savedReference;
+    else delete embeddedMetrics()[referenceKey];
+    settings.update({ fontFamily: "literata", fontRoles: {} });
+    api.getFonts.mockResolvedValue([]);
+    await fontRegistry.reload();
+    await settle();
+  });
+
+  it("does not publish an old regular-file completion over a newer one", async () => {
+    const old = pendingRatio();
+    const current = pendingRatio();
+    const measure = vi
+      .spyOn(fontMeasure, "measureFamilyAdjusts")
+      .mockReturnValueOnce(old.promise)
+      .mockReturnValueOnce(current.promise);
+    await setupFamily();
+    expect(measure).toHaveBeenCalledTimes(1);
+    settings.update({
+      fontRoles: { "user:Calibration": { regular: "Chosen.woff2" } },
+    });
+    await settle();
+    expect(measure).toHaveBeenCalledTimes(2);
+    current.resolve({ "user:Calibration": 0.9 });
+    await settle();
+    expect(lastCSS()).toContain("size-adjust: 90%;");
+    old.resolve({ "user:Calibration": 1.1 });
+    await settle();
+    expect(lastCSS()).toContain("size-adjust: 90%;");
+    expect(lastCSS()).not.toContain("size-adjust: 110%;");
+  });
+
+  it("does not apply the old file's ratio while the selected file loads", async () => {
+    const current = pendingRatio();
+    vi.spyOn(fontMeasure, "measureFamilyAdjusts")
+      .mockResolvedValueOnce({ "user:Calibration": 1.1 })
+      .mockReturnValueOnce(current.promise);
+    await setupFamily();
+    expect(lastCSS()).toContain("size-adjust: 110%;");
+    settings.update({
+      fontRoles: { "user:Calibration": { regular: "Chosen.woff2" } },
+    });
+    await settle();
+    const whileLoading = lastCSS();
+    current.resolve({ "user:Calibration": 0.9 });
+    await settle();
+    expect(whileLoading).not.toContain("size-adjust: 110%;");
+    expect(lastCSS()).toContain("size-adjust: 90%;");
+  });
+
+  it("remeasures a fresh registry response even with the same filename", async () => {
+    const measure = vi
+      .spyOn(fontMeasure, "measureFamilyAdjusts")
+      .mockResolvedValue({ "user:Calibration": 1.1 });
+    await setupFamily();
+    expect(measure).toHaveBeenCalledTimes(1);
+    api.getFonts.mockResolvedValue([family()]);
+    await fontRegistry.reload();
+    await settle();
+    expect(measure).toHaveBeenCalledTimes(2);
+  });
+
+  it("cancels calibration on disposal and ignores its late completion", async () => {
+    const pending = pendingRatio();
+    const measure = vi
+      .spyOn(fontMeasure, "measureFamilyAdjusts")
+      .mockReturnValue(pending.promise);
+    await setupFamily();
+    const signal = measure.mock.calls[0][2];
+    expect(signal?.aborted).toBe(false);
+    dispose?.();
+    dispose = null;
+    expect(signal?.aborted).toBe(true);
+    const writes = vi.mocked(frame.api.setFontFaces).mock.calls.length;
+    pending.resolve({ "user:Calibration": 1.1 });
+    await settle();
+    expect(frame.api.setFontFaces).toHaveBeenCalledTimes(writes);
+  });
+
+  it("does not recalibrate for unrelated reader settings", async () => {
+    const measure = vi
+      .spyOn(fontMeasure, "measureFamilyAdjusts")
+      .mockResolvedValue({ "user:Calibration": 1.1 });
+    await setupFamily();
+    settings.update({ displayMode: "paged" });
+    await settle();
+    expect(measure).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("Read boot and restore", () => {
   it("boots from server progress and fires exactly one initial load", async () => {

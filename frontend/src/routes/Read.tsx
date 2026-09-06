@@ -53,13 +53,14 @@ import {
   type ProgressData,
   type Bookmark,
   type SearchResult,
+  type UserFontFamily,
 } from "~/api/client";
 import { settings, type IframeSettings } from "~/lib/settings";
 import { library } from "~/lib/library";
 import { session } from "~/lib/session";
 import { toast } from "~/lib/toast";
 import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry";
-import { buildAllFontFaces } from "~/lib/readerFontFaces";
+import { buildAllFontFaces, regularFontFile } from "~/lib/readerFontFaces";
 import { measureFamilyAdjusts } from "~/lib/fontMeasure";
 import { router } from "~/lib/router";
 import {
@@ -199,57 +200,56 @@ export default function Read(props: Props) {
   // chrome + iframe behind it must leave the tab + AT order. focusTrap only
   // traps Tab; `inert` also pulls the background out of the accessibility tree.
   const panelOpen = createMemo(() => activePanel() !== "none");
-  // Ink-measured size ratios by family id (see lib/fontMeasure). The server
-  // sizes from OS/2 tables, which can lie or predate the x-height field; once
-  // the active user family's bytes arrive they are measured off a canvas and
-  // the memo below swaps the correction in, re-pushing the faces.
-  const [measuredAdjusts, setMeasuredAdjusts] = createSignal<
-    Record<string, number>
-  >({});
-  // Regular files already corrected, so toggling settings does not reload
-  // bytes. Plain map: only the signal above is read reactively.
-  const measuredFiles: Record<string, string> = {};
-  const measuring = new Set<string>();
+  // Capture the regular file in the tracking phase, never carry the live
+  // roles store through a font load. A fresh registry object also invalidates
+  // a previous calibration when the filename happens to remain the same.
+  const activeFont = createMemo(() => {
+    const id = settings.value.fontFamily;
+    if (!isUserFamilyId(id)) return null;
+    const fam = fontRegistry.get(id);
+    const file = fam ? regularFontFile(fam, settings.value.fontRoles) : "";
+    return fam && file ? { fam, file } : null;
+  });
+  const [calibration, setCalibration] = createSignal<{
+    fam: UserFontFamily;
+    file: string;
+    adjust: number;
+  } | null>(null);
   createEffect(
-    () => {
-      const id = settings.value.fontFamily;
-      if (!isUserFamilyId(id)) return null;
-      const fam = fontRegistry.get(id);
-      // Read here, in the tracking phase, so a role change retriggers: the
-      // apply below must measure the file claimed now, not one picked later.
-      const roles = settings.value.fontRoles;
-      const file = fam ? (roles?.[id]?.regular ?? fam.detected.regular) : "";
-      return fam && file ? { fam, file, roles } : null;
-    },
+    () => activeFont(),
     (target) => {
       if (!target) return undefined;
-      const { fam, file, roles } = target;
-      const key = `${fam.id}\n${file}`;
-      if (measuredFiles[fam.id] === file || measuring.has(key)) {
-        return undefined;
-      }
-      measuring.add(key);
-      void measureFamilyAdjusts([fam], roles).then((ratios) => {
-        measuring.delete(key);
-        // A miss keeps the server sizing; a later registry or settings
-        // change retriggers and retries.
-        if (ratios[fam.id] === undefined) return;
-        measuredFiles[fam.id] = file;
-        setMeasuredAdjusts((prev) => ({ ...prev, [fam.id]: ratios[fam.id] }));
+      const { fam, file } = target;
+      const controller = new AbortController();
+      void measureFamilyAdjusts(
+        [fam],
+        { [fam.id]: { regular: file } },
+        controller.signal,
+      ).then((ratios) => {
+        // Cleanup owns obsolete/disposed requests. A late old-file result
+        // cannot overwrite the active file's ratio; misses remain retryable.
+        if (!controller.signal.aborted && ratios[fam.id] !== undefined) {
+          setCalibration({ fam, file, adjust: ratios[fam.id] });
+        }
       });
-      return undefined;
+      return () => controller.abort();
     },
   );
-  // Combined reader @font-face CSS (embedded + user families), recomputed when
-  // the user font registry, the per-family role mapping, or a measurement
-  // correction change.
-  const fontFaceCSS = createMemo(() =>
-    buildAllFontFaces(
+  const fontFaceCSS = createMemo(() => {
+    const target = activeFont();
+    const measured = calibration();
+    // Invalidate synchronously, before the next async result: even a good
+    // old-file ratio must not size a newly selected regular face while loading.
+    const ratios =
+      measured && target?.fam === measured.fam && target.file === measured.file
+        ? { [measured.fam.id]: measured.adjust }
+        : {};
+    return buildAllFontFaces(
       fontRegistry.families,
       settings.value.fontRoles,
-      measuredAdjusts(),
-    ),
-  );
+      ratios,
+    );
+  });
   // Bookmarks grouped by chapter, rebuilt only when the bookmark list itself
   // changes (add/remove/edit) rather than on every reading-position tick. This
   // lets currentBookmarkId scan just the current chapter's bookmarks instead of
