@@ -1,14 +1,12 @@
 # Backend review tracker
 
-Overall goal, current task, and checkpoint/resume instructions: `TASK.md`.
+**114/160 files reviewed; 46 pending (38 API + 8 tooling).**
 
 Scope: Go source, tests, and backend build/tooling configuration. Embedded fonts,
 icons, compiled resources, generated frontend output, and `.skills/` are excluded.
 
-- `[ ]` Pending: full review or verification remains.
-- `[x]` Done: fully reviewed; required fixes and tests are complete and verified.
-- A passing test run alone does not mark a file reviewed.
-- Keep this file to current status only: no change history, findings, or benchmark results.
+`[x]` Fully reviewed and verified. `[ ]` Review or required verification remains.
+Current task and completion requirements: `TASK.md`. Change history: Git.
 
 ## CLI and server entry point
 
@@ -190,11 +188,3 @@ icons, compiled resources, generated frontend output, and `.skills/` are exclude
 - [ ] `go.mod`
 - [ ] `go.sum`
 - [ ] `cmd/sayumi/winres/winres.json`
-
-## Completion gates
-
-- [ ] Every scoped file reviewed and resolved.
-- [x] Performance changes supported by repeatable benchmarks where practical.
-- [x] Regression tests cover behavior changes.
-- [x] `make check` passes on the current reviewed tree.
-- [x] `.skills/` remains ignored and untracked.
