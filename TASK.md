@@ -10,51 +10,108 @@ Preserve the local-first design, existing API contracts, and pure-Go build.
 
 ## Current task
 
-**The font-normalization reliability side quest is complete and verified. CP15 has not started.**
+**CP15 font embedding/scanning is complete and verified. Pause before CP16.**
 
-Base commit: `1980f572e65a74bcbc499dde38b41617028b58b9`
-(`fix(fonts): validate container bounds and metric extrema`, completed CP14).
-This handoff accompanies one scoped local side-quest commit; use Git history for its
-hash. The user's request was to improve unreliable font-size normalization, not to
-resume the backend inventory. Initial state was clean; root/frontend/iframe instructions,
-Solid 2 skills, actual font/API/registry callers, and existing tests were inspected.
+Base commit: `bc9b2cd04e48d998bf12a234346161a70f0125a7`
+(`fix(reader): make font normalization resilient`, completed side quest).
+This handoff accompanies one scoped local CP15 commit; use Git history for its hash.
+The interrupted changes and already-frozen original executable were recovered and
+verified, not reset or rebuilt from the candidate.
 
-- Changed only `frontend/src/lib/fontMeasure.ts`, `readerFontFaces.ts`, their tests,
-  `frontend/src/routes/Read.tsx`, its tests, and this handoff. No Go, API, iframe,
-  dependency, or backend-cache contracts changed. No subagents were used.
-- The old code already measured a rendered x, so missing OS/2 metadata alone was
-  not a universal failure. Reproduced a cached reference-load failure and the
-  missing-glyph substitution problem: a loaded font without x was measured using
-  another font. Original unit, route-race, and browser failures are retained.
-- Measure corresponding lowercase glyphs with distinct generic fallback controls;
-  use corresponding capitals only when no lowercase probe is shared. Require
-  multiple agreeing, bounded ratios instead of guessing x-height from cap-height.
-  Rasterize when extended TextMetrics are missing/nonpositive; decline blank,
-  clipped, denied, inconsistent, and extreme measurements. Do not clamp unsafe fits.
-- Failed loads remain retryable on subsequent requests; five-second per-load waits,
-  caller cancellation, four workers per call, bounded success-only identity/URL
-  caches, and temporary FontFace cleanup keep optional calibration contained.
-  FontFace.load itself cannot be aborted; late native loads are observed but not
-  registered or published after cancellation/timeout. No reader-ready gate was added.
-- Snapshot regular-file selection and bind results to registry-object/file identity.
-  Old completions cannot replace newer calibration, old-file ratios are removed
-  while a new file loads, fresh registry responses remeasure, and disposal aborts.
-  Preserve exact token URLs, role-clearing semantics, weight ranges, style relationships,
-  and the existing font-CSS/settings delivery order.
-- Safe measured sizing works without reference vertical metadata, using native
-  leading. Plausible server metrics remain a fallback, but only for the detected
-  regular file they describe. Invalid vertical values are not emitted into CSS.
-- Limits: family-level Latin calibration at regular weight/100px is not perceptual
-  equivalence across every script, design, browser, or optical/variation axis.
-  Glyph coverage is inferred from fallback controls, not a new cmap parser.
-  Registry identity invalidates the JS cache, not the browser HTTP cache: same-name
-  replacements still follow existing font caching. No claim of universal perfection.
-- `TRACKER.md` is unchanged and reconciled: **151 files, 92 complete, 59 pending**.
-  API 47, font embedding/scanning four, tooling eight remain. Dependency reads and
-  this frontend feature do not complete backend files. CP6-CP14 remain finished.
-  **Pause here. Do not start CP15 without explicit continuation.**
+- Fully reviewed `internal/fonts/embed.go`, `embed_test.go`, `scan.go`, and
+  `scan_test.go`; added and froze `embed_bench_test.go` and `scan_bench_test.go`.
+  Only those six font files plus `TASK.md`/`TRACKER.md` changed. API/router/frontend
+  callers were dependency context only, not edits or completed reviews. No subagents,
+  dependency/toolchain changes, or changes to CP14 metrics/sfnt code.
+- Correct conditional GET/HEAD behavior: weak entity-tag comparison across multiple
+  header lines, quoted commas, existing-file checks before wildcard matches, and
+  no HEAD error body. Failed requests clear success entity headers and use no-store,
+  including a file disappearing between conditional stat and read. Literal dots,
+  Unicode, percent signs, and encoded filenames work without double decoding.
+- Discover fonts, read optional metadata, and extract metrics within the same
+  `os.Root` boundary used for serving. Reject escaping/dangling links and nonregular
+  files; preserve supported relative in-root links and deterministic ordering.
+  Limit optional family.json to 64 KiB; retain the existing 8 MiB metrics-extraction
+  cap (not a font-serving size limit).
+- A new directory-link regression reproduced an index-bounds panic in this host's
+  Go 1.27.0 rooted-path resolver. A narrow guard at rooted Stat/Open boundaries
+  fails closed for that runtime panic; unrelated panic categories are rethrown.
+  No unrestricted-path fallback or toolchain workaround was introduced.
+- Exclude numeric `-700` bold faces from the non-bold regular fallback. The legacy
+  last-resort first-file fallback remains when no suitable face exists. Preserve
+  borrowed immutable snapshots, membership indexes, publication/concurrency locks,
+  API token URLs, CORS, and successful font-cache policies. User ETags still use
+  size/mtime, not content hashes; this is not a universal hostile-filesystem guarantee.
+- `TRACKER.md` reconciles to **153 files, 98 complete, 55 pending**: API 47 and
+  tooling eight. The fonts and EPUB inventories are complete. The overall review
+  gate remains unchecked. **Stop here; no automatic CP16.**
 
-### Side-quest verification
+### CP15 verification
+
+- Original regression failures are preserved. Additional directory/dangling-link,
+  cached-path replacement, escaping metadata/file/family, supported in-root link,
+  encoded-path, weak-validator, error-cache, and snapshot/concurrency cases pass.
+  The link cases actually ran on this host; they were not permission skips.
+- Pure-Go and race-enabled font suites each passed 20 shuffled repetitions at
+  GOMAXPROCS 1 and 4. Pure-Go statement coverage: **93.0%**. The 30-second weak-ETag
+  fuzz campaign passed **721,584 executions**, with the initial seeds also covered.
+- Fresh full `make check` passed: tidy, Go/frontend formatting, vet, lint,
+  vulnerability checks, all-package shuffled race tests, frontend lint/types/tests,
+  and final frontend/pure-Go builds. Only the initial embed preflight reused dist;
+  the final build gate rebuilt both. Scoped gofumpt/goimports and lint also passed.
+- Reverified all 226 CP7-CP14 artifacts, 109 side-quest evidence files, and 18 earlier
+  frozen Go harnesses. The two CP15 harnesses and measured candidate sources also
+  remain byte-identical. Skills and generated evidence stay ignored/untracked.
+
+### CP15 measurement and tradeoffs
+
+Ten predeclared, alternating AB/BA pairs ran strictly serially with frozen binaries:
+**20 raw outputs, 400 observations**, ten samples per version/case/GOMAXPROCS.
+No missing, duplicate, excluded, or overlapping executions. Independent raw parsing,
+pandas reconciliation/profiling, and stdlib checks agree on all **120 metric medians**.
+Go 1.27.0/windows/amd64, Ryzen 7 5800H, CGO=0, GOAMD64=v1, GOGC=100, no memory limit;
+binary build settings/dependencies match. Each case ran for 200 ms at GOMAXPROCS 1/4.
+The fixed real WOFF2 fixture is 47,792 bytes; Rescan8 uses eight copied families.
+Setup/initial scan are untimed; filesystem caches were not flushed. Handler costs
+include the response recorder/body, not network sockets or browser rendering.
+
+Selected timing costs at GOMAXPROCS 1 (changes of marginal medians):
+
+| Case | Before | After | Change | benchstat p, n=10 |
+| --- | --- | --- | --- | --- |
+| UserHEAD | 78.0205 us/op | 79.2460 us/op | +1.57% | .019 |
+| MissingGET | 1.7135 us/op | 1.9180 us/op | +11.93% | .012 |
+| Rescan8 | 12.8035 ms/op | 13.3859 ms/op | +4.55% | .015 |
+
+The other 17 timing comparisons were inconclusive by benchstat; that is not proof
+of equivalence. These p-values are unadjusted across 20 timing comparisons.
+MissingGET adds 32 B/op and one allocation at both settings. Rescan8 allocation
+medians rise from 652 to 1038.5/1038 (+about 59%); byte medians rise about 6.2-6.7 KiB
+against roughly 4.3 MiB/op, with inconclusive byte tests. Cached Families remains
+zero-allocation; other handler allocation counts are unchanged. These are retained
+confinement/error-contract costs, not performance optimizations. No application,
+startup, throughput, peak-memory, cold-disk, browser, or cross-host speedup is claimed.
+
+### Protected CP15 evidence
+
+Keep `.agents/benchmarks/checkpoint15/` ignored/untracked. `evidence-manifest.json`
+seals 65 artifact files (excluding itself), including original/failed/setup logs,
+both binaries/provenance records, the predeclared plan, 20 raw outputs, CSV/benchstat,
+and the independent audit receipt/reproducer. Do not overwrite or rerun either
+freeze routine or overwrite the comparison outputs. Recorded production hashes
+identify the measured tree; they do not prohibit later legitimate source edits.
+
+- Manifest SHA-256: `467aa0c4a6eb77519a079ae93261edc5faa3ce8792cec69a5f78cd9e6771637e`.
+- Original binary SHA-256: `623b194ee250be20635b706ec83c6226a94a9809138e8ca11d97b7ed0aa17aee`.
+- Candidate binary SHA-256: `2fcd915882668dce085d1d1722558b9d746ff396fa48e82debfefc14b5b278ca`.
+- Recheck evidence: `python .agents/benchmarks/checkpoint15/seal_cp15.py verify`.
+- Reproduce the independent analysis with `audit_cp15.py INPUT_DIR FRESH_OUTPUT_DIR`
+  in a pandas-equipped environment. It refuses to overwrite its outputs. Analysis
+  used the computer's existing Python 3.13.14/pandas 3.0.5; no project dependency added.
+
+The retained sections below are prior provenance, not work rerun in CP15.
+
+### Retained side-quest verification
 
 - Full frontend lint, types, formatting and tests passed: 73 test files, 979 passed,
   one pre-existing conditional CSSOM skip. Tests cover retry, fallback coverage,
@@ -76,7 +133,7 @@ Solid 2 skills, actual font/API/registry callers, and existing tests were inspec
 - All 226 CP7-CP14 artifact files and all 18 tracked Go benchmark harnesses were
   reverified unchanged. Skills and generated evidence remain ignored/untracked.
 
-### Side-quest measurement and tradeoffs
+### Retained side-quest measurement and tradeoffs
 
 Ten alternating, strictly serial before/after pairs used the frozen original bundle
 and verified candidate with identical inputs/flags, without overlapping tests/builds.
@@ -444,11 +501,12 @@ or change the frozen harness, even if a later comparison is unfavorable.
 
 ### Next step
 
-Pause after the scoped CP13 commit and report. On the next explicit continuation,
-reassess one bounded remaining API or fonts batch from `TRACKER.md`. The EPUB
-processing inventory is complete. Confirm the dependency boundary from actual
-files and Git state before editing. Do not repeat CP6-CP13 or count dependency
-reads as completed reviews. Preserve all protected artifacts.
+Pause after the scoped CP15 commit and report. On the next explicit continuation,
+reassess one bounded API or tooling batch for CP16 from `TRACKER.md`. The fonts and
+EPUB inventories are complete; 47 API files and eight tooling files remain.
+Confirm the dependency boundary from actual files and Git state before editing.
+Do not repeat CP6-CP15, rerun the completed side quest, or count dependency reads
+as completed reviews. Preserve all protected artifacts, including CP15.
 No delegation, push, amend, or unattended follow-on work.
 
 ### Protected CP9 benchmark artifacts

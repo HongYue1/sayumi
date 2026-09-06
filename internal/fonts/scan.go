@@ -3,10 +3,13 @@ package fonts
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -46,14 +49,10 @@ type Family struct {
 	Files    []string      `json:"files"`    // font file names, sorted
 	Variable bool          `json:"variable"` // variable family: one upright file covers regular+bold, one italic file covers italic+boldItalic
 	Detected DetectedRoles `json:"detected"` // best-effort role guess for UI pre-fill
-	// Metrics are the regular face's em-relative metrics, or nil when they
-	// could not be read or could not be trusted. They are what lets the client
-	// make two families look the same size at one font-size: glyphs fill
-	// different fractions of the em from family to family, so the same 28px
-	// yields a visibly smaller or larger page depending on the face. A missing
-	// x-height (old OS/2 tables stop before it) and an implausible one (some
-	// faces report one far from what they render) both read as nil, which the
-	// client renders at natural size.
+	// Metrics describe the default regular face, from bounded extraction or
+	// explicit family.json metadata. Automatic extraction omits missing or
+	// implausible x-height; the client can still calibrate rendered glyphs.
+	// Nil metadata does not force the family to render at its natural size.
 	Metrics *Metrics `json:"metrics,omitempty"`
 }
 
@@ -98,7 +97,8 @@ func NewScanner(dir string) *Scanner {
 	return &Scanner{dir: dir}
 }
 
-// Families returns the cached families, scanning lazily on first use.
+// Families returns the cached families, scanning lazily on first use. The
+// returned snapshot, including its slices and metrics, is shared and read-only.
 func (s *Scanner) Families() []Family {
 	s.mu.RLock()
 	if s.loaded {
@@ -193,8 +193,8 @@ func (s *Scanner) StatUserFont(dirName, file string) (size int64, etag string, o
 	}
 	defer func() { _ = root.Close() }()
 
-	info, err := root.Stat(relPath)
-	if err != nil || info.IsDir() {
+	info, err := statFontPath(root, relPath)
+	if err != nil || !info.Mode().IsRegular() {
 		return 0, "", false
 	}
 	return info.Size(), userFontETag(info), true
@@ -216,14 +216,14 @@ func (s *Scanner) ReadUserFont(dirName, file string) (data []byte, etag string, 
 	}
 	defer func() { _ = root.Close() }()
 
-	f, err := root.Open(relPath)
+	f, err := openFontPath(root, relPath)
 	if err != nil {
 		return nil, "", false
 	}
 	defer func() { _ = f.Close() }()
 
 	info, err := f.Stat()
-	if err != nil || info.IsDir() {
+	if err != nil || !info.Mode().IsRegular() {
 		return nil, "", false
 	}
 	b, err := io.ReadAll(f)
@@ -231,6 +231,41 @@ func (s *Scanner) ReadUserFont(dirName, file string) (data []byte, etag string, 
 		return nil, "", false
 	}
 	return b, userFontETag(info), true
+}
+
+// Go 1.27.0's rooted path resolver can panic on a nested link to ".".
+// Treat that bounds failure as an unavailable path at the two os.Root I/O
+// boundaries; never retry with an unconfined path or suppress other panics.
+func rejectRootPathPanic(err *error) {
+	if p := recover(); p != nil {
+		e, ok := p.(runtime.Error)
+		if !ok || !strings.HasPrefix(e.Error(), "runtime error: index out of range") {
+			panic(p)
+		}
+		*err = fmt.Errorf("resolve font path: %w", e)
+	}
+}
+
+func statFontPath(root *os.Root, name string) (info os.FileInfo, err error) {
+	defer rejectRootPathPanic(&err)
+	return root.Stat(name)
+}
+
+func openFontPath(root *os.Root, name string) (f *os.File, err error) {
+	defer rejectRootPathPanic(&err)
+	return root.Open(name)
+}
+
+func readFontDir(root *os.Root, name string) ([]fs.DirEntry, error) {
+	f, err := openFontPath(root, name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	entries, err := f.ReadDir(-1)
+	// Preserve fs.ReadDir's deterministic order, including tied family labels.
+	slices.SortFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
+	return entries, err
 }
 
 // userFontETag derives a stable ETag for a user font from its size and
@@ -244,7 +279,9 @@ func (s *Scanner) scan() []Family {
 		return []Family{}
 	}
 
-	entries, err := os.ReadDir(s.dir)
+	// Discovery must obey the same root boundary as serving: ordinary path
+	// reads could disclose metadata or measure fonts through escaping links.
+	root, err := os.OpenRoot(s.dir)
 	if err != nil {
 		// A missing directory is the normal "no user fonts" case and stays
 		// silent. Any other error (e.g. permissions) is still best-effort —
@@ -255,6 +292,12 @@ func (s *Scanner) scan() []Family {
 		}
 		return []Family{}
 	}
+	defer func() { _ = root.Close() }()
+	entries, err := readFontDir(root, ".")
+	if err != nil {
+		slog.Warn("scan user fonts dir", "dir", s.dir, "err", err)
+		return []Family{}
+	}
 
 	families := make([]Family, 0, len(entries))
 	for _, entry := range entries {
@@ -262,10 +305,10 @@ func (s *Scanner) scan() []Family {
 			continue
 		}
 		dirName := entry.Name()
-		if strings.HasPrefix(dirName, ".") {
+		if strings.HasPrefix(dirName, ".") || !validFontPathSegment(dirName) {
 			continue
 		}
-		fam, ok := s.scanFamily(dirName)
+		fam, ok := scanFamily(root, dirName)
 		if ok {
 			families = append(families, fam)
 		}
@@ -277,9 +320,8 @@ func (s *Scanner) scan() []Family {
 	return families
 }
 
-func (s *Scanner) scanFamily(dirName string) (Family, bool) {
-	famDir := filepath.Join(s.dir, dirName)
-	dirEntries, err := os.ReadDir(famDir)
+func scanFamily(root *os.Root, dirName string) (Family, bool) {
+	dirEntries, err := readFontDir(root, dirName)
 	if err != nil {
 		return Family{}, false
 	}
@@ -290,9 +332,20 @@ func (s *Scanner) scanFamily(dirName string) (Family, bool) {
 			continue
 		}
 		name := de.Name()
-		if fontExts[strings.ToLower(filepath.Ext(name))] {
-			files = append(files, name)
+		if !validFontPathSegment(name) || !fontExts[strings.ToLower(filepath.Ext(name))] {
+			continue
 		}
+		if de.Type()&fs.ModeSymlink != 0 {
+			// Relative links inside the fonts root remain supported, including
+			// links into sibling directories. Never advertise an escaping link.
+			info, err := statFontPath(root, filepath.Join(dirName, name))
+			if err != nil || !info.Mode().IsRegular() {
+				continue
+			}
+		} else if !de.Type().IsRegular() {
+			continue
+		}
+		files = append(files, name)
 	}
 	if len(files) == 0 {
 		return Family{}, false
@@ -305,7 +358,7 @@ func (s *Scanner) scanFamily(dirName string) (Family, bool) {
 	// family.json overrides that heuristic either way.
 	variable := looksVariable(files)
 	var metricsOverride *Metrics
-	if meta, ok := readFamilyMeta(famDir); ok {
+	if meta, ok := readFamilyMeta(root, dirName); ok {
 		if strings.TrimSpace(meta.Label) != "" {
 			label = strings.TrimSpace(meta.Label)
 		}
@@ -330,7 +383,7 @@ func (s *Scanner) scanFamily(dirName string) (Family, bool) {
 	// category and variable.
 	metrics := metricsOverride
 	if metrics == nil {
-		metrics = familyMetrics(famDir, detected.Regular)
+		metrics = familyMetrics(root, dirName, detected.Regular)
 	}
 
 	return Family{
@@ -345,9 +398,25 @@ func (s *Scanner) scanFamily(dirName string) (Family, bool) {
 	}, true
 }
 
-func readFamilyMeta(famDir string) (familyMeta, bool) {
-	data, err := os.ReadFile(filepath.Join(famDir, "family.json"))
+// maxFamilyMeta bounds optional JSON independently of font serving and metric
+// extraction. Oversized or unreadable metadata falls back to directory defaults.
+const maxFamilyMeta = 64 << 10
+
+func readFamilyMeta(root *os.Root, dirName string) (familyMeta, bool) {
+	name := filepath.Join(dirName, "family.json")
+	info, err := statFontPath(root, name)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxFamilyMeta {
+		return familyMeta{}, false
+	}
+	f, err := openFontPath(root, name)
 	if err != nil {
+		return familyMeta{}, false
+	}
+	defer func() { _ = f.Close() }()
+
+	// Keep the read bounded even if the file grows after stat.
+	data, err := io.ReadAll(io.LimitReader(f, maxFamilyMeta+1))
+	if err != nil || len(data) > maxFamilyMeta {
 		return familyMeta{}, false
 	}
 	var meta familyMeta
@@ -357,30 +426,34 @@ func readFamilyMeta(famDir string) (familyMeta, bool) {
 	return meta, true
 }
 
-// maxFontFile caps how much of a font file is read to measure it. Text faces
+// maxFontFile caps optional metric extraction, not serving. Text faces
 // run to tens or hundreds of kilobytes; the cap is what keeps a mistaken drop
 // in ./Fonts/ (a video named .woff2) from being pulled into memory whole.
 const maxFontFile = 8 << 20
 
-// familyMetrics measures one face and returns nil if it cannot. Every failure
-// here is survivable: the family still renders, just without size
-// normalization, so nothing about it should fail the scan or the request.
-func familyMetrics(famDir, file string) *Metrics {
+// familyMetrics measures one face when bounded server-side extraction succeeds.
+// Failure omits metadata, not the family or its font. The reader can still
+// attempt rendered-glyph calibration.
+func familyMetrics(root *os.Root, dirName, file string) *Metrics {
 	if file == "" {
 		return nil
 	}
-	f, err := os.Open(filepath.Join(famDir, file))
+	f, err := openFontPath(root, filepath.Join(dirName, file))
 	if err != nil {
 		return nil
 	}
 	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return nil
+	}
 
 	data, err := io.ReadAll(io.LimitReader(f, maxFontFile+1))
 	if err != nil {
 		return nil
 	}
 	if len(data) > maxFontFile {
-		slog.Warn("font too large to measure", "dir", famDir, "file", file, "limit", maxFontFile)
+		slog.Warn("font too large to measure", "dir", dirName, "file", file, "limit", maxFontFile)
 		return nil
 	}
 
@@ -389,11 +462,11 @@ func familyMetrics(famDir, file string) *Metrics {
 		// Expected for a file that is not a font, and for containers this does
 		// not read (a .ttc holds several faces). Debug, not Warn: dropping a
 		// stray file into a family directory is a user habit, not a fault.
-		slog.Debug("read font metrics", "dir", famDir, "file", file, "err", err)
+		slog.Debug("read font metrics", "dir", dirName, "file", file, "err", err)
 		return nil
 	}
 	if !metrics.Normalizable() {
-		slog.Debug("font has no usable x-height", "dir", famDir, "file", file)
+		slog.Debug("font has no usable x-height", "dir", dirName, "file", file)
 		return nil
 	}
 	return &metrics
@@ -464,7 +537,8 @@ func detectRoles(files []string) DetectedRoles {
 	if d.Regular == "" {
 		for _, f := range files {
 			lower := strings.ToLower(f)
-			if !strings.Contains(lower, "italic") && !strings.Contains(lower, "oblique") && !strings.Contains(lower, "bold") {
+			if !strings.Contains(lower, "italic") && !strings.Contains(lower, "oblique") &&
+				!strings.Contains(lower, "bold") && !strings.Contains(lower, "-700") {
 				d.Regular = f
 				break
 			}

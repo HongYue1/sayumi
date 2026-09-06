@@ -1,8 +1,11 @@
 package fonts
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -261,6 +264,258 @@ func TestScannerConcurrentFirstFamilies(t *testing.T) {
 	for e := range errs {
 		t.Fatal(e)
 	}
+}
+
+func TestDetectRolesNumericBoldFallback(t *testing.T) {
+	t.Parallel()
+	files := []string{"Family-700.woff2", "Family-Medium.woff2"}
+	got := detectRoles(files)
+	if got.Regular != files[1] || got.Bold != files[0] {
+		t.Fatalf("numeric bold must not win the non-bold fallback: %+v", got)
+	}
+}
+
+func TestScannerSymlinkConfinement(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []string{"metadata escape", "font escape", "in-root links"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			parent := t.TempDir()
+			root := filepath.Join(parent, "Fonts")
+			face := string(fontData["AtkinsonHyperlegibleNext-VariableFont.woff2"])
+			if face == "" {
+				t.Fatal("embedded fixture missing")
+			}
+			writeFontTree(t, parent, map[string]string{
+				"outside.woff2":              face,
+				"outside.json":               `{"label":"Outside metadata"}`,
+				"Fonts/Family/Regular.woff2": face,
+				"Fonts/.shared/face.woff2":   face,
+				"Fonts/.shared/meta.json":    `{"label":"Inside metadata"}`,
+			})
+			link := func(target, name string) {
+				t.Helper()
+				if err := os.Symlink(target, filepath.Join(root, "Family", name)); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			}
+			switch kind {
+			case "metadata escape":
+				link("../../outside.json", "family.json")
+			case "font escape":
+				if err := os.Remove(filepath.Join(root, "Family", "Regular.woff2")); err != nil {
+					t.Fatal(err)
+				}
+				link("../../outside.woff2", "Regular.woff2")
+			case "in-root links":
+				if err := os.Remove(filepath.Join(root, "Family", "Regular.woff2")); err != nil {
+					t.Fatal(err)
+				}
+				link("../.shared/face.woff2", "Regular.woff2")
+				link("../.shared/meta.json", "family.json")
+			}
+			s := NewScanner(root)
+			families := s.Families()
+			if kind == "font escape" {
+				if len(families) != 0 {
+					t.Fatalf("unservable escaping font advertised: %+v", families)
+				}
+				if _, _, ok := s.ReadUserFont("Family", "Regular.woff2"); ok {
+					t.Fatal("escaping font served")
+				}
+				return
+			}
+			if len(families) != 1 || families[0].Metrics == nil {
+				t.Fatalf("usable in-root family lost: %+v", families)
+			}
+			wantLabel := "Family"
+			if kind == "in-root links" {
+				wantLabel = "Inside metadata"
+			}
+			if families[0].Label != wantLabel {
+				t.Fatalf("label = %q, want %q", families[0].Label, wantLabel)
+			}
+			if data, _, ok := s.ReadUserFont("Family", "Regular.woff2"); !ok || string(data) != face {
+				t.Fatal("in-root font must remain readable")
+			}
+		})
+	}
+}
+
+func TestScannerMetadataBound(t *testing.T) {
+	t.Parallel()
+	// A tiny optional config must not read an arbitrarily large dropped file.
+	// Use literal boundary sizes so this test constrains the policy itself.
+	for _, size := range []int{64 << 10, (64 << 10) + 1} {
+		t.Run(strconv.Itoa(size), func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			meta := `{"label":"Configured"}`
+			writeFontTree(t, root, map[string]string{
+				"Family/Regular.woff2": "font",
+				"Family/family.json":   meta + strings.Repeat(" ", size-len(meta)),
+			})
+			families := NewScanner(root).Families()
+			if len(families) != 1 {
+				t.Fatalf("bad metadata must not hide the family: %+v", families)
+			}
+			want := "Configured"
+			if size > 64<<10 {
+				want = "Family"
+			}
+			if families[0].Label != want {
+				t.Fatalf("label = %q, want %q", families[0].Label, want)
+			}
+		})
+	}
+}
+
+func TestScannerSnapshotAndMembership(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeFontTree(t, root, map[string]string{"Family/Regular.ttf": "old"})
+	s := NewScanner(root)
+	old := s.Families()
+	encoded, err := json.Marshal(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFontTree(t, root, map[string]string{
+		"Family/New.otf":     "new",
+		"Family/family.json": `{"label":"Changed"}`,
+	})
+	if err := os.Remove(filepath.Join(root, "Family", "Regular.ttf")); err != nil {
+		t.Fatal(err)
+	}
+	s.Rescan()
+	if _, _, ok := s.ReadUserFont("Family", "Regular.ttf"); ok {
+		t.Fatal("removed face stayed in membership")
+	}
+	if data, _, ok := s.ReadUserFont("Family", "New.otf"); !ok || string(data) != "new" {
+		t.Fatal("new face missing from membership")
+	}
+	now, err := json.Marshal(old)
+	if err != nil || string(now) != string(encoded) {
+		t.Fatalf("rescan mutated a borrowed snapshot: %s -> %s, %v", encoded, now, err)
+	}
+	// Readers and explicit rescans share immutable snapshots and lookup maps.
+	var wg sync.WaitGroup
+	for i := range 12 {
+		wg.Go(func() {
+			for range 12 {
+				if i%3 == 0 {
+					s.Rescan()
+				} else if i%3 == 1 {
+					if _, err := json.Marshal(s.Families()); err != nil {
+						t.Error(err)
+					}
+				} else if _, _, ok := s.ReadUserFont("Family", "New.otf"); !ok {
+					t.Error("stable face lost during rescan")
+				}
+			}
+		})
+	}
+	wg.Wait()
+}
+
+func TestScannerCachedPathReplacement(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []string{"missing", "directory", "directory link", "escaping file link", "escaping family link"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			parent := t.TempDir()
+			root := filepath.Join(parent, "Fonts")
+			writeFontTree(t, parent, map[string]string{
+				"Fonts/Family/Regular.woff2": "inside",
+				"Outside/Regular.woff2":      "outside",
+			})
+			s := NewScanner(root)
+			if len(s.Families()) != 1 {
+				t.Fatal("fixture family missing")
+			}
+			name := filepath.Join(root, "Family", "Regular.woff2")
+			if err := os.Remove(name); err != nil {
+				t.Fatal(err)
+			}
+			switch kind {
+			case "directory":
+				if err := os.Mkdir(name, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			case "directory link":
+				if err := os.Symlink(".", name); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			case "escaping file link":
+				if err := os.Symlink("../../Outside/Regular.woff2", name); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			case "escaping family link":
+				family := filepath.Join(root, "Family")
+				if err := os.Remove(family); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("../Outside", family); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			}
+			// No rescan: the old membership remains authorized, but each disk
+			// lookup must independently reject a now-unservable representation.
+			if _, _, ok := s.StatUserFont("Family", "Regular.woff2"); ok {
+				t.Fatal("stat accepted a missing, non-regular, or escaping file")
+			}
+			if _, _, ok := s.ReadUserFont("Family", "Regular.woff2"); ok {
+				t.Fatal("read accepted a missing, non-regular, or escaping file")
+			}
+		})
+	}
+}
+
+func TestScannerIgnoresUnservableLinks(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeFontTree(t, root, map[string]string{"Family/Regular.woff2": "font"})
+	for _, name := range []string{"Directory.woff2", "Dangling.woff2", "family.json"} {
+		target := "."
+		if name == "Dangling.woff2" {
+			target = "missing.woff2"
+		}
+		if err := os.Symlink(target, filepath.Join(root, "Family", name)); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+	}
+	families := NewScanner(root).Families()
+	if len(families) != 1 || len(families[0].Files) != 1 || families[0].Files[0] != "Regular.woff2" {
+		t.Fatalf("unservable links advertised: %+v", families)
+	}
+}
+
+func TestRootPathPanicBoundary(t *testing.T) {
+	t.Parallel()
+	t.Run("bounds failure becomes an error", func(t *testing.T) {
+		t.Parallel()
+		causeBoundsPanic := func(values []string) (err error) {
+			defer rejectRootPathPanic(&err)
+			_ = values[0]
+			return nil
+		}
+		if err := causeBoundsPanic(nil); err == nil {
+			t.Fatal("bounds panic was not returned as an error")
+		}
+	})
+	t.Run("unrelated panics are preserved", func(t *testing.T) {
+		t.Parallel()
+		const marker = "unexpected panic"
+		defer func() {
+			if p := recover(); p != marker {
+				t.Fatalf("panic = %v, want %q", p, marker)
+			}
+		}()
+		_ = func() (err error) {
+			defer rejectRootPathPanic(&err)
+			panic(marker)
+		}()
+	})
 }
 
 func TestScannerConcurrentFamiliesAndRescan(t *testing.T) {

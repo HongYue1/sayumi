@@ -75,7 +75,7 @@ func Handler(scanner *Scanner) http.Handler {
 			return
 		default:
 			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-			writePlainStatus(w, http.StatusMethodNotAllowed, "method not allowed")
+			writePlainStatus(w, r, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 
@@ -87,13 +87,13 @@ func Handler(scanner *Scanner) http.Handler {
 
 		reqPath, ok := sanitizeFontRequestPath(r.URL.Path)
 		if !ok {
-			writePlainStatus(w, http.StatusNotFound, "not found")
+			writePlainStatus(w, r, http.StatusNotFound, "not found")
 			return
 		}
 
 		data, ok := fontData[reqPath]
 		if !ok {
-			writePlainStatus(w, http.StatusNotFound, "not found")
+			writePlainStatus(w, r, http.StatusNotFound, "not found")
 			return
 		}
 
@@ -104,7 +104,7 @@ func Handler(scanner *Scanner) http.Handler {
 
 		if etag, ok := fontETags[reqPath]; ok {
 			w.Header().Set("ETag", etag)
-			if etagMatches(r.Header.Get("If-None-Match"), etag) {
+			if etagMatches(strings.Join(r.Header.Values("If-None-Match"), ","), etag) {
 				w.WriteHeader(http.StatusNotModified)
 				return
 			}
@@ -122,23 +122,26 @@ func Handler(scanner *Scanner) http.Handler {
 // parseUserFontPath matches "/user/<dir>/<file>" with no further nesting or
 // traversal. Returns the directory and file segments on success.
 func parseUserFontPath(rawPath string) (dir, file string, ok bool) {
-	if strings.Contains(rawPath, `\`) || strings.Contains(rawPath, "..") {
-		return "", "", false
-	}
 	rest, found := strings.CutPrefix(rawPath, "/user/")
 	if !found {
 		return "", "", false
 	}
 	dir, file, found = strings.Cut(rest, "/")
-	if !found || dir == "" || file == "" || strings.Contains(file, "/") {
+	if !found || !validFontPathSegment(dir) || !validFontPathSegment(file) {
 		return "", "", false
 	}
 	return dir, file, true
 }
 
+// Reject traversal components, not literal dots within a real filename. The
+// scanner uses the same rule so every advertised name is addressable by HTTP.
+func validFontPathSegment(name string) bool {
+	return name != "" && name != "." && name != ".." && !strings.ContainsAny(name, "/\\\x00")
+}
+
 func serveUserFont(w http.ResponseWriter, r *http.Request, scanner *Scanner, dir, file string) {
 	if scanner == nil {
-		writePlainStatus(w, http.StatusNotFound, "not found")
+		writePlainStatus(w, r, http.StatusNotFound, "not found")
 		return
 	}
 
@@ -156,11 +159,11 @@ func serveUserFont(w http.ResponseWriter, r *http.Request, scanner *Scanner, dir
 	// plain GET skips this pre-stat and reads exactly once below — otherwise
 	// every cache-miss load would pay two os.OpenRoot+stat round-trips to serve
 	// one file.
-	ifNoneMatch := r.Header.Get("If-None-Match")
+	ifNoneMatch := strings.Join(r.Header.Values("If-None-Match"), ",")
 	if r.Method == http.MethodHead || ifNoneMatch != "" {
 		size, etag, ok := scanner.StatUserFont(dir, file)
 		if !ok {
-			writePlainStatus(w, http.StatusNotFound, "not found")
+			writePlainStatus(w, r, http.StatusNotFound, "not found")
 			return
 		}
 		setUserFontHeaders(etag)
@@ -180,12 +183,9 @@ func serveUserFont(w http.ResponseWriter, r *http.Request, scanner *Scanner, dir
 
 	data, etag, ok := scanner.ReadUserFont(dir, file)
 	if !ok {
-		// File is gone or no longer part of a known family (possibly raced with a
-		// rescan); clear any stale length/ETag set on the conditional path so we
-		// never emit a mismatched response.
-		w.Header().Del("Content-Length")
-		w.Header().Del("ETag")
-		writePlainStatus(w, http.StatusNotFound, "not found")
+		// A file can disappear after conditional stat. The error response must
+		// discard both entity metadata and the successful font's cache policy.
+		writePlainStatus(w, r, http.StatusNotFound, "not found")
 		return
 	}
 	setUserFontHeaders(etag)
@@ -194,18 +194,53 @@ func serveUserFont(w http.ResponseWriter, r *http.Request, scanner *Scanner, dir
 	_, _ = w.Write(data)
 }
 
-// etagMatches reports whether the comma-separated If-None-Match header value
-// contains the given (already-quoted) ETag. An empty header never matches.
+// etagMatches applies If-None-Match's weak comparison (RFC 9110, section
+// 13.1.2). Call only after establishing that the representation exists, so
+// wildcard matching cannot turn a missing font into a 304. Quoted opaque tags
+// can contain commas; splitting the field on every comma loses that boundary.
 func etagMatches(ifNoneMatch, etag string) bool {
 	if ifNoneMatch == "" {
 		return false
 	}
-	for candidate := range strings.SplitSeq(ifNoneMatch, ",") {
-		if strings.TrimSpace(candidate) == etag {
+	etag = strings.TrimPrefix(etag, "W/")
+	for {
+		ifNoneMatch = strings.Trim(ifNoneMatch, " \t")
+		if ifNoneMatch == "" {
+			return false
+		}
+		if ifNoneMatch == "*" {
 			return true
 		}
+		if ifNoneMatch[0] == ',' {
+			ifNoneMatch = ifNoneMatch[1:]
+			continue
+		}
+		candidate := strings.TrimPrefix(ifNoneMatch, "W/")
+		if len(candidate) == 0 || candidate[0] != '"' {
+			return false
+		}
+		end := 1
+		for end < len(candidate) && candidate[end] != '"' {
+			if c := candidate[end]; c < 0x21 || c == 0x7f {
+				return false
+			}
+			end++
+		}
+		if end == len(candidate) {
+			return false
+		}
+		rest := strings.TrimLeft(candidate[end+1:], " \t")
+		if rest != "" && rest[0] != ',' {
+			return false
+		}
+		if candidate[:end+1] == etag {
+			return true
+		}
+		if rest == "" {
+			return false
+		}
+		ifNoneMatch = rest[1:]
 	}
-	return false
 }
 
 func setFontCORSHeaders(header http.Header) {
@@ -228,9 +263,15 @@ func sanitizeFontRequestPath(rawPath string) (string, bool) {
 	return cleaned, true
 }
 
-func writePlainStatus(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
+func writePlainStatus(w http.ResponseWriter, r *http.Request, status int, message string) {
+	header := w.Header()
+	header.Del("Content-Length")
+	header.Del("ETag")
+	header.Set("Cache-Control", "no-store")
+	header.Set("Content-Type", "text/plain; charset=utf-8")
+	header.Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
-	_, _ = w.Write([]byte(message + "\n"))
+	if r.Method != http.MethodHead {
+		_, _ = w.Write([]byte(message + "\n"))
+	}
 }
