@@ -5,8 +5,10 @@ import (
 	"compress/gzip"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,7 +32,7 @@ func compressibleType(contentType string) bool {
 	if i := strings.IndexByte(contentType, ';'); i != -1 {
 		contentType = contentType[:i]
 	}
-	contentType = strings.TrimSpace(contentType)
+	contentType = strings.ToLower(strings.TrimSpace(contentType))
 
 	if contentType == "text/event-stream" {
 		return false
@@ -52,70 +54,90 @@ func compressibleType(contentType string) bool {
 	return false
 }
 
-// acceptsGzip reports whether the Accept-Encoding header value includes gzip
-// with a non-zero q-value. It parses tokens of the form "encoding[;q=value]"
-// directly, because mime.ParseMediaType requires a "type/subtype" slash and
-// always errors on bare encoding tokens like "gzip" or "*".
+// acceptsGzip parses the combined Accept-Encoding field, not a media type.
+// Explicit gzip preferences take precedence over a wildcard. For conflicting
+// duplicate codings, a refusal wins regardless of field order. Compression is
+// optional here; malformed weights must not accidentally enable it.
 func acceptsGzip(headerValue string) bool {
 	sawGzip := false
-	gzipAllowed := false
+	gzipAllowed := true
 	sawStar := false
-	starAllowed := false
+	starAllowed := true
 
 	for part := range strings.SplitSeq(headerValue, ",") {
 		encoding, q := parseEncodingToken(strings.TrimSpace(part))
-
 		switch encoding {
 		case "gzip":
 			sawGzip = true
-			gzipAllowed = q > 0
+			gzipAllowed = gzipAllowed && q > 0
 		case "*":
 			sawStar = true
-			starAllowed = q > 0
+			starAllowed = starAllowed && q > 0
 		}
 	}
-
 	if sawGzip {
 		return gzipAllowed
 	}
 	return sawStar && starAllowed
 }
 
-// parseEncodingToken splits "encoding[;param=value;...]" into the lowercased
-// encoding name and its quality value (1.0 when absent or unparseable).
+// parseEncodingToken accepts one optional weight. Unknown/multiple parameters
+// and invalid q-values conservatively disable that coding, including when a
+// wildcard would otherwise allow it.
 func parseEncodingToken(s string) (encoding string, q float64) {
-	q = 1.0
-	before, after, ok := strings.Cut(s, ";")
-	if !ok {
-		encoding = strings.ToLower(s)
-		return
-	}
-	encoding = strings.ToLower(strings.TrimSpace(before))
-	for param := range strings.SplitSeq(after, ";") {
-		k, v, ok := strings.Cut(strings.TrimSpace(param), "=")
-		if ok && strings.TrimSpace(k) == "q" {
-			if parsed, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
-				q = parsed
-			}
+	before, after, weighted := strings.Cut(s, ";")
+	// Coding names are ASCII tokens; Unicode case conversion must not turn
+	// a different, invalid name into an accepted gzip token.
+	for i := range len(before) {
+		if before[i] >= 0x80 {
+			return "", 0
 		}
 	}
-	return
+	encoding = strings.ToLower(strings.TrimSpace(before))
+	if !weighted {
+		return encoding, 1
+	}
+	key, value, ok := strings.Cut(strings.TrimSpace(after), "=")
+	if !ok || !strings.EqualFold(strings.TrimSpace(key), "q") {
+		return encoding, 0
+	}
+	value = strings.TrimSpace(value)
+	// RFC weights are 0..1 with at most three decimal places. ParseFloat alone
+	// would also accept signs, exponents, infinities, and out-of-range weights.
+	if value == "" || (value[0] != '0' && value[0] != '1') {
+		return encoding, 0
+	}
+	quality := int(value[0]-'0') * 1000
+	if len(value) > 1 {
+		if len(value) > 5 || value[1] != '.' {
+			return encoding, 0
+		}
+		place := 100
+		for i := 2; i < len(value); i++ {
+			digit := value[i]
+			if digit < '0' || digit > '9' || (value[0] == '1' && digit != '0') {
+				return encoding, 0
+			}
+			quality += int(digit-'0') * place
+			place /= 10
+		}
+	}
+	return encoding, float64(quality) / 1000
 }
 
-// addVaryValue appends value to Vary unless it is already listed. Every response
-// this middleware touches must carry Vary: Accept-Encoding, including the ones
-// it leaves uncompressed: without it a shared cache can serve a gzipped body to
-// a client that never asked for one.
-func addVaryValue(header http.Header, value string) {
-	existing := header.Values("Vary")
-	for _, vary := range existing {
+// addVaryAcceptEncoding preserves both other selectors and Vary: *. Add it again when
+// committing: a handler may replace the initial Vary field before its first
+// write. Identity responses need the same selector as compressed responses.
+func addVaryAcceptEncoding(header http.Header) {
+	for _, vary := range header.Values("Vary") {
 		for part := range strings.SplitSeq(vary, ",") {
-			if strings.EqualFold(strings.TrimSpace(part), value) {
+			part = strings.TrimSpace(part)
+			if part == "*" || strings.EqualFold(part, "Accept-Encoding") {
 				return
 			}
 		}
 	}
-	header.Add("Vary", value)
+	header.Add("Vary", "Accept-Encoding")
 }
 
 func cacheControlNoTransform(value string) bool {
@@ -127,14 +149,24 @@ func cacheControlNoTransform(value string) bool {
 	return false
 }
 
+func hasHeaderValue(header http.Header, name string) bool {
+	for _, value := range header.Values(name) {
+		if value != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func shouldBypassGzipRequest(r *http.Request) bool {
-	if r.Method == http.MethodHead || r.Header.Get("Range") != "" || r.Header.Get("Upgrade") != "" {
+	if r.Method == http.MethodHead || hasHeaderValue(r.Header, "Range") || hasHeaderValue(r.Header, "Upgrade") {
 		return true
 	}
-
-	for part := range strings.SplitSeq(r.Header.Get("Connection"), ",") {
-		if strings.EqualFold(strings.TrimSpace(part), "upgrade") {
-			return true
+	for _, value := range r.Header.Values("Connection") {
+		for part := range strings.SplitSeq(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), "upgrade") {
+				return true
+			}
 		}
 	}
 	return false
@@ -146,107 +178,146 @@ func copyBuffered(dst io.Writer, src io.Reader) (int64, error) {
 	return io.CopyBuffer(dst, src, *bufPtr)
 }
 
-// minGzipSize is the response-body floor below which we skip gzip entirely.
-// Compressing a tiny body (e.g. a 31-byte JSON response) only adds ~18 bytes of
-// gzip framing plus CPU and can make the response larger. 1400 bytes is roughly
-// the payload of a single ~1500-byte TCP segment, so a response at or below it
-// already fits in one packet and gains little from being compressed; it also
-// matches the de-facto Go default (nytimes/gziphandler's DefaultMinSize) and its
-// TCP-segment rationale.
+// minGzipSize preserves the existing small-response policy. The 1400-byte
+// threshold is not a guarantee of one TCP packet (headers/TLS also take space).
+// An explicit Flush with pending bytes is the latency-driven exception.
 const minGzipSize = 1400
 
 type gzipResponseWriter struct {
 	http.ResponseWriter
-	gz          *gzip.Writer
-	statusCode  int
-	headerSent  bool
-	compress    bool
-	decided     bool
-	wroteHeader bool
+	gz             *gzip.Writer
+	statusCode     int
+	headerSent     bool
+	compress       bool
+	decided        bool
+	wroteHeader    bool
+	bypass         bool
+	hijacked       bool
+	headerSnapshot http.Header
 
-	// pending buffers the first body bytes of a compression-eligible response
-	// until we know whether it crosses minGzipSize. buffering is true while we are
-	// accumulating into pending and have not yet committed to a decision.
+	// pending holds fewer than minGzipSize bytes. A write that crosses the
+	// threshold streams directly after this prefix; never copy a large later
+	// write into pending just because a small earlier write was buffered.
 	pending   []byte
 	buffering bool
 }
 
 func (g *gzipResponseWriter) WriteHeader(code int) {
+	if g.hijacked {
+		return
+	}
+	if g.bypass {
+		addVaryAcceptEncoding(g.Header())
+		g.ResponseWriter.WriteHeader(code)
+		return
+	}
 	if g.wroteHeader {
+		return
+	}
+	// Match net/http's three-digit validation at the call site, not later in
+	// finish. Informational responses do not commit the final status/headers.
+	if code < 100 || code > 999 {
+		panic("invalid WriteHeader code " + strconv.Itoa(code))
+	}
+	if code < 200 && code != http.StatusSwitchingProtocols {
+		addVaryAcceptEncoding(g.Header())
+		g.ResponseWriter.WriteHeader(code)
 		return
 	}
 	g.wroteHeader = true
 	g.statusCode = code
-
-	if code == http.StatusNoContent || code == http.StatusNotModified || code == http.StatusPartialContent {
+	if code == http.StatusNotModified {
+		header := g.Header()
+		// A 304 updates cached metadata. Do not turn a previously compressed
+		// representation's weak validator back into a strong one. Handlers
+		// often omit Content-Type on 304, so unknown types are conservative.
+		if header.Get("Content-Type") == "" || g.eligible() {
+			weakenETag(header)
+			header.Del("Content-Length")
+		}
+	}
+	if code == http.StatusSwitchingProtocols || code == http.StatusNoContent || code == http.StatusNotModified || code == http.StatusPartialContent {
 		g.decided = true
-		g.compress = false
-		g.ResponseWriter.WriteHeader(code)
-		g.headerSent = true
+		g.writeHeaderOnce()
+		return
+	}
+	g.snapshotHeader()
+}
+
+func (g *gzipResponseWriter) snapshotHeader() {
+	if g.headerSnapshot == nil {
+		// Clone the slices as well: handlers can retain and mutate Header values
+		// while the size-floor decision is still pending.
+		g.headerSnapshot = g.Header().Clone()
 	}
 }
 
-// eligible reports whether the response may be gzip-compressed based on its
-// headers (set by the handler before the first write).
-func (g *gzipResponseWriter) eligible() bool {
-	header := g.Header()
-	contentType := header.Get("Content-Type")
-	return contentType != "" &&
-		header.Get("Content-Encoding") == "" &&
-		!cacheControlNoTransform(header.Get("Cache-Control")) &&
-		compressibleType(contentType)
+func (g *gzipResponseWriter) responseHeader() http.Header {
+	if g.headerSnapshot != nil {
+		return g.headerSnapshot
+	}
+	return g.Header()
 }
 
-// writeHeaderOnce flushes the status line to the underlying writer exactly once.
+func (g *gzipResponseWriter) eligible() bool {
+	header := g.responseHeader()
+	if hasHeaderValue(header, "Content-Encoding") || hasHeaderValue(header, "Content-Range") || !compressibleType(header.Get("Content-Type")) {
+		return false
+	}
+	return !slices.ContainsFunc(header.Values("Cache-Control"), cacheControlNoTransform)
+}
+
 func (g *gzipResponseWriter) writeHeaderOnce() {
 	if g.headerSent {
 		return
 	}
-	statusCode := g.statusCode
-	if statusCode == 0 {
-		statusCode = http.StatusOK
+	if !g.wroteHeader {
+		g.wroteHeader = true
+		g.statusCode = http.StatusOK
 	}
-	g.ResponseWriter.WriteHeader(statusCode)
+	header := g.responseHeader()
+	addVaryAcceptEncoding(header)
+	if g.headerSnapshot == nil {
+		g.ResponseWriter.WriteHeader(g.statusCode)
+	} else {
+		// Temporarily expose the committed snapshot to the underlying writer.
+		// Restore the live map afterwards so late trailer values (including
+		// TrailerPrefix keys) and retained Header references remain usable.
+		live := g.Header()
+		saved := maps.Clone(live)
+		clear(live)
+		maps.Copy(live, header)
+		g.ResponseWriter.WriteHeader(g.statusCode)
+		clear(live)
+		maps.Copy(live, saved)
+		g.headerSnapshot = nil
+	}
 	g.headerSent = true
 }
 
-func (g *gzipResponseWriter) decide() {
-	if g.decided {
-		return
+func weakenETag(header http.Header) {
+	if tag := header.Get("ETag"); strings.HasPrefix(tag, `"`) {
+		header.Set("ETag", "W/"+tag)
 	}
-	g.decided = true
-	g.buffering = false
-
-	g.compress = g.eligible()
-	if g.compress {
-		header := g.Header()
-		header.Del("Content-Length")
-		header.Set("Content-Encoding", "gzip")
-	}
-	g.writeHeaderOnce()
 }
 
-// beginCompressed transitions the writer into committed gzip mode: it sets the
-// encoding headers, flushes the status line, and prepares the gzip writer. It
-// writes no body bytes, so callers stream the body themselves afterwards.
 func (g *gzipResponseWriter) beginCompressed() {
 	g.decided = true
 	g.buffering = false
 	g.compress = true
-
-	header := g.Header()
+	header := g.responseHeader()
 	header.Del("Content-Length")
 	header.Set("Content-Encoding", "gzip")
+	// Compression changes representation bytes. Keep the handler's opaque
+	// validator for weak revalidation, but do not promise byte identity for
+	// strong comparisons such as If-Range. Existing weak validators stay weak.
+	weakenETag(header)
 	g.writeHeaderOnce()
 	g.ensureWriter()
 }
 
-// commitCompressed commits a buffered, compression-eligible response to gzip: it
-// sets the encoding headers, flushes the status line, and writes any pending
-// bytes through the gzip writer.
 func (g *gzipResponseWriter) commitCompressed() error {
 	g.beginCompressed()
-
 	if len(g.pending) > 0 {
 		_, err := g.gz.Write(g.pending)
 		g.pending = nil
@@ -255,53 +326,82 @@ func (g *gzipResponseWriter) commitCompressed() error {
 	return nil
 }
 
-// flushPending emits a buffered response that ended below minGzipSize: it is
-// written uncompressed, with an explicit Content-Length since the full body is
-// known.
-func (g *gzipResponseWriter) flushPending() {
-	g.decided = true
-	g.buffering = false
-	g.compress = false
-
-	if g.Header().Get("Content-Length") == "" {
-		g.Header().Set("Content-Length", strconv.Itoa(len(g.pending)))
+func (g *gzipResponseWriter) hasTrailers() bool {
+	for _, header := range []http.Header{g.responseHeader(), g.Header()} {
+		if hasHeaderValue(header, "Trailer") {
+			return true
+		}
+		for key := range header {
+			if strings.HasPrefix(key, http.TrailerPrefix) {
+				return true
+			}
+		}
 	}
-	g.writeHeaderOnce()
-	if len(g.pending) > 0 {
-		_, _ = g.ResponseWriter.Write(g.pending)
-		g.pending = nil
-	}
+	return false
 }
 
-// finish settles a response after the handler returns: flush a still-buffered
-// small body uncompressed, or make a decision for a handler that wrote nothing.
+func (g *gzipResponseWriter) flushPending() error {
+	g.decided = true
+	g.buffering = false
+	header := g.responseHeader()
+	// A fixed length would suppress HTTP/1 chunked trailers. Let net/http own
+	// framing when the handler uses either supported trailer mechanism.
+	if header.Get("Content-Length") == "" && !g.hasTrailers() {
+		header.Set("Content-Length", strconv.Itoa(len(g.pending)))
+	}
+	g.writeHeaderOnce()
+	pending := g.pending
+	g.pending = nil
+	if len(pending) == 0 {
+		return nil
+	}
+	n, err := g.ResponseWriter.Write(pending)
+	if err == nil && n != len(pending) {
+		return io.ErrShortWrite
+	}
+	return err
+}
+
 func (g *gzipResponseWriter) finish() {
+	if g.hijacked {
+		return
+	}
+	if g.bypass {
+		addVaryAcceptEncoding(g.Header())
+		return
+	}
 	switch {
 	case g.buffering:
-		g.flushPending()
+		if err := g.flushPending(); err != nil {
+			slog.Error("gzip buffered write failed", "err", err)
+		}
 	case !g.headerSent:
-		// The handler returned without writing a body. decide() would commit to
-		// compression for any eligible Content-Type, but no gzip writer was ever
-		// created, so close() emits nothing: the response would advertise
-		// Content-Encoding: gzip with a zero-byte body, which is not a valid
-		// gzip stream (strict decoders fail it outright). An empty body needs no
-		// encoding, so settle it uncompressed.
+		// No body means no encoding, including an empty ReaderFrom. Advertising
+		// gzip without creating a complete stream breaks strict decoders.
 		g.decided = true
-		g.compress = false
 		g.writeHeaderOnce()
 	}
 }
 
 func (g *gzipResponseWriter) ensureWriter() {
-	if g.gz != nil {
-		return
+	if g.gz == nil {
+		g.gz = gzPool.Get().(*gzip.Writer)
+		g.gz.Reset(g.ResponseWriter)
 	}
-	writer := gzPool.Get().(*gzip.Writer)
-	writer.Reset(g.ResponseWriter)
-	g.gz = writer
 }
 
 func (g *gzipResponseWriter) Write(data []byte) (int, error) {
+	if g.hijacked {
+		return 0, http.ErrHijacked
+	}
+	if g.bypass {
+		addVaryAcceptEncoding(g.Header())
+		return g.ResponseWriter.Write(data)
+	}
+	if !g.wroteHeader {
+		g.wroteHeader = true
+		g.statusCode = http.StatusOK
+	}
 	if g.decided {
 		if !g.compress {
 			return g.ResponseWriter.Write(data)
@@ -309,85 +409,62 @@ func (g *gzipResponseWriter) Write(data []byte) (int, error) {
 		g.ensureWriter()
 		return g.gz.Write(data)
 	}
-
-	if g.Header().Get("Content-Type") == "" {
-		g.Header().Set("Content-Type", http.DetectContentType(data))
+	if len(data) == 0 {
+		g.snapshotHeader()
+		return 0, nil
 	}
-
-	// Not compressible at all: decide now and stream straight through.
+	header := g.responseHeader()
+	if _, exists := header["Content-Type"]; !exists && !hasHeaderValue(header, "Content-Encoding") {
+		header.Set("Content-Type", http.DetectContentType(data))
+	}
 	if !g.eligible() {
-		g.decide()
+		g.decided = true
+		g.writeHeaderOnce()
 		return g.ResponseWriter.Write(data)
 	}
-
-	// Fast path: a single first write that already clears the size floor commits
-	// to compression and streams straight through, skipping the pending copy. This
-	// is the common case for writeJSON, which marshals the whole body and issues a
-	// single Write -- buffering it would memcpy the entire body into pending for no
-	// reason. Only valid when nothing is buffered yet; otherwise earlier chunks
-	// must be flushed in order via the buffering path below.
-	if !g.buffering && len(data) >= minGzipSize {
-		g.beginCompressed()
-		return g.gz.Write(data)
-	}
-
-	// Compressible: buffer until we cross the size floor (or the response ends
-	// via finish/Flush). This defers the compress/skip decision until the body is
-	// known to be worth compressing. We report the full length as written so the
-	// caller (and io.Copy) sees no short write.
-	g.buffering = true
-	g.pending = append(g.pending, data...)
-	if len(g.pending) >= minGzipSize {
+	// Preserve the large-first-Write fast path and avoid copying a large later
+	// write. Only the small prefix needs buffering for the size-floor decision.
+	if len(data) >= minGzipSize-len(g.pending) {
 		if err := g.commitCompressed(); err != nil {
 			return 0, err
 		}
+		return g.gz.Write(data)
 	}
+	g.snapshotHeader()
+	g.buffering = true
+	g.pending = append(g.pending, data...)
 	return len(data), nil
 }
 
 func (g *gzipResponseWriter) ReadFrom(reader io.Reader) (int64, error) {
-	// If a prior Write left bytes buffered, commit them (a ReadFrom stream implies
-	// a body large enough to compress) before streaming the rest.
-	if g.buffering {
-		if err := g.commitCompressed(); err != nil {
-			return 0, err
-		}
+	if g.hijacked {
+		return 0, http.ErrHijacked
 	}
-
-	if !g.decided && g.Header().Get("Content-Type") == "" {
-		// Route through Write (not io.Copy) so content-type sniffing and the
-		// buffering decision run. copyBuffered(g, …) cannot be used here: g
-		// implements io.ReaderFrom, so io.CopyBuffer would re-dispatch into this
-		// same ReadFrom and recurse indefinitely for any reader that does not
-		// implement io.WriterTo.
+	if g.bypass {
+		addVaryAcceptEncoding(g.Header())
+	} else if !g.decided {
+		// The reader interface says nothing about the eventual size. Route
+		// through Write until it makes the same decision as ordinary writes.
+		// In particular, EOF must not force gzip or commit an implicit 200.
 		return g.writeFrom(reader)
 	}
-
-	if !g.decided {
-		g.decide()
-	}
-
 	if !g.compress {
 		if rf, ok := g.ResponseWriter.(io.ReaderFrom); ok {
 			return rf.ReadFrom(reader)
 		}
 		return copyBuffered(g.ResponseWriter, reader)
 	}
-
 	g.ensureWriter()
 	return copyBuffered(g.gz, reader)
 }
 
-// writeFrom drains reader into g via Write using a pooled buffer. It exists so
-// ReadFrom can run the content-type-sniffing path without calling io.Copy,
-// which would re-enter ReadFrom (g is an io.ReaderFrom) and recurse forever for
-// readers lacking io.WriterTo. Write reports the full slice length on each call,
-// so the returned total matches the bytes consumed from reader.
+// writeFrom deliberately avoids io.CopyBuffer(g, reader): its ReaderFrom
+// dispatch would recurse. Preserve read errors after processing any returned
+// bytes, and detect a short nil-error write just as io.Copy does.
 func (g *gzipResponseWriter) writeFrom(reader io.Reader) (int64, error) {
 	bufPtr := copyBufPool.Get().(*[]byte)
 	defer copyBufPool.Put(bufPtr)
 	buf := *bufPtr
-
 	var total int64
 	for {
 		n, readErr := reader.Read(buf)
@@ -396,6 +473,9 @@ func (g *gzipResponseWriter) writeFrom(reader io.Reader) (int64, error) {
 			total += int64(written)
 			if writeErr != nil {
 				return total, writeErr
+			}
+			if written != n {
+				return total, io.ErrShortWrite
 			}
 		}
 		if readErr == io.EOF {
@@ -407,66 +487,131 @@ func (g *gzipResponseWriter) writeFrom(reader io.Reader) (int64, error) {
 	}
 }
 
-func (g *gzipResponseWriter) Flush() {
-	// An explicit flush means the handler wants bytes on the wire now, so a
-	// still-buffered eligible response commits to compression rather than waiting
-	// to cross the size floor.
-	if g.buffering {
-		_ = g.commitCompressed()
+func (g *gzipResponseWriter) Flush() { _ = g.FlushError() }
+
+func (g *gzipResponseWriter) FlushError() error {
+	if g.hijacked {
+		return http.ErrHijacked
+	}
+	if g.bypass {
+		addVaryAcceptEncoding(g.Header())
 	} else if !g.decided {
-		g.decide()
+		if len(g.pending) > 0 {
+			if err := g.commitCompressed(); err != nil {
+				return err
+			}
+		} else {
+			// A header-only flush commits identity. Do not advertise gzip with
+			// zero bytes and no writer to produce its framing on return.
+			g.decided = true
+			g.writeHeaderOnce()
+		}
 	}
 	if g.gz != nil {
-		_ = g.gz.Flush()
+		if err := g.gz.Flush(); err != nil {
+			return err
+		}
 	}
-	if flusher, ok := g.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
-	}
+	return http.NewResponseController(g.ResponseWriter).Flush()
 }
 
 func (g *gzipResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	hijacker, ok := g.ResponseWriter.(http.Hijacker)
-	if !ok {
+	if g.hijacked {
+		return nil, nil, http.ErrHijacked
+	}
+	// Check support before flushing any delayed response. Unwrap-aware callers
+	// must not lose hijacking just because another wrapper sits below us.
+	writer := g.ResponseWriter
+	var hijacker http.Hijacker
+	for {
+		if h, ok := writer.(http.Hijacker); ok {
+			hijacker = h
+			break
+		}
+		if w, ok := writer.(interface{ Unwrap() http.ResponseWriter }); ok {
+			writer = w.Unwrap()
+			continue
+		}
 		return nil, nil, http.ErrNotSupported
 	}
-	return hijacker.Hijack()
+	if !g.bypass && g.wroteHeader {
+		// Hand off all bytes already accepted by Write, including a complete
+		// gzip member. Do not synthesize a response when hijacking before Write.
+		if !g.decided {
+			if len(g.pending) > 0 {
+				if err := g.commitCompressed(); err != nil {
+					return nil, nil, err
+				}
+			} else {
+				g.decided = true
+				g.writeHeaderOnce()
+			}
+		}
+		if g.gz != nil {
+			if err := g.gz.Close(); err != nil {
+				g.gz = nil
+				return nil, nil, err
+			}
+			g.recycle()
+		}
+	}
+	conn, rw, err := hijacker.Hijack()
+	if err == nil {
+		g.hijacked = true
+	}
+	return conn, rw, err
 }
 
 func (g *gzipResponseWriter) Unwrap() http.ResponseWriter { return g.ResponseWriter }
+
+func (g *gzipResponseWriter) Push(target string, options *http.PushOptions) error {
+	if pusher, ok := g.ResponseWriter.(http.Pusher); ok {
+		return pusher.Push(target, options)
+	}
+	return http.ErrNotSupported
+}
+
+func (g *gzipResponseWriter) recycle() {
+	if g.gz != nil {
+		// Detach the response/request graph before putting the writer back in
+		// the pool. Reset also lets panic cleanup discard an unfinished stream
+		// without appending a misleading successful footer to a failed reply.
+		g.gz.Reset(io.Discard)
+		gzPool.Put(g.gz)
+		g.gz = nil
+	}
+}
 
 func (g *gzipResponseWriter) close() {
 	if g.gz == nil {
 		return
 	}
-	// Only return the writer to the pool when Close succeeds. A failed Close
-	// leaves the deflate stream in an undefined state; recycling it would
-	// silently corrupt the next response that borrows it.
 	if err := g.gz.Close(); err != nil {
 		slog.Error("gzip close failed", "err", err)
 		g.gz = nil
 		return
 	}
-	gzPool.Put(g.gz)
-	g.gz = nil
+	g.recycle()
 }
 
 func Gzip(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		addVaryValue(w.Header(), "Accept-Encoding")
-
-		if shouldBypassGzipRequest(r) || !acceptsGzip(r.Header.Get("Accept-Encoding")) {
-			next.ServeHTTP(w, r)
-			return
-		}
-
+		addVaryAcceptEncoding(w.Header())
 		grw := &gzipResponseWriter{
 			ResponseWriter: w,
 			statusCode:     http.StatusOK,
+			bypass:         shouldBypassGzipRequest(r) || !acceptsGzip(strings.Join(r.Header.Values("Accept-Encoding"), ",")),
 		}
-		defer grw.close()
-
+		returned := false
+		defer func() {
+			if returned {
+				grw.close()
+			} else {
+				grw.recycle()
+			}
+		}()
 		next.ServeHTTP(grw, r)
-
 		grw.finish()
+		returned = true
 	})
 }

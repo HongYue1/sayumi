@@ -51,8 +51,10 @@ icons, compiled resources, generated frontend output, and `.skills/` are exclude
 - [ ] `internal/api/library_test.go`
 - [ ] `internal/api/middleware.go`
 - [ ] `internal/api/middleware_test.go`
-- [ ] `internal/api/middleware/gzip.go`
-- [ ] `internal/api/middleware/gzip_test.go`
+- [x] `internal/api/middleware/gzip.go`
+- [x] `internal/api/middleware/gzip_bench_test.go`
+- [x] `internal/api/middleware/gzip_contract_test.go`
+- [x] `internal/api/middleware/gzip_test.go`
 - [ ] `internal/api/presets.go`
 - [ ] `internal/api/presets_test.go`
 - [ ] `internal/api/profilemgr.go`

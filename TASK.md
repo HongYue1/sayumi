@@ -10,7 +10,142 @@ Preserve the local-first design, existing API contracts, and pure-Go build.
 
 ## Current task
 
-**CP15 font embedding/scanning is complete and verified. Pause before CP16.**
+**CP16 gzip middleware review is complete and verified.**
+
+Base: `3dff609af3f3bf229dbe797be39783f4d20d2d9c` (completed CP15).
+This handoff accompanies one scoped local CP16 commit; use Git history for its hash.
+
+- Fully reviewed `internal/api/middleware/gzip.go` and `gzip_test.go`; added
+  `gzip_contract_test.go` and the frozen `gzip_bench_test.go`. Only these four Go
+  files plus `TASK.md`/`TRACKER.md` changed. Router, API helpers/handlers, frontend,
+  and completed font/EPUB/storage code were dependency context, not completed reviews.
+  No delegation, dependency/toolchain changes, amend, or push.
+- Parse all Accept-Encoding fields, validate HTTP quality syntax and ASCII coding
+  names, and make explicit gzip refusals override wildcard/duplicate acceptance.
+  Preserve the existing HEAD/range/upgrade, encoded-body, no-transform, binary, and
+  SSE bypass policies, including repeated headers and mixed-case MIME types.
+- Keep first-write/final-status semantics, informational responses, and deferred
+  header snapshots without leaking later ordinary-header mutations. Preserve Vary,
+  declared trailers and correctly framed late trailers. Weaken strong validators
+  for transformed output and conservatively for potentially compressed 304 metadata;
+  do not attach gzip bodies to forbidden/empty responses.
+- Apply the 1400-byte size floor to actual ReadFrom bytes. Keep the pending prefix
+  below the threshold instead of copying a large threshold-crossing chunk. Preserve
+  reader/short-write/flush errors and underlying ReaderFrom/ResponseController paths.
+  Handle hijack and panic lifecycles without a synthetic response or a successful
+  footer after an escaping panic; detach pooled writers from old destinations.
+- Inventory: **155 files, 102 done, 53 pending (45 API + 8 tooling)**. The overall
+  completion gate stays unchecked. This completes CP16 only, not the backend review.
+
+### CP16 verification
+
+- The original five tests passed before changes. `regression-before.log` preserves
+  confirmed failures in negotiation, streaming size decisions, status/header/Vary/
+  validator handling, bounded buffering, short writes, flushing and hijacking.
+  The original production source and benchmark executable were frozen before fixes.
+- Initial candidate tests passed; added 304 metadata controls exposed a further
+  validator gap, fixed before final verification. Earlier lint failures were fixed.
+  The first late-trailer test assumed automatic chunking: the retained native-server
+  probe showed the same loss without middleware. The test now explicitly selects
+  chunking, as required for this small-body late-trailer pattern. No standard-library
+  patch or skipped regression was used. Preserve all intermediate logs/profiles;
+  `coverage-verified.out`, not the earlier profiles, is the final result.
+- Final gofumpt/goimports checks were clean and scoped lint reported zero issues.
+  Twenty shuffled repetitions at each GOMAXPROCS 1/4 passed with CGO disabled
+  (**92.6% statement coverage**); the same repeated suite passed with `-race`.
+- A fresh 30-second `FuzzGzipNegotiation` run passed: **618,141 executions**, seven
+  initial seeds, 141 new interesting inputs (148 total), four workers. Unicode
+  casing is not assumed equivalent to ASCII HTTP token casing.
+- Fresh full `make check` passed all ten gates: formatting, tidy, vet, lint,
+  vulnerability scan, all seven Go packages with race/shuffle, frontend lint/types/
+  tests, and final frontend/pure-Go builds. The first gate reused existing embedded
+  frontend output; the final build gate rebuilt it. No old frontend test count is
+  being presented as a fresh count.
+
+### CP16 measurement and trade-offs
+
+Frozen executables, fixed harness, ten predeclared AB/BA pairs, twenty serial runs,
+200 ms per case at GOMAXPROCS 1/4: **320 observations, ten samples per version/case/CPU**.
+No overlapping test/build jobs, missing/duplicate cells, exclusions, or selective
+reruns. A separate raw-line parser reconciled every observation to `rows.csv`,
+checked ordering/hashes/environment, computed all 128 marginal medians, and kept paired
+changes separate. Its profile, summary and receipt are retained in `independent/`.
+A byte-verified summary copy and its 64 percentage changes were additionally checked
+on the analysis computer; the raw-data audit itself ran locally with a separate script.
+
+Host: Windows/amd64, Ryzen 7 5800H, Go 1.27.0, CGO=0, GOAMD64=v1, GOGC=100,
+GOMEMLIMIT=off; GODEBUG/GOEXPERIMENT empty. The synthetic 128-book JSON is 10,683
+bytes, SHA256 `832026bb8697dd8bf32e1849cf6e08cbb6048c03f45353fbb1b719e75de7ce2a`;
+small JSON is 23 bytes. Complete recorder responses are timed; warm-up/decoded-byte
+validation is outside timing. The separate verbose fixture probe recorded its hash;
+ordinary timed runs do not log the fixture hash individually.
+
+Marginal medians below are microseconds/op, before → after. P-values are unadjusted
+benchstat comparisons (P1/P4); `<0.001` is displayed as `0.000` by benchstat.
+
+| Case | GOMAXPROCS 1 | GOMAXPROCS 4 | Unadjusted p (1 / 4) |
+| --- | --- | --- | --- |
+| SmallWrite | 1.5130 → 2.6905 | 1.4735 → 2.6675 | <0.001 / <0.001 |
+| LargeWrite | 30.4145 → 30.6145 | 30.0905 → 30.8125 | 0.853 / 0.105 |
+| ChunkedWrite | 34.1230 → 32.9305 | 33.7385 → 33.1270 | 0.029 / 0.037 |
+| SmallReadFrom | 2.2390 → 3.0975 | 2.2485 → 2.9270 | <0.001 / <0.001 |
+| LargeReadFrom | 31.7890 → 31.0040 | 31.1620 → 31.8650 | 0.123 / 0.684 |
+| SniffReadFrom | 31.9135 → 31.9010 | 32.4500 → 32.1745 | 0.853 / 0.796 |
+| EmptyReadFrom | 2.1610 → 1.2910 | 2.2465 → 1.3785 | <0.001 / <0.001 |
+| NotAccepted | 6.2940 → 6.9955 | 5.9000 → 5.4875 | 0.218 / 0.853 |
+
+- Bounded chunking reduces allocated bytes by **63.00% / 62.95%**:
+  17,072.5 → 6,317.5 B/op at P1 and 17,132 → 6,347.5 at P4. Allocation count
+  increases 18 → 22; these are fewer allocated bytes, not fewer allocation events.
+  Timing medians improve 3.49% / 1.81%, but the sixteen timing comparisons are
+  unadjusted. Paired medians differ from marginal ratios; the P4 paired signs are
+  only six faster/four slower, so do not overstate the small timing change.
+- Correct deferred-header handling has a measured cost: SmallWrite takes about
+  1.18–1.19 µs more (+77.83%/+81.03%), 1,176 → 2,008 B/op, and 13 → 18 allocations.
+  SmallReadFrom is +38.34%/+30.18%, about 1,588 → 2,089 B/op, and 14 → 20 allocations.
+  These correctness costs are retained and disclosed, not described as optimizations.
+- SmallReadFrom body bytes fall 48 → 23; EmptyReadFrom 20 → 0. EmptyReadFrom is
+  38.64–40.26% faster and 14 → 12 allocations. Both change encoding work intentionally
+  to honor the size/empty-body policy, not a general compression-speed improvement.
+  Other body sizes are unchanged: large coded responses 1,326 bytes, unaccepted
+  response 10,683 bytes. `wire-B/op` counts recorded body bytes, not HTTP/network bytes.
+- NotAccepted adds 80 B/op and one allocation. LargeWrite/LargeReadFrom/SniffReadFrom
+  allocation counts are unchanged; their allocated-byte and timing comparisons are
+  inconclusive. All eight remaining timing comparisons, including noisy NotAccepted,
+  are inconclusive, not evidence of equivalence. Do not turn the mixed-workload
+  geomean into an application performance claim.
+
+This is an in-memory middleware microbenchmark, not API/router, browser, network,
+throughput, startup, cold-cache, or peak-memory evidence. GOMAXPROCS is not client
+concurrency or CPU affinity. The frozen eight-case harness does not time explicit
+WriteHeader workloads; the actual API writeJSON helper does use explicit status
+writes. Those semantics have contract tests, but their application cost was not
+measured. No app-wide speedup is claimed.
+
+### Protected CP16 evidence
+
+Directory: `.agents/benchmarks/checkpoint16/` (ignored). The seal covers **94 artifact
+files plus the manifest** and the frozen benchmark harness. Preserve the original/
+candidate executables, provenance, all twenty raw runs/receipts, plan, aggregate logs,
+benchstat output, regression/check/fuzz logs, intermediate failures, native trailer
+probe, audit script and `independent/{profile.json,summary.csv,audit-receipt.json}`.
+Do not rerun freeze/measure/seal modes or overwrite their outputs. Production and
+handoff hashes record history; they do not prohibit legitimate later checkpoints.
+
+- Manifest SHA256: `a285e4e20da559ce0536ad07e3c5d70120a80ab054aeef05d17f39c7d966755d`
+- Original executable: `461d7440926cab92d1cb4d0ac4fe7e1a245218310adf4cce6154122fc2c895fd`
+- Candidate executable: `2f8a0ba8b94ed8aba0be646d296b455f93b8dc4dc6d20bc6b69bdfc5cb0c8f6f`
+- Frozen harness: `398a6d21397d40f05410685f03bcfe1130e4eacac4d20a0ff05543a67c2634dc`
+
+Safe verification, which also checks all CP7–CP15/side-quest protections:
+
+```sh
+python .agents/benchmarks/checkpoint16/seal_cp16.py verify
+```
+
+### Retained CP15 outcome
+
+CP15 font embedding/scanning is complete and verified.
 
 Base commit: `bc9b2cd04e48d998bf12a234346161a70f0125a7`
 (`fix(reader): make font normalization resilient`, completed side quest).
@@ -501,12 +636,12 @@ or change the frozen harness, even if a later comparison is unfavorable.
 
 ### Next step
 
-Pause after the scoped CP15 commit and report. On the next explicit continuation,
-reassess one bounded API or tooling batch for CP16 from `TRACKER.md`. The fonts and
-EPUB inventories are complete; 47 API files and eight tooling files remain.
-Confirm the dependency boundary from actual files and Git state before editing.
-Do not repeat CP6-CP15, rerun the completed side quest, or count dependency reads
-as completed reviews. Preserve all protected artifacts, including CP15.
+Pause after the scoped CP16 commit and report. On the next explicit continuation,
+reassess one bounded API or tooling batch for CP17 from `TRACKER.md`; 45 API files
+and eight tooling files remain. Gzip middleware, fonts and EPUB inventories are
+complete. Confirm the dependency boundary from actual files and Git state before
+editing. Do not repeat CP6-CP16, rerun the completed side quest, or count dependency
+reads as completed reviews. Preserve all protected artifacts, including CP16.
 No delegation, push, amend, or unattended follow-on work.
 
 ### Protected CP9 benchmark artifacts

@@ -2,10 +2,16 @@ package middleware
 
 import (
 	"compress/gzip"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
+	"net/textproto"
+	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -89,8 +95,8 @@ func TestGzipSkipsWhenNotAccepted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read body: %v", err)
 	}
-	if len(got) != len(body) {
-		t.Errorf("body len = %d, want %d", len(got), len(body))
+	if string(got) != body {
+		t.Errorf("body mismatch (len got=%d want=%d)", len(got), len(body))
 	}
 }
 
@@ -169,6 +175,9 @@ func TestGzipEmptyCompressibleBodyIsNotDeclaredGzip(t *testing.T) {
 		handler.ServeHTTP(rec, req)
 
 		res := rec.Result()
+		if err := res.Body.Close(); err != nil {
+			t.Error(err)
+		}
 		if got := res.Header.Get("Content-Encoding"); got != "" {
 			t.Errorf("%s: Content-Encoding = %q with a %d-byte body, want none",
 				tc.name, got, rec.Body.Len())
@@ -179,5 +188,161 @@ func TestGzipEmptyCompressibleBodyIsNotDeclaredGzip(t *testing.T) {
 		if rec.Body.Len() != 0 {
 			t.Errorf("%s: body = %d bytes, want 0", tc.name, rec.Body.Len())
 		}
+	}
+}
+
+// TestGzipHTTPWireContract uses a real HTTP/1 connection: ResponseRecorder does
+// not implement informational responses, forbidden bodies, or chunked trailers.
+func TestGzipHTTPWireContract(t *testing.T) {
+	t.Parallel()
+	for _, size := range []int{17, minGzipSize + 37} {
+		t.Run(strconv.Itoa(size), func(t *testing.T) {
+			body := strings.Repeat("0123456789abcdef", (size+15)/16)[:size]
+			server := httptest.NewServer(Gzip(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Link", "</app.css>; rel=preload")
+				w.WriteHeader(http.StatusEarlyHints)
+				w.WriteHeader(http.StatusEarlyHints)
+				w.Header().Set("Content-Type", "text/plain")
+				w.Header().Set("Trailer", "X-Done")
+				w.Header().Set("X-Snapshot", "before")
+				w.WriteHeader(http.StatusAccepted)
+				w.Header().Set("X-Snapshot", "after")
+				if _, err := io.WriteString(w, body[:3]); err != nil {
+					t.Error(err)
+					return
+				}
+				if _, err := io.Copy(w, plainReader{r: strings.NewReader(body[3:])}); err != nil {
+					t.Error(err)
+					return
+				}
+				w.Header().Set("X-Done", "complete")
+				w.Header().Set(http.TrailerPrefix+"X-Late", "late")
+			})))
+			defer server.Close()
+			client := server.Client()
+			client.Timeout = 5 * time.Second
+			var mu sync.Mutex
+			var informational []int
+			trace := &httptrace.ClientTrace{Got1xxResponse: func(code int, _ textproto.MIMEHeader) error {
+				mu.Lock()
+				defer mu.Unlock()
+				informational = append(informational, code)
+				return nil
+			}}
+			ctx := httptrace.WithClientTrace(t.Context(), trace)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Accept-Encoding", "gzip") // Disable automatic client decoding.
+			res, err := client.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = res.Body.Close() }()
+			var reader io.Reader = res.Body
+			if res.Header.Get("Content-Encoding") == "gzip" {
+				gz, err := gzip.NewReader(reader)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer func() { _ = gz.Close() }()
+				reader = gz
+			}
+			got, err := io.ReadAll(reader)
+			if err != nil || string(got) != body {
+				t.Fatalf("wire body: bytes=%d err=%v", len(got), err)
+			}
+			mu.Lock()
+			codes := slices.Clone(informational)
+			mu.Unlock()
+			if !slices.Equal(codes, []int{103, 103}) || res.StatusCode != http.StatusAccepted {
+				t.Errorf("informational=%v final=%d", codes, res.StatusCode)
+			}
+			if res.Header.Get("X-Snapshot") != "before" {
+				t.Errorf("late header escaped: %v", res.Header)
+			}
+			if res.Trailer.Get("X-Done") != "complete" || res.Trailer.Get("X-Late") != "late" {
+				t.Errorf("trailers = %v", res.Trailer)
+			}
+			if got, want := res.Header.Get("Content-Encoding") == "gzip", size >= minGzipSize; got != want {
+				t.Errorf("gzip = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestGzipHTTPLateTrailer(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(Gzip(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		// Unknown trailer names require chunking to be selected before a small
+		// body is auto-sized by net/http; this is also true without middleware.
+		w.Header().Set("Transfer-Encoding", "chunked")
+		if _, err := io.WriteString(w, "small body"); err != nil {
+			t.Error(err)
+			return
+		}
+		w.Header().Set(http.TrailerPrefix+"X-Late", "complete")
+	})))
+	defer server.Close()
+	client := server.Client()
+	client.Timeout = 5 * time.Second
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Accept-Encoding", "gzip")
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	body, err := io.ReadAll(res.Body)
+	if err != nil || string(body) != "small body" || res.Header.Get("Content-Encoding") != "" {
+		t.Fatalf("small response: body=%q err=%v", body, err)
+	}
+	if res.Trailer.Get("X-Late") != "complete" {
+		t.Errorf("late trailer lost: %v", res.Trailer)
+	}
+}
+
+func TestGzipHTTPForbiddenBodies(t *testing.T) {
+	t.Parallel()
+	for _, status := range []int{http.StatusNoContent, http.StatusNotModified} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			writeResult := make(chan error, 1)
+			server := httptest.NewServer(Gzip(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "text/plain")
+				w.WriteHeader(status)
+				_, err := io.WriteString(w, strings.Repeat("x", minGzipSize))
+				writeResult <- err
+			})))
+			defer server.Close()
+			client := server.Client()
+			client.Timeout = 5 * time.Second
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Accept-Encoding", "gzip")
+			res, err := client.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = res.Body.Close() }()
+			body, err := io.ReadAll(res.Body)
+			if err != nil || len(body) != 0 || res.StatusCode != status || res.Header.Get("Content-Encoding") != "" {
+				t.Errorf("forbidden body: status=%d bytes=%d encoding=%q err=%v", res.StatusCode, len(body), res.Header.Get("Content-Encoding"), err)
+			}
+			select {
+			case err := <-writeResult:
+				if !errors.Is(err, http.ErrBodyNotAllowed) {
+					t.Errorf("Write = %v, want ErrBodyNotAllowed", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("handler did not report its Write result")
+			}
+		})
 	}
 }
