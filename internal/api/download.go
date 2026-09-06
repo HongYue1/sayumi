@@ -66,9 +66,18 @@ func downloadBookHandler(_ *Dependencies) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "private, no-cache")
 		if etag := downloadResponseETag(book.FileHash); etag != "" {
 			w.Header().Set("ETag", etag)
-			if ifNoneMatchMatches(r, etag) {
-				w.WriteHeader(http.StatusNotModified)
-				return
+		}
+
+		// ServeContent evaluates If-Match before If-None-Match; an early 304
+		// here would incorrectly bypass a failed If-Match precondition. It reads
+		// only the first header field, so combine repeated entity-tag lists on a
+		// private request copy rather than losing matches on later field lines.
+		if len(r.Header.Values("If-Match")) > 1 || len(r.Header.Values("If-None-Match")) > 1 {
+			r = r.Clone(r.Context())
+			for _, key := range []string{"If-Match", "If-None-Match"} {
+				if values := r.Header.Values(key); len(values) > 1 {
+					r.Header.Set(key, strings.Join(values, ", "))
+				}
 			}
 		}
 
