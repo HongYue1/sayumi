@@ -1,4 +1,4 @@
-# Next task: CP20
+# Next task: CP21
 
 **Status: not started.** Complete exactly one bounded pending API or tooling review
 checkpoint, then stop. Select the batch after inspecting its actual dependencies.
@@ -71,7 +71,7 @@ its retained SHA-256 anchor is
 If verification fails, stop and investigate without modifying protected evidence.
 Legacy drivers and their historical handoffs remain in evidence/Git, not this task.
 
-## Finish CP20
+## Finish CP21
 
 1. Complete the bounded review and required regressions. Run focused checks and a
    fresh full `make check` on final sources, then the protection check above.
@@ -82,8 +82,8 @@ Legacy drivers and their historical handoffs remain in evidence/Git, not this ta
    not check-run history in the tracker.
 3. Replace this task with the next bounded task, leaving it explicitly not started.
    If blocked instead, retain only the active scope, blocker, and next action.
-   Do not append a completed-CP20 report; Git records the completed work.
+   Do not append a completed-CP21 report; Git records the completed work.
 4. Verify the exact staged paths and contents; make one conventional scoped local
    commit containing only reviewed changes. Report its hash, findings, checks,
    limitations, and remaining inventory in chat. No amend or push.
-5. Stop after CP20. Wait for explicit continuation; do not start CP21 automatically.
+5. Stop after CP21. Wait for explicit continuation; do not start CP22 automatically.

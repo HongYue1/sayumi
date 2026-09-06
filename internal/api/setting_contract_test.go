@@ -674,7 +674,7 @@ func TestSettingsHandlerProfileIsolation(t *testing.T) {
 				t.Fatal(err)
 			}
 			r := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/settings?profile=other&userID=other", strings.NewReader(string(body)))
-			r.Header.Set("X-User-ID", "other")
+			r.Header.Set("X-User-Id", "other")
 			w := httptest.NewRecorder()
 			put(w, withProfileDeps(r, p.pd))
 			assertSettingsResponse(t, w, http.StatusOK, want)
