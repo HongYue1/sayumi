@@ -27,15 +27,41 @@ func ifNoneMatchMatches(r *http.Request, etag string) bool {
 		return false
 	}
 
-	for _, fieldValue := range r.Header.Values("If-None-Match") {
-		for part := range strings.SplitSeq(fieldValue, ",") {
-			candidate := strings.TrimSpace(part)
-			if candidate == "" {
-				continue
+	return entityTagListMatches(r.Header.Values("If-None-Match"), etag, true)
+}
+
+// Entity tags are quoted opaque values: a comma inside one is not a list
+// separator, and a quoted "other,*,value" must never act as a wildcard. Keep
+// quoted contents opaque, including spaces in existing book/cover timestamp
+// validators; changing their wire format is separate from parsing the list.
+// etag is a strong server validator; allowWeak permits weak client validators.
+func entityTagListMatches(values []string, etag string, allowWeak bool) bool {
+	for _, field := range values {
+		for {
+			field = strings.TrimLeft(field, " \t,")
+			if field == "" {
+				break
 			}
-			if candidate == "*" || candidate == etag || candidate == "W/"+etag {
+			if field[0] == '*' {
+				candidate, _, _ := strings.Cut(field, ",")
+				return strings.TrimRight(candidate, " \t") == "*"
+			}
+			candidate, weak := strings.CutPrefix(field, "W/")
+			if !strings.HasPrefix(candidate, `"`) {
+				return false
+			}
+			opaque, rest, closed := strings.Cut(candidate[1:], `"`)
+			if !closed {
+				return false
+			}
+			rest = strings.TrimLeft(rest, " \t")
+			if rest != "" && rest[0] != ',' {
+				return false
+			}
+			if candidate[:len(opaque)+2] == etag && (allowWeak || !weak) {
 				return true
 			}
+			field = rest
 		}
 	}
 	return false
@@ -94,6 +120,12 @@ func getChapterHandler(_ *Dependencies) http.HandlerFunc {
 		// so a cache holding the error can be given a 304 for it and keep
 		// rendering the error in place of the chapter.
 		etag := chapterResponseETag(book.FileHash, chapterIndex)
+		// If-Match uses strong comparison and precedes If-None-Match. A stale
+		// or weak validator must fail rather than being hidden by an early 304.
+		if values := r.Header.Values("If-Match"); len(values) > 0 && !entityTagListMatches(values, etag, false) {
+			writeError(w, http.StatusPreconditionFailed, "precondition_failed", "chapter precondition failed")
+			return
+		}
 		if etag != "" && ifNoneMatchMatches(r, etag) {
 			w.Header().Set("ETag", etag)
 			w.WriteHeader(http.StatusNotModified)
