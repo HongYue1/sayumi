@@ -141,6 +141,12 @@ func createBookmarkHandler(_ *Dependencies) http.HandlerFunc {
 		}
 
 		if err := pd.DB.InsertBookmarkContext(r.Context(), record); err != nil {
+			// A deletion can win after the cached existence check. The book
+			// reference is the only foreign key on bookmarks, so this is a 404.
+			if isForeignKeyConstraint(err) {
+				writeError(w, http.StatusNotFound, "not_found", "book not found")
+				return
+			}
 			slog.Error("create bookmark failed", "book", bookID, "err", err)
 			writeError(w, http.StatusInternalServerError, "db_error", "failed to create bookmark")
 			return

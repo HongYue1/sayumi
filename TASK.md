@@ -1,8 +1,8 @@
-# Next task: CP23
+# Current task: CP24
 
-**Status: not started.** Complete exactly one small, coherent review batch from
-the pending API or tooling inventory in `TRACKER.md`, then stop. Select its exact
-files only after inspecting dependency boundaries; do not repeat completed work.
+**Status: not started.** On explicit continuation, choose one small, coherent
+batch from the pending inventory in `TRACKER.md`. Inspect dependency boundaries,
+record the active scope here, and complete one bounded checkpoint, then stop.
 
 This file holds the active task, or the next task once the active one is complete.
 `TRACKER.md` holds file status. Git is the changelog: do not retain completed-task
@@ -72,7 +72,7 @@ its retained SHA-256 anchor is
 If verification fails, stop and investigate without modifying protected evidence.
 Legacy drivers and their historical handoffs remain in evidence/Git, not this task.
 
-## Finish CP23
+## Finish CP24
 
 1. Complete the bounded review and required regressions. Run focused checks and a
    fresh full `make check` on final sources, then the protection check above.
@@ -83,8 +83,8 @@ Legacy drivers and their historical handoffs remain in evidence/Git, not this ta
    not check-run history in the tracker.
 3. Replace this task with the next bounded task, leaving it explicitly not started.
    If blocked instead, retain only the active scope, blocker, and next action.
-   Do not append a completed-CP23 report; Git records the completed work.
+   Do not append a completed-CP24 report; Git records the completed work.
 4. Verify the exact staged paths and contents; make one conventional scoped local
    commit containing only reviewed changes. Report its hash, findings, checks,
    limitations, and remaining inventory in chat. No amend or push.
-5. Stop after CP23. Wait for explicit continuation; do not start CP24 automatically.
+5. Stop after CP24. Wait for explicit continuation; do not start CP25 automatically.
