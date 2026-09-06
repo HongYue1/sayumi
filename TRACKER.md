@@ -1,6 +1,6 @@
 # Backend review tracker
 
-**128/161 files reviewed; 33 pending (25 API + 8 tooling).**
+**130/161 files reviewed; 31 pending (23 API + 8 tooling).**
 
 Scope: Go source, tests, and backend build/tooling configuration. Embedded fonts,
 icons, compiled resources, generated frontend output, and `.skills/` are excluded.
@@ -78,8 +78,8 @@ Current task and completion requirements: `TASK.md`. Change history: Git.
 - [ ] `internal/api/upload.go`
 - [ ] `internal/api/upload_handler_test.go`
 - [ ] `internal/api/upload_test.go`
-- [ ] `internal/api/version.go`
-- [ ] `internal/api/version_test.go`
+- [x] `internal/api/version.go`
+- [x] `internal/api/version_test.go`
 
 ## EPUB processing
 
