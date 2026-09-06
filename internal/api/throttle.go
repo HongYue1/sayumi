@@ -50,7 +50,8 @@ func newLoginThrottle() *loginThrottle {
 // beginAttempt atomically admits one login attempt for key. Only one bcrypt
 // comparison per (profile, client) may be in flight, so a parallel burst cannot
 // pass the failure threshold before any result has been recorded. A zero
-// duration means the caller owns the reservation and must call releaseAttempt.
+// duration means the caller owns the reservation; it may record one result and
+// must call releaseAttempt exactly once after finishing.
 func (t *loginThrottle) beginAttempt(key loginThrottleKey) time.Duration {
 	now := time.Now()
 	t.mu.Lock()
@@ -111,7 +112,7 @@ func (t *loginThrottle) recordFailure(key loginThrottleKey) {
 		return
 	}
 	// Decay: start a fresh counting window once the previous one has elapsed.
-	if now.Sub(e.windowStart) > loginWindow {
+	if now.Sub(e.windowStart) >= loginWindow {
 		e.failures = 0
 		e.windowStart = now
 	}
@@ -122,10 +123,15 @@ func (t *loginThrottle) recordFailure(key loginThrottleKey) {
 	}
 }
 
-// recordSuccess clears any throttle state for key after a successful login.
+// recordSuccess clears failure history without giving up the caller's
+// reservation. Deleting it here would allow a new admission before the old
+// caller's deferred releaseAttempt, which would then release the new owner.
 func (t *loginThrottle) recordSuccess(key loginThrottleKey) {
 	t.mu.Lock()
-	t.deleteEntryLocked(key)
+	if e, ok := t.entries[key]; ok {
+		e.failures = 0
+		e.lockedUntil = time.Time{}
+	}
 	t.mu.Unlock()
 }
 
@@ -143,7 +149,7 @@ func (t *loginThrottle) pruneLocked(now time.Time) {
 		if e.inFlight || now.Before(e.lockedUntil) {
 			continue
 		}
-		if now.Sub(e.lastSeen) > loginWindow {
+		if now.Sub(e.lastSeen) >= loginWindow {
 			t.deleteEntryLocked(key)
 		}
 	}

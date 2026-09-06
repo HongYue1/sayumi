@@ -10,117 +10,108 @@ Preserve the local-first design, existing API contracts, and pure-Go build.
 
 ## Current task
 
-**CP16 gzip middleware review is complete and verified.**
+**CP17 login-throttle review is complete and verified.**
 
-Base: `3dff609af3f3bf229dbe797be39783f4d20d2d9c` (completed CP15).
-This handoff accompanies one scoped local CP16 commit; use Git history for its hash.
+Base: `561a42d4d52d086802358953ef393775ab13023a` (completed CP16).
+This handoff accompanies one scoped local CP17 commit; use Git history for its hash.
 
-- Fully reviewed `internal/api/middleware/gzip.go` and `gzip_test.go`; added
-  `gzip_contract_test.go` and the frozen `gzip_bench_test.go`. Only these four Go
-  files plus `TASK.md`/`TRACKER.md` changed. Router, API helpers/handlers, frontend,
-  and completed font/EPUB/storage code were dependency context, not completed reviews.
-  No delegation, dependency/toolchain changes, amend, or push.
-- Parse all Accept-Encoding fields, validate HTTP quality syntax and ASCII coding
-  names, and make explicit gzip refusals override wildcard/duplicate acceptance.
-  Preserve the existing HEAD/range/upgrade, encoded-body, no-transform, binary, and
-  SSE bypass policies, including repeated headers and mixed-case MIME types.
-- Keep first-write/final-status semantics, informational responses, and deferred
-  header snapshots without leaking later ordinary-header mutations. Preserve Vary,
-  declared trailers and correctly framed late trailers. Weaken strong validators
-  for transformed output and conservatively for potentially compressed 304 metadata;
-  do not attach gzip bodies to forbidden/empty responses.
-- Apply the 1400-byte size floor to actual ReadFrom bytes. Keep the pending prefix
-  below the threshold instead of copying a large threshold-crossing chunk. Preserve
-  reader/short-write/flush errors and underlying ReaderFrom/ResponseController paths.
-  Handle hijack and panic lifecycles without a synthetic response or a successful
-  footer after an escaping panic; detach pooled writers from old destinations.
-- Inventory: **155 files, 102 done, 53 pending (45 API + 8 tooling)**. The overall
-  completion gate stays unchecked. This completes CP16 only, not the backend review.
+- Fully reviewed `internal/api/throttle.go` and `throttle_test.go`; the original
+  tests remain unchanged. Added `throttle_contract_test.go` and the frozen
+  `throttle_bench_test.go`. Only these three changed/new Go files plus `TASK.md`/
+  `TRACKER.md` changed. Auth, router, profile-manager and storage reads were dependency
+  context, not completed API reviews. No frontend, dependency or toolchain changes.
+- A successful login now clears failure/lockout history without deleting the active
+  reservation. Only the owning caller's deferred release removes it. This prevents
+  an old successful request from releasing a newer request's reservation.
+- Failure windows reset, and idle entries become reclaimable, at exactly one elapsed
+  window. In-flight reservations and active lockouts remain protected from sweeping.
+  Preserve direct-peer/profile isolation, admission limits, and the existing HTTP
+  429/Retry-After contract. No dead-code removal or speculative optimization.
+- Inventory: **157 files, 106 done, 51 pending (43 API + 8 tooling)**. The overall
+  completion gate stays unchecked. This completes CP17 only, not the backend review.
 
-### CP16 verification
+### CP17 verification
 
-- The original five tests passed before changes. `regression-before.log` preserves
-  confirmed failures in negotiation, streaming size decisions, status/header/Vary/
-  validator handling, bounded buffering, short writes, flushing and hijacking.
-  The original production source and benchmark executable were frozen before fixes.
-- Initial candidate tests passed; added 304 metadata controls exposed a further
-  validator gap, fixed before final verification. Earlier lint failures were fixed.
-  The first late-trailer test assumed automatic chunking: the retained native-server
-  probe showed the same loss without middleware. The test now explicitly selects
-  chunking, as required for this small-body late-trailer pattern. No standard-library
-  patch or skipped regression was used. Preserve all intermediate logs/profiles;
-  `coverage-verified.out`, not the earlier profiles, is the final result.
-- Final gofumpt/goimports checks were clean and scoped lint reported zero issues.
-  Twenty shuffled repetitions at each GOMAXPROCS 1/4 passed with CGO disabled
-  (**92.6% statement coverage**); the same repeated suite passed with `-race`.
-- A fresh 30-second `FuzzGzipNegotiation` run passed: **618,141 executions**, seven
-  initial seeds, 141 new interesting inputs (148 total), four workers. Unicode
-  casing is not assumed equivalent to ASCII HTTP token casing.
-- Fresh full `make check` passed all ten gates: formatting, tidy, vet, lint,
+- All seven original top-level tests passed before production edits. The new tests
+  reproduced lost successful reservations and exact failure-window/idle-reclamation
+  boundary errors on the unchanged original; `regression-before.log` retains them.
+  Original source and executable were frozen before fixes. No skipped regression,
+  weakened assertion or replacement baseline was used.
+- All 17 top-level throttle/key/validation tests and three lifecycle fuzz seeds pass.
+  Twenty-five shuffled repetitions at each GOMAXPROCS 1/4 passed with CGO disabled;
+  ten repetitions at each setting also passed with `-race`. Boundary tests use
+  synctest fake time; the parallel-admission test joins every contender and sweeper.
+- Scoped coverage is **74/75 statements (98.7%) in throttle.go**, not the API package.
+  The uncovered statement is the defensive missing-entry return in
+  `deleteEntryLocked`; supported public lifecycle paths are exercised without
+  inventing an invalid completion sequence just to inflate coverage.
+- A fresh bounded 20-second `FuzzLoginThrottleLifecycle` run passed with four workers:
+  **85,496 executions**, three initial seeds, 45 new interesting inputs (48 total).
+  Inputs are capped at 256 actions and result/release calls require a held reservation.
+- Fresh full `make check` passed all ten gates: tidy, formatting, vet, lint,
   vulnerability scan, all seven Go packages with race/shuffle, frontend lint/types/
-  tests, and final frontend/pure-Go builds. The first gate reused existing embedded
-  frontend output; the final build gate rebuilt it. No old frontend test count is
-  being presented as a fresh count.
+  tests, and frontend/pure-Go builds. Preflight reused existing embedded frontend
+  output; the final gate rebuilt it. No old frontend test count is claimed as fresh.
+- All earlier protected CP7-CP16 and side-quest artifacts/harnesses were verified
+  unchanged before sealing CP17. No delegation, amend, push, or unattended follow-on.
 
-### CP16 measurement and trade-offs
+### CP17 measurement and trade-offs
 
-Frozen executables, fixed harness, ten predeclared AB/BA pairs, twenty serial runs,
-200 ms per case at GOMAXPROCS 1/4: **320 observations, ten samples per version/case/CPU**.
-No overlapping test/build jobs, missing/duplicate cells, exclusions, or selective
-reruns. A separate raw-line parser reconciled every observation to `rows.csv`,
-checked ordering/hashes/environment, computed all 128 marginal medians, and kept paired
-changes separate. Its profile, summary and receipt are retained in `independent/`.
-A byte-verified summary copy and its 64 percentage changes were additionally checked
-on the analysis computer; the raw-data audit itself ran locally with a separate script.
+Two frozen executables, identical six-case harness, ten predeclared alternating
+AB/BA pairs, twenty serial runs, 200 ms per case at GOMAXPROCS 1/4: **240 observations,
+ten per version/case/CPU**. No overlapping tests/builds, exclusions, missing cells,
+duplicate cells, or selective reruns. One-iteration smoke probes are not samples.
+The analysis computer independently parsed all raw lines, reconciled every sample
+and receipt/hash/order, and checked all 72 marginal medians with stdlib statistics
+and percentage arithmetic with Decimal. Preserve the `independent-*` audit files.
 
 Host: Windows/amd64, Ryzen 7 5800H, Go 1.27.0, CGO=0, GOAMD64=v1, GOGC=100,
-GOMEMLIMIT=off; GODEBUG/GOEXPERIMENT empty. The synthetic 128-book JSON is 10,683
-bytes, SHA256 `832026bb8697dd8bf32e1849cf6e08cbb6048c03f45353fbb1b719e75de7ce2a`;
-small JSON is 23 bytes. Complete recorder responses are timed; warm-up/decoded-byte
-validation is outside timing. The separate verbose fixture probe recorded its hash;
-ordinary timed runs do not log the fixture hash individually.
+GOMEMLIMIT=off; GODEBUG/GOEXPERIMENT/GOFLAGS empty. Setup is outside b.Loop;
+admitted cycles include releaseAttempt. These are serial in-memory operations,
+not HTTP, bcrypt, SQLite, network, concurrent-client throughput or peak-memory
+measurements. GOMAXPROCS is not client concurrency or CPU affinity.
 
-Marginal medians below are microseconds/op, before → after. P-values are unadjusted
-benchstat comparisons (P1/P4); `<0.001` is displayed as `0.000` by benchstat.
+Marginal medians below are **nanoseconds/op**, before → after.
 
-| Case | GOMAXPROCS 1 | GOMAXPROCS 4 | Unadjusted p (1 / 4) |
-| --- | --- | --- | --- |
-| SmallWrite | 1.5130 → 2.6905 | 1.4735 → 2.6675 | <0.001 / <0.001 |
-| LargeWrite | 30.4145 → 30.6145 | 30.0905 → 30.8125 | 0.853 / 0.105 |
-| ChunkedWrite | 34.1230 → 32.9305 | 33.7385 → 33.1270 | 0.029 / 0.037 |
-| SmallReadFrom | 2.2390 → 3.0975 | 2.2485 → 2.9270 | <0.001 / <0.001 |
-| LargeReadFrom | 31.7890 → 31.0040 | 31.1620 → 31.8650 | 0.123 / 0.684 |
-| SniffReadFrom | 31.9135 → 31.9010 | 32.4500 → 32.1745 | 0.853 / 0.796 |
-| EmptyReadFrom | 2.1610 → 1.2910 | 2.2465 → 1.3785 | <0.001 / <0.001 |
-| NotAccepted | 6.2940 → 6.9955 | 5.9000 → 5.4875 | 0.218 / 0.853 |
+| Case | GOMAXPROCS 1 | GOMAXPROCS 4 |
+| --- | --- | --- |
+| Success | 256.95 → 314.25 | 256.35 → 317.75 |
+| FailureThenSuccess | 385.35 → 435.65 | 384.15 → 432.60 |
+| InternalError | 276.10 → 274.95 | 284.15 → 272.45 |
+| InFlight | 51.675 → 52.495 | 52.185 → 51.950 |
+| Locked | 37.59 → 38.52 | 38.00 → 38.56 |
+| Full | 91,732 → 94,350.5 | 92,545 → 94,333 |
 
-- Bounded chunking reduces allocated bytes by **63.00% / 62.95%**:
-  17,072.5 → 6,317.5 B/op at P1 and 17,132 → 6,347.5 at P4. Allocation count
-  increases 18 → 22; these are fewer allocated bytes, not fewer allocation events.
-  Timing medians improve 3.49% / 1.81%, but the sixteen timing comparisons are
-  unadjusted. Paired medians differ from marginal ratios; the P4 paired signs are
-  only six faster/four slower, so do not overstate the small timing change.
-- Correct deferred-header handling has a measured cost: SmallWrite takes about
-  1.18–1.19 µs more (+77.83%/+81.03%), 1,176 → 2,008 B/op, and 13 → 18 allocations.
-  SmallReadFrom is +38.34%/+30.18%, about 1,588 → 2,089 B/op, and 14 → 20 allocations.
-  These correctness costs are retained and disclosed, not described as optimizations.
-- SmallReadFrom body bytes fall 48 → 23; EmptyReadFrom 20 → 0. EmptyReadFrom is
-  38.64–40.26% faster and 14 → 12 allocations. Both change encoding work intentionally
-  to honor the size/empty-body policy, not a general compression-speed improvement.
-  Other body sizes are unchanged: large coded responses 1,326 bytes, unaccepted
-  response 10,683 bytes. `wire-B/op` counts recorded body bytes, not HTTP/network bytes.
-- NotAccepted adds 80 B/op and one allocation. LargeWrite/LargeReadFrom/SniffReadFrom
-  allocation counts are unchanged; their allocated-byte and timing comparisons are
-  inconclusive. All eight remaining timing comparisons, including noisy NotAccepted,
-  are inconclusive, not evidence of equivalence. Do not turn the mixed-workload
-  geomean into an application performance claim.
+- Retaining the reservation costs **57.30/61.40 ns** per successful cycle
+  (+22.30%/+23.95%) and **50.30/48.45 ns** per failure-then-success cycle
+  (+13.05%/+12.61%). All four unadjusted benchstat comparisons have p<0.001.
+  These correctness costs are retained, not described as optimizations.
+- Allocated bytes/counts are unchanged in every sample: 96 B/op and one allocation
+  for the three admitted-cycle cases; zero for the three rejection cases.
+- P4 InternalError is 11.70 ns lower (-4.12%, unadjusted p=0.015), but that path's
+  logic did not change; no optimization claim is made. The seven other timing
+  comparisons are inconclusive, not evidence of equivalence. Paired percentages
+  remain separate from ratios of marginal medians. No app-wide performance claim.
 
-This is an in-memory middleware microbenchmark, not API/router, browser, network,
-throughput, startup, cold-cache, or peak-memory evidence. GOMAXPROCS is not client
-concurrency or CPU affinity. The frozen eight-case harness does not time explicit
-WriteHeader workloads; the actual API writeJSON helper does use explicit status
-writes. Those semantics have contract tests, but their application cost was not
-measured. No app-wide speedup is claimed.
+### Protected CP17 evidence
+
+Directory: `.agents/benchmarks/checkpoint17/` (ignored). The seal covers **83 artifact
+files plus the manifest** and the frozen throttle benchmark harness. Preserve both
+executables, original source, provenance, plan, all raw runs/receipts, aggregate logs,
+benchstat, regression/check/coverage/fuzz evidence, and independent audit files.
+Never rerun freeze/measure/seal modes or overwrite their outputs. Production hashes
+record historical provenance and do not prohibit legitimate later checkpoints.
+
+- Manifest SHA256: `839e49274af3456fbbec9bfb1a73d118731e3d98129828413d5357b7dc9bc797`
+- Original executable: `91068c785230a4dfa618c1bb4ca27a4c2cf58fa22ddd056350b25ec35748c318`
+- Candidate executable: `f2e01dd20e24138ba3a97d799d1f056f792bc88b8d81b45adf648c4540e56b88`
+- Frozen harness: `76c5cc5595a914eb98eb39a36883ee23379d280bcea1d453a32aa05493b9add0`
+
+Safe read-only verification, including prior protected evidence:
+
+```sh
+python .agents/benchmarks/checkpoint17/checkpoint.py verify
+```
 
 ### Protected CP16 evidence
 
@@ -636,12 +627,13 @@ or change the frozen harness, even if a later comparison is unfavorable.
 
 ### Next step
 
-Pause after the scoped CP16 commit and report. On the next explicit continuation,
-reassess one bounded API or tooling batch for CP17 from `TRACKER.md`; 45 API files
-and eight tooling files remain. Gzip middleware, fonts and EPUB inventories are
-complete. Confirm the dependency boundary from actual files and Git state before
-editing. Do not repeat CP6-CP16, rerun the completed side quest, or count dependency
-reads as completed reviews. Preserve all protected artifacts, including CP16.
+Pause after the scoped CP17 commit and report. On the next explicit continuation,
+reassess one bounded API or tooling batch for CP18 from `TRACKER.md`; 43 API files
+and eight tooling files remain. Login throttle, gzip middleware, fonts and EPUB
+inventories are complete. Auth and router remain pending. Confirm the dependency
+boundary from actual files and Git state before editing. Do not repeat CP6-CP17,
+rerun the completed side quest, or count dependency reads as completed reviews.
+Preserve all protected artifacts, including CP17.
 No delegation, push, amend, or unattended follow-on work.
 
 ### Protected CP9 benchmark artifacts
