@@ -55,11 +55,11 @@ type fontRoleEntry struct {
 	BoldItalic string `json:"boldItalic,omitempty"`
 }
 
-// recordToJSON converts a SettingsRecord (which may have NULL columns for a
-// fresh profile) into the JSON shape sent to the client. The literal values
-// below are the application defaults returned when no row exists yet.
-// NOTE: these defaults must stay in sync with DEFAULT_USER_SETTINGS in the
-// client settings store (frontend/src/lib/settings.ts).
+// recordToJSON converts a stored SettingsRecord into the client's JSON shape,
+// preserving Auto (NULL) for optional fields except the legacy margin fallback.
+// getSettingsHandler adds the four non-Auto defaults only when no row exists.
+// Those fresh-profile defaults and the fallbacks here must stay in sync with
+// DEFAULT_USER_SETTINGS in frontend/src/lib/settings.ts.
 func recordToJSON(s storage.SettingsRecord) settingsJSON {
 	j := settingsJSON{
 		FontSize:       30,
@@ -73,7 +73,7 @@ func recordToJSON(s storage.SettingsRecord) settingsJSON {
 		FontRoles:      map[string]fontRoleEntry{},
 	}
 
-	// Set non-zero nullable defaults for fresh profiles.
+	// Set legacy 48px margins for missing rows and stored NULL columns.
 	marginVal := 48
 	j.MarginTop = &marginVal
 	j.MarginBottom = &marginVal
@@ -109,7 +109,7 @@ func recordToJSON(s storage.SettingsRecord) settingsJSON {
 	j.TextIndent = nullFloat64ToPtr(s.TextIndent)
 	j.LetterSpacing = nullFloat64ToPtr(s.LetterSpacing)
 	j.ContentWidth = nullInt64ToIntPtr(s.ContentWidth)
-	// Only override the fresh-profile defaults above when a value is actually
+	// Only override the legacy margin fallbacks above when a value is actually
 	// stored; a NULL column (no row yet, or a row saved without margins) must
 	// keep the 48px default rather than collapsing to null.
 	if v := nullInt64ToIntPtr(s.MarginTop); v != nil {
@@ -254,7 +254,7 @@ func validateSettings(j *settingsJSON) (string, bool) {
 		return "fontFamily must be 1-128 bytes", false
 	}
 	if j.Theme == "" || len(j.Theme) > 32 {
-		return "theme must be 1-32 characters", false
+		return "theme must be 1-32 bytes", false
 	}
 	if j.DisplayMode != "scroll" && j.DisplayMode != "paged" && j.DisplayMode != "paged-two" {
 		return "displayMode must be scroll, paged, or paged-two", false
@@ -314,7 +314,7 @@ func validateSettings(j *settingsJSON) (string, bool) {
 	}
 	for id, e := range j.FontRoles {
 		if len(id) > maxFontFamilyIDBytes {
-			return "font family id too long", false
+			return "font family id must be at most 128 bytes", false
 		}
 		for _, file := range []string{e.Regular, e.Italic, e.Bold, e.BoldItalic} {
 			if len(file) > 256 || strings.ContainsAny(file, "/\\") || strings.Contains(file, "..") {

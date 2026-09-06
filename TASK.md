@@ -10,110 +10,64 @@ Preserve the local-first design, existing API contracts, and pure-Go build.
 
 ## Current task
 
-**CP18 JSON/profile-context helper review is complete and verified.**
+**CP19 settings API review is complete and verified.**
 
-Base: `a4d752d193e760af0f3467afaf105dfbf109c42b` (completed CP17).
-This handoff accompanies one scoped local CP18 commit; use Git history for its hash.
+Base: `dca264d0dc5eddb38ccf86d88752de8b08ba6dce` (completed CP18).
+This handoff accompanies one scoped local CP19 commit; use Git history for its hash.
 
-- Fully reviewed `internal/api/context.go`, `middleware.go`, and `middleware_test.go`.
-  The original trailing-content test function remains unchanged; its file now has
-  additional contract coverage. Added `context_test.go` and the frozen
-  `middleware_bench_test.go`. Only these four changed/new Go files plus `TASK.md`/
-  `TRACKER.md` changed. `context.go` required no production edit.
-- `writeJSON` now stops after a failed or short body write instead of attempting
-  the trailing newline. It does not retry, log client write failures, or replace an
-  already committed status. Successful JSON/newline output, security headers, and
-  marshal-before-header error handling remain unchanged. The defensive short-write
-  test explicitly models an io.Writer contract violation (short count, nil error).
-- Clarified comments: malformed trailing input can fail with 400 before a bounded
-  read reaches the 413 limit; json.Marshal spare capacity is not guaranteed.
-  No decoder policy change, unbounded draining, dead-code removal or speculative
-  optimization. Profile-context helpers still borrow the caller-owned dependency.
-- Auth, router, profile-manager and gzip reads were dependency context, not newly
-  completed reviews. No frontend, dependency or toolchain changes.
-- Inventory: **159 files, 111 done, 48 pending (40 API + 8 tooling)**. The overall
-  completion gate stays unchecked. This completes CP18 only, not the backend review.
+- Fully reviewed `internal/api/setting.go` and `setting_test.go`, and added/reviewed
+  `setting_contract_test.go`. The original five tests remain unchanged. Only
+  `setting.go`, the new contract test file, `TASK.md`, and `TRACKER.md` changed.
+- Corrected two diagnostics: the theme's 32-byte ceiling now says bytes rather
+  than characters, and an oversized font-role family ID reports the shared
+  128-byte ceiling. Settings PUT and preset creation share these messages.
+  No acceptance bounds, normalization rules, defaults, storage mappings, response
+  shapes, authorization, or profile-reference ownership changed.
+- Clarified the stored-record versus fresh-profile defaults beside the converter.
+  Explicit Auto/NULL title and indent fields remain Auto on reload; NULL margins
+  retain the separate legacy 48px fallback. PUT remains a complete snapshot,
+  not a patch, including false booleans, explicit zeroes, and cleared optionals.
+- Presets, auth, router, profile-manager, storage, frontend and tooling reads were
+  dependency context, not additional review credit. No dependency/toolchain churn,
+  frontend edits, speculative optimization, or dead-code removal.
+- Inventory: **160 files, 114 done, 46 pending (38 API + 8 tooling)**. The new test
+  file adds one inventory entry; two previously pending files are now done.
+  The overall completion gate stays unchecked. CP20 has not started.
 
-### CP18 verification
+### CP19 verification and limitations
 
-- The original trailing-content test and all six subcases passed before production
-  edits. New regression coverage reproduced four extra-write failures on unchanged
-  production: zero/partial/full body counts with an error, and a short nil-error
-  write. All other scoped tests and eight fuzz seeds passed on that original.
-- All **11 scoped top-level tests and eight fuzz seeds** pass after the fix. Coverage
-  includes exact byte limits, unknown-length/chunked bodies, malformed/trailing JSON,
-  reader errors, existing null/unknown-field/duplicate-key compatibility, safe error
-  envelopes, marshal failures, body/newline failures, actual gzip composition,
-  context isolation/cancellation, missing profiles, and health output. This is not
-  a new real-server HEAD/network test or an exact-limit UTF-8 boundary test.
-- On the final sources, 25 shuffled repetitions at each GOMAXPROCS 1/4 passed with
-  CGO disabled, and ten at each setting passed with `-race`. Scoped statement
-  coverage is **5/5 in context.go and 38/38 in middleware.go (100%)**; the broad API
-  package figure is only 1.2%. This is statement coverage, not a branch/exhaustiveness
-  claim. Context tests use explicit cancellation and cleanup, not sleeps.
-- Two bounded 20-second decoder fuzz runs with four workers passed. The first
-  reported **1,241 executions**, eight seeds and 11 new interesting inputs (19 total).
-  After test-only lint cleanup, the final run reported **1,145 executions**, 19 cached
-  baseline inputs and six new interesting inputs (25 total). Both counters stopped
-  advancing after the first three seconds; retain this limited result as-is, not as
-  evidence of extensive fuzz exploration. Inputs remain capped at 65,537 bytes.
-- The initial full check found six test-only lint issues (header spelling, unchecked
-  reader closes, and error comparison). These were corrected without weakening the
-  contracts. Fresh full **make check passed all ten gates** on the final sources:
-  tidy, Go/frontend formatting, vet, lint, vulnerability scan, seven Go packages
-  with race/shuffle, frontend lint/types/tests, and frontend/pure-Go builds.
-  Preflight reused embedded frontend output; the final gate rebuilt it. No old
-  frontend test count is presented as fresh. Both check logs are preserved.
-- Earlier CP7-CP17 and side-quest protections were verified unchanged. CP18 evidence
-  is sealed below. No delegation, amend, push, or unattended follow-on work.
-
-### CP18 measurement and limitations
-
-The initial benchmark smoke check failed because its untimed validator read the
-mutable recorder header map after gzip restored it. An isolated probe confirmed
-that the committed header still said gzip and the decompressed body was exact.
-The original failed harness, executable, provenance, plan and smoke output remain
-untouched at the CP18 directory root. Only the untimed lookup was corrected to
-`Result().Header`; fixtures and the timed loop did not change. A separate original
-baseline was frozen under `validated/` while production still matched CP17.
-
-The valid comparison uses two frozen executables and the identical four-case
-harness: ten predeclared alternating AB/BA pairs, twenty serial runs, 200 ms per
-case at GOMAXPROCS 1/4, **160 observations (ten per version/case/CPU)**. No exclusions,
-missing/duplicate cells, selective measurement reruns, or overlapping tests/builds.
-One-iteration smoke output is not statistical evidence. The candidate also includes
-recorded test-only lint cleanup; neither test cleanup nor validation is timed.
-
-Host: Windows/amd64, Ryzen 7 5800H, Go 1.27.0, CGO=0, GOAMD64=v1, GOGC=100,
-GOMEMLIMIT=off; GODEBUG/GOEXPERIMENT/GOFLAGS empty. Timed work includes marshaling,
-explicit status, newline, recorder output and optional gzip finalization. Fixtures
-are a small status object and 128 book records. This is not network, database,
-concurrent-client, peak-memory or app-wide performance; GOMAXPROCS is not clients.
-
-Marginal medians are **nanoseconds/op**, before → after.
-
-| Case | GOMAXPROCS 1 | GOMAXPROCS 4 |
-| --- | --- | --- |
-| SmallPlain | 1,722 → 1,644 | 1,829 → 1,714.5 |
-| LargePlain | 48,549 → 48,852.5 | 50,818.5 → 51,364.5 |
-| SmallGzip | 4,715 → 4,560.5 | 4,836 → 4,683 |
-| LargeGzip | 76,466.5 → 75,541.5 | 75,847.5 → 75,560.5 |
-
-- All eight timing comparisons are inconclusive (unadjusted benchstat p=0.148-0.796),
-  not evidence of equivalence or an optimization. Do not claim the geomean as an
-  application speedup. The extra error/count check is retained for correctness.
-- Allocation counts are unchanged in every observation: 14/12/23/24 allocs/op for
-  SmallPlain/LargePlain/SmallGzip/LargeGzip. Small byte counts are unchanged at
-  1,096/2,104 B/op. Large-payload bytes vary between observations; their comparisons
-  are also inconclusive, not exact byte equivalence.
-- Independent analysis profiled 160 rows/9 columns, verified 45 raw-file hashes,
-  reparsed every observation, reconciled exact samples/receipts/order, and checked
-  all 48 marginal
-  medians using stdlib statistics plus Decimal percentage arithmetic. Paired ratios
-  remain separate from ratios of marginal medians. The first audit stopped on
-  pandas integer-versus-float inference for whole-number ns/op; explicit float64
-  normalization then passed exact value/type checks without changing raw data.
-  Preserve the diagnostic and `independent-*` files.
+- Started on `main` at the CP18 commit with a clean index/working tree and no
+  running jobs. The original five settings tests passed before edits. With new
+  tests and unchanged production, exactly four diagnostic regressions failed:
+  theme and font-role ID messages through both settings PUT and preset creation.
+  All other new tests passed on that original production source.
+- All **19 scoped top-level tests** now pass: 20 shuffled repetitions at each
+  GOMAXPROCS 1/4 with CGO disabled, and five at each setting with `-race`.
+  Coverage includes all 20 numeric field boundaries and optional NULLs, enum/byte
+  limits, role filenames and pruning, nullable conversions, fresh defaults,
+  complete SQLite snapshot round-trips, resets, invalid/oversized writes leaving
+  saved settings unchanged, canceled/closed DB errors, missing profiles,
+  authentication gates, profile isolation, and borrowed-reference ownership.
+  Exact 64KiB bodies with known/unknown lengths, unknown fields and duplicate
+  scalar keys retain the existing decoder compatibility.
+- Persistence tests use real isolated temporary SQLite databases and request
+  recorders, not SQL mocks or an external service. Ownership fixtures model the
+  middleware's borrowed reference; this is not a new end-to-end session or
+  profile-manager lifecycle test. Host execution was Windows/amd64, Go 1.27.0;
+  the integer-conversion test's 32-bit overflow arm was not executed on this host.
+- Fresh full **make check passed all ten gates** on the final Go sources: tidy,
+  Go/frontend formatting, vet, lint, vulnerability scan, seven Go packages with
+  race/shuffle, frontend lint/types/tests, and frontend/pure-Go builds. The initial
+  embed gate reused existing output; the final build gate rebuilt the frontend.
+  No lint suppression, broad formatter rewrite, or test-only follow-up fix was needed.
+- Only diagnostic strings and comments changed in production. No performance
+  measurement was warranted or run, and no performance/equivalence claim is made.
+  No new fuzz campaign, coverage percentage, network, or app-wide claim is implied.
+- Protected evidence was verified before and after the work using only
+  `python .agents/benchmarks/checkpoint18/comparison.py verify`. CP6-CP18 and the
+  completed side quest remain protected below; no measurement reruns, freezes,
+  reseals, or protected-artifact edits. `.skills/` and `.agents/MCP_Feedback.md`
+  remain ignored and untracked. No delegation, amend, push, or automatic CP20.
 
 ### Protected CP18 evidence
 
@@ -671,13 +625,14 @@ or change the frozen harness, even if a later comparison is unfavorable.
 
 ### Next step
 
-Pause after the scoped CP18 commit and report. On the next explicit continuation,
-reassess one bounded API or tooling batch for CP19 from `TRACKER.md`; 40 API files
-and eight tooling files remain. JSON/profile-context helpers, login throttle, gzip
-middleware, fonts and EPUB inventories are complete. Auth and router remain pending.
-Confirm the dependency boundary from actual files and Git state before editing.
-Do not repeat CP6-CP18, rerun the completed side quest, or count dependency reads as
-completed reviews. Preserve all protected artifacts, including CP18.
+Pause after the scoped CP19 commit and report. CP20 has not started. On the next
+explicit continuation, reassess one bounded API or tooling batch for CP20 from
+`TRACKER.md`; 38 API files and eight tooling files remain. Settings and the prior
+JSON/context, throttle, gzip, fonts and EPUB batches are complete; presets, auth,
+router and profile-manager reviews remain pending. Confirm the dependency boundary
+from actual files and Git state before editing. Do not repeat CP6-CP19, rerun the
+completed side quest, or count dependency reads as completed reviews. Preserve all
+protected artifacts, including CP18.
 No delegation, push, amend, or unattended follow-on work.
 
 ### Protected CP9 benchmark artifacts

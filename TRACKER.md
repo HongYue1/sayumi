@@ -69,8 +69,9 @@ icons, compiled resources, generated frontend output, and `.skills/` are exclude
 - [ ] `internal/api/router_test.go`
 - [ ] `internal/api/search.go`
 - [ ] `internal/api/search_test.go`
-- [ ] `internal/api/setting.go`
-- [ ] `internal/api/setting_test.go`
+- [x] `internal/api/setting.go`
+- [x] `internal/api/setting_contract_test.go`
+- [x] `internal/api/setting_test.go`
 - [x] `internal/api/throttle.go`
 - [x] `internal/api/throttle_bench_test.go`
 - [x] `internal/api/throttle_contract_test.go`
