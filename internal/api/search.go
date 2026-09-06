@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"sayumi/internal/epub"
 	"sayumi/internal/storage"
@@ -28,6 +29,14 @@ func searchHandler(_ *Dependencies) http.HandlerFunc {
 			}
 			writeJSON(w, http.StatusOK, epub.SearchResponse{Results: []epub.SearchResult{}})
 			return
+		}
+
+		// A full-book scan or a wait for replacement can outlast the server's
+		// WriteTimeout, armed at header-read time. Clear it before the read
+		// lock: an expired write deadline cannot be extended. The request
+		// context still cancels spine loading and the search.
+		if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+			slog.Debug("clear search write deadline unsupported", "err", err)
 		}
 
 		// Pair the BookCache/spine snapshots and extracted-text cache with one
