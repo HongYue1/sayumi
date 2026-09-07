@@ -16,8 +16,8 @@ narratives, benchmark tables, session logs, or copied commit histories here.
 2. Read `AGENTS.md`, applicable nested instructions, this file, and `TRACKER.md`.
    Read the relevant skills/references under `.skills/cc-skills-golang/skills/`
    before applying their techniques; repository rules override generic advice.
-3. Confirm the actual branch, HEAD, index, working tree, existing diffs, and running
-   jobs before editing. The expected branch is `main`; preserve unrelated work.
+3. Use `git status` and `git log` for routine state checks, following the checkpoint
+   workflow in `AGENTS.md`. The expected branch is `main`; preserve unrelated work.
    Do not reset an advanced checkout to a handoff commit or discard staged changes.
 4. Run the protected-evidence verification below. Choose one small, coherent batch
    from the pending inventory; inspect dependency boundaries before fixing scope.
@@ -42,8 +42,9 @@ narratives, benchmark tables, session logs, or copied commit histories here.
   Measure serially without concurrent tests/builds. Retain failed and unfavorable
   results; report limitations, not gains inferred from noise or a single run.
 - Read tool schemas before use. Use dedicated file operations with revision guards
-  and background jobs for long checks. After an ambiguous connection failure,
-  inspect files, Git, and jobs before retrying any mutation.
+  returned by reads, and background jobs for long checks. After an ambiguous
+  connection failure, consult the original job and Git state before retrying;
+  never blindly retry a commit.
 - Keep `.skills/`, generated evidence, and `.agents/MCP_Feedback.md` ignored and
   untracked. MCP feedback is operational advice, not authorization to change the
   MCP server. Update an existing feedback entry only when useful, without duplicates.
@@ -84,7 +85,8 @@ Legacy drivers and their historical handoffs remain in evidence/Git, not this ta
 3. Replace this task with the next bounded task, leaving it explicitly not started.
    If blocked instead, retain only the active scope, blocker, and next action.
    Do not append a completed-CP29 report; Git records the completed work.
-4. Verify the exact staged paths and contents; make one conventional scoped local
-   commit containing only reviewed changes. Report its hash, findings, checks,
+4. Review the intended diff once and stage only relevant paths; make one
+   conventional scoped local commit. Report its hash, findings, checks,
    limitations, and remaining inventory in chat. No amend or push.
-5. Stop after CP29. Wait for explicit continuation; do not start CP30 automatically.
+5. Stop after CP29 and provide the concise handoff required by `AGENTS.md`.
+   CP30 requires explicit continuation in a new thread.

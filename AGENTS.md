@@ -7,6 +7,24 @@ embeds a built Solid 2 SPA (`frontend/`) and serves it via `//go:embed dist`. Lo
 `CLAUDE.md` only points here. If an agent you use doesn't read `AGENTS.md` natively, give
 it a one-line pointer file of its own rather than a second copy of these rules.
 
+## Checkpoint workflow
+
+- **One checkpoint per thread.** Complete only the requested checkpoint. Start
+  the next checkpoint only after explicit continuation in a new thread.
+- **Finish with a very concise handoff prompt.** Include the next checkpoint,
+  repository, latest commit, remaining inventory, and pointers to `AGENTS.md`
+  and `TASK.md`. Do not resend these standing rules in every handoff.
+- **Git is enough for routine state checks.** Use `git status --short` and
+  `git log -1 --oneline`. The user will explicitly disclose outside changes.
+  Do not add redundant checksum inventories, byte audits, or staged/committed
+  blob comparisons just to prove files have not changed.
+- **Work smarter, not harder.** Read only relevant context, review the actual
+  edit diff once, batch independent operations, and avoid repeating completed
+  reviews or checks without a relevant change or failure to investigate.
+- Required application checks and protected-evidence rules remain in force for
+  checkpoint work. Instruction-only documentation updates do not start a new
+  checkpoint or require rerunning checks on unchanged application code.
+
 ## Where the reasoning lives
 
 **In the code, next to the thing it explains.** This repo comments the *why*, not the
