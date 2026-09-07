@@ -392,17 +392,12 @@ func getCoverHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		// A cover can change in place: an in-app cover edit overwrites the
-		// sidecar at this same /cover path, so the response must NOT be cached
-		// immutably or a stale cover sticks for a year. A ?v=<updatedAt> URL
-		// buster is not enough on its own: datetime('now') has 1s granularity,
-		// so editing metadata and the cover in the same second reuses one URL
-		// (the metadata write pins the still-old cover under it). 'no-cache'
-		// keeps the bytes cached but forces an If-None-Match revalidation; the
-		// ETag folds in file_hash (content-addressed), so an edited cover yields
-		// a new ETag + 200 while an unchanged cover still returns a stat-light
-		// 304 before the coverRoot.Open + Stat syscalls. Matches the
-		// book-detail revalidation policy (bookDetailCacheControl).
+		// The sidecar changes at the same /cover path. Edits advance updated_at
+		// to trigger a frontend image reload, but unversioned or older URLs
+		// must also revalidate rather than pinning stale bytes immutably.
+		// 'no-cache' retains the bytes while checking the hash/version ETag;
+		// unchanged covers return a stat-light 304 before Open + Stat. Matches
+		// the book-detail revalidation policy (bookDetailCacheControl).
 		w.Header().Set("Cache-Control", "private, no-cache")
 		// Held back until success: an ETag left on the 404/500 paths below
 		// describes a body this URL will later serve a 200 for, so a cache that

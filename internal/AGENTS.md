@@ -15,10 +15,10 @@ Handlers don't reach past `storage`'s API into SQL, and `storage` never imports 
 
 ## Invariants
 
-- **Profiles are isolated.** Every authenticated handler takes its `*profileDeps` from the
-  request context (`requireProfileDeps`) and releases the ref exactly once
-  (`defer pd.release()`). That struct is shared across concurrent requests — never write
-  per-request state into it.
+- **Profiles are isolated.** Authenticated handlers borrow `*profileDeps` from the
+  request context (`requireProfileDeps`); `authMiddleware` owns and releases that ref.
+  Only callers acquiring directly from the profile manager release their own ref.
+  The struct is shared across concurrent requests — never write per-request state into it.
 - **`bookReplaceMu` pairs a cache snapshot with one on-disk EPUB generation.** Chapter
   render, search, downloads, in-place edits, and delete all take part. Readers hold the
   read side for as long as they use the file or spine; a replacement holds the write side

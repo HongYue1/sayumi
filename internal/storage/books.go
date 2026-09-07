@@ -300,12 +300,23 @@ func (db *DB) UpdateBookFilePathContext(ctx context.Context, id, filePath string
 	return rowsAffectedOrNotFound(res, "update file path for "+id)
 }
 
+// The frontend's cover URL uses only updated_at, not the EPUB hash. Every edit
+// must advance it so a mounted image gets a new src even for rapid uploads or a
+// backward wall-clock adjustment. Metadata edits share the expression so they
+// cannot reset a cover version. The UPDATE evaluates it under writeMu.
+const bookEditVersionSQL = `CASE WHEN updated_at >= strftime('%Y-%m-%d %H:%M:%f', 'now')
+	THEN strftime('%Y-%m-%d %H:%M:%f', updated_at, '+0.001 seconds')
+	ELSE strftime('%Y-%m-%d %H:%M:%f', 'now') END`
+
+// UpdateBookCoverContext advances the sidecar version even without an EPUB hash
+// change, so both cover validators and the frontend URL reflect the upload.
 func (db *DB) UpdateBookCoverContext(ctx context.Context, id, coverPath string) error {
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
 
 	res, err := db.ExecContext(ctx, `
-		UPDATE books SET cover_path = ?, has_cover = 1, cover_checked = 1, updated_at = datetime('now')
+		UPDATE books SET cover_path = ?, has_cover = 1, cover_checked = 1,
+		updated_at = `+bookEditVersionSQL+`
 		WHERE id = ?
 	`, coverPath, id)
 	if err != nil {
@@ -378,7 +389,7 @@ func (db *DB) UpdateBookMetadataAndFileContext(ctx context.Context, id, title, a
 	}
 
 	res, err := db.ExecContext(ctx, `
-		UPDATE books SET title = ?, author = ?, file_hash = ?, file_size = ?, updated_at = datetime('now')
+		UPDATE books SET title = ?, author = ?, file_hash = ?, file_size = ?, updated_at = `+bookEditVersionSQL+`
 		WHERE id = ?
 	`, title, author, fileHash, fileSize, id)
 	if err != nil {
@@ -403,7 +414,7 @@ func (db *DB) UpdateBookCoverAndFileContext(ctx context.Context, id, coverPath, 
 	}
 
 	res, err := db.ExecContext(ctx, `
-		UPDATE books SET cover_path = ?, has_cover = 1, cover_checked = 1, file_hash = ?, file_size = ?, updated_at = datetime('now')
+		UPDATE books SET cover_path = ?, has_cover = 1, cover_checked = 1, file_hash = ?, file_size = ?, updated_at = `+bookEditVersionSQL+`
 		WHERE id = ?
 	`, coverPath, fileHash, fileSize, id)
 	if err != nil {

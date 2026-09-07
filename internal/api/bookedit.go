@@ -2,12 +2,14 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -42,6 +44,38 @@ type updateBookRequest struct {
 // prompt the user to close the book and retry.
 var errBookInUse = errors.New("book is open in the reader")
 
+var errBookChanged = errors.New("book changed during edit preparation")
+
+// The edit mutex excludes other edits, not deletion or a scanner cache refresh.
+// Call under either side of bookReplaceMu, and again under its write side before
+// publishing: the read-to-write handoff is not an atomic lock upgrade.
+func checkBookEditSnapshot(pd *profileDeps, book storage.BookRecord) error {
+	current, ok := pd.Books.Get(book.ID)
+	if !ok {
+		return storage.ErrNotFound
+	}
+	if current.BookSummary != book.BookSummary {
+		return errBookChanged
+	}
+	return nil
+}
+
+func writeBookEditConflict(w http.ResponseWriter, err error) bool {
+	switch {
+	case errors.Is(err, storage.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "book not found")
+	case errors.Is(err, errBookChanged):
+		writeError(w, http.StatusConflict, "book_changed", "book changed; reload and try again")
+	case errors.Is(err, errBookInUse):
+		writeError(w, http.StatusConflict, "book_open", "close the book in the reader and try again")
+	case errors.Is(err, storage.ErrFileHashConflict):
+		writeError(w, http.StatusConflict, "duplicate", "another copy of this book already exists")
+	default:
+		return false
+	}
+	return true
+}
+
 // applyBookMetaPatch merges a PATCH body onto the current title/author.
 // Omitted pointer fields keep the current value. Returns a user-facing error
 // message when validation fails (empty title, overlong fields).
@@ -68,41 +102,158 @@ func applyBookMetaPatch(curTitle, curAuthor string, req updateBookRequest) (titl
 
 // refreshBookCache reloads a book's summary from the DB and updates the
 // in-memory book cache so list/detail responses (and their ETags) reflect a
-// just-applied change. It returns the refreshed record for the JSON response.
+// just-applied change. The caller holds bookReplaceMu's write side. If the row
+// cannot be reloaded after commit, fail closed instead of serving new bytes with
+// an old hash/token. Reopening the profile can rebuild the cache from the DB.
 func refreshBookCache(ctx context.Context, pd *profileDeps, id string) (storage.BookRecord, error) {
 	summary, found, err := pd.DB.GetBookSummaryContext(ctx, id)
-	if err != nil {
+	if err != nil || !found {
+		pd.Books.Remove(id)
+		if err == nil {
+			err = storage.ErrNotFound
+		}
 		return storage.BookRecord{}, fmt.Errorf("reload book %s: %w", id, err)
-	}
-	if !found {
-		return storage.BookRecord{}, fmt.Errorf("book %s missing after update", id)
 	}
 	book := storage.BookRecord{BookSummary: summary}
 	pd.Books.Add(book)
 	return book, nil
 }
 
+// bookEditBackup keeps the old bytes until the DB accepts the edit. Keeping a
+// sibling copy (rather than moving the source aside) preserves atomic rename
+// publication and never exposes a missing source to a concurrent scanner. The
+// root is borrowed; a failed rollback retains its backup for manual recovery.
+// This reconciles live-operation failures, not a crash-atomic filesystem/DB txn.
+type bookEditBackup struct {
+	root     *os.Root
+	path     string
+	tempPath string
+	keep     bool
+}
+
+func backupBookEditFile(ctx context.Context, root *os.Root, path string) (bookEditBackup, error) {
+	if root == nil {
+		return bookEditBackup{}, errors.New("book edit root unavailable")
+	}
+	if err := ctx.Err(); err != nil {
+		return bookEditBackup{}, err
+	}
+	backup := bookEditBackup{root: root, path: path}
+	info, err := root.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return backup, nil // Rollback removes a newly created sidecar.
+	}
+	if err != nil {
+		return bookEditBackup{}, fmt.Errorf("stat original: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return bookEditBackup{}, errors.New("original is not a regular file")
+	}
+	source, err := root.Open(path)
+	if err != nil {
+		return bookEditBackup{}, fmt.Errorf("open original: %w", err)
+	}
+	defer func() {
+		if err := source.Close(); err != nil {
+			slog.Error("close book edit source failed", "path", path, "err", err)
+		}
+	}()
+
+	backup.tempPath = filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+"."+rand.Text()+".bak")
+	tmp, err := root.OpenFile(backup.tempPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return bookEditBackup{}, fmt.Errorf("create edit backup: %w", err)
+	}
+	_, copyErr := io.Copy(tmp, source)
+	if copyErr == nil {
+		copyErr = tmp.Sync()
+	}
+	closeErr := tmp.Close()
+	if err := errors.Join(copyErr, closeErr, ctx.Err()); err != nil {
+		backup.cleanup()
+		return bookEditBackup{}, fmt.Errorf("copy edit backup: %w", err)
+	}
+	return backup, nil
+}
+
+func (b *bookEditBackup) cleanup() {
+	if b.tempPath != "" && !b.keep {
+		if err := b.root.Remove(b.tempPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			slog.Error("remove edit backup failed", "path", b.tempPath, "err", err)
+		}
+	}
+}
+
+func (b *bookEditBackup) restore() error {
+	if b.root == nil {
+		return nil
+	}
+	if b.tempPath == "" {
+		if err := b.root.Remove(b.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove uncommitted cover: %w", err)
+		}
+		return nil
+	}
+	if err := b.root.Rename(b.tempPath, b.path); err != nil {
+		b.keep = true
+		return fmt.Errorf("restore original (backup %s): %w", filepath.Join(b.root.Name(), b.tempPath), err)
+	}
+	b.tempPath = ""
+	return nil
+}
+
+// Roll back before releasing the replacement gate or writing the error response.
+// A rollback failure must not leave stale resource tokens usable for new bytes.
+func rollbackBookEdit(pd *profileDeps, id string, backups ...*bookEditBackup) bool {
+	ok := true
+	for _, backup := range backups {
+		if err := backup.restore(); err != nil {
+			slog.Error("restore failed book edit", "book", id, "err", err)
+			ok = false
+		}
+	}
+	if !ok {
+		pd.Books.Remove(id)
+	}
+	return ok
+}
+
 type preparedBookFile struct {
-	tmpPath string
-	hash    string
-	size    int64
+	tmpPath    string
+	hash       string
+	size       int64
+	original   bookEditBackup
+	sourceRoot *os.Root
 }
 
-func (p preparedBookFile) cleanup() {
-	if p.tmpPath == "" {
-		return
+func (p *preparedBookFile) cleanup() {
+	if p.tmpPath != "" {
+		if err := os.Remove(p.tmpPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			slog.Error("remove temp epub failed", "path", p.tmpPath, "err", err)
+		}
 	}
-	if err := os.Remove(p.tmpPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		slog.Error("remove temp epub failed", "path", p.tmpPath, "err", err)
+	p.original.cleanup()
+	if p.sourceRoot != nil {
+		if err := p.sourceRoot.Close(); err != nil {
+			slog.Error("close book edit root failed", "err", err)
+		}
 	}
 }
 
-// prepareBookFile builds and hashes the replacement beside the source EPUB.
-// This expensive work intentionally runs before bookReplaceMu's write lock so
-// chapter reads remain fully concurrent; bookEditMu serializes edit handlers,
-// keeping the source generation stable while this preparation runs.
-func prepareBookFile(ctx context.Context, filePath string, edit epub.MetadataEdit) (preparedBookFile, error) {
-	tmpPath, err := epub.RewriteBook(filePath, edit)
+// prepareBookFile builds, hashes and backs up beside the source EPUB. The read
+// gate excludes deletion while the independent ZIP reader/copy is open, without
+// blocking chapter readers. The caller holds bookEditMu to serialize edits and
+// rechecks the snapshot after taking the write gate for publication.
+func prepareBookFile(ctx context.Context, pd *profileDeps, book storage.BookRecord, edit epub.MetadataEdit) (preparedBookFile, error) {
+	pd.bookReplaceMu.RLock()
+	defer pd.bookReplaceMu.RUnlock()
+	if err := checkBookEditSnapshot(pd, book); err != nil {
+		return preparedBookFile{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return preparedBookFile{}, err
+	}
+	tmpPath, err := epub.RewriteBook(book.FilePath, edit)
 	if err != nil {
 		return preparedBookFile{}, fmt.Errorf("rewrite epub: %w", err)
 	}
@@ -111,6 +262,17 @@ func prepareBookFile(ctx context.Context, filePath string, edit epub.MetadataEdi
 	if err != nil {
 		prepared.cleanup()
 		return preparedBookFile{}, fmt.Errorf("rehash epub: %w", err)
+	}
+	prepared.sourceRoot, err = os.OpenRoot(filepath.Dir(book.FilePath))
+	if err == nil {
+		prepared.original, err = backupBookEditFile(ctx, prepared.sourceRoot, filepath.Base(book.FilePath))
+		if err == nil && prepared.original.tempPath == "" {
+			err = errors.New("source disappeared during edit preparation")
+		}
+	}
+	if err != nil {
+		prepared.cleanup()
+		return preparedBookFile{}, fmt.Errorf("back up epub: %w", err)
 	}
 	return prepared, nil
 }
@@ -125,11 +287,10 @@ func replaceBookFile(pd *profileDeps, filePath, tmpPath string) error {
 		return errBookInUse
 	}
 
-	if renameErr := os.Rename(tmpPath, filePath); renameErr != nil {
-		// A rename failure here is most likely the file still being held open by
-		// another in-flight read (Windows); treat it as retryable in-use.
-		slog.Warn("replace epub failed", "path", filePath, "err", renameErr)
-		return errBookInUse
+	if err := os.Rename(tmpPath, filePath); err != nil {
+		// Missing files, permissions and other I/O failures are not evidence
+		// that an app reader is open. Preserve the cause for the 500 path.
+		return fmt.Errorf("replace epub: %w", err)
 	}
 	return nil
 }
@@ -161,6 +322,11 @@ func updateBookHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
+		// Waiting for another edit can itself outlast the header-armed deadline.
+		if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+			slog.Debug("clear book edit write deadline unsupported", "err", err)
+		}
+
 		// Serialize edit preparation without blocking chapter readers. Re-read the
 		// book after taking the lock so a preceding cover/metadata edit cannot be
 		// overwritten from the stale pre-decode snapshot above.
@@ -189,14 +355,11 @@ func updateBookHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		// Rewriting a large EPUB can outlast the server WriteTimeout (armed at
-		// header-read time). Clear the write deadline; the request body is bounded.
-		if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
-			slog.Debug("clear book edit write deadline unsupported", "err", err)
-		}
-
-		prepared, err := prepareBookFile(r.Context(), book.FilePath, epub.MetadataEdit{Title: &title, Author: &author})
+		prepared, err := prepareBookFile(r.Context(), pd, book, epub.MetadataEdit{Title: &title, Author: &author})
 		if err != nil {
+			if writeBookEditConflict(w, err) {
+				return
+			}
 			slog.Error("write book metadata into epub failed", "book", id, "err", err)
 			writeError(w, http.StatusInternalServerError, "edit_failed", "failed to update the book file")
 			return
@@ -205,9 +368,12 @@ func updateBookHandler(_ *Dependencies) http.HandlerFunc {
 
 		pd.bookReplaceMu.Lock()
 		defer pd.bookReplaceMu.Unlock()
+		if err := checkBookEditSnapshot(pd, book); err != nil {
+			writeBookEditConflict(w, err)
+			return
+		}
 		if err := replaceBookFile(pd, book.FilePath, prepared.tmpPath); err != nil {
-			if errors.Is(err, errBookInUse) {
-				writeError(w, http.StatusConflict, "book_open", "close the book in the reader and try again")
+			if writeBookEditConflict(w, err) {
 				return
 			}
 			slog.Error("write book metadata into epub failed", "book", id, "err", err)
@@ -225,8 +391,11 @@ func updateBookHandler(_ *Dependencies) http.HandlerFunc {
 		defer cancelCommit()
 
 		if err := pd.DB.UpdateBookMetadataAndFileContext(commitCtx, id, title, author, prepared.hash, prepared.size); err != nil {
-			if errors.Is(err, storage.ErrFileHashConflict) {
-				writeError(w, http.StatusConflict, "duplicate", "another copy of this book already exists")
+			if !rollbackBookEdit(pd, id, &prepared.original) {
+				writeError(w, http.StatusInternalServerError, "io_error", "failed to restore the original book; see server log")
+				return
+			}
+			if writeBookEditConflict(w, err) {
 				return
 			}
 			slog.Error("update book metadata failed", "book", id, "err", err)
@@ -338,39 +507,58 @@ func uploadCoverHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		// Embed into the EPUB first: a "book open" conflict then leaves both the
-		// file and the displayed cover untouched (nothing has been written yet).
-		var fileHash string
-		var fileSize int64
+		var prepared preparedBookFile
 		embedInFile := book.FilePath != ""
 		if embedInFile {
-			prepared, prepareErr := prepareBookFile(r.Context(), book.FilePath, epub.MetadataEdit{CoverJPEG: jpegData})
-			if prepareErr != nil {
-				slog.Error("embed cover into epub failed", "book", id, "err", prepareErr)
-				writeError(w, http.StatusInternalServerError, "edit_failed", "failed to update the book file")
-				return
-			}
-			defer prepared.cleanup()
-
-			pd.bookReplaceMu.Lock()
-			defer pd.bookReplaceMu.Unlock()
-			err = replaceBookFile(pd, book.FilePath, prepared.tmpPath)
+			prepared, err = prepareBookFile(r.Context(), pd, book, epub.MetadataEdit{CoverJPEG: jpegData})
 			if err != nil {
-				if errors.Is(err, errBookInUse) {
-					writeError(w, http.StatusConflict, "book_open", "close the book in the reader and try again")
+				if writeBookEditConflict(w, err) {
 					return
 				}
 				slog.Error("embed cover into epub failed", "book", id, "err", err)
 				writeError(w, http.StatusInternalServerError, "edit_failed", "failed to update the book file")
 				return
 			}
-			fileHash = prepared.hash
-			fileSize = prepared.size
+		}
+		defer prepared.cleanup()
+
+		// Sidecar-only edits need this gate too: cover readers pair bytes with
+		// the cached validator, and deletion must not interleave publication.
+		pd.bookReplaceMu.Lock()
+		defer pd.bookReplaceMu.Unlock()
+		if err := checkBookEditSnapshot(pd, book); err != nil {
+			writeBookEditConflict(w, err)
+			return
+		}
+		// Back up the canonical destination the library writer will replace,
+		// not a potentially different legacy cover_path stored in the row.
+		coverBackup, err := backupBookEditFile(r.Context(), pd.coverRoot, library.CoverRelPath(id))
+		if err != nil {
+			slog.Error("back up cover failed", "book", id, "err", err)
+			writeError(w, http.StatusInternalServerError, "io_error", "failed to save cover")
+			return
+		}
+		defer coverBackup.cleanup()
+
+		// A pinned reader conflict leaves both published files untouched.
+		if embedInFile {
+			if err := replaceBookFile(pd, book.FilePath, prepared.tmpPath); err != nil {
+				if writeBookEditConflict(w, err) {
+					return
+				}
+				slog.Error("embed cover into epub failed", "book", id, "err", err)
+				writeError(w, http.StatusInternalServerError, "edit_failed", "failed to update the book file")
+				return
+			}
 		}
 
 		coverPath, err := library.WriteCoverImageJPEG(pd.LibPath, id, jpegData)
 		if err != nil {
 			slog.Error("save uploaded cover failed", "book", id, "err", err)
+			if !rollbackBookEdit(pd, id, &coverBackup, &prepared.original) {
+				writeError(w, http.StatusInternalServerError, "io_error", "failed to restore the original book; see server log")
+				return
+			}
 			writeError(w, http.StatusInternalServerError, "io_error", "failed to save cover")
 			return
 		}
@@ -384,21 +572,21 @@ func uploadCoverHandler(_ *Dependencies) http.HandlerFunc {
 		defer cancelCommit()
 
 		if embedInFile {
-			if err := pd.DB.UpdateBookCoverAndFileContext(commitCtx, id, coverPath, fileHash, fileSize); err != nil {
-				if errors.Is(err, storage.ErrFileHashConflict) {
-					writeError(w, http.StatusConflict, "duplicate", "another copy of this book already exists")
-					return
-				}
-				slog.Error("update book cover failed", "book", id, "err", err)
-				writeError(w, http.StatusInternalServerError, "db_error", "failed to update cover")
-				return
-			}
+			err = pd.DB.UpdateBookCoverAndFileContext(commitCtx, id, coverPath, prepared.hash, prepared.size)
 		} else {
-			if err := pd.DB.UpdateBookCoverContext(commitCtx, id, coverPath); err != nil {
-				slog.Error("update book cover failed", "book", id, "err", err)
-				writeError(w, http.StatusInternalServerError, "db_error", "failed to update cover")
+			err = pd.DB.UpdateBookCoverContext(commitCtx, id, coverPath)
+		}
+		if err != nil {
+			if !rollbackBookEdit(pd, id, &coverBackup, &prepared.original) {
+				writeError(w, http.StatusInternalServerError, "io_error", "failed to restore the original book; see server log")
 				return
 			}
+			if writeBookEditConflict(w, err) {
+				return
+			}
+			slog.Error("update book cover failed", "book", id, "err", err)
+			writeError(w, http.StatusInternalServerError, "db_error", "failed to update cover")
+			return
 		}
 
 		updated, err := refreshBookCache(commitCtx, pd, id)

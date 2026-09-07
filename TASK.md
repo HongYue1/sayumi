@@ -1,11 +1,11 @@
-# Current task: CP33
+# Current task: CP34
 
-**Status: not started.** Review metadata and cover edits in
-`internal/api/bookedit.go` and `internal/api/bookedit_test.go`. Trace input
-validation, prepare/replace/commit ordering, failure reconciliation, cache/ETag
-updates, and profile/reference ownership. Check that cover-only (fileless) edits
-participate in the replacement gate used by cover readers and deletion. Do not
-re-review the completed book-response/progress batches or credit dependency reads.
+**Status: not started.** Review EPUB uploads in `internal/api/upload.go`,
+`internal/api/upload_test.go`, and `internal/api/upload_handler_test.go`. Trace
+bounded multipart staging, validation and content-hash deduplication,
+install/import/cache ordering, cleanup and cancellation, and profile/reference
+ownership. Inspect dependency boundaries without crediting dependency reads.
+Do not re-review the completed book-edit/response/progress batches.
 No other pending batch is in scope.
 
 This file holds the active task, or the next task once the active one is complete.
@@ -77,7 +77,7 @@ its retained SHA-256 anchor is
 If verification fails, stop and investigate without modifying protected evidence.
 Legacy drivers and their historical handoffs remain in evidence/Git, not this task.
 
-## Finish CP33
+## Finish CP34
 
 1. Complete the bounded review and required regressions. Run focused checks and a
    fresh full `make check` on final sources, then the protection check above.
@@ -88,9 +88,9 @@ Legacy drivers and their historical handoffs remain in evidence/Git, not this ta
    not check-run history in the tracker.
 3. Replace this task with the next bounded task, leaving it explicitly not started.
    If blocked instead, retain only the active scope, blocker, and next action.
-   Do not append a completed-CP33 report; Git records the completed work.
+   Do not append a completed-CP34 report; Git records the completed work.
 4. Review the intended diff once and stage only relevant paths; make one
    conventional scoped local commit. Report its hash, findings, checks,
    limitations, and remaining inventory in chat. No amend or push.
-5. Stop after CP33 and provide the concise handoff required by `AGENTS.md`.
-   CP34 requires explicit continuation in a new thread.
+5. Stop after CP34 and provide the concise handoff required by `AGENTS.md`.
+   CP35 requires explicit continuation in a new thread.
