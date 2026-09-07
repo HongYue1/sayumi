@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
+	"strconv"
 	"time"
 
 	"sayumi/internal/library"
@@ -76,14 +76,14 @@ const bookDetailVersion = "1"
 // bookDetailETag identifies a book-detail response. The spine + toc are
 // immutable for a given file_hash, but the book's own metadata (e.g. title,
 // cover) can change in place without a re-import, so bookUpdatedAt (the books
-// row's updated_at) is folded in alongside the reader's progress; lastReadAt
-// (the progress row's updated_at, empty when there is no progress) captures the
-// latter. A re-open with unchanged metadata and progress revalidates to 304.
-func bookDetailETag(fileHash, bookUpdatedAt, lastReadAt string) string {
+// row's updated_at) is folded in alongside progressVersion, which combines
+// lastReadAt with the displayed progress value. Progress timestamps have
+// second resolution, so the timestamp alone can miss a position change.
+func bookDetailETag(fileHash, bookUpdatedAt, progressVersion string) string {
 	if fileHash == "" {
 		return ""
 	}
-	return `"` + fileHash + ":" + bookUpdatedAt + ":" + lastReadAt + ":" + bookDetailVersion + `"`
+	return `"` + fileHash + ":" + bookUpdatedAt + ":" + progressVersion + ":" + bookDetailVersion + `"`
 }
 
 // bookResponseFromSummary constructs a BookResponse from a BookSummary.
@@ -154,6 +154,10 @@ func listBooksHandler(_ *Dependencies) http.HandlerFunc {
 
 		summaries := pd.Books.ListSummaries()
 		userID := getUserID(r)
+		// Snapshot pending positions before reading the DB. A flush can finish
+		// and remove them after the SQL read takes its snapshot; reading the
+		// coalescer only afterward would then lose an acknowledged position.
+		staged := pd.Progress.getAll(userID)
 		allProgress, err := pd.DB.GetAllProgressContext(r.Context(), userID)
 		if err != nil {
 			slog.Error("load progress failed", "user", userID, "err", err)
@@ -162,7 +166,7 @@ func listBooksHandler(_ *Dependencies) http.HandlerFunc {
 		}
 		// Overlay staged positions so the library API is read-after-write
 		// consistent during the coalescer's short durability window.
-		maps.Copy(allProgress, pd.Progress.getAll(userID))
+		maps.Copy(allProgress, staged)
 
 		bookFlairs, err := pd.DB.GetAllBookFlairsContext(r.Context(), userID)
 		if err != nil {
@@ -229,19 +233,16 @@ func getBookHandler(_ *Dependencies) http.HandlerFunc {
 			}
 		}
 
-		// The detail payload is dominated by the immutable spine + toc JSON (tens
-		// of KB); its only mutable part is the reader's own progress. An ETag over
-		// file_hash + last-progress-update lets an unchanged re-open return a
-		// 0-byte 304 instead of re-fetching, re-marshaling and re-gzipping the
-		// whole body. The content fetch + marshal happen only past the 304 check,
-		// so a hit costs just the indexed progress lookup already done above.
+		// Revalidate before fetching the large, immutable spine + toc JSON.
+		// Include the displayed position as well as its second-resolution
+		// timestamp so two scroll updates in one second cannot share a tag.
+		progressVersion := lastReadAt + ":" + strconv.FormatFloat(progress, 'g', -1, 64)
+		etag := bookDetailETag(book.FileHash, book.UpdatedAt, progressVersion)
 		w.Header().Set("Cache-Control", bookDetailCacheControl)
-		if etag := bookDetailETag(book.FileHash, book.UpdatedAt, lastReadAt); etag != "" {
+		if etag != "" && ifNoneMatchMatches(r, etag) {
 			w.Header().Set("ETag", etag)
-			if ifNoneMatchMatches(r, etag) {
-				w.WriteHeader(http.StatusNotModified)
-				return
-			}
+			w.WriteHeader(http.StatusNotModified)
+			return
 		}
 
 		spineJSON, tocJSON, err := pd.DB.GetBookContentContext(r.Context(), book.ID)
@@ -265,6 +266,11 @@ func getBookHandler(_ *Dependencies) http.HandlerFunc {
 			TOC:          json.RawMessage(tocJSON),
 		}
 
+		// A failed content lookup must not attach the success validator to an
+		// error body that a later conditional request could keep reusing.
+		if etag != "" {
+			w.Header().Set("ETag", etag)
+		}
 		writeJSON(w, http.StatusOK, resp)
 	}
 }
@@ -292,6 +298,7 @@ func deleteBookHandler(_ *Dependencies) http.HandlerFunc {
 			dbBook, err := pd.DB.GetBookContext(r.Context(), id)
 			if err != nil {
 				if errors.Is(err, storage.ErrNotFound) {
+					pd.Progress.dropBook(id)
 					writeError(w, http.StatusNotFound, "not_found", "book not found")
 					return
 				}
@@ -305,6 +312,7 @@ func deleteBookHandler(_ *Dependencies) http.HandlerFunc {
 		if err := pd.DB.DeleteBookContext(r.Context(), id); err != nil {
 			if errors.Is(err, storage.ErrNotFound) {
 				pd.Books.Remove(id)
+				pd.Progress.dropBook(id)
 				writeError(w, http.StatusNotFound, "not_found", "book not found")
 				return
 			}
@@ -361,6 +369,17 @@ func getCoverHandler(_ *Dependencies) http.HandlerFunc {
 		if pd == nil {
 			return
 		}
+
+		// Both waiting for an edit and streaming a cover can outlast the
+		// header-armed WriteTimeout, so clear it before taking the gate.
+		if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+			slog.Debug("clear cover write deadline unsupported", "err", err)
+		}
+		// Pair the validator with the file generation and keep deletion from
+		// removing its sidecar while Windows still has this reader open. The
+		// file-close defer below runs before the gate is released.
+		pd.bookReplaceMu.RLock()
+		defer pd.bookReplaceMu.RUnlock()
 
 		id := r.PathValue("id")
 		book, ok := pd.Books.Get(id)
@@ -425,40 +444,36 @@ func getCoverHandler(_ *Dependencies) http.HandlerFunc {
 		w.Header().Set("Content-Type", contentType)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 
-		// A cover on a slow link can outlast the server WriteTimeout, armed at
-		// header-read time; ServeContent streams the file rather than buffering.
-		if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
-			slog.Debug("clear cover write deadline unsupported", "err", err)
-		}
-
 		http.ServeContent(w, r, "", fileInfo.ModTime(), file)
 	}
 }
 
 // removeManagedLibraryFile deletes a file that was placed inside the library by
-// Sayumi. FilePath is stored as an absolute path (via filepath.Abs in the
-// scanner), so it is validated against libPath and removed directly. CoverPath
-// is stored as a relative path and removed via os.Root for sandboxed access.
+// Sayumi. Both absolute EPUB paths and relative cover paths are removed through
+// os.Root: a lexical containment check followed by os.Remove would still follow
+// an intermediate directory symlink that now points outside this library.
 func removeManagedLibraryFile(libPath, targetPath, kind string) {
 	if targetPath == "" {
 		return
 	}
 
 	if filepath.IsAbs(targetPath) {
-		// Absolute path (e.g. book.FilePath): verify it is still inside the
-		// library before removing, then call os.Remove directly.
 		rel, err := filepath.Rel(libPath, targetPath)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		if err != nil {
 			slog.Error("managed file path escapes library root", "kind", kind, "path", targetPath)
 			return
 		}
-		if err := os.Remove(targetPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			slog.Error("remove managed file failed", "kind", kind, "path", targetPath, "err", err)
-		}
+		targetPath = rel
+	} else {
+		// Only stored cover paths need legacy Windows-separator normalization.
+		// A backslash in a native Unix EPUB filename is a literal character.
+		targetPath = library.NormalizeCoverPath(targetPath)
+	}
+	if !filepath.IsLocal(targetPath) || targetPath == "." {
+		slog.Error("managed file path escapes library root", "kind", kind, "path", targetPath)
 		return
 	}
 
-	// Relative path (e.g. book.CoverPath): use os.Root for sandboxed removal.
 	libRoot, err := os.OpenRoot(libPath)
 	if err != nil {
 		slog.Error("open library root for file removal failed", "kind", kind, "err", err)
@@ -470,7 +485,7 @@ func removeManagedLibraryFile(libPath, targetPath, kind string) {
 		}
 	}()
 
-	if err := libRoot.Remove(library.NormalizeCoverPath(targetPath)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := libRoot.Remove(targetPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		slog.Error("remove managed file failed", "kind", kind, "path", targetPath, "err", err)
 	}
 }

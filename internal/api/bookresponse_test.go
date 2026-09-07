@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -153,6 +154,55 @@ func TestEnrichBookResponseLeavesUnreadBookAtZero(t *testing.T) {
 	}
 }
 
+func TestBookResponseFromSummaryPreservesLibraryFields(t *testing.T) {
+	t.Parallel()
+	summary := storage.BookSummary{
+		ID: enrichBookID, Title: "Title", Author: "Author", Language: "ar",
+		Publisher: "Publisher", Description: "Description", PubDate: "2026",
+		HasCover: true, Direction: "rtl", ChapterCount: 4,
+		CreatedAt: "2026-01-01 00:00:00", UpdatedAt: "2026-02-01 00:00:00",
+	}
+	want := BookResponse{
+		ID: enrichBookID, Title: "Title", Author: "Author", Language: "ar",
+		Publisher: "Publisher", Description: "Description", PubDate: "2026",
+		HasCover: true, Direction: "rtl", ChapterCount: 4,
+		AddedAt: "2026-01-01 00:00:00", UpdatedAt: "2026-02-01 00:00:00",
+	}
+	if got := bookResponseFromSummary(summary); got != want {
+		t.Fatalf("base response = %+v, want %+v", got, want)
+	}
+}
+
+func TestEnrichBookResponseLookupFailureIsBestEffort(t *testing.T) {
+	t.Parallel()
+	for _, staged := range []bool{false, true} {
+		name := "database only"
+		if staged {
+			name = "staged progress"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			pd := newEnrichDeps(t)
+			br := BookResponse{ID: enrichBookID, Title: "Committed upload", ChapterCount: 10, Duplicate: true}
+			want := br
+			if staged {
+				pd.Progress.stage(storage.ProgressRecord{
+					BookID: enrichBookID, UserID: "default", Chapter: 9, UpdatedAt: "2026-01-01 00:00:00",
+				})
+				want.Progress = 0.9
+				want.LastReadAt = "2026-01-01 00:00:00"
+			}
+			r := enrichRequest(pd)
+			ctx, cancel := context.WithCancel(r.Context())
+			cancel()
+			enrichBookResponse(r.WithContext(ctx), pd, &br)
+			if br != want {
+				t.Fatalf("decoration failure changed committed response: %+v, want %+v", br, want)
+			}
+		})
+	}
+}
+
 func TestRescanResponse(t *testing.T) {
 	t.Parallel()
 
@@ -188,6 +238,14 @@ func TestRescanResponse(t *testing.T) {
 			scanErr:     scanErr,
 			wantOK:      true,
 			imported:    1,
+			wantPartial: true,
+		},
+		{
+			name:        "error after refresh-only work is partial",
+			result:      library.ScanResult{RefreshedIDs: []string{"existing"}},
+			scanErr:     scanErr,
+			wantOK:      true,
+			refreshed:   1,
 			wantPartial: true,
 		},
 		{
