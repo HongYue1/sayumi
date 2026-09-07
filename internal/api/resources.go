@@ -21,8 +21,8 @@ type resourceAccess struct {
 
 // WONTFIX: the resource token equals the book's file hash. This is intentional:
 // an iframe loading sub-resources cannot use the session cookie across origins,
-// so the hash acts as a short-lived bearer. The hash is only revealed to
-// authenticated clients inside chapter responses.
+// so the hash acts as a content-scoped bearer, not an independently expiring
+// token. The hash is only revealed to authenticated clients inside chapter responses.
 func resourceTokenForBook(fileHash string) string {
 	return fileHash
 }
@@ -86,39 +86,7 @@ func getResourceHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 		defer access.pd.release()
-
-		// Pair the BookCache snapshot with one complete on-disk EPUB generation,
-		// exactly as the chapter/download/gofile readers do. Streaming outside
-		// this gate let an in-place edit swap the file mid-request — serving the
-		// new bytes under the previous hash's year-long immutable ETag — and let
-		// a delete proceed while the zip was still pinned, which on Windows makes
-		// os.Remove fail and strands the EPUB on disk after its row is gone.
-		access.pd.bookReplaceMu.RLock()
 		defer access.pd.bookReplaceMu.RUnlock()
-
-		// Re-read under the gate: the snapshot above may predate a commit that
-		// landed while this request was waiting for the lock.
-		book, stillPresent := access.pd.Books.Get(bookID)
-		if !stillPresent {
-			writeError(w, http.StatusNotFound, "not_found", "book not found")
-			return
-		}
-		access.fileHash = book.FileHash
-		access.filePath = book.FilePath
-
-		// Compute the validator, but do not put it on the response until we are
-		// committed to a success: an ETag left on a 404/500 describes a body the
-		// same URL will later serve a 200 for, so a cache that stored the error
-		// can be handed a 304 for it afterwards and render the error forever.
-		etag := ""
-		if access.fileHash != "" {
-			etag = resourceETag(access.fileHash, resourcePath)
-			if ifNoneMatchMatches(r, etag) {
-				w.Header().Set("ETag", etag)
-				w.WriteHeader(http.StatusNotModified)
-				return
-			}
-		}
 
 		resourceReader, err := access.pd.Store.OpenResource(access.filePath, resourcePath)
 		if err != nil {
@@ -145,10 +113,14 @@ func getResourceHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		if etag != "" {
+		// Preconditions apply only after existence and MIME checks succeed. A
+		// matching tag (including *) must not turn a missing or forbidden asset
+		// into a 304, nor attach a successful-asset validator to an error body.
+		etag := ""
+		if access.fileHash != "" {
+			etag = resourceETag(access.fileHash, resourcePath)
 			w.Header().Set("ETag", etag)
 		}
-		w.Header().Set("Content-Type", contentType)
 		// "private": this is profile-scoped book content behind a session cookie
 		// or a per-book token, so a shared cache must not keep a copy and hand it
 		// to another client. The ?token=<fileHash> in the URL still busts the
@@ -160,6 +132,11 @@ func getResourceHandler(deps *Dependencies) http.HandlerFunc {
 		// the app origin. A response CSP does not affect subresource rendering and
 		// sandboxes exactly that navigation case.
 		w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
+		if ifNoneMatchMatches(r, etag) {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("Content-Type", contentType)
 		// Size is -1 from OpenResource (zip declared sizes are untrusted), so we
 		// omit Content-Length and let the transport chunk the body.
 		if resourceReader.Size >= 0 {
@@ -181,6 +158,9 @@ func setResourceCORSHeaders(header http.Header, resourcePath string) {
 	}
 }
 
+// authorizeResourceRequest returns a snapshot with its profile reference and
+// bookReplaceMu read lock held. On success the caller releases both, after
+// closing any resource reader. On failure it retains neither.
 func authorizeResourceRequest(
 	deps *Dependencies,
 	w http.ResponseWriter,
@@ -196,50 +176,48 @@ func authorizeResourceRequest(
 		return resourceAccess{}, false
 	}
 
+	var pd *profileDeps
 	if hasSession {
-		pd, openErr := deps.ProfileMgr.Get(r.Context(), sess.profile)
-		if openErr != nil {
-			slog.Error("open profile for resource failed", "profile", sess.profile, "book", bookID, "err", openErr)
+		pd, err = deps.ProfileMgr.Get(r.Context(), sess.profile)
+		if err != nil {
+			slog.Error("open profile for resource failed", "profile", sess.profile, "book", bookID, "err", err)
 			writeError(w, http.StatusInternalServerError, "profile_error", "failed to open profile")
 			return resourceAccess{}, false
 		}
-
-		if book, found := pd.Books.Get(bookID); found {
-			return resourceAccess{
-				fileHash: book.FileHash,
-				filePath: book.FilePath,
-				pd:       pd,
-			}, true
+	} else {
+		if token == "" {
+			writeUnauthenticated(w)
+			return resourceAccess{}, false
 		}
 
-		pd.release()
-		writeError(w, http.StatusNotFound, "not_found", "book not found")
-		return resourceAccess{}, false
+		// Token path: only search already-open profiles. Scanning all profiles for
+		// an unauthenticated request would allow any bookID to trigger full library
+		// scans (ScanNow) across every profile — a DoS amplifier. If the profile was
+		// evicted after the chapter was served, the client gets 404 and can reload.
+		var found bool
+		pd, found = deps.ProfileMgr.FindBook(bookID)
+		if !found {
+			writeError(w, http.StatusNotFound, "not_found", "book not found")
+			return resourceAccess{}, false
+		}
 	}
 
-	if token == "" {
-		writeUnauthenticated(w)
-		return resourceAccess{}, false
-	}
-
-	// Token path: only search already-open profiles. Scanning all profiles for
-	// an unauthenticated request would allow any bookID to trigger full library
-	// scans (ScanNow) across every profile — a DoS amplifier. If the profile was
-	// evicted after the chapter was served, the client gets 404 and can reload.
-	pd, found := deps.ProfileMgr.FindBook(bookID)
-	if !found {
-		writeError(w, http.StatusNotFound, "not_found", "book not found")
-		return resourceAccess{}, false
-	}
-
+	// Validate the token and snapshot the file under the same generation gate.
+	// Checking before locking lets a replacement authorize new bytes with an old
+	// token; re-reading the snapshot afterwards does not revalidate that token.
+	// Retain the gate through streaming and reader cleanup so replacement cannot
+	// mix bytes and ETags, and deletion cannot strand a still-pinned ZIP on Windows.
+	pd.bookReplaceMu.RLock()
 	book, ok := pd.Books.Get(bookID)
 	if !ok {
+		pd.bookReplaceMu.RUnlock()
 		pd.release()
 		writeError(w, http.StatusNotFound, "not_found", "book not found")
 		return resourceAccess{}, false
 	}
 
-	if !validResourceToken(book.FileHash, token) {
+	if !hasSession && !validResourceToken(book.FileHash, token) {
+		pd.bookReplaceMu.RUnlock()
 		pd.release()
 		writeUnauthenticated(w)
 		return resourceAccess{}, false
