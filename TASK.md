@@ -1,8 +1,12 @@
-# Current task: CP31
+# Current task: CP32
 
-**Status: not started.** Continue the backend review with one small, coherent batch
-from the pending API or tooling inventory in `TRACKER.md`. No CP31 files have been
-selected or credited yet. Read the relevant boundaries before fixing the scope.
+**Status: not started.** Review the book-response path in
+`internal/api/books.go`, `internal/api/books_test.go`, and
+`internal/api/bookresponse_test.go`. Read listing/detail/enrichment, cover/ETag,
+deletion, and profile/storage boundaries before changing code. In particular,
+check the DB/coalescer snapshot ordering in `listBooksHandler`. Do not re-review
+the completed progress batch or credit dependency reads. No other pending batch
+is in scope.
 
 This file holds the active task, or the next task once the active one is complete.
 `TRACKER.md` holds file status. Git is the changelog: do not retain completed-task
@@ -73,7 +77,7 @@ its retained SHA-256 anchor is
 If verification fails, stop and investigate without modifying protected evidence.
 Legacy drivers and their historical handoffs remain in evidence/Git, not this task.
 
-## Finish CP31
+## Finish CP32
 
 1. Complete the bounded review and required regressions. Run focused checks and a
    fresh full `make check` on final sources, then the protection check above.
@@ -84,9 +88,9 @@ Legacy drivers and their historical handoffs remain in evidence/Git, not this ta
    not check-run history in the tracker.
 3. Replace this task with the next bounded task, leaving it explicitly not started.
    If blocked instead, retain only the active scope, blocker, and next action.
-   Do not append a completed-CP31 report; Git records the completed work.
+   Do not append a completed-CP32 report; Git records the completed work.
 4. Review the intended diff once and stage only relevant paths; make one
    conventional scoped local commit. Report its hash, findings, checks,
    limitations, and remaining inventory in chat. No amend or push.
-5. Stop after CP31 and provide the concise handoff required by `AGENTS.md`.
-   CP32 requires explicit continuation in a new thread.
+5. Stop after CP32 and provide the concise handoff required by `AGENTS.md`.
+   CP33 requires explicit continuation in a new thread.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"sayumi/internal/storage"
@@ -59,6 +60,7 @@ func waitFor(t *testing.T, cond func() bool) {
 func TestProgressCoalescerCoalescesUntilFlush(t *testing.T) {
 	fake := &fakeProgressSaver{}
 	c := newProgressCoalescer(fake, time.Hour, 1000)
+	t.Cleanup(c.stop)
 
 	for i := range 5 {
 		c.stage(storage.ProgressRecord{BookID: "b1", UserID: "default", Chapter: i, Percent: float64(i) / 10})
@@ -176,6 +178,7 @@ func TestProgressCoalescerDropBook(t *testing.T) {
 func TestProgressCoalescerRetriesFailedWrite(t *testing.T) {
 	fake := &fakeProgressSaver{err: errors.New("boom")}
 	c := newProgressCoalescer(fake, time.Hour, 1000)
+	t.Cleanup(c.stop)
 
 	c.stage(storage.ProgressRecord{BookID: "b1", UserID: "default", Chapter: 2})
 	c.flush() // fails -> re-buffered
@@ -192,6 +195,233 @@ func TestProgressCoalescerRetriesFailedWrite(t *testing.T) {
 	if got := fake.count(); got != 1 {
 		t.Fatalf("expected 1 save after retry, got %d", got)
 	}
+}
+
+type progressSaveFunc func(context.Context, storage.ProgressRecord) error
+
+func (f progressSaveFunc) SaveProgressContext(ctx context.Context, rec storage.ProgressRecord) error {
+	return f(ctx, rec)
+}
+
+// Blocking the first save exposes the pre-commit window without depending on
+// disk speed. Releasing is idempotent so cleanup also works after a failed check.
+func blockFirstProgressSave(next progressSaver, firstErr error) (progressSaver, <-chan struct{}, func()) {
+	started := make(chan struct{})
+	resume := make(chan struct{})
+	var once sync.Once
+	saver := progressSaveFunc(func(ctx context.Context, rec storage.ProgressRecord) error {
+		var err error
+		once.Do(func() {
+			close(started)
+			select {
+			case <-resume:
+				err = firstErr
+			case <-ctx.Done():
+				err = ctx.Err()
+			}
+		})
+		if err != nil {
+			return err
+		}
+		return next.SaveProgressContext(ctx, rec)
+	})
+	return saver, started, sync.OnceFunc(func() { close(resume) })
+}
+
+func TestProgressCoalescerReadThroughDuringFlush(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		fake := &fakeProgressSaver{}
+		saver, started, unblock := blockFirstProgressSave(fake, nil)
+		c := newProgressCoalescer(saver, time.Hour, 1000)
+		t.Cleanup(func() {
+			unblock()
+			c.stop()
+		})
+
+		c.stage(storage.ProgressRecord{BookID: "b1", UserID: "default", Chapter: 1})
+		c.stage(storage.ProgressRecord{BookID: "b2", UserID: "default", Chapter: 2})
+		c.stage(storage.ProgressRecord{BookID: "b1", UserID: "other", Chapter: 3})
+		c.flushSignal <- struct{}{}
+		<-started
+
+		// The batch has left the staging path but none of it is persisted yet.
+		if rec, ok := c.get("b1", "default"); !ok || rec.Chapter != 1 {
+			t.Errorf("in-flight read-through: ok=%v rec=%+v", ok, rec)
+		}
+		pending := c.getAll("default")
+		if len(pending) != 2 || pending["b1"].Chapter != 1 || pending["b2"].Chapter != 2 {
+			t.Errorf("in-flight snapshot = %+v, want both default-user positions", pending)
+		}
+		if other := c.getAll("other"); len(other) != 1 || other["b1"].Chapter != 3 {
+			t.Errorf("other user's in-flight snapshot = %+v", other)
+		}
+		if got := c.getAll("missing"); len(got) != 0 {
+			t.Errorf("unknown user's snapshot = %+v, want empty", got)
+		}
+		delete(pending, "b1")
+		if _, ok := c.get("b1", "default"); !ok {
+			t.Error("mutating the in-flight snapshot changed live progress")
+		}
+
+		unblock()
+		c.stop()
+		if got := fake.count(); got != 3 {
+			t.Errorf("saved %d records, want 3", got)
+		}
+		if got := c.getAll("default"); len(got) != 0 {
+			t.Errorf("successfully persisted records remain buffered: %+v", got)
+		}
+	})
+}
+
+func TestProgressCoalescerFlushPreservesConcurrentStage(t *testing.T) {
+	for _, outcome := range []struct {
+		name string
+		err  error
+	}{
+		{name: "success"},
+		{name: "transient failure", err: errors.New("temporary write failure")},
+	} {
+		for _, update := range []string{"newer position", "identical position", "drop then identical position"} {
+			t.Run(outcome.name+"/"+update, func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					fake := &fakeProgressSaver{}
+					saver, started, unblock := blockFirstProgressSave(fake, outcome.err)
+					c := newProgressCoalescer(saver, time.Hour, 1000)
+					t.Cleanup(func() {
+						unblock()
+						c.stop()
+					})
+
+					first := storage.ProgressRecord{
+						BookID: "b1", UserID: "default", Chapter: 1,
+						UpdatedAt: "2026-01-01 00:00:00",
+					}
+					c.stage(first)
+					c.flushSignal <- struct{}{}
+					<-started
+					latest := first
+					switch update {
+					case "newer position":
+						latest.Chapter = 9
+					case "drop then identical position":
+						c.dropBook(first.BookID)
+					}
+					c.stage(latest)
+					unblock()
+					synctest.Wait()
+
+					// Equal values and second-resolution timestamps cannot identify
+					// which staging operation an earlier save has acknowledged.
+					if rec, ok := c.get(first.BookID, first.UserID); !ok || rec != latest {
+						t.Fatalf("new stage was lost: ok=%v rec=%+v, want %+v", ok, rec, latest)
+					}
+					c.stop()
+					if last, ok := fake.last(); !ok || last != latest {
+						t.Errorf("final saved position: ok=%v rec=%+v, want %+v", ok, last, latest)
+					}
+					wantSaves := 2
+					if outcome.err != nil {
+						wantSaves = 1
+					}
+					if got := fake.count(); got != wantSaves {
+						t.Errorf("saved %d records, want %d", got, wantSaves)
+					}
+				})
+			})
+		}
+	}
+}
+
+func TestProgressCoalescerDropBookDuringFailedFlush(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		fake := &fakeProgressSaver{}
+		saver, started, unblock := blockFirstProgressSave(fake, errors.New("temporary write failure"))
+		c := newProgressCoalescer(saver, time.Hour, 1000)
+		t.Cleanup(func() {
+			unblock()
+			c.stop()
+		})
+
+		c.stage(storage.ProgressRecord{BookID: "deleted", UserID: "default", Chapter: 1})
+		c.flushSignal <- struct{}{}
+		<-started
+		c.dropBook("deleted")
+		unblock()
+		synctest.Wait()
+
+		if rec, ok := c.get("deleted", "default"); ok {
+			t.Errorf("failed write resurrected dropped progress: %+v", rec)
+		}
+		c.stop()
+		if got := fake.count(); got != 0 {
+			t.Errorf("saved %d records after dropping the failed write, want 0", got)
+		}
+	})
+}
+
+func TestProgressCoalescerStopWaitsForInFlightWrite(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		fake := &fakeProgressSaver{}
+		saver, started, unblock := blockFirstProgressSave(fake, nil)
+		c := newProgressCoalescer(saver, time.Hour, 1000)
+		t.Cleanup(func() {
+			unblock()
+			c.stop()
+		})
+
+		c.stage(storage.ProgressRecord{BookID: "b1", UserID: "default", Chapter: 1})
+		c.flushSignal <- struct{}{}
+		<-started
+		stopped := make(chan struct{}, 2)
+		for range 2 {
+			go func() {
+				c.stop()
+				stopped <- struct{}{}
+			}()
+		}
+		synctest.Wait()
+		if got := len(stopped); got != 0 {
+			t.Fatalf("%d stop calls returned before the in-flight save completed", got)
+		}
+
+		unblock()
+		synctest.Wait()
+		if got := len(stopped); got != 2 {
+			t.Fatalf("%d stop calls completed, want both", got)
+		}
+		if got := fake.count(); got != 1 {
+			t.Errorf("saved %d records, want 1", got)
+		}
+	})
+}
+
+func TestProgressCoalescerFinalWriteTimeout(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var saveErr error
+		var deadline time.Time
+		saver := progressSaveFunc(func(ctx context.Context, _ storage.ProgressRecord) error {
+			deadline, _ = ctx.Deadline()
+			<-ctx.Done()
+			saveErr = ctx.Err()
+			return saveErr
+		})
+		c := newProgressCoalescer(saver, time.Hour, 1000)
+		t.Cleanup(c.stop)
+		c.stage(storage.ProgressRecord{BookID: "b1", UserID: "default", Chapter: 1})
+		start := time.Now()
+		c.stop()
+
+		if want := start.Add(progressFlushWriteTimeout); !deadline.Equal(want) {
+			t.Errorf("write deadline = %v, want %v", deadline, want)
+		}
+		if !errors.Is(saveErr, context.DeadlineExceeded) {
+			t.Errorf("save error = %v, want deadline exceeded", saveErr)
+		}
+		if elapsed := time.Since(start); elapsed != progressFlushWriteTimeout {
+			t.Errorf("final write took %v, want %v", elapsed, progressFlushWriteTimeout)
+		}
+	})
 }
 
 // countingProgressDB wraps a real *storage.DB so the test exercises the actual
@@ -234,16 +464,17 @@ func TestProgressCoalescerDropsForeignKeyFailureInsteadOfRetrying(t *testing.T) 
 	})
 	db := &countingProgressDB{DB: raw}
 
-	c := newProgressCoalescer(db, 5*time.Millisecond, progressMaxPending)
-	defer c.stop()
+	c := newProgressCoalescer(db, time.Hour, progressMaxPending)
+	t.Cleanup(c.stop)
 
 	// No book row was ever inserted, so this violates progress.book_id.
 	c.stage(storage.ProgressRecord{BookID: "ghost-book", UserID: "default", Chapter: 1, Percent: 0.5})
 
-	waitFor(t, func() bool { return db.count() >= 1 })
-
-	// Several more intervals must not produce another attempt.
-	time.Sleep(60 * time.Millisecond)
+	// Complete both flushes before checking; observing an attempt start does
+	// not establish that its database error has been handled yet.
+	c.flush()
+	c.flush()
+	c.stop()
 	if got := db.count(); got != 1 {
 		t.Fatalf("save attempts = %d, want exactly 1 (a permanent failure must not be retried)", got)
 	}
