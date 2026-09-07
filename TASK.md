@@ -1,8 +1,8 @@
-# Current task: CP28
+# Current task: CP29
 
-**Status: not started.** After explicit continuation, choose one small, coherent
-batch from the pending inventory in `TRACKER.md`. Inspect dependency boundaries
-before recording its active scope here.
+**Status: not started.** Continue the backend review from the pending inventory in
+`TRACKER.md`. No batch has been selected for CP29. Choose one small, coherent
+batch only after the safety checks and dependency-boundary inspection below.
 
 This file holds the active task, or the next task once the active one is complete.
 `TRACKER.md` holds file status. Git is the changelog: do not retain completed-task
@@ -72,7 +72,7 @@ its retained SHA-256 anchor is
 If verification fails, stop and investigate without modifying protected evidence.
 Legacy drivers and their historical handoffs remain in evidence/Git, not this task.
 
-## Finish CP28
+## Finish CP29
 
 1. Complete the bounded review and required regressions. Run focused checks and a
    fresh full `make check` on final sources, then the protection check above.
@@ -83,8 +83,8 @@ Legacy drivers and their historical handoffs remain in evidence/Git, not this ta
    not check-run history in the tracker.
 3. Replace this task with the next bounded task, leaving it explicitly not started.
    If blocked instead, retain only the active scope, blocker, and next action.
-   Do not append a completed-CP28 report; Git records the completed work.
+   Do not append a completed-CP29 report; Git records the completed work.
 4. Verify the exact staged paths and contents; make one conventional scoped local
    commit containing only reviewed changes. Report its hash, findings, checks,
    limitations, and remaining inventory in chat. No amend or push.
-5. Stop after CP28. Wait for explicit continuation; do not start CP29 automatically.
+5. Stop after CP29. Wait for explicit continuation; do not start CP30 automatically.

@@ -28,7 +28,15 @@ var gofileServerNamePattern = regexp.MustCompile(`^[a-zA-Z0-9-]+$`)
 // the only outbound network egress in an otherwise local-first app. The timeout
 // is generous (a 100 MB book over a slow link) but finite so a hung remote
 // cannot pin a goroutine and an open file handle indefinitely.
-var gofileClient = &http.Client{Timeout: 30 * time.Minute}
+var gofileClient = &http.Client{
+	Timeout: 30 * time.Minute,
+	// Validating the initial host does not constrain HTTP redirects. These
+	// API calls expect a direct response; fail on 3xx rather than letting a
+	// remote peer send this local-first server to a different host or scheme.
+	CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
 
 const gofileServersURL = "https://api.gofile.io/servers"
 
@@ -204,13 +212,15 @@ func uploadFileToGofile(ctx context.Context, server, filePath string) (string, e
 	writeDone := make(chan error, 1)
 	go func() {
 		writeDone <- writeMultipartBody(mw, pw, file, filepath.Base(filePath))
+		close(writeDone)
 	}()
 
 	// No return below may leak the streamer or race its file read: closing pr
 	// unblocks any pipe write even if the transport never reads or closes the
-	// body, and draining writeDone waits for the file close. The writer always
-	// sends exactly one value to the buffered channel, so this can't deadlock.
-	// Explicit returns keep the nakedret gate happy.
+	// body, and draining writeDone waits for the file close. Closing the channel
+	// after its sole result lets the success path inspect that result while
+	// this unconditional cleanup can still join it. Explicit returns keep the
+	// nakedret gate happy.
 	defer func() {
 		_ = pr.Close()
 		<-writeDone
@@ -236,13 +246,20 @@ func uploadFileToGofile(ctx context.Context, server, filePath string) (string, e
 	if err := validateGofileDownloadPage(parsed.Data.DownloadPage); err != nil {
 		return "", fmt.Errorf("invalid gofile download page: %w", err)
 	}
+	// A peer may return success before consuming the body, or despite a local
+	// read failure. Require a complete multipart write before publishing its
+	// link. Close the reader first so an early response cannot strand a writer.
+	_ = pr.Close()
+	if err := <-writeDone; err != nil {
+		return "", fmt.Errorf("write gofile upload: %w", err)
+	}
 	return parsed.Data.DownloadPage, nil
 }
 
 // writeMultipartBody streams one file as the "file" part of a multipart body,
 // then closes the file and the pipe writer. A write failure is propagated to
-// the reader via CloseWithError so Do() returns an error instead of hanging,
-// and the returned error lets tests assert the copy outcome directly.
+// the reader via CloseWithError so Do() returns an error instead of hanging.
+// The caller also checks the result when a peer replies before consuming it.
 func writeMultipartBody(mw *multipart.Writer, pw *io.PipeWriter, file *os.File, filename string) error {
 	defer func() { _ = file.Close() }()
 	part, err := mw.CreateFormFile("file", filename)
