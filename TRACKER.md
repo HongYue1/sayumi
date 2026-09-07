@@ -1,6 +1,6 @@
 # Backend review tracker
 
-**145/164 files reviewed; 19 pending (11 API + 8 tooling).**
+**148/164 files reviewed; 16 pending (8 API + 8 tooling).**
 
 Scope: Go source, tests, and backend build/tooling configuration. Embedded fonts,
 icons, compiled resources, generated frontend output, and `.skills/` are excluded.
@@ -78,9 +78,9 @@ Current task and completion requirements: `TASK.md`. Change history: Git.
 - [x] `internal/api/throttle_bench_test.go`
 - [x] `internal/api/throttle_contract_test.go`
 - [x] `internal/api/throttle_test.go`
-- [ ] `internal/api/upload.go`
-- [ ] `internal/api/upload_handler_test.go`
-- [ ] `internal/api/upload_test.go`
+- [x] `internal/api/upload.go`
+- [x] `internal/api/upload_handler_test.go`
+- [x] `internal/api/upload_test.go`
 - [x] `internal/api/version.go`
 - [x] `internal/api/version_test.go`
 
