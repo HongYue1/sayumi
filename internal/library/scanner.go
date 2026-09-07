@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"sayumi/internal/epub"
 	"sayumi/internal/storage"
@@ -430,6 +431,21 @@ func (s *Scanner) importFile(
 	}
 
 	canonicalID, err := s.db.InsertBookContext(ctx, record)
+	if err != nil && ctx.Err() != nil {
+		// Cancellation can win the driver's return race after an autocommit
+		// INSERT is already visible. Recover its canonical ID before reporting
+		// failure: rescans need it for cache publication, and upload callers
+		// otherwise remove a file that now belongs to a committed row. Only
+		// this bounded receipt lookup ignores cancellation, not parsing/writes.
+		reconcileCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		existingID, _, found, reconcileErr := s.db.GetBookIDByHashContext(reconcileCtx, hash)
+		cancel()
+		if reconcileErr != nil {
+			slog.Warn("reconcile canceled book insert failed", "book", id, "err", reconcileErr)
+		} else if found {
+			canonicalID, err = existingID, nil
+		}
+	}
 	if err != nil {
 		return "", false, false, fmt.Errorf("insert book: %w", err)
 	}

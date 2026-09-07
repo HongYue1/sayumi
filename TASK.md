@@ -1,12 +1,12 @@
-# Current task: CP35
+# Current task: CP36
 
-**Status: not started.** Review library listing and rescans in
-`internal/api/library.go` and `internal/api/library_test.go`. Trace filtering,
-sorting and pagination, title-ordering and response-enrichment contracts,
-scan cancellation and cache publication, concurrent upload/edit/delete
-interactions, and profile/reference ownership. Inspect dependency boundaries
-without crediting dependency reads. Do not re-review the completed
-upload/book-edit/response/progress batches. No other pending batch is in scope.
+**Status: not started.** Review profile lifecycle and manager concurrency in
+`internal/api/profilemgr.go` and `internal/api/profilemgr_test.go`. Trace
+profile open/cache publication, request reference acquisition/release, close and
+progress-drain ordering, profile isolation, and filesystem/lock ownership.
+Inspect create/clone/delete and cancellation boundaries without crediting
+dependency reads or re-reviewing completed batches. No other pending batch is
+in scope.
 
 This file holds the active task, or the next task once the active one is complete.
 `TRACKER.md` holds file status. Git is the changelog: do not retain completed-task
@@ -77,7 +77,7 @@ its retained SHA-256 anchor is
 If verification fails, stop and investigate without modifying protected evidence.
 Legacy drivers and their historical handoffs remain in evidence/Git, not this task.
 
-## Finish CP35
+## Finish CP36
 
 1. Complete the bounded review and required regressions. Run focused checks and a
    fresh full `make check` on final sources, then the protection check above.
@@ -88,9 +88,9 @@ Legacy drivers and their historical handoffs remain in evidence/Git, not this ta
    not check-run history in the tracker.
 3. Replace this task with the next bounded task, leaving it explicitly not started.
    If blocked instead, retain only the active scope, blocker, and next action.
-   Do not append a completed-CP35 report; Git records the completed work.
+   Do not append a completed-CP36 report; Git records the completed work.
 4. Review the intended diff once and stage only relevant paths; make one
    conventional scoped local commit. Report its hash, findings, checks,
    limitations, and remaining inventory in chat. No amend or push.
-5. Stop after CP35 and provide the concise handoff required by `AGENTS.md`.
-   CP36 requires explicit continuation in a new thread.
+5. Stop after CP36 and provide the concise handoff required by `AGENTS.md`.
+   CP37 requires explicit continuation in a new thread.

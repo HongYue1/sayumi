@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"sayumi/internal/library"
 	"sayumi/internal/storage"
@@ -21,6 +22,22 @@ func rescanLibraryHandler(_ *Dependencies) http.HandlerFunc {
 		if pd == nil {
 			return
 		}
+
+		// Walking, hashing and cover extraction can exceed the server's
+		// header-armed WriteTimeout. Keep the response writable while the scan
+		// still observes request cancellation; unsupported writers are fine.
+		if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+			slog.Debug("clear rescan write deadline unsupported", "err", err)
+		}
+
+		// The scanner changes paths and cover sidecars before it reports IDs.
+		// Gating only the subsequent cache reload lets an edit consume an old
+		// path/hash pair, a delete unlink the old path, or upload cleanup remove
+		// a path just adopted by the scan. Exclude those mutations through cache
+		// publication, without holding the chapter/download generation gate for
+		// the whole walk. A queued rescan observes the preceding cycle's state.
+		pd.libraryScanMu.Lock()
+		defer pd.libraryScanMu.Unlock()
 
 		scanResult, scanErr := pd.Scanner.ScanNowWithChanges(r.Context())
 
@@ -92,8 +109,19 @@ func rescanLibraryHandler(_ *Dependencies) http.HandlerFunc {
 // flat error would permanently hide books that are now in the library. ok is
 // false only when nothing was committed, leaving the caller to write the 500.
 func rescanResponse(result library.ScanResult, scanErr error) (map[string]any, bool) {
-	imported := len(result.ImportedIDs)
-	refreshed := len(result.RefreshedIDs)
+	// A moved/copied book can be reported by several path reconciliations and
+	// cover backfill in the same scan. Count books, not events; an imported book
+	// is new, not also an existing refreshed book. Do not sort/compact the
+	// scanner-owned slices, which overlapping callers may share.
+	seen := make(map[string]struct{}, len(result.ImportedIDs)+len(result.RefreshedIDs))
+	for _, id := range result.ImportedIDs {
+		seen[id] = struct{}{}
+	}
+	imported := len(seen)
+	for _, id := range result.RefreshedIDs {
+		seen[id] = struct{}{}
+	}
+	refreshed := len(seen) - imported
 	if scanErr != nil && imported == 0 && refreshed == 0 {
 		return nil, false
 	}

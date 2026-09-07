@@ -46,9 +46,10 @@ var errBookInUse = errors.New("book is open in the reader")
 
 var errBookChanged = errors.New("book changed during edit preparation")
 
-// The edit mutex excludes other edits, not deletion or a scanner cache refresh.
-// Call under either side of bookReplaceMu, and again under its write side before
-// publishing: the read-to-write handoff is not an atomic lock upgrade.
+// The edit mutex excludes other edits, not deletion. Mutation handlers also
+// hold libraryScanMu against rescans. Call under either side of bookReplaceMu,
+// and again under its write side before publishing: the read-to-write handoff
+// is not an atomic lock upgrade.
 func checkBookEditSnapshot(pd *profileDeps, book storage.BookRecord) error {
 	current, ok := pd.Books.Get(book.ID)
 	if !ok {
@@ -330,6 +331,8 @@ func updateBookHandler(_ *Dependencies) http.HandlerFunc {
 		// Serialize edit preparation without blocking chapter readers. Re-read the
 		// book after taking the lock so a preceding cover/metadata edit cannot be
 		// overwritten from the stale pre-decode snapshot above.
+		pd.libraryScanMu.RLock()
+		defer pd.libraryScanMu.RUnlock()
 		pd.bookEditMu.Lock()
 		defer pd.bookEditMu.Unlock()
 		book, ok := pd.Books.Get(id)
@@ -499,6 +502,8 @@ func uploadCoverHandler(_ *Dependencies) http.HandlerFunc {
 		// Cover decoding is deliberately outside this lock: it can be expensive
 		// and does not inspect or mutate the EPUB. Serialize only the edit/file
 		// generation work, then refresh the book snapshot before preparing it.
+		pd.libraryScanMu.RLock()
+		defer pd.libraryScanMu.RUnlock()
 		pd.bookEditMu.Lock()
 		defer pd.bookEditMu.Unlock()
 		book, ok := pd.Books.Get(id)

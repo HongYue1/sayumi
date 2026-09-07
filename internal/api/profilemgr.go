@@ -39,6 +39,14 @@ type profileDeps struct {
 	// in-flight request can touch a closed root.
 	coverRoot *os.Root
 
+	// libraryScanMu keeps upload/edit/delete mutations out of a rescan's entire
+	// walk-through-cache-publication cycle. Mutations share the read side;
+	// rescans take the write side. This is separate from bookReplaceMu so a
+	// large scan does not block chapter/download readers, and ordinary mutations
+	// can still run concurrently. Acquire it before bookEditMu/bookReplaceMu.
+	// The initial profile scan runs before these dependencies are shared.
+	libraryScanMu sync.RWMutex
+
 	// bookEditMu serializes in-place EPUB edits without blocking chapter reads
 	// while the replacement file is being built and hashed. bookReplaceMu is
 	// held for the much shorter commit window (rename through DB/cache refresh):

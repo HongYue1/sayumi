@@ -59,6 +59,15 @@ func uploadBookHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
+		// Staging is hidden from scans; installed paths are not. Keep dedup,
+		// import, cache publication and duplicate cleanup in one scan-free
+		// window so a rescan cannot adopt a path that cleanup is about to remove.
+		pd.libraryScanMu.RLock()
+		defer pd.libraryScanMu.RUnlock()
+		if requestContextDone(r, nil) {
+			return
+		}
+
 		existingID, contentHash, isDuplicate := pd.Scanner.CheckDuplicate(r.Context(), tmpPath)
 		if requestContextDone(r, nil) {
 			return

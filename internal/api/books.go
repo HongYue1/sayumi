@@ -282,6 +282,13 @@ func deleteBookHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
+		// A rescan can outlast the server deadline before deletion even starts.
+		if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+			slog.Debug("clear book delete write deadline unsupported", "err", err)
+		}
+		pd.libraryScanMu.RLock()
+		defer pd.libraryScanMu.RUnlock()
+
 		id := r.PathValue("id")
 		// Deletion removes the EPUB itself, so it takes the write side of the
 		// generation gate used by chapter, download, and gofile readers. In
