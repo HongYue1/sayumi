@@ -7,54 +7,32 @@ embeds a built Solid 2 SPA (`frontend/`) and serves it via `//go:embed dist`. Lo
 `CLAUDE.md` only points here. If an agent you use doesn't read `AGENTS.md` natively, give
 it a one-line pointer file of its own rather than a second copy of these rules.
 
-## Checkpoint workflow
+## Working rules
 
-- **One checkpoint per thread.** Complete only the requested checkpoint. Start
-  the next checkpoint only after explicit continuation in a new thread.
-- **Finish with a very concise handoff prompt.** Include the next checkpoint,
-  repository, latest commit, remaining inventory, and pointers to `AGENTS.md`
-  and `TASK.md`. Do not resend these standing rules in every handoff.
-- **Git is enough for routine state checks.** Use `git status --short` and
-  `git log -1 --oneline`. The user will explicitly disclose outside changes.
-  Do not add redundant checksum inventories, byte audits, or staged/committed
-  blob comparisons just to prove files have not changed.
-- **Work smarter, not harder.** Read only relevant context, review the actual
-  edit diff once, batch independent operations, and avoid repeating completed
-  reviews or checks without a relevant change or failure to investigate.
-- Required application checks and protected-evidence rules remain in force for
-  checkpoint work. Instruction-only documentation updates do not start a new
-  checkpoint or require rerunning checks on unchanged application code.
+- Before making changes, create a fresh, descriptive branch for the task from the
+  agreed starting point. For a continuation, use the branch already created for
+  that work. Never edit or commit directly on `main` or `master`; do not reuse an
+  unrelated branch, reset somebody else's work, merge, amend, or push without
+  explicit authorization.
+- Use Git status, log, and the intended diff for routine state checks. Preserve
+  unrelated work; do not create redundant file-checksum inventories or byte audits.
+- Check the available skills under `.skills/` and read the relevant `SKILL.md`
+  files and linked references before applying their guidance. Do not bulk-read
+  unrelated skills; project-specific contracts take precedence over generic advice.
+- Verify uncertain APIs, flags, configuration formats, and version compatibility
+  using repository documentation, local tool/API schemas, version-matched official
+  online documentation, CLI `--help`, or a focused experiment. Do not guess. If
+  verification is unavailable, state the uncertainty and its consequences.
 
-## Where the reasoning lives
+## Development checks
 
-**In the code, next to the thing it explains.** This repo comments the *why*, not the
-*what*, and those comments are load-bearing: `storage/db.go` says why the progress upsert
-is a prepared statement, `bookcache.go` says why folding stays ASCII-only, `cover.go` says
-why concurrent cover decodes are capped. Read the comment before changing the line, and
-update it in the same commit.
+Application and build/configuration changes must pass `make check`. Its ten gates
+cover frontend build, `go mod tidy -diff`, gofumpt + goimports, oxfmt, `go vet`,
+golangci-lint, govulncheck, `go test` (with `-race` when cgo is available),
+`bun run check` + `bun run test`, then both builds. Do not claim a required check
+passed if its tool or gate was skipped.
 
-**Never create an aggregated rationale or code-review document** — no `docs/decisions/`,
-`REVIEW.md`, `NOTES.md`, or dated findings log, in any directory. One existed and was
-deleted: every claim in it already had a better comment at the call site, so it was a
-second place to update, and it drifted. A document that restates code loses to the code,
-and it burns the reader's attention before they reach the code.
-
-A review finding goes into a comment at the site it concerns, or into a test if it could
-regress, or into the commit message. It belongs in an `AGENTS.md` only when it spans files
-and therefore has no single home — as a pointer, not a retelling.
-
-**These files are instructions, not history.** No benchmark tables or before/after numbers
-(if a measurement justifies a line of code, it belongs in that line's comment), no session
-logs, no dates, no "recently changed". A rejected approach gets one line under *Settled*
-below — `X: rejected — why` — not a postmortem. If a section here can be deleted without
-losing a rule, delete it.
-
-## Before you finish
-
-`make check` must pass. Ten gates: frontend build, `go mod tidy -diff`, gofumpt +
-goimports, oxfmt, `go vet`, golangci-lint, govulncheck, `go test` (with `-race` when
-cgo is available), `bun run check` + `bun run test`, then both builds. Don't hand back work
-that hasn't passed it.
+Documentation-only changes do not require rerunning unchanged application checks.
 
 - `make fix` formats. `make build` produces `./sayumi`.
 - Frontend commands run under **bun**, from `frontend/`.
@@ -65,7 +43,7 @@ that hasn't passed it.
 
 ## Cross-file contracts
 
-Nothing enforces these but a reviewer. Grep both sides before changing either.
+These contracts span files. Inspect both sides before changing either.
 
 - `internal/api/flairs.go` ↔ `frontend/src/lib/flairs.ts` (the Go side carries a
   `KEEP IN SYNC` marker).
@@ -83,22 +61,6 @@ Nothing enforces these but a reviewer. Grep both sides before changing either.
   still paying its write cost. `TestListBookSummariesUsesTitleSortIndex` is the only thing
   that fails.
 
-## Settled — don't re-propose
-
-- Startup path index for embedded assets: **rejected** — faster misses, slower real asset
-  hits and app-shell fallback.
-- LRU on the parsed-spine memo: **rejected** — retention is bounded by library size, and
-  eviction would add a re-parse to the chapter-open path.
-- Prepared statements for library/book reads: **rejected** — they run once per load, not
-  once per UI event.
-- Unicode-aware folding in `BookCache`: **rejected** — it must match SQLite `NOCASE`.
-- WebP/AVIF cover output: **rejected** — no pure-Go encoder, and the build stays
-  `CGO_ENABLED=0`.
-- `ParseMultipartForm` for uploads: **rejected** — it buffers the whole EPUB; staging
-  streams it.
-- One generic middleware chain: **rejected** — instrumentation specializes at handler
-  construction instead.
-
 ## Conventions
 
 - Conventional commits with a package scope: backend `api|epub|fonts|library|storage`,
@@ -107,6 +69,8 @@ Nothing enforces these but a reviewer. Grep both sides before changing either.
   double quotes).
 - Solid 2 (signals, split effects), TypeScript, plain CSS.
 - Tests live beside the code. Fix a bug, add the test that would have caught it.
+- Comments explain the *why*. Read existing rationale before changing the code,
+  and update the explanation with the implementation rather than duplicating it.
 
 ## Layout
 
