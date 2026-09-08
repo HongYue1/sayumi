@@ -107,7 +107,7 @@ jobs:
       # Consume only this run's immutable artifact. Do not check out sources,
       # install dependencies, extract release archives, or execute their binaries
       # in the job that holds publishing credentials.
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-artifacts
           path: dist-release
