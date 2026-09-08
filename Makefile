@@ -14,17 +14,17 @@ tools:
 release-tools:
 	bash ./provision.sh release-tools
 
-# Optimized local build (GOAMD64=v3 when supported) → ./sayumi or ./sayumi.exe
+# CGO-free local build (Go's configured CPU baseline) → ./sayumi or ./sayumi.exe
 build:
-	./build.sh
+	bash ./build.sh
 
 # Build and run.
 run:
-	./build.sh --run
+	bash ./build.sh --run
 
 # All quality gates (frontend + backend), read-only/CI-safe.
 check:
-	./check.sh
+	bash ./check.sh
 
 # Repeatable Go-only benchmarks; e.g. make bench PKG=./cmd/sayumi BENCH=PrettyHandler.
 PKG ?= ./...
@@ -36,26 +36,22 @@ bench:
 
 # Auto-fix pass (mutates files): imports, formatting, lint --fix, mod tidy.
 fix:
-	./fix.sh
+	bash ./fix.sh
 
 # Cross-compiled, portable release artifacts → ./dist-release/
 release:
-	./release.sh
+	bash ./release.sh
 
 # Frontend production build only (embeds into cmd/sayumi/dist).
 web:
-ifneq (,$(shell command -v bun))
 	cd frontend && bun run build
-else
-	cd frontend && npm run build
-endif
 
 # Go-only formatting with the same required tools/order as the full fix pass.
 fmt:
 	bash ./fix.sh --go-format
 
 version: web
-	@go run ./cmd/sayumi --version
+	@GOTOOLCHAIN=local go run ./cmd/sayumi --version
 
 clean:
 	rm -f sayumi sayumi.exe

@@ -9,11 +9,14 @@ Solid 2.0 + TypeScript + Vite, built with **bun**. The build output goes to
 
 From this directory: `bash ../provision.sh frontend` (locked install, no hooks),
 `bun run dev`, `bun run check` (tsc --noEmit), `bun run test` (vitest + happy-dom),
-`bun run build`, `bun run format`, `bun run lint` (oxlint, type-aware).
+`bun run build`, `bun run preview`, `bun run format`,
+`bun run lint` (oxlint, type-aware).
 
-`dev` and `build` invoke vite's JS entry under bun explicitly
+`dev`, `build`, and `preview` first run the shared `provision.sh check-bun`
+revision guard, then invoke Vite's JS entry under Bun explicitly
 (`bun node_modules/vite/bin/vite.js …`): the frame-script plugin needs the `Bun`
-global, and vite's node-shebang bin would otherwise spawn real node.
+global, and Vite's node-shebang bin would otherwise spawn real Node. These commands
+never install/switch runtimes; Vitest remains Node-hosted.
 
 ## Conventions
 

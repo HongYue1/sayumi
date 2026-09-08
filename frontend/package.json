@@ -4,9 +4,9 @@
   "type": "module",
   "packageManager": "bun@1.4.2",
   "scripts": {
-    "dev": "bun node_modules/vite/bin/vite.js",
-    "build": "bun node_modules/vite/bin/vite.js build",
-    "preview": "vite preview",
+    "dev": "bash ../provision.sh check-bun && bun node_modules/vite/bin/vite.js",
+    "build": "bash ../provision.sh check-bun && bun node_modules/vite/bin/vite.js build",
+    "preview": "bash ../provision.sh check-bun && bun node_modules/vite/bin/vite.js preview",
     "check": "tsc --noEmit",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",

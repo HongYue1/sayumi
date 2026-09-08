@@ -81,7 +81,7 @@ The library path can also be set with the `SAYUMI_LIBRARY` environment variable.
 
 ## Development
 
-Building from source requires the Go version declared in `go.mod`, the exact stable Bun release in `frontend/package.json`'s `packageManager` field, and Bash (Git Bash on Windows). The Make targets wrap the scripts; `./check.sh` can also be run directly. npm alone is not sufficient because the frontend build uses `Bun.build`.
+Building from source requires the Go version declared in `go.mod`, the exact stable Bun release in `frontend/package.json`'s `packageManager` field, and Bash (Git Bash on Windows). The Make targets invoke Bash explicitly, including when archive extraction does not preserve executable bits; `bash ./check.sh` also works directly. The frontend is Bun-only: npm/Node cannot provide the iframe's `Bun.build` runtime. Vite dev, build and preview all validate the selected Bun revision through the shared provisioning check; they never install tools. Vitest remains Node-hosted.
 
 ### Toolchain policy
 
@@ -119,20 +119,32 @@ Dependabot checks actions and Go modules weekly. Its Bun lockfile-v2 support is 
 ### Commands
 
 ```sh
-make build        # local optimized build (auto GOAMD64=v3 when supported)
-make run          # build, then run
+make build        # CGO-free binary, fresh frontend, configured Go CPU baseline
+make run          # build, then replace the build process with the native binary
+make web          # fresh frontend only
 make check        # all quality gates: format, vet, lint, vulncheck, tests, tsc
 make fix          # refresh frontend, then apply Go/frontend fixes and mod tidy
 make fmt          # Go-only imports + formatting; requires both formatters
 make release      # cross-compiled, portable archives in dist-release/
 ```
 
-For frontend work, run a dev server that proxies the API to a binary listening on port 8080:
+`make build` and `make run` always rebuild the frontend before Go, even if `cmd/sayumi/dist` already exists. `bash ./build.sh --skip-web` is an explicit escape hatch for backend-only work: it warns about stale UI and requires a nonempty regular `dist/index.html`, but does not require Bun. Build or compiler failures stop the command; `--run` does not launch an old executable and rejects a cross-target before building. Normal explicit cross-builds still use Go's target executable suffix. The build enforces `GOTOOLCHAIN=local`, retains version/date stamping, and never enables cgo for production.
+
+Local CPU tuning follows Go's environment (`GOAMD64=v1` by default), not an incomplete host-feature probe. Set `GOAMD64=v3 make build` only for machines known to meet [all of Go's v3 requirements](https://go.dev/wiki/MinimumRequirements#amd64); AVX2/BMI2/FMA alone are not sufficient. An explicit cross-build is never tuned from the build host. Use `make release` for the distributable archives.
+
+For frontend work, use two terminals after `make deps`:
 
 ```sh
-make deps
+# Terminal 1, repository root: Go API and embedded fonts on port 8080.
+make run
+
+# Terminal 2, repository root: frontend HMR on http://localhost:3000.
 cd frontend && bun run dev
 ```
+
+Open the Vite URL, not the Go-served production UI. Vite proxies both `/api` and `/fonts` to `127.0.0.1:8080`; rebuild/restart Go for backend changes. Stop each process with Ctrl-C. `cd frontend && bun run preview` previews already-built assets (no HMR or rebuild); keep the Go backend running for API/font requests.
+
+Vite/Rolldown owns the Solid shell and raw iframe CSS. Bun bundles only `frame.ts` and its runtime imports into one self-contained classic-script IIFE; extra chunks/assets or external imports fail the build because the script is inlined into `srcdoc`. The plugin uses [Bun's metafile](https://bun.sh/docs/bundler#metafile) to register every real transitive input with Vite, so dev HMR and production watch rebuilds need no hand-maintained graph list. Shared modules still update their independent shell consumers, while CSS and HTML-wrapper edits follow Vite's normal graph. Frame compilation errors retain their compiler messages instead of a generic aggregate failure. These contracts have executable build/watch/HMR fixtures; they do not replace browser layout/CSP checks.
 
 The quality gates use gofumpt and goimports for formatting, golangci-lint and `go vet` for static analysis, govulncheck for known vulnerabilities, `go test` for the backend, and oxfmt, oxlint, `tsc`, plus vitest for the frontend.
 
