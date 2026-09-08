@@ -12,7 +12,11 @@ is deliberate: the virtual module only exists once the plugin has run, and
 `vitest.config.ts` keeps the plugin out of the test run, so the template holds every
 decision and `buildFrameHtml.ts` holds nothing but the two imports. Two consequences:
 
-- Module syntax in `frame.ts` is only safe while that bundler is in place.
+- Module syntax in `frame.ts` is only safe while that bundler is in place. The
+  result must be one self-contained JavaScript IIFE: no sidecar assets/chunks or
+  external imports. Bun's metafile supplies the actual transitive runtime inputs
+  to Vite's watch graph for dev HMR and production watch rebuilds. Do not restore
+  a static dependency list or filter out a shared module's shell updates.
 - Everything here ends up inlined into a security-sensitive HTML string. Nothing in the
   iframe may be built from unescaped book content.
 
@@ -67,8 +71,8 @@ decision and `buildFrameHtml.ts` holds nothing but the two imports. Two conseque
 - **Book links have two owners.** The iframe handles same-document fragments and the closed
   external allow-list (`http`, `https`, `mailto`, `tel`) with `noopener,noreferrer`; all
   other explicit schemes fail closed. Relative book links cross the wire and are decoded
-  once per segment by `lib/href.ts`. Keep every runtime `src/lib` import reachable from
-  `frame.ts` in vite.config.ts's static frame-graph HMR list.
+  once per segment by `lib/href.ts`. Runtime imports reachable from `frame.ts` are
+  tracked automatically by the build plugin, including shared `src/lib` modules.
 - **Chapter CSS arrives flat.** The backend splices in-EPUB `@import` targets into the
   chapter stylesheet (`internal/epub/chapter.go`, `inlineCSSImports`) because this
   code parses CSS through a constructed `CSSStyleSheet`, and `replaceSync` drops

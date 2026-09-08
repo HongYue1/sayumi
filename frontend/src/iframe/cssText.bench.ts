@@ -1,4 +1,4 @@
-import { bench, describe } from "vitest";
+import { expect, test } from "vitest";
 import {
   extractBookFontFamilies,
   filterReaderFontFaces,
@@ -73,23 +73,26 @@ const readerFontFaces = Array.from(
 
 const bookFamilies = extractBookFontFamilies(bookFontFaces);
 
-describe(`chapter css (${ruleCount} rules)`, () => {
-  bench("stripColorsFromCSS", () => {
+test(`chapter css (${ruleCount} rules)`, async ({ bench }) => {
+  // Keep the fixture check out of the measured callbacks.
+  expect(ruleCount).toBe(540);
+  expect(parsedRuleCount(sheetB)).toBe(520);
+  await bench("stripColorsFromCSS", () => {
     tick += 1;
     stripColorsFromCSS(tick % 2 === 0 ? sheetA : sheetB);
-  });
+  }).run();
 
-  bench("splitBookCSS", () => {
+  await bench("splitBookCSS", () => {
     splitBookCSS(sheetA);
-  });
+  }).run();
 });
 
-describe("font-face text", () => {
-  bench("extractBookFontFamilies", () => {
+test("font-face text", async ({ bench }) => {
+  await bench("extractBookFontFamilies", () => {
     extractBookFontFamilies(bookFontFaces);
-  });
+  }).run();
 
-  bench("filterReaderFontFaces", () => {
+  await bench("filterReaderFontFaces", () => {
     filterReaderFontFaces(readerFontFaces, bookFamilies);
-  });
+  }).run();
 });

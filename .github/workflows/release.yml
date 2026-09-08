@@ -1,7 +1,7 @@
 name: Release
 
-# Tag pushes publish only after all gates and all six builds pass. A manual
-# branch run validates/builds artifacts without release or attestation writes.
+# Only a tag PUSH may publish. Manual runs (including on tags) are read-only
+# validation/builds, never release or attestation writes.
 on:
   push:
     tags: ["v*"]
@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0 # tags, for git describe and Windows version metadata
+          fetch-depth: 0 # tags, for local version fallback and source epoch
           persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -40,245 +40,24 @@ jobs:
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: canary
+          bun-version-file: frontend/package.json
 
-      # Exercise the real release script in disposable fixtures, never by
-      # dispatching workflows or publishing releases from a local test.
+      # The same maintained regressions also run under make check locally.
       - name: Release regressions (offline)
         id: regressions
         shell: bash
-        run: |
-          bun - <<'JS'
-          import assert from "node:assert/strict";
-          import { createHash } from "node:crypto";
-          import { spawnSync } from "node:child_process";
-          import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-          import { tmpdir } from "node:os";
-          import { join } from "node:path";
-
-          const workflow = Bun.YAML.parse(readFileSync(".github/workflows/release.yml", "utf8"));
-          const { build, publish } = workflow.jobs;
-          assert.deepEqual(workflow.on.push.tags, ["v*"]);
-          assert.ok("workflow_dispatch" in workflow.on);
-          assert.deepEqual(workflow.permissions, { contents: "read" });
-          assert.deepEqual(build.permissions, { contents: "read" });
-          assert.equal(workflow.env.GOTOOLCHAIN, "local");
-          assert.equal(build.env.CGO_ENABLED, "1");
-          assert.equal(publish.needs, "build");
-          assert.equal(publish.if, "startsWith(github.ref, 'refs/tags/v')");
-          assert.deepEqual(publish.permissions, { contents: "write", "id-token": "write", attestations: "write" });
-          for (const job of [build, publish]) {
-            for (const step of job.steps) {
-              if (step.uses) assert.match(step.uses, /@[a-f0-9]{40}$/);
-              if (step.uses?.startsWith("actions/checkout@")) assert.equal(step.with["persist-credentials"], false);
-            }
-          }
-          assert.ok(!publish.steps.some(s => s.uses?.startsWith("actions/checkout@")));
-          const index = id => build.steps.findIndex(s => s.id === id);
-          assert.ok(index("regressions") < index("quality") && index("quality") < index("artifacts") && index("artifacts") < index("upload"));
-          assert.match(build.steps[index("quality")].run, /make check/);
-          assert.match(build.steps[index("quality")].run, /gofumpt goimports golangci-lint govulncheck gcc/);
-          const archives = ["darwin-amd64.tar.gz", "darwin-arm64.tar.gz", "linux-amd64.tar.gz", "linux-arm64.tar.gz", "windows-amd64.zip", "windows-arm64.zip"].map(s => `sayumi-${s}`);
-          const paths = text => text.trim().split(/\s+/).map(s => s.replace(/^dist-release\//, "")).sort();
-          assert.deepEqual(paths(build.steps[index("upload")].with.path), [...archives, "SHA256SUMS"].sort());
-          const download = publish.steps.find(s => s.uses?.startsWith("actions/download-artifact@"));
-          assert.equal(download.with.name, build.steps[index("upload")].with.name);
-          assert.equal(download.with.path, "dist-release");
-          assert.ok(!download.with["run-id"] && !download.with.repository && !download.with["github-token"]);
-          assert.deepEqual(paths(publish.steps.find(s => s.uses?.startsWith("actions/attest-build-provenance@")).with["subject-path"]), archives);
-          assert.deepEqual(paths(publish.steps.find(s => s.uses?.startsWith("softprops/action-gh-release@")).with.files), [...archives, "SHA256SUMS"].sort());
-
-          const manifest = JSON.parse(readFileSync("cmd/sayumi/winres/winres.json", "utf8"));
-          const settings = manifest.RT_MANIFEST["#1"]["0409"];
-          assert.equal(settings["execution-level"], "as invoker");
-          assert.equal(settings["ui-access"], false);
-          assert.equal(settings["auto-elevate"], false);
-          assert.equal(settings["minimum-os"], "win10");
-          assert.equal(settings["long-path-aware"], true);
-          for (const name of manifest.RT_GROUP_ICON.APP["0000"]) {
-            const bytes = readFileSync(join("cmd/sayumi/winres", name));
-            assert.equal(bytes.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
-            const size = Number(name.match(/^icon-(\d+)\.png$/)[1]);
-            assert.equal(bytes.readUInt32BE(16), size);
-            assert.equal(bytes.readUInt32BE(20), size);
-          }
-          const attributes = spawnSync("git", ["check-attr", "-z", "text", "eol", "--", "release.sh", "cmd/sayumi/winres/winres.json", "frontend/bun.lock", "cmd/sayumi/rsrc_windows_amd64.syso", "cmd/sayumi/winres/icon-256.png"], { encoding: "utf8" });
-          assert.equal(attributes.status, 0, attributes.stderr);
-          const fields = attributes.stdout.split("\0");
-          for (let i = 0; i + 2 < fields.length; i += 3) {
-            assert.equal(fields[i + 2], fields[i + 1] === "eol" ? "lf" : /\.(syso|png)$/.test(fields[i]) ? "unset" : "set");
-          }
-
-          // Run the real script in disposable fixtures. The compiler, frontend builder,
-          // resource generator and ZIP writer are mocked; tar and checksum tools are real.
-          const source = readFileSync("release.sh", "utf8");
-          const bash = process.env.BASH || "bash";
-          const prelude = String.raw`
-          set -euo pipefail
-          cd "$1"; shift
-          command() {
-            if [[ "$1" == -v && "$2" == "$MISSING_TOOL" ]]; then return 1; fi
-            builtin command "$@"
-          }
-          git() { if [[ "$1" == describe ]]; then echo v1.2.3; else echo 1700000000; fi; }
-          bun() {
-            if [[ "$1" == run ]]; then
-              echo frontend >> "$LOG_FILE"
-              [[ "$FAIL_FRONTEND" == 0 ]] || return 61
-              if [[ "$EMPTY_FRONTEND" == 0 ]]; then printf '<html>fixture</html>' > "$FIXTURE/cmd/sayumi/dist/index.html"; fi
-            else builtin command bun "$@"; fi
-          }
-          env() ( while [[ "$1" == *=* ]]; do export "$1"; shift; done; "$@"; )
-          go-winres() {
-            echo resources >> "$LOG_FILE"
-            [[ "$FAIL_RESOURCES" == 0 ]] || return 62
-            local out=""
-            while [[ $# -gt 0 ]]; do
-              if [[ "$1" == --out ]]; then out="$2"; shift 2; else shift; fi
-            done
-            [[ -n "$out" ]] || return 90
-            printf 'amd64 resource' > "$out"_windows_amd64.syso
-            printf 'arm64 resource' > "$out"_windows_arm64.syso
-          }
-          go() {
-            [[ "$1" == build ]] || return 90
-            echo "$GOOS/$GOARCH cgo=$CGO_ENABLED amd64=$GOAMD64 arm64=$GOARM64" >> "$LOG_FILE"
-            [[ "$FAIL_BUILD" != "$GOOS/$GOARCH" ]] || return 63
-            local out="" package=""
-            while [[ $# -gt 0 ]]; do
-              case "$1" in
-                -o) out="$2"; shift 2 ;;
-                *) package="$1"; shift ;;
-              esac
-            done
-            if [[ "$GOOS" == windows ]]; then
-              [[ "$package" == ./dist-release/_stage/windows-src ]] || return 91
-              [[ -s "$package/rsrc_windows_$GOARCH.syso" && -s "$package/dist/index.html" && -s "$package/main.go" ]] || return 92
-              [[ ! -e "$package/main_test.go" ]] || return 93
-            fi
-            printf 'binary %s/%s\n' "$GOOS" "$GOARCH" > "$out"
-          }
-          zip() {
-            echo zip >> "$LOG_FILE"
-            [[ "$FAIL_ZIP" == 0 ]] || return 64
-            [[ $# == 4 && "$1" == -X && "$2" == -q && "$4" == -@ ]] || return 92
-            cat >/dev/null
-            printf 'zip fixture' > "$3"
-          }
-          rm() { [[ "$FAIL_CLEANUP" == 0 ]] || return 65; builtin command rm "$@"; }
-          sha256sum() { [[ "$FAIL_CHECKSUM" == 0 ]] || return 66; builtin command sha256sum "$@"; }
-          export -f command git bun env go-winres go zip rm sha256sum
-          bash --noprofile --norc ./release.sh "$@"
-          `;
-          let cases = 0;
-          const run = (args, env = {}, expected = 0, inspect = () => {}, prepare = () => {}) => {
-            const dir = mkdtempSync(join(tmpdir(), "sayumi release "));
-            try {
-              for (const name of ["frontend", "cmd/sayumi/dist", "fonts-bundle/Fixture", "dist-release"]) mkdirSync(join(dir, name), { recursive: true });
-              writeFileSync(join(dir, "release.sh"), source);
-              writeFileSync(join(dir, "cmd/sayumi/main.go"), "package main\nfunc main() {}\n");
-              writeFileSync(join(dir, "cmd/sayumi/main_test.go"), "test fixture: must not be staged");
-              writeFileSync(join(dir, "cmd/sayumi/rsrc_windows_amd64.syso"), "original resource");
-              writeFileSync(join(dir, "fonts-bundle/Fixture/Regular.woff2"), "fixture font");
-              writeFileSync(join(dir, "dist-release/sayumi-obsolete.zip"), "old archive");
-              writeFileSync(join(dir, "dist-release/SHA256SUMS"), "old manifest");
-              prepare(dir);
-              const r = spawnSync(bash, ["--noprofile", "--norc", "-c", prelude, "test", dir.replaceAll("\\", "/"), ...args], {
-                env: { ...process.env, BASH_ENV: "", MISSING_TOOL: "", FAIL_FRONTEND: "0", EMPTY_FRONTEND: "0", FAIL_RESOURCES: "0", FAIL_BUILD: "", FAIL_ZIP: "0", FAIL_CLEANUP: "0", FAIL_CHECKSUM: "0", FIXTURE: dir.replaceAll("\\", "/"), LOG_FILE: join(dir, "events").replaceAll("\\", "/"), SOURCE_DATE_EPOCH: "1700000000", GOAMD64: "v4", GOARM64: "v9.5", ...env },
-                encoding: "utf8", timeout: 20000,
-              });
-              assert.ifError(r.error);
-              assert.equal(r.status, expected, r.stdout + r.stderr);
-              assert.equal(readFileSync(join(dir, "cmd/sayumi/rsrc_windows_amd64.syso"), "utf8"), "original resource");
-              assert.ok(!existsSync(join(dir, "cmd/sayumi/rsrc_windows_arm64.syso")));
-              inspect(dir, r);
-              cases++;
-            } finally { rmSync(dir, { recursive: true, force: true }); }
-          };
-          const noWork = dir => {
-            assert.ok(!existsSync(join(dir, "events")));
-            assert.equal(readFileSync(join(dir, "dist-release/SHA256SUMS"), "utf8"), "old manifest");
-          };
-          const noManifest = dir => assert.ok(!existsSync(join(dir, "dist-release/SHA256SUMS")));
-          for (const args of [["linux/../../../outside"], ["windows/386"], ["linux"], [""], ["--help"], ["linux/amd64", "linux/amd64"], ["linux/amd64", "bad"]]) run(args, {}, 2, noWork);
-          for (const epoch of ["-1", "1.5", "invalid", "9999999999999999999999999999"]) run(["linux/amd64"], { SOURCE_DATE_EPOCH: epoch }, 1, noWork);
-          for (const tool of ["bun", "go", "sha256sum", "zip", "go-winres"]) run([], { MISSING_TOOL: tool }, 1, noWork);
-          run(["linux/amd64"], {}, 1, noWork, dir => rmSync(join(dir, "fonts-bundle"), { recursive: true }));
-          run(["linux/amd64"], { FAIL_CLEANUP: "1" }, 65, noWork);
-          run(["linux/amd64"], { FAIL_FRONTEND: "1" }, 61, noManifest);
-          run(["linux/amd64"], { EMPTY_FRONTEND: "1" }, 1, noManifest);
-          run(["windows/amd64"], { FAIL_RESOURCES: "1" }, 62, noManifest);
-          run(["linux/amd64", "linux/arm64"], { FAIL_BUILD: "linux/arm64" }, 63, noManifest);
-          run(["windows/arm64"], { FAIL_ZIP: "1" }, 64, noManifest);
-          run(["linux/amd64"], { FAIL_CHECKSUM: "1" }, 66, noManifest);
-          run(["linux/amd64"], { MISSING_TOOL: "go-winres", SOURCE_DATE_EPOCH: "0" }, 0, dir => {
-            const events = readFileSync(join(dir, "events"), "utf8");
-            assert.ok(!events.includes("resources"));
-            assert.match(events, /linux\/amd64 cgo=0 amd64=v1/);
-            const tar = spawnSync("tar", ["-tzf", "dist-release/sayumi-linux-amd64.tar.gz"], { cwd: dir, encoding: "utf8" });
-            assert.equal(tar.status, 0, tar.stderr);
-            assert.ok(tar.stdout.includes("sayumi-linux-amd64/Fonts/Fixture/Regular.woff2"));
-            assert.ok(tar.stdout.includes("sayumi-linux-amd64/README.txt"));
-          });
-          run([], {}, 0, dir => {
-            assert.deepEqual(readdirSync(join(dir, "dist-release")).sort(), [...archives, "SHA256SUMS"].sort());
-            const events = readFileSync(join(dir, "events"), "utf8");
-            assert.equal(events.split("\n").filter(s => s.includes(" cgo=")).length, 6);
-            assert.equal(events.split("\n").filter(s => s === "resources").length, 1);
-            for (const os of ["linux", "darwin", "windows"]) {
-              assert.ok(events.includes(`${os}/amd64 cgo=0 amd64=v1`));
-              assert.match(events, new RegExp(`${os}/arm64 cgo=0 .*arm64=v8\\.0`));
-            }
-            // NTFS may ignore chmod on ELF/Mach-O files: verify stored tar modes,
-            // not the permissions reported by the fixture's filesystem.
-            for (const archive of archives.filter(name => name.endsWith(".tar.gz"))) {
-              const contents = spawnSync("tar", ["-tvzf", `dist-release/${archive}`], { cwd: dir, encoding: "utf8", timeout: 10000 });
-              assert.equal(contents.status, 0, contents.stderr);
-              assert.match(contents.stdout, /^-rwxr-xr-x .* sayumi-[a-z0-9-]+\/sayumi\s*$/m);
-              assert.match(contents.stdout, /^-rw-r--r-- .* sayumi-[a-z0-9-]+\/README\.txt\s*$/m);
-            }
-            const verified = spawnSync(bash, ["-euo", "pipefail", "-c", publish.steps.find(s => s.id === "verify").run], { cwd: dir, encoding: "utf8", timeout: 10000 });
-            assert.equal(verified.status, 0, verified.stdout + verified.stderr);
-            const original = new Map([...archives, "SHA256SUMS"].map(name => [name, readFileSync(join(dir, "dist-release", name))]));
-            for (const corrupt of [
-              () => writeFileSync(join(dir, "dist-release", archives[0]), "corrupt"),
-              () => rmSync(join(dir, "dist-release", archives[1])),
-              () => {
-                writeFileSync(join(dir, "dist-release", archives[0]), "");
-                const sums = archives.map(name => `${createHash("sha256").update(readFileSync(join(dir, "dist-release", name))).digest("hex")} *${name}`).join("\n") + "\n";
-                writeFileSync(join(dir, "dist-release/SHA256SUMS"), sums);
-              },
-              () => {
-                const lines = original.get("SHA256SUMS").toString().trim().split("\n");
-                lines[1] = lines[0];
-                writeFileSync(join(dir, "dist-release/SHA256SUMS"), lines.join("\n") + "\n");
-              },
-              () => writeFileSync(join(dir, "dist-release/unexpected"), "extra"),
-            ]) {
-              for (const [name, data] of original) writeFileSync(join(dir, "dist-release", name), data);
-              rmSync(join(dir, "dist-release/unexpected"), { force: true });
-              corrupt();
-              const failed = spawnSync(bash, ["-euo", "pipefail", "-c", publish.steps.find(s => s.id === "verify").run], { cwd: dir, encoding: "utf8", timeout: 10000 });
-              assert.notEqual(failed.status, 0, "publisher accepted incomplete or corrupt artifacts");
-              cases++;
-            }
-          });
-          console.log(`Release regressions passed (${cases} cases plus workflow, attributes and resource contracts).`);
-          JS
+        run: bun .github/scripts/release-tests.mjs
 
       - name: Install frontend deps
-        working-directory: frontend
-        run: bun install --frozen-lockfile
+        shell: bash
+        run: bash ./provision.sh frontend
 
       - name: Install Go quality tools (pinned)
-        run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
-          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
-          go install mvdan.cc/gofumpt@v0.11.0
-          go install golang.org/x/tools/cmd/goimports@v0.49.0
+        shell: bash
+        run: bash ./provision.sh quality-tools
 
-      # check.sh can skip missing tools; release gates must reject that setup.
-      # make check also builds the embedded SPA before the Go checks need it.
+      # check.sh requires quality tools and rebuilds the SPA before Go checks.
+      # Release validation additionally requires cgo/race support.
       - name: Quality gates (test, lint, govulncheck)
         id: quality
         run: |
@@ -290,15 +69,18 @@ jobs:
           make check
 
       - name: Install go-winres
-        run: go install github.com/tc-hib/go-winres@v0.3.3
+        shell: bash
+        run: bash ./provision.sh release-tools
 
       - name: Build release artifacts
         id: artifacts
+        env:
+          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: ./release.sh
 
       - name: Upload checked artifacts
         id: upload
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-artifacts
           if-no-files-found: error
@@ -314,7 +96,7 @@ jobs:
 
   publish:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -325,33 +107,45 @@ jobs:
       # Consume only this run's immutable artifact. Do not check out sources,
       # install dependencies, extract release archives, or execute their binaries
       # in the job that holds publishing credentials.
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-artifacts
           path: dist-release
+          digest-mismatch: error
 
       - name: Verify complete release payload
         id: verify
         shell: bash
         run: |
           set -euo pipefail
-          cd dist-release
-          expected=(
-            sayumi-darwin-amd64.tar.gz sayumi-darwin-arm64.tar.gz
-            sayumi-linux-amd64.tar.gz sayumi-linux-arm64.tar.gz
-            sayumi-windows-amd64.zip sayumi-windows-arm64.zip
-          )
-          shopt -s nullglob dotglob
-          files=(*)
-          test "${#files[@]}" = 7
-          for name in "${expected[@]}" SHA256SUMS; do
-            [[ -f "$name" && -s "$name" && ! -L "$name" ]]
-          done
-          # A wildcard match alone does not prove every target exists. Require
-          # one well-formed checksum for each expected archive, and no others.
-          actual="$(awk 'NF != 2 || $1 !~ /^[[:xdigit:]]{64}$/ {exit 1} {sub(/^\*/, "", $2); print $2}' SHA256SUMS | LC_ALL=C sort)"
-          test "$actual" = "$(printf '%s\n' "${expected[@]}")"
-          sha256sum --check --strict SHA256SUMS
+          # Runner Node standard library only: no checkout, installs or artifact
+          # execution. Keep this verifier inline so it cannot come from a bundle.
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import { createHash } from "node:crypto";
+          import { lstatSync, readFileSync, readdirSync } from "node:fs";
+          import { join } from "node:path";
+          const dir = "dist-release";
+          const expected = [
+            "sayumi-darwin-amd64.tar.gz", "sayumi-darwin-arm64.tar.gz",
+            "sayumi-linux-amd64.tar.gz", "sayumi-linux-arm64.tar.gz",
+            "sayumi-windows-amd64.zip", "sayumi-windows-arm64.zip",
+          ];
+          assert.deepEqual(readdirSync(dir).sort(), [...expected, "SHA256SUMS"].sort());
+          for (const name of [...expected, "SHA256SUMS"]) {
+            const info = lstatSync(join(dir, name));
+            assert.ok(info.isFile() && !info.isSymbolicLink() && info.size > 0, name);
+          }
+          const sums = readFileSync(join(dir, "SHA256SUMS"), "utf8");
+          assert.ok(sums.endsWith("\n"), "manifest must end with a newline");
+          const lines = sums.slice(0, -1).split("\n");
+          assert.equal(lines.length, expected.length);
+          for (const [i, name] of expected.entries()) {
+            const hash = createHash("sha256").update(readFileSync(join(dir, name))).digest("hex");
+            assert.equal(lines[i], `${hash} *${name}`, `invalid checksum entry: ${name}`);
+          }
+          console.log("All six release archives verified.");
+          JS
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

@@ -230,7 +230,7 @@ export default function CommandPalette() {
             for visual parity with the established design; the listbox/option
             rows are the WAI combobox pattern -- keyboard interaction lives on
             the combobox input via aria-activedescendant, not on the rows. */}
-        {/* eslint-disable jsx-a11y/prefer-tag-over-role, jsx-a11y/no-noninteractive-element-to-interactive-role, jsx-a11y/click-events-have-key-events */}
+        {/* eslint-disable jsx-a11y/no-noninteractive-element-to-interactive-role */}
         <div
           class="cmd-palette paper"
           role="dialog"
@@ -310,7 +310,7 @@ export default function CommandPalette() {
             </span>
           </footer>
         </div>
-        {/* eslint-enable jsx-a11y/prefer-tag-over-role, jsx-a11y/no-noninteractive-element-to-interactive-role, jsx-a11y/click-events-have-key-events */}
+        {/* eslint-enable jsx-a11y/no-noninteractive-element-to-interactive-role */}
       </div>
     </Show>
   );

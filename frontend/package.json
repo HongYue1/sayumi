@@ -2,17 +2,19 @@
   "name": "sayumi-frontend",
   "private": true,
   "type": "module",
+  "packageManager": "bun@1.4.2",
   "scripts": {
-    "dev": "bun node_modules/vite/bin/vite.js",
-    "build": "bun node_modules/vite/bin/vite.js build",
-    "preview": "vite preview",
+    "dev": "bash ../provision.sh check-bun && bun node_modules/vite/bin/vite.js",
+    "build": "bash ../provision.sh check-bun && bun node_modules/vite/bin/vite.js build",
+    "preview": "bash ../provision.sh check-bun && bun node_modules/vite/bin/vite.js preview",
     "check": "tsc --noEmit",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "test": "vitest run",
-    "bench": "vitest bench --run",
+    "bench": "vitest bench --run --no-file-parallelism",
+    "test:diagnose": "vitest run --detectAsyncLeaks --no-file-parallelism",
     "test:watch": "vitest"
   },
   "devDependencies": {
@@ -20,12 +22,12 @@
     "@solidjs/vite-plugin": "3.0.0-next.38",
     "@types/node": "^26.4.0",
     "happy-dom": "^20.12.0",
-    "oxfmt": "^0.66.0",
-    "oxlint": "^1.80.0",
+    "oxfmt": "^0.67.0",
+    "oxlint": "^1.82.0",
     "oxlint-tsgolint": "7.0.2001",
     "typescript": "^7.0.2",
     "vite": "^8.2.2",
-    "vitest": "4.1.11"
+    "vitest": "5.0.0"
   },
   "dependencies": {
     "@solidjs/web": "2.0.0-rc.6",

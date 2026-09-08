@@ -81,30 +81,147 @@ The library path can also be set with the `SAYUMI_LIBRARY` environment variable.
 
 ## Development
 
-Building from source requires Go 1.26.7+ and bun (or npm) for the frontend.
+Building from source requires the Go version declared in `go.mod`, the exact stable Bun release in `frontend/package.json`'s `packageManager` field, and Bash (Git Bash on Windows). The Make targets invoke Bash explicitly, including when archive extraction does not preserve executable bits; `bash ./check.sh` also works directly. The frontend is Bun-only: npm/Node cannot provide the iframe's `Bun.build` runtime. Vite dev, build and preview all validate the selected Bun revision through the shared provisioning check; they never install tools. Vitest remains Node-hosted.
+
+### Toolchain policy
+
+- `go.mod` is the Go version authority: its `go` directive is the language/module minimum and the exact toolchain selected by ordinary CI and releases. The maintenance workflow proposes validated patches within that minor; minor upgrades are deliberate. A duplicate `toolchain` directive or another version manager is unnecessary here.
+- `frontend/package.json` is the Bun version authority. Every workflow reads it with `bun-version-file`; do not duplicate the pin or use moving `latest`/`canary` labels or ranges. Stable Bun provides the iframe bundler needed by this project without making release output depend on the day CI runs.
+- Install/select those versions explicitly before working. `packageManager` is selection metadata, not a local installer: `make check` rejects a different Bun revision before building, including a canary with the same numeric `--version`. Nothing in the check installs or switches Bun. Use `GOTOOLCHAIN=local` to prevent Go's automatic toolchain downloads and switching.
+- Evaluate newer stable releases and prereleases in isolation on a branch, with a concrete capability or correctness reason. Adoption requires the frozen install, full `make check` with race support, and affected production builds; keep unsupported platform validation explicit. A prerelease would also need a retrievable fixed revision and an intentional update to the stable-only gate, never a moving channel label. Roll back an unsuccessful adoption by reverting its scoped commit and explicitly reselecting the previous toolchain.
 
 ```sh
-make build        # local optimized build (auto GOAMD64=v3 when supported)
-make run          # build, then run
+# Inspect the pins/selected executables; these commands do not install tools.
+export GOTOOLCHAIN=local
+go version
+bun -p 'require("./frontend/package.json").packageManager'
+bun --revision
+```
+
+### Dependency and tool setup
+
+After selecting the toolchains above, run these from the repository root:
+
+```sh
+make deps          # install the locked frontend build/test dependencies
+make tools         # install the four pinned Go quality tools
+make release-tools # additionally install go-winres for Windows release resources
+```
+
+These are thin wrappers over `bash ./provision.sh frontend`, `quality-tools`, and `release-tools`, also used by every workflow. Go installs use the selected local compiler and honor `GOBIN` (or Go's default bin directory); put that directory on `PATH`. The executable pins live only in `provision.sh`. Version-suffixed installs keep each tool's module graph independent of the application and the other tools, rather than letting a shared `tool` directive graph change their transitive versions.
+
+Native Go regression tests also execute gofumpt and goimports. `bash ./provision.sh format-tools` installs that shared subset without the linters; the Windows/macOS CI jobs provision it before testing. Tool pins remain owned by the same script.
+
+Frontend setup requires a nonempty committed `frontend/bun.lock`, checks the Bun revision, and uses `--frozen-lockfile --ignore-scripts`. The missing-lock guard is intentional: Bun's frozen flag alone can resolve fresh dependencies when no lockfile exists. `frontend/bunfig.toml` also disables lifecycle hooks for direct installs and deliberate dependency updates; build/test commands still run normally. Native build tools use their platform packages without install hooks. Review any future hook requirement explicitly rather than blanket-trusting packages.
+
+Commit `go.mod`/`go.sum` and `frontend/package.json`/`frontend/bun.lock` together when their dependencies change. Go verifies downloaded modules through its checksum mechanism; `go mod verify` checks the local module cache and `go mod tidy -diff` checks manifest consistency. Keep SQLite and its required libc paired as explained in `go.mod`.
+
+Dependabot checks actions and Go modules weekly. Its Bun lockfile-v2 support is [blocked upstream](https://github.com/dependabot/dependabot-core/issues/16026); keep the configured Bun job, but do not treat a lack of PRs as proof that the frontend is current or downgrade the lockfile to satisfy the bot. Until a bot update validates successfully, review frontend updates manually on a branch with the pinned Bun: update only the chosen package (`bun update <package>` within its declared range, or deliberately edit that range and run `bun install`), inspect the manifest/lock diff, then run `make deps` and the full race-enabled `GOTOOLCHAIN=local CGO_ENABLED=1 make check`. Keep the Solid prereleases coordinated. Go executable pins are not covered by the gomod updater: review their upstream releases, edit `provision.sh` once, reinstall, and run the same checks. Revert an unsuccessful scoped update rather than deleting lockfiles or relaxing gates.
+
+### CI and maintenance
+
+CI runs on pull requests (including forks and Dependabot), pushes to `main`/`master`, merge-queue checks and manual dispatch. Linux runs the full race-enabled gate; Windows/macOS run native CGO-free Go tests. No path filters or draft-PR skips hide required checks. Only a newer run for the same PR cancels earlier work; push, merge-group and manual runs remain independent.
+
+CI tokens are read-only and checkout does not persist credentials. GitHub scopes PR-written caches to the PR merge ref, not the base branch. Go cache keys include `go.sum` and the shared tool pins in `provision.sh`; caches are an optimization, not validation evidence. Do not cache credentials or pass PR caches/artifacts to a privileged job. Actions use full commit SHAs with version comments; verify updates against the upstream tag, not merely a matching SHA-shaped string.
+
+The Go patch workflow runs Mondays at 06:17 UTC or manually **from the default branch**. A read-only, cache-free job validates the frozen event commit with `make check`. A fresh publishing job runs no builds or dependency installers: it reconstructs only a strictly newer patch in the existing Go minor and matches the validated module blob. Dependency, `toolchain`, `go.sum`, or unrelated changes require manual review. If the default branch moves before publication, rerun from its new tip; the bot branch is updated with an explicit force-with-lease, never an unconditional force push.
+
+Keep repository defaults read-only, require review and status checks, and require approval for outside-contributor workflow runs. The Go updater additionally needs **Actions → General → Workflow permissions → Allow GitHub Actions to create and approve pull requests**; it only creates/updates PRs, never approves or merges them. PRs created with `GITHUB_TOKEN` do not trigger ordinary PR CI. The updater's full check is not a replacement for required PR status checks: if those remain pending, a maintainer can dispatch **CI** on `deps/go-toolchain-patch` and review the result, without bypassing branch protection. No local validation command below dispatches a workflow or publishes anything.
+
+For workflow edits, explicitly install the pinned validator, then run:
+
+```sh
+bash ./provision.sh workflow-tools # actionlint only; honors GOBIN and GOTOOLCHAIN=local
+make workflow-check
+GOTOOLCHAIN=local CGO_ENABLED=1 make check
+```
+
+`workflow-check` requires actionlint, Git, Bash, Node and the selected Go/Bun; it never installs tools. It checks CI, maintenance and release YAML and expression types, then executes offline shell, packaging and temporary-Git regressions. Its actionlint invocation deliberately uses built-in checks only (`-shellcheck= -pyflakes=`), rather than silently varying with optional host tools. The same behavioral regressions run in ordinary Go tests (also requiring Git), so local `make check` covers module handoff, missing tools, Git/API failures and denied PR creation. Hosted scheduling, cache access controls and repository settings still need verification in GitHub; offline fixtures do not emulate the service.
+
+### Commands
+
+```sh
+make build        # CGO-free binary, fresh frontend, configured Go CPU baseline
+make run          # build, then replace the build process with the native binary
+make web          # fresh frontend only
 make check        # all quality gates: format, vet, lint, vulncheck, tests, tsc
-make fix          # auto-fix pass: imports, formatting, lint --fix, mod tidy
+make fix          # refresh frontend, then apply Go/frontend fixes and mod tidy
+make fmt          # Go-only imports + formatting; requires both formatters
 make release      # cross-compiled, portable archives in dist-release/
 ```
 
-For frontend work, run a dev server that proxies the API to a binary listening on port 8080:
+`make build` and `make run` always rebuild the frontend before Go, even if `cmd/sayumi/dist` already exists. `bash ./build.sh --skip-web` is an explicit escape hatch for backend-only work: it warns about stale UI and requires a nonempty regular `dist/index.html`, but does not require Bun. Build or compiler failures stop the command; `--run` does not launch an old executable and rejects a cross-target before building. Normal explicit cross-builds still use Go's target executable suffix. The build enforces `GOTOOLCHAIN=local`, retains version/date stamping, and never enables cgo for production.
+
+Local CPU tuning follows Go's environment (`GOAMD64=v1` by default), not an incomplete host-feature probe. Set `GOAMD64=v3 make build` only for machines known to meet [all of Go's v3 requirements](https://go.dev/wiki/MinimumRequirements#amd64); AVX2/BMI2/FMA alone are not sufficient. An explicit cross-build is never tuned from the build host. Use `make release` for the distributable archives.
+
+For frontend work, use two terminals after `make deps`:
 
 ```sh
-cd frontend && bun install && bun run dev
+# Terminal 1, repository root: Go API and embedded fonts on port 8080.
+make run
+
+# Terminal 2, repository root: frontend HMR on http://localhost:3000.
+cd frontend && bun run dev
 ```
 
-The quality gates use gofumpt and goimports for formatting, golangci-lint and `go vet` for static analysis, govulncheck for known vulnerabilities, `go test` for the backend, and oxfmt, oxlint, `tsc`, plus vitest for the frontend. Install the Go tools once:
+Open the Vite URL, not the Go-served production UI. Vite proxies both `/api` and `/fonts` to `127.0.0.1:8080`; rebuild/restart Go for backend changes. Stop each process with Ctrl-C. `cd frontend && bun run preview` previews already-built assets (no HMR or rebuild); keep the Go backend running for API/font requests.
+
+Vite/Rolldown owns the Solid shell and raw iframe CSS. Bun bundles only `frame.ts` and its runtime imports into one self-contained classic-script IIFE; extra chunks/assets or external imports fail the build because the script is inlined into `srcdoc`. The plugin uses [Bun's metafile](https://bun.sh/docs/bundler#metafile) to register every real transitive input with Vite, so dev HMR and production watch rebuilds need no hand-maintained graph list. Shared modules still update their independent shell consumers, while CSS and HTML-wrapper edits follow Vite's normal graph. Frame compilation errors retain their compiler messages instead of a generic aggregate failure. These contracts have executable build/watch/HMR fixtures; they do not replace browser layout/CSP checks.
+
+The quality gates use gofumpt and goimports for formatting, golangci-lint and `go vet` for static analysis, govulncheck for known vulnerabilities, `go test` for the backend, and oxfmt, oxlint, `tsc`, plus vitest for the frontend.
+
+All four Go quality tools must be on `PATH`; a missing tool fails the check rather than skipping a gate. Checks refresh the generated frontend before Go analysis and tests, without modifying source files. `./check.sh --fast` skips only the final Go build, not frontend compilation or quality gates. Race tests run when `go env CGO_ENABLED` is `1`; a failed race run is never retried without `-race`. A cgo-disabled local run explicitly reports the missing race check, while CI requires race support and the production build remains CGO-free.
+
+### Release and packaging
+
+`make release` (or `bash ./release.sh [os/arch ...]`) builds Linux, macOS and Windows for both amd64 and arm64. Production binaries are CGO-free with `GOAMD64=v1` / `GOARM64=v8.0`; CPU tuning from your shell is never used. Select the canonical Go/Bun versions first, run `make deps`, and install `make release-tools` for Windows resources. Bash and standard file utilities are required; GNU tar, gzip, zip and sha256sum are not packaging dependencies. Nothing installs or switches a toolchain automatically.
+
+Each `sayumi-<os>-<arch>` archive contains one top-level folder with the binary (`sayumi.exe` on Windows), the complete `fonts-bundle` as `Fonts/`, and both README files. Existing `Fonts/` and `Library/` user data are never inputs or cleanup targets. Symlinked payload inputs are rejected. The frontend must be freshly built; Windows resources are generated for both architectures in disposable staging, without rewriting the committed `.syso`. The exact workflow tag (or local `git describe --tags --always --dirty`) supplies the binary, README and Windows resource version; `RELEASE_VERSION` is an explicit local override.
+
+`SOURCE_DATE_EPOCH` defaults to the source commit time and controls `buildDate` and archive entry timestamps. Set it explicitly when rebuilding the same source; use canonical decimal seconds (no leading zeros). Unix archives accept epoch zero; Windows ZIPs require 315532800–4294967295 (1980-01-01 through 2106-02-07T06:28:15Z), representable in both DOS and extended ZIP timestamps. A small standard-Go helper in `tools/release-archive` writes sorted entries, fixed owner/group and modes (0755 directories/executable; 0644 other files), and timestamp-free gzip headers. It ignores host filesystem metadata and archiver environment options. Reproducible **bytes** still require identical source, dependencies, versions and build environment—not just the same epoch. This is not a promise of identical compiler output across arbitrary Go/Bun versions or host platforms. Release builds disable ambient `GOFLAGS`, `GOEXPERIMENT` and `GOWORK` overrides and use read-only module resolution.
+
+A successful build replaces `dist-release/sayumi-*` and atomically writes a sorted `SHA256SUMS`; failures do not leave a new success manifest, and staging is removed. Do not run two releases concurrently in one checkout. Verify checksums before running an extracted executable. The maintained archive tests inspect real ZIP/TAR metadata and repeated bytes; the shell regressions exercise failures, resource staging and the exact inline publisher verifier. Both run in `make check`; `make workflow-check` additionally validates all three workflows with actionlint. These offline regressions require the selected Go/Bun, Git, Bash and Node (also used by hosted CI).
+
+Only a push of a `v*` tag may publish. A manual run on either a branch **or a tag** builds artifacts without release/attestation writes. The read-only build job runs all gates; the credentialed job has no checkout, dependency installation or artifact execution. It accepts exactly six nonempty, regular archives and the matching manifest from its own run, verifies every checksum, then attests and publishes those files. Checksums detect corruption; provenance identifies the build workflow. Neither substitutes for reviewing the source and dependency changes. Ordinary tests never publish, create a tag or dispatch a workflow.
+
+The existing Go/Bun pipeline remains the owner rather than adding GoReleaser and a parallel configuration/hook graph for six fixed targets. The standard-library archiver removes platform-specific packaging prerequisites while remaining covered by the existing Go checks. Revert the scoped release-tooling commit to roll back; do not bypass validation or silently substitute a different compiler/archiver.
+
+### Formatting and diagnostics
+
+`make fmt` delegates to `bash ./fix.sh --go-format`: it requires both goimports and gofumpt before changing anything, runs them in that order, and stops if either fails. It needs neither Bun nor a frontend build. `make fix` additionally requires Go, the pinned Bun, and golangci-lint; it checks the complete tool set and Bun revision before the first mutation, refreshes the embedded frontend before Go analysis, then runs lint fixes before final formatting. Neither entry point installs tools, skips missing tools, or substitutes gofmt/npm. Review the changes and run `make check` afterward.
+
+Keep one formatting owner per language: standalone goimports/gofumpt (not golangci-lint's independently bundled formatter versions), and oxfmt with `.oxfmtrc.json` for TSX/CSS and frontend configuration. The Go formatter's import-comment preservation has an executable regression. Oxc updates are checked against the project's existing formatting and lint policy; do not add a second Biome/Prettier pass that can rewrite the first pass's output.
+
+Oxlint runs type-aware rules through `oxlint-tsgolint`; warnings and unused disable directives fail. Keep suppressions narrow and explained, including the Safari/VoiceOver `role="list"` exception for unstyled lists. The existing `prefer-tag-over-role` exception remains intentional: native-tag substitution flags custom listboxes, dialogs and live-status widgets without proving an accessibility defect; a blanket conversion would change their interaction/styling contracts. Do not retain per-site disable directives for globally disabled rules. The separate `tsc` check covers application sources **and** top-level `*.config.ts`, rejects switch fallthrough and unmarked overrides, and emits no JavaScript. Keep the stable compiler rather than substituting oxlint's experimental type-check mode or a native-preview package for this gate.
+
+Before adopting the Solid ESLint plugin, validate its reactivity diagnostics against this application's Solid 2 patterns. The 0.17 candidate flags intentionally class-held signal tuples in `FontRegistry`/`CustomThemes`; accepting the entire preset would require an application audit, not blanket suppressions or a framework rewrite. Its server-function rules do not apply to this Go-backed SPA. The tooling policy tests use disposable projects outside the source tree, retain the real include/alias rules, and run installed tools without symlinks or downloads.
+
+### Tests, fuzzing and benchmarks
+
+Run Vitest through the Bun package scripts, not `bun test`: the runner remains Node-hosted with the Solid browser/development build and isolated happy-dom environments. Vitest 5 requires Node `^22.12.0 || ^24.0.0 || >=26.0.0`. It rejects unawaited async assertions; local and CI runs both reject `.only`. Use filename or `-t` filters instead. Suite fixtures still own mock clearing, so the upgrade does not silently erase setup/beforeAll history. The runner now installs DOM storage correctly without the old donor-window workaround. The executable policy fixtures cover selection, storage, legitimate fetch mocks, restored guards, and failing assertion/rejection/network paths, including suite teardown.
 
 ```sh
-go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
-go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
-go install mvdan.cc/gofumpt@v0.11.0
-go install golang.org/x/tools/cmd/goimports@v0.49.0
+# From the repository root, after make deps and selecting the local compiler:
+export GOTOOLCHAIN=local
+CGO_ENABLED=1 make check
+CGO_ENABLED=1 go test -race -count=1 -cover ./internal/epub
+# Select one fuzz target in one package; normal go test runs its seeds only.
+go test -run '^$' -fuzz '^FuzzSanitizeStableTree$' -fuzztime=10s -parallel=2 ./internal/epub
+make bench PKG=./internal/epub BENCH=BenchmarkSanitizeParse/Plain COUNT=5 BENCHTIME=200ms
+
+# Focused frontend tests, optional leak diagnostics, and serial benchmarks:
+(cd frontend && bun run test src/iframe/frame.test.ts)
+(cd frontend && bun run test:diagnose src/test/library-harness.test.ts)
+(cd frontend && bun run bench)
 ```
+
+Keep Go concurrency tests synchronized with channels or `testing/synctest`, not wall-clock sleeps; repeat/shuffle a focused race run when investigating order dependence. Coverage percentages locate unexercised code, not correctness. Keep any useful fuzz failure as a minimized regression; do not discard failures just to get a green run.
+
+`test:diagnose` adds async-resource stack traces and runs files serially. Leak reports are **advisory**, not a gate: even a zero exit can report leaks, including deliberately pending promise fixtures and DOM abort timers. Inspect the stacks and resource ownership; do not disable isolation, ignore unhandled errors, raise timeouts indiscriminately, or add retries to hide failures. Fake-timer fixtures should restore real timers with the existing leak-checking helper.
+
+Benchmarks stay separate from the unit gate. Vitest 5 registers `bench` through each test's context; explicitly await each registration's `.run()` (registration alone only warns and measures nothing). Fixture assertions run outside timed callbacks. CSS rule counts and a genuinely late search hit are checked before measuring. Run comparisons serially with unchanged fixtures, environment and cache state; the corrected late-hit fixture is not comparable to its old first-paragraph workload. Index-building timings also include the module-export getter overhead that Vitest reports; keep that warning visible and do not interpret those timings as production throughput.
+
+Happy-dom tests do not validate browser layout, CSP or sandbox enforcement. There is no real-browser E2E suite or frontend coverage provider configured. Adding either requires dedicated browser scenarios or a pinned runner-matching coverage provider and explicit provisioning, not an on-demand download during checks. Go's existing race/fuzz tools and the current DOM suites remain the baseline; no test-runtime or application-framework replacement is implied.
 
 ## Architecture
 

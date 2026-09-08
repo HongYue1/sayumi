@@ -11,7 +11,9 @@
     "nursery": "off"
   },
   "options": {
-    "typeAware": true
+    "typeAware": true,
+    "denyWarnings": true,
+    "reportUnusedDisableDirectives": "error"
   },
   "env": {
     "browser": true,

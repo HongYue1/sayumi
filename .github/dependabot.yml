@@ -1,6 +1,9 @@
 # Keeps the supply chain current despite SHA-pinning:
 # Dependabot bumps the pinned action SHAs (and the trailing version comment)
-# and the Go/Bun dependencies on a weekly cadence.
+# and Go dependencies weekly. Bun updates are configured below, but lockfile-v2
+# support is blocked upstream: https://github.com/dependabot/dependabot-core/issues/16026
+# Until that is resolved, use README.md's reviewed manual frontend update path.
+# Go executable pins live in provision.sh and are reviewed manually, not by gomod.
 version: 2
 updates:
   - package-ecosystem: github-actions

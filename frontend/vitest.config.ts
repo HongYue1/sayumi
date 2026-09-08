@@ -21,11 +21,17 @@ export default defineConfig({
   },
   test: {
     environment: "happy-dom",
-    // Node 22+ defines an inert `localStorage` global that shadows the Storage
-    // happy-dom installs, so DOM suites that read it see undefined. The setup
-    // file reinstalls a working Storage before any suite runs.
     setupFiles: ["./src/test-setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
     globals: false,
+    // The local gate must reject a narrowed suite just as CI does. Use CLI
+    // filename or -t filters for focused work instead of committing .only.
+    allowOnly: false,
+    // Fixtures own mock history, including setup/beforeAll calls. Vitest 5
+    // clears it by default; retain the existing suite-owned lifecycle.
+    clearMocks: false,
+    benchmark: {
+      include: ["src/**/*.bench.{ts,tsx}"],
+    },
   },
 });

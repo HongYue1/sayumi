@@ -4,11 +4,11 @@ go 1.27.1
 
 require (
 	github.com/andybalholm/brotli v1.2.3
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/image v0.45.0
 	golang.org/x/net v0.58.0
 	golang.org/x/sync v0.22.0
-	modernc.org/sqlite v1.57.0
+	modernc.org/sqlite v1.58.0
 )
 
 require (
@@ -20,7 +20,7 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	// SQLite's generated code requires the libc version from its go.mod;
 	// keep this paired with modernc.org/sqlite rather than upgrading it alone.
-	modernc.org/libc v1.74.4 // indirect
+	modernc.org/libc v1.75.6 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.12.0 // indirect
+	modernc.org/memory v1.12.1 // indirect
 )

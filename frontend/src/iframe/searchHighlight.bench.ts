@@ -1,4 +1,4 @@
-import { bench, describe } from "vitest";
+import { expect, test } from "vitest";
 import {
   buildSearchTextIndex,
   findFoldedMatch,
@@ -26,29 +26,37 @@ function buildChapter(paragraphs: number): HTMLElement {
 
 const chapter = buildChapter(120);
 const index = buildSearchTextIndex(chapter);
-const lateNeedle = foldQuery("of the fixture chapter");
+// A shared suffix matches the first paragraph, not the end of the chapter.
+const lateNeedle = foldQuery("paragraph number 119 of the fixture chapter");
 const missNeedle = foldQuery("zzzz not present anywhere");
 
-describe("index build", () => {
-  bench("buildSearchTextIndex whole chapter", () => {
+test("index build", async ({ bench }) => {
+  expect(index.foldedChars.length).toBeGreaterThan(10_000);
+  await bench("buildSearchTextIndex whole chapter", () => {
     buildSearchTextIndex(chapter);
-  });
+  }).run();
 
-  bench("buildSearchTextIndex stops at match", () => {
+  await bench("buildSearchTextIndex stops at match", () => {
     buildSearchTextIndex(chapter, 400);
-  });
+  }).run();
 });
 
-describe("folded scan", () => {
-  bench("findFoldedMatch miss", () => {
+test("folded scan", async ({ bench }) => {
+  // Validate fixture labels outside the timed callbacks so empty/misleading
+  // work cannot masquerade as a faster scan.
+  expect(findFoldedMatch(index.foldedChars, missNeedle)).toBe(-1);
+  expect(findFoldedMatch(index.foldedChars, lateNeedle)).toBeGreaterThan(
+    index.foldedChars.length * 0.9,
+  );
+  await bench("findFoldedMatch miss", () => {
     findFoldedMatch(index.foldedChars, missNeedle);
-  });
+  }).run();
 
-  bench("findFoldedMatch late hit", () => {
+  await bench("findFoldedMatch late hit", () => {
     findFoldedMatch(index.foldedChars, lateNeedle);
-  });
+  }).run();
 
-  bench("foldQuery", () => {
+  await bench("foldQuery", () => {
     foldQuery("Istanbul Unicode fixture chapter");
-  });
+  }).run();
 });
