@@ -1,0 +1,4 @@
+[install]
+# No lifecycle hooks are needed: native tools ship platform-specific packages.
+# Apply this to deliberate bun add/update commands too, not just CI installs.
+ignoreScripts = true

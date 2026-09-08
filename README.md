@@ -98,6 +98,24 @@ bun -p 'require("./frontend/package.json").packageManager'
 bun --revision
 ```
 
+### Dependency and tool setup
+
+After selecting the toolchains above, run these from the repository root:
+
+```sh
+make deps          # install the locked frontend build/test dependencies
+make tools         # install the four pinned Go quality tools
+make release-tools # additionally install go-winres for Windows release resources
+```
+
+These are thin wrappers over `bash ./provision.sh frontend`, `quality-tools`, and `release-tools`, also used by every workflow. Go installs use the selected local compiler and honor `GOBIN` (or Go's default bin directory); put that directory on `PATH`. The executable pins live only in `provision.sh`. Version-suffixed installs keep each tool's module graph independent of the application and the other tools, rather than letting a shared `tool` directive graph change their transitive versions.
+
+Frontend setup requires a nonempty committed `frontend/bun.lock`, checks the Bun revision, and uses `--frozen-lockfile --ignore-scripts`. The missing-lock guard is intentional: Bun's frozen flag alone can resolve fresh dependencies when no lockfile exists. `frontend/bunfig.toml` also disables lifecycle hooks for direct installs and deliberate dependency updates; build/test commands still run normally. Native build tools use their platform packages without install hooks. Review any future hook requirement explicitly rather than blanket-trusting packages.
+
+Commit `go.mod`/`go.sum` and `frontend/package.json`/`frontend/bun.lock` together when their dependencies change. Go verifies downloaded modules through its checksum mechanism; `go mod verify` checks the local module cache and `go mod tidy -diff` checks manifest consistency. Keep SQLite and its required libc paired as explained in `go.mod`.
+
+Dependabot checks actions and Go modules weekly. Its Bun lockfile-v2 support is [blocked upstream](https://github.com/dependabot/dependabot-core/issues/16026); keep the configured Bun job, but do not treat a lack of PRs as proof that the frontend is current or downgrade the lockfile to satisfy the bot. Until a bot update validates successfully, review frontend updates manually on a branch with the pinned Bun: update only the chosen package (`bun update <package>` within its declared range, or deliberately edit that range and run `bun install`), inspect the manifest/lock diff, then run `make deps` and the full race-enabled `GOTOOLCHAIN=local CGO_ENABLED=1 make check`. Keep the Solid prereleases coordinated. Go executable pins are not covered by the gomod updater: review their upstream releases, edit `provision.sh` once, reinstall, and run the same checks. Revert an unsuccessful scoped update rather than deleting lockfiles or relaxing gates.
+
 ### Commands
 
 ```sh
@@ -111,17 +129,11 @@ make release      # cross-compiled, portable archives in dist-release/
 For frontend work, run a dev server that proxies the API to a binary listening on port 8080:
 
 ```sh
-cd frontend && bun install --frozen-lockfile && bun run dev
+make deps
+cd frontend && bun run dev
 ```
 
-The quality gates use gofumpt and goimports for formatting, golangci-lint and `go vet` for static analysis, govulncheck for known vulnerabilities, `go test` for the backend, and oxfmt, oxlint, `tsc`, plus vitest for the frontend. Install the Go tools once:
-
-```sh
-go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
-go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
-go install mvdan.cc/gofumpt@v0.11.0
-go install golang.org/x/tools/cmd/goimports@v0.49.0
-```
+The quality gates use gofumpt and goimports for formatting, golangci-lint and `go vet` for static analysis, govulncheck for known vulnerabilities, `go test` for the backend, and oxfmt, oxlint, `tsc`, plus vitest for the frontend.
 
 All four Go quality tools must be on `PATH`; a missing tool fails the check rather than skipping a gate. Checks refresh the generated frontend before Go analysis and tests, without modifying source files. `./check.sh --fast` skips only the final Go build, not frontend compilation or quality gates. Race tests run when `go env CGO_ENABLED` is `1`; a failed race run is never retried without `-race`. A cgo-disabled local run explicitly reports the missing race check, while CI requires race support and the production build remains CGO-free.
 

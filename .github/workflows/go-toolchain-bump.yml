@@ -102,20 +102,17 @@ jobs:
             echo "version=$NEWGO" >> "$GITHUB_OUTPUT"
           fi
 
-      # Provision the same pinned tools as ci.yml; check.sh fails if any are missing.
+      # Share pin ownership with contributor setup and the other workflows.
       - name: Install Go quality tools (pinned)
         if: steps.bump.outputs.changed == 'true'
-        run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
-          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
-          go install mvdan.cc/gofumpt@v0.11.0
-          go install golang.org/x/tools/cmd/goimports@v0.49.0
+        shell: bash
+        run: bash ./provision.sh quality-tools
 
       # make check builds the embedded frontend before running the Go gates.
       - name: Install frontend deps
         if: steps.bump.outputs.changed == 'true'
-        working-directory: frontend
-        run: bun install --frozen-lockfile
+        shell: bash
+        run: bash ./provision.sh frontend
 
       - name: Run checks on the bumped toolchain
         if: steps.bump.outputs.changed == 'true'

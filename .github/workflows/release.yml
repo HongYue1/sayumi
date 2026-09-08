@@ -267,15 +267,12 @@ jobs:
           JS
 
       - name: Install frontend deps
-        working-directory: frontend
-        run: bun install --frozen-lockfile
+        shell: bash
+        run: bash ./provision.sh frontend
 
       - name: Install Go quality tools (pinned)
-        run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
-          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
-          go install mvdan.cc/gofumpt@v0.11.0
-          go install golang.org/x/tools/cmd/goimports@v0.49.0
+        shell: bash
+        run: bash ./provision.sh quality-tools
 
       # check.sh requires quality tools and rebuilds the SPA before Go checks.
       # Release validation additionally requires cgo/race support.
@@ -290,7 +287,8 @@ jobs:
           make check
 
       - name: Install go-winres
-        run: go install github.com/tc-hib/go-winres@v0.3.3
+        shell: bash
+        run: bash ./provision.sh release-tools
 
       - name: Build release artifacts
         id: artifacts

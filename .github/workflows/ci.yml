@@ -81,6 +81,28 @@ jobs:
             assert.equal(setup.with["go-version-file"], "go.mod");
             assert.equal(setup.with["go-version"], undefined);
           }
+          // All provisioning callers share policy and pin ownership. In
+          // particular, Windows must use Bash rather than the default pwsh.
+          for (const consumer of [ci.jobs.check, ci.jobs["platform-test"], job, release.jobs.build]) {
+            const install = consumer.steps.filter(s => s.name === "Install frontend deps");
+            assert.equal(install.length, 1);
+            assert.equal(install[0].run, "bash ./provision.sh frontend");
+            assert.equal(install[0].shell, "bash");
+            assert.equal(install[0]["working-directory"], undefined);
+            assert.ok(!consumer.steps.some(s => /^\s*go install\s/m.test(s.run || "")));
+          }
+          for (const consumer of [ci.jobs.check, job, release.jobs.build]) {
+            const tools = consumer.steps.filter(s => s.name === "Install Go quality tools (pinned)");
+            assert.equal(tools.length, 1);
+            assert.equal(tools[0].run, "bash ./provision.sh quality-tools");
+            assert.equal(tools[0].shell, "bash");
+          }
+          for (const name of ["Install frontend deps", "Install Go quality tools (pinned)"]) {
+            assert.equal(job.steps.find(s => s.name === name).if, "steps.bump.outputs.changed == 'true'");
+          }
+          const resources = release.jobs.build.steps.find(s => s.name === "Install go-winres");
+          assert.equal(resources.run, "bash ./provision.sh release-tools");
+          assert.equal(resources.shell, "bash");
           assert.equal(ci.permissions.contents, "read");
           assert.equal(ci.env.GOTOOLCHAIN, "local");
           assert.equal(ci.jobs.check.env.CGO_ENABLED, "1");
@@ -192,16 +214,13 @@ jobs:
           JS
 
       - name: Install frontend deps
-        working-directory: frontend
-        run: bun install --frozen-lockfile
+        shell: bash
+        run: bash ./provision.sh frontend
 
-      # Pin provisioning; check.sh rejects missing quality tools for every caller.
+      # Share pin ownership with contributor setup and the other workflows.
       - name: Install Go quality tools (pinned)
-        run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
-          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
-          go install mvdan.cc/gofumpt@v0.11.0
-          go install golang.org/x/tools/cmd/goimports@v0.49.0
+        shell: bash
+        run: bash ./provision.sh quality-tools
 
       # make check rebuilds the embedded frontend and enforces required tools.
       # CI additionally requires cgo/race support, unlike a cgo-disabled local run.
@@ -237,8 +256,8 @@ jobs:
         with:
           bun-version-file: frontend/package.json
       - name: Install frontend deps
-        working-directory: frontend
-        run: bun install --frozen-lockfile
+        shell: bash
+        run: bash ./provision.sh frontend
       - name: Build frontend
         working-directory: frontend
         run: bun run build

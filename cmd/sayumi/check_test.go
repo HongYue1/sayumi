@@ -203,7 +203,11 @@ func runCheckScript(t *testing.T, warm bool, env map[string]string, args ...stri
 			t.Fatal(err)
 		}
 	}
-	files := map[string][]byte{"check.sh": script, "mock.sh": []byte(checkScriptMocks), "calls": {}}
+	provision, err := os.ReadFile(filepath.Join("..", "..", "provision.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string][]byte{"check.sh": script, "provision.sh": provision, "mock.sh": []byte(checkScriptMocks), "calls": {}}
 	if warm {
 		files["cmd/sayumi/dist/index.html"] = []byte("stale frontend")
 	}

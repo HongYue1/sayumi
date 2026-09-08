@@ -2,7 +2,17 @@
 # Thin wrapper over the build scripts; see build.sh / check.sh / release.sh.
 
 .DEFAULT_GOAL := build
-.PHONY: build run check fix release web clean fmt version bench
+.PHONY: build run check fix release web clean fmt version bench deps tools release-tools
+
+# Explicit setup; build/check never install or switch toolchains.
+deps:
+	bash ./provision.sh frontend
+
+tools:
+	bash ./provision.sh quality-tools
+
+release-tools:
+	bash ./provision.sh release-tools
 
 # Optimized local build (GOAMD64=v3 when supported) → ./sayumi or ./sayumi.exe
 build:
