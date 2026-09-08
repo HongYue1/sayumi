@@ -111,6 +111,7 @@ jobs:
         with:
           name: release-artifacts
           path: dist-release
+          digest-mismatch: error
 
       - name: Verify complete release payload
         id: verify

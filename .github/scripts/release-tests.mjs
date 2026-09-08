@@ -59,6 +59,7 @@ assert.notEqual(upload.with.archive, false); // Six archives + manifest require 
 const download = publish.steps[0];
 assert.equal(download.with.name, upload.with.name);
 assert.equal(download.with.path, "dist-release");
+assert.equal(download.with["digest-mismatch"], "error");
 assert.ok(!download.with["run-id"] && !download.with.repository && !download.with["github-token"]);
 assert.deepEqual(paths(publish.steps[2].with["subject-path"]), archives);
 assert.deepEqual(paths(publish.steps[3].with.files), [...archives, "SHA256SUMS"].sort());
