@@ -277,8 +277,8 @@ jobs:
           go install mvdan.cc/gofumpt@v0.11.0
           go install golang.org/x/tools/cmd/goimports@v0.49.0
 
-      # check.sh can skip missing tools; release gates must reject that setup.
-      # make check also builds the embedded SPA before the Go checks need it.
+      # check.sh requires quality tools and rebuilds the SPA before Go checks.
+      # Release validation additionally requires cgo/race support.
       - name: Quality gates (test, lint, govulncheck)
         id: quality
         run: |

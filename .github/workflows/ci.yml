@@ -181,9 +181,7 @@ jobs:
         working-directory: frontend
         run: bun install --frozen-lockfile
 
-      # Pinned tool versions so check.sh actually RUNS the format/lint/vuln gates.
-      # check.sh skips any tool that is not on PATH, so without this the lint and
-      # govulncheck gates would silently pass on a clean CI runner.
+      # Pin provisioning; check.sh rejects missing quality tools for every caller.
       - name: Install Go quality tools (pinned)
         run: |
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
@@ -191,8 +189,8 @@ jobs:
           go install mvdan.cc/gofumpt@v0.11.0
           go install golang.org/x/tools/cmd/goimports@v0.49.0
 
-      # make check builds the embedded frontend first. Require every optional
-      # quality tool and the race compiler rather than accepting a skipped gate.
+      # make check rebuilds the embedded frontend and enforces required tools.
+      # CI additionally requires cgo/race support, unlike a cgo-disabled local run.
       - name: Run checks
         run: |
           set -euo pipefail

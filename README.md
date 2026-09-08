@@ -81,7 +81,7 @@ The library path can also be set with the `SAYUMI_LIBRARY` environment variable.
 
 ## Development
 
-Building from source requires Go 1.26.7+ and bun (or npm) for the frontend.
+Building from source requires the Go version declared in `go.mod`, Bun for the frontend, and Bash (Git Bash on Windows). The Make targets wrap the scripts; `./check.sh` can also be run directly. npm alone is not sufficient because the frontend build uses `Bun.build`.
 
 ```sh
 make build        # local optimized build (auto GOAMD64=v3 when supported)
@@ -105,6 +105,8 @@ go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
 go install mvdan.cc/gofumpt@v0.11.0
 go install golang.org/x/tools/cmd/goimports@v0.49.0
 ```
+
+All four Go quality tools must be on `PATH`; a missing tool fails the check rather than skipping a gate. Checks refresh the generated frontend before Go analysis and tests, without modifying source files. `./check.sh --fast` skips only the final Go build, not frontend compilation or quality gates. Race tests run when `go env CGO_ENABLED` is `1`; a failed race run is never retried without `-race`. A cgo-disabled local run explicitly reports the missing race check, while CI requires race support and the production build remains CGO-free.
 
 ## Architecture
 

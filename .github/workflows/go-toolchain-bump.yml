@@ -102,8 +102,7 @@ jobs:
             echo "version=$NEWGO" >> "$GITHUB_OUTPUT"
           fi
 
-      # Same pinned tools as ci.yml: check.sh skips anything not on PATH, and
-      # the gates (govulncheck above all) are the point of the exercise.
+      # Provision the same pinned tools as ci.yml; check.sh fails if any are missing.
       - name: Install Go quality tools (pinned)
         if: steps.bump.outputs.changed == 'true'
         run: |
