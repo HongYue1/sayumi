@@ -276,6 +276,13 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     const rect = node.getBoundingClientRect();
     const vh = Number.isFinite(window.innerHeight) ? window.innerHeight : 0;
     const vw = Number.isFinite(window.innerWidth) ? window.innerWidth : 0;
+    if (isPagedMode) {
+      // A previous column has the same Y coordinates as the current one.
+      // Vertical overlap alone kept off-screen blocks usable indefinitely.
+      const viewport = content.getBoundingClientRect();
+      if (rect.right <= viewport.left || rect.left >= viewport.right)
+        return false;
+    }
     // This simplified CFI addresses elements, not an offset within one. A block
     // that fills the viewport along the flow axis (or overflows it) cannot
     // restore the current position precisely, so omit its anchor and let the
@@ -377,11 +384,27 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     return undefined;
   }
 
+  function spotMatchesPagedViewport(
+    spot: AnchorSpot,
+    viewport: DOMRect | null,
+  ): boolean {
+    if (!viewport) return true;
+    // A multicol union box can span the current page while its start is on
+    // an earlier one. Accept only an anchor that restores onto this page;
+    // if no precise text range is measurable, percent is safer than rewind.
+    const rect = rectForCollapsedRange(rangeForSpot(spot));
+    const anchorPage = rect
+      ? pagination.getRectPageIndex(rect)
+      : pagination.getElementPageIndex(spot.element);
+    return anchorPage === pagination.getRectPageIndex(viewport);
+  }
+
   // First visible content as element + intra-block offset. Caret-first per
   // sample (one native hit-test, no author-JS reflow beyond style), with the
   // element probe as the backstop at the same sample — coverage never drops
-  // below today's, it only gains precision. The memoized block short-circuits
-  // both probes; only the offset is re-measured, at the first sample point.
+  // below today's, it only gains precision. Scroll mode may reuse a visible
+  // block; paged mode re-probes because a missing caret in a margin is not
+  // evidence that the previous page's block still anchors this one.
   function captureAnchorSpot(): AnchorSpot | null {
     const content = getContentEl();
     if (!content) return null;
@@ -389,16 +412,42 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     const vw = Number.isFinite(window.innerWidth) ? window.innerWidth : 0;
     const vh = Number.isFinite(window.innerHeight) ? window.innerHeight : 0;
     if (vw <= 0 || vh <= 0) return null;
-    const span = verticalWriting ? vw : vh;
+    const pagedViewport = isPagedMode ? content.getBoundingClientRect() : null;
+    const span = pagedViewport
+      ? Math.max(
+          0,
+          Math.min(vh, pagedViewport.bottom) - Math.max(0, pagedViewport.top),
+        )
+      : verticalWriting
+        ? vw
+        : vh;
+    const columns = document.documentElement.classList.contains("paged-two")
+      ? 2
+      : 1;
     const samples = [8, 40, Math.floor(span * 0.18), Math.floor(span * 0.33)];
     const probePoint = (offset: number): [number, number] => {
+      if (pagedViewport) {
+        // The viewport center is the gutter in a two-page spread. Sample
+        // inside the first reading column, below the paged top margin.
+        const inset = pagedViewport.width / columns / 2;
+        return [
+          pagination.isRTL()
+            ? pagedViewport.right - inset
+            : pagedViewport.left + inset,
+          Math.max(0, pagedViewport.top) + offset,
+        ];
+      }
       if (!verticalWriting) return [vw / 2, offset];
       return verticalWriting === "rl"
         ? [vw - 1 - offset, vh / 2]
         : [offset, vh / 2];
     };
 
-    if (lastVisibleBlock && isUsableVisibleBlock(lastVisibleBlock, content)) {
+    if (
+      !isPagedMode &&
+      lastVisibleBlock &&
+      isUsableVisibleBlock(lastVisibleBlock, content)
+    ) {
       const [px, py] = probePoint(samples[0]);
       const caret = caretPointForOffset(px, py);
       // No caret API in this runtime: element-only anchor, as before.
@@ -408,12 +457,8 @@ const PAGED_SCROLL_KEYS = new Set<string>([
         caret.node,
         caret.offset,
       );
-      // The caret resolving outside the memo means the reader moved on while
-      // the memo stayed "usable" — multicol union rects overlap every page
-      // they span, and the overlap test above is vertical-only, so in paged
-      // mode it never invalidates by horizontal distance. Returning the memo
-      // here would pair a fresh percent with a stale block; fall through to
-      // the full re-probe instead.
+      // A caret outside the memo means the reading edge moved to another
+      // block while the old one still overlaps the viewport. Re-probe.
       if (offset === undefined) {
         lastVisibleBlock = null;
       } else {
@@ -432,19 +477,25 @@ const PAGED_SCROLL_KEYS = new Set<string>([
             : caret.node.parentElement;
         const block = ascendToVisibleBlock(caretEl, content);
         if (block) {
-          lastVisibleBlock = block;
-          return {
+          const spot = {
             element: block,
             offset: caretOffsetInBlock(block, caret.node, caret.offset),
           };
+          if (spotMatchesPagedViewport(spot, pagedViewport)) {
+            lastVisibleBlock = block;
+            return spot;
+          }
         }
       }
       const leaf = document.elementFromPoint(px, py);
       if (!leaf || !content.contains(leaf)) continue;
       const block = ascendToVisibleBlock(leaf, content);
       if (block) {
-        lastVisibleBlock = block;
-        return { element: block };
+        const spot = { element: block };
+        if (spotMatchesPagedViewport(spot, pagedViewport)) {
+          lastVisibleBlock = block;
+          return spot;
+        }
       }
     }
 

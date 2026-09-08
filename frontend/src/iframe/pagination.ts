@@ -220,11 +220,11 @@ export function createPagination(deps: PaginationDeps): PaginationController {
   let _pageIndicator: HTMLElement | null = null;
   let pageIndicatorText = "";
   let fontRelayoutToken = 0;
-  // Element the current page was resolved from (restore/fragment only). A
-  // relayout re-derives the page from it so a font-driven repagination lands on
-  // the same content instead of a ratio-rounded neighbour. Any later page
-  // change clears it, since from then on the ratio is the honest estimate.
+  // Preserve the complete restore spot, not just its block: a paragraph can
+  // span pages, and the fonts.ready correction must not rewind an exact
+  // text-offset restore to its beginning. Explicit page turns clear both.
   let lastAnchorEl: Element | null = null;
+  let lastAnchorRange: Range | null = null;
 
   function ensurePageIndicator(): HTMLElement {
     if (!_pageIndicator) {
@@ -313,10 +313,12 @@ export function createPagination(deps: PaginationDeps): PaginationController {
       seq: deps.getActiveSeq(),
       chapterIndex: deps.getActiveChapterIndex(),
       percent: pagePercent(currentPage, totalPages),
-      // Always send a CFI (or the empty marker). An absent field means "keep
-      // the stored one" on the parent, which pins paged progress to the CFI the
-      // chapter opened with while percent advances past it.
-      cfi: deps.getPositionCfi(),
+      // currentPage is the turn target; the DOM still shows the outgoing
+      // page during fade-out. Persist the target percent without an anchor
+      // until the animation settles, then report again with its fresh CFI.
+      // The empty marker also makes an immediate Escape safe; omission would
+      // retain the old anchor and override this newer percent on reopen.
+      cfi: pageScrollRafHandle === null ? deps.getPositionCfi() : "",
     });
   }
 
@@ -361,6 +363,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
           ? getElementPageIndex(liveAnchor)
           : pageForRatio(ratio, totalPages);
     lastAnchorEl = liveAnchor;
+    lastAnchorRange = liveAnchor ? anchorRange : null;
     applyPageScroll(currentPage, false);
     reportPagePosition();
     updatePageIndicator();
@@ -470,6 +473,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
         content.scrollLeft = pageTurnTarget;
         content.style.opacity = "";
         pageScrollRafHandle = null;
+        reportPagePosition();
         const timer = setTimeout(() => {
           if (pageTurnFinishTimer === timer) pageTurnFinishTimer = null;
           if (!deps.isDestroyed()) setPageTurning(false);
@@ -491,6 +495,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     // An explicit page change invalidates the restore anchor: from here a
     // relayout should preserve the ratio, not jump back to the anchor.
     lastAnchorEl = null;
+    lastAnchorRange = null;
     currentPage = clampPage(page, totalPages);
     applyPageScroll(currentPage, animated);
     reportPagePosition();
@@ -650,17 +655,26 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     // handler can skip no-op relayouts (see handlePagedResize).
     lastLayoutW = window.innerWidth;
     lastLayoutH = window.innerHeight;
-    // Prefer the element the page was resolved from: the fonts.ready correction
-    // fires right after a CFI-exact restore, and remapping by ratio across a
-    // changed page count lands a page or two off the anchor the restore just
-    // resolved. Ratio is the fallback once the reader has turned a page.
+    // Measure the saved range again after reflow. Keeping only its element
+    // loses the intra-block offset even when the page count never changes.
+    // Ratio remains the fallback once the reader explicitly turns a page.
     const anchor = lastAnchorEl?.isConnected ? lastAnchorEl : null;
+    const range =
+      anchor &&
+      lastAnchorRange &&
+      anchor.contains(lastAnchorRange.startContainer)
+        ? lastAnchorRange
+        : null;
     const ratio = pagePercent(currentPage, totalPages);
     totalPages = calculateTotalPages();
-    currentPage = anchor
-      ? getElementPageIndex(anchor)
-      : pageForRatio(ratio, totalPages);
+    const rangeRect = rectForCollapsedRange(range);
+    currentPage = rangeRect
+      ? getRectPageIndex(rangeRect)
+      : anchor
+        ? getElementPageIndex(anchor)
+        : pageForRatio(ratio, totalPages);
     lastAnchorEl = anchor;
+    lastAnchorRange = range;
     applyPageScroll(currentPage, false);
     reportPagePosition();
     updatePageIndicator();
@@ -775,6 +789,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
               ? Math.max(0, totalPages - 1)
               : 0;
     lastAnchorEl = restoreElement;
+    lastAnchorRange = restoreElement ? restoreRange : null;
 
     applyPageScroll(currentPage, false);
     reportPagePosition();
@@ -866,6 +881,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     pageStride = 1;
     maxPageScrollLeft = 0;
     lastAnchorEl = null;
+    lastAnchorRange = null;
     isRTL = rtl;
     teardownPagedResizeObserver();
     const content = deps.getContentEl();
@@ -897,6 +913,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     _pageIndicator = null;
     pageIndicatorText = "";
     lastAnchorEl = null;
+    lastAnchorRange = null;
   }
 
   return {

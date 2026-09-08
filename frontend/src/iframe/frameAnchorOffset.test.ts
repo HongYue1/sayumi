@@ -216,7 +216,10 @@ it("captures offsets and restores the offset point in both modes", async () => {
       ?.firstElementChild as HTMLElement | null;
     if (pagedLong)
       pagedLong.getBoundingClientRect = () => rect(0, 0, 3200, 600);
-    rangeRect.mockReturnValue(rect(1700, 0, 1750, 100));
+    // A live range is viewport-relative, including during fonts.ready reflow.
+    rangeRect.mockImplementation(() =>
+      rect(1700 - content.scrollLeft, 0, 1750 - content.scrollLeft, 100),
+    );
     scrollIntoView.mockClear();
     sent.length = 0;
     loadChapter(3, "paged", {

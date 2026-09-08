@@ -153,7 +153,9 @@ it("carries the position across scroll<->paged switches", async () => {
     // Logical x 1700 with scrollLeft 0 sits on page 2 of 4 in both layouts:
     // the scroll probe reads it as the first visible block, the paged
     // paginator maps it back to page 2.
-    anchor.getBoundingClientRect = () => rect(1700, 1900);
+    // Keep the viewport rect honest after pagination changes scrollLeft.
+    anchor.getBoundingClientRect = () =>
+      rect(1700 - content.scrollLeft, 1900 - content.scrollLeft);
     const fromPoint = vi
       .spyOn(document, "elementFromPoint")
       .mockImplementation(() => anchor);
