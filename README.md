@@ -110,6 +110,8 @@ make release-tools # additionally install go-winres for Windows release resource
 
 These are thin wrappers over `bash ./provision.sh frontend`, `quality-tools`, and `release-tools`, also used by every workflow. Go installs use the selected local compiler and honor `GOBIN` (or Go's default bin directory); put that directory on `PATH`. The executable pins live only in `provision.sh`. Version-suffixed installs keep each tool's module graph independent of the application and the other tools, rather than letting a shared `tool` directive graph change their transitive versions.
 
+Native Go regression tests also execute gofumpt and goimports. `bash ./provision.sh format-tools` installs that shared subset without the linters; the Windows/macOS CI jobs provision it before testing. Tool pins remain owned by the same script.
+
 Frontend setup requires a nonempty committed `frontend/bun.lock`, checks the Bun revision, and uses `--frozen-lockfile --ignore-scripts`. The missing-lock guard is intentional: Bun's frozen flag alone can resolve fresh dependencies when no lockfile exists. `frontend/bunfig.toml` also disables lifecycle hooks for direct installs and deliberate dependency updates; build/test commands still run normally. Native build tools use their platform packages without install hooks. Review any future hook requirement explicitly rather than blanket-trusting packages.
 
 Commit `go.mod`/`go.sum` and `frontend/package.json`/`frontend/bun.lock` together when their dependencies change. Go verifies downloaded modules through its checksum mechanism; `go mod verify` checks the local module cache and `go mod tidy -diff` checks manifest consistency. Keep SQLite and its required libc paired as explained in `go.mod`.

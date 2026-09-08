@@ -3,12 +3,12 @@
 set -euo pipefail
 
 usage() {
-  printf 'Usage: bash ./provision.sh {frontend|quality-tools|release-tools|workflow-tools|check-bun}\n'
+  printf 'Usage: bash ./provision.sh {frontend|format-tools|quality-tools|release-tools|workflow-tools|check-bun}\n'
 }
 [[ $# -eq 1 ]] || { usage >&2; exit 2; }
 case "$1" in
   --help|-h) usage; exit 0 ;;
-  frontend|quality-tools|release-tools|workflow-tools|check-bun) ;;
+  frontend|format-tools|quality-tools|release-tools|workflow-tools|check-bun) ;;
   *) usage >&2; exit 2 ;;
 esac
 cd "$(dirname "$0")"
@@ -45,16 +45,18 @@ case "$1" in
     check_bun
     (cd frontend && bun install --frozen-lockfile --ignore-scripts)
     ;;
-  quality-tools|release-tools|workflow-tools)
+  format-tools|quality-tools|release-tools|workflow-tools)
     require_tool go
     # Version-suffixed installs keep each tool's module graph independent of
     # the application and of other tools (notably golangci-lint). A shared
     # go.mod 'tool' graph can silently substitute their transitive dependencies.
     # Keep pins here only; callers must not copy them or use @latest.
     export GOTOOLCHAIN=local
-    if [[ "$1" == quality-tools ]]; then
-      go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
-      go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+    if [[ "$1" == quality-tools || "$1" == format-tools ]]; then
+      if [[ "$1" == quality-tools ]]; then
+        go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
+        go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+      fi
       # Keep comments attached to imports; the Go 1.27 formatter fixes this.
       # https://github.com/mvdan/gofumpt/releases/tag/v0.12.0
       go install mvdan.cc/gofumpt@v0.12.0

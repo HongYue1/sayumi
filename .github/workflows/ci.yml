@@ -110,5 +110,9 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: bun run build
+      # Native regression tests execute the formatters, not the Linux linters.
+      - name: Install Go formatter test tools (pinned)
+        shell: bash
+        run: bash ./provision.sh format-tools
       - name: Run native Go tests
         run: go test -shuffle=on ./...

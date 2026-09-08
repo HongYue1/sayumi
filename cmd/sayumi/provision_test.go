@@ -84,7 +84,7 @@ func TestProvisionScriptGoTools(t *testing.T) {
 		"mvdan.cc/gofumpt",
 		"golang.org/x/tools/cmd/goimports",
 	}
-	for _, mode := range []string{"quality-tools", "release-tools", "workflow-tools"} {
+	for _, mode := range []string{"format-tools", "quality-tools", "release-tools", "workflow-tools"} {
 		t.Run(mode, func(t *testing.T) {
 			dir := provisionFixture(t)
 			got := runProvisionCommand(t, dir, provisionMocks(t, dir, nil), "bash", "./provision.sh", mode)
@@ -93,6 +93,8 @@ func TestProvisionScriptGoTools(t *testing.T) {
 			}
 			want := quality
 			switch mode {
+			case "format-tools":
+				want = quality[2:]
 			case "release-tools":
 				want = []string{"github.com/tc-hib/go-winres"}
 			case "workflow-tools":
@@ -282,7 +284,12 @@ func provisionCalls(t *testing.T, dir string) string {
 
 func runProvisionCommand(t *testing.T, dir string, env map[string]string, program string, args ...string) checkScriptResult {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	return runProvisionCommandWithTimeout(t, dir, env, 30*time.Second, program, args...)
+}
+
+func runProvisionCommandWithTimeout(t *testing.T, dir string, env map[string]string, timeout time.Duration, program string, args ...string) checkScriptResult {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, program, args...)
 	cmd.Dir = dir

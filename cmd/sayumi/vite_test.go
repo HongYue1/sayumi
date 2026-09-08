@@ -16,7 +16,7 @@ func TestViteFramePipeline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"build", "dev", "preview", "watch", "syntax", "sidecar"} {
+	for _, mode := range []string{"build", "metafile", "dev", "preview", "watch", "syntax", "sidecar"} {
 		t.Run(mode, func(t *testing.T) {
 			// Vite IDs must not mix a Windows short TEMP alias and its real path.
 			dir, err := filepath.EvalSymlinks(t.TempDir())
@@ -40,7 +40,7 @@ func TestViteFramePipeline(t *testing.T) {
 			} {
 				writeProvisionFile(t, dir, path, []byte(source+"\n"))
 			}
-			driver := fmt.Sprintf("import config from %q;\nimport { build, createServer, preview } from %q;\nconst root = %q;\nconst mode = %q;\n",
+			driver := fmt.Sprintf("import config from %q;\nimport { build, createServer, normalizePath, preview } from %q;\nconst root = %q;\nconst mode = %q;\n",
 				filepath.ToSlash(filepath.Join(frontend, "vite.config.ts")),
 				filepath.ToSlash(filepath.Join(frontend, "node_modules", "vite", "dist", "node", "index.js")),
 				filepath.ToSlash(dir), mode) + vitePipelineDriver
@@ -99,6 +99,29 @@ function requireMarkers(text, ...markers) {
 if (mode === "syntax" || mode === "sidecar") {
   await writeFile(framePath, mode === "syntax" ? "export const = ;" : 'import image from "./image.svg"; globalThis.image = image;');
   await assert.rejects(() => build(options), mode === "syntax" ? /frame\.ts/ : /one self-contained JavaScript IIFE/);
+} else if (mode === "metafile") {
+  // Keep the real compiler/output, but exercise absolute metadata spellings on
+  // every host, including Bun's cross-drive /C:/... form on Windows.
+  const plugin = config.plugins.find(p => p?.name === "frame-script");
+  plugin.configResolved({ root });
+  const expected = ["src/iframe/frame.ts", "src/lib/shared.ts", "src/lib/transitive.ts", "src/nested/new-dependency.ts"]
+    .map(file => normalizePath(join(root, file))).sort();
+  const originalBuild = Bun.build;
+  try {
+    for (const prefix of process.platform === "win32" ? ["", "/"] : [""]) {
+      const watched = [];
+      Bun.build = async options => {
+        const result = await originalBuild(options);
+        result.metafile.inputs = Object.fromEntries(expected.map(file => [prefix + file, {}]));
+        return result;
+      };
+      const js = await plugin.load.call({ addWatchFile(id) { watched.push(id); } }, "\0virtual:frame-script");
+      requireMarkers(js, "shared-before", "leaf-before");
+      assert.deepEqual(watched.sort(), expected);
+    }
+  } finally {
+    Bun.build = originalBuild;
+  }
 } else if (mode === "build") {
   await build(options);
   const html = await readFile(join(outDir, "index.html"), "utf8");

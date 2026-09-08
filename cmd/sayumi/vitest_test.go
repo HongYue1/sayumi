@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Exercise the real runner and production config on disposable projects. A
@@ -36,8 +37,10 @@ func TestVitestPolicy(t *testing.T) {
 		{name: "unhandled_rejection", path: "src/policy.test.ts", source: `test("unhandled rejection", async () => { void Promise.reject(new Error("policy-unhandled")); await new Promise(resolve => setTimeout(resolve, 0)); });`, diagnostic: "policy-unhandled"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			// Windows may put TempDir under an 8.3 alias. Vite compares module
-			// IDs against real paths, so use one spelling throughout the fixture.
+			// Inherit the real installed graph through normal Node resolution,
+			// without requiring optional packages left by an older install.
+			t.Setenv("GOTMPDIR", frontend)
+			// Vite compares real paths, including Windows short-name aliases.
 			dir, err := filepath.EvalSymlinks(t.TempDir())
 			if err != nil {
 				t.Fatal(err)
@@ -47,11 +50,6 @@ func TestVitestPolicy(t *testing.T) {
 			// Only relocate the fixture root and setup path; keep real selection,
 			// plugins, browser conditions, isolation, and failure policy intact.
 			config := fmt.Sprintf(`import config from %q;
-import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
-const require = createRequire(%q);
-const jestDomPackage = require.resolve("@testing-library/jest-dom/package.json");
-const jestDom = resolve(dirname(jestDomPackage), require(jestDomPackage).exports["./vitest"].import.default);
 export default {
   ...config,
   root: %q,
@@ -60,15 +58,17 @@ export default {
   server: { fs: { allow: [%q, %q] } },
   test: {
     ...config.test,
-    // Resolve the Solid plugin's auto-injected matchers from the real install.
-    setupFiles: [%q, jestDom],
+    // Keep production setup and plugin-owned additions, without extra matchers.
+    setupFiles: [%q],
     fileParallelism: false,
     maxWorkers: 1,
   },
 };
-`, filepath.ToSlash(filepath.Join(frontend, "vitest.config.ts")), filepath.ToSlash(filepath.Join(frontend, "package.json")), filepath.ToSlash(dir), filepath.ToSlash(filepath.Join(dir, "cache")), filepath.ToSlash(frontend), filepath.ToSlash(dir), filepath.ToSlash(filepath.Join(frontend, "src", "test-setup.ts")))
+`, filepath.ToSlash(filepath.Join(frontend, "vitest.config.ts")), filepath.ToSlash(dir), filepath.ToSlash(filepath.Join(dir, "cache")), filepath.ToSlash(frontend), filepath.ToSlash(dir), filepath.ToSlash(filepath.Join(frontend, "src", "test-setup.ts")))
 			writeProvisionFile(t, dir, "vitest.config.mjs", []byte(config))
-			got := runProvisionCommand(t, frontend, map[string]string{"CI": "", "GITHUB_ACTIONS": ""}, "bun", "run", "test", "--config", filepath.Join(dir, "vitest.config.mjs"), "--reporter=verbose", "--no-color")
+			// Cold Windows runners need startup headroom; Vitest's test deadlines
+			// and every expected failure diagnostic remain unchanged.
+			got := runProvisionCommandWithTimeout(t, frontend, map[string]string{"CI": "", "GITHUB_ACTIONS": ""}, 90*time.Second, "bun", "run", "test", "--config", filepath.Join(dir, "vitest.config.mjs"), "--reporter=verbose", "--no-color")
 			if tc.diagnostic == "" {
 				if got.code != 0 || !strings.Contains(got.output, "1 passed") {
 					t.Fatalf("valid fixture did not run: exit=%d\n%s", got.code, got.output)

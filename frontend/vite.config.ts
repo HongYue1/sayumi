@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, normalizePath, type Plugin } from "vite";
 import solid from "@solidjs/vite-plugin";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -79,8 +79,15 @@ function frameScriptPlugin(): Plugin {
       // Vite dev and production watch mode. Let Vite propagate the whole graph:
       // filtering HMR to just the IIFE would lose a shared module's shell update.
       // https://bun.sh/docs/bundler#metafile
-      for (const input of Object.keys(result.metafile.inputs))
-        this.addWatchFile(resolve(input));
+      for (const input of Object.keys(result.metafile.inputs)) {
+        // Cross-drive Windows inputs use /C:/... rather than a cwd-relative path.
+        // Remove that leading separator before resolving, then use Vite's IDs.
+        const nativeInput =
+          process.platform === "win32"
+            ? input.replace(/^\/([a-z]:\/)/i, "$1")
+            : input;
+        this.addWatchFile(normalizePath(resolve(nativeInput)));
+      }
 
       return `export default ${JSON.stringify(await output.text())};`;
     },

@@ -64,6 +64,6 @@ CGO_ENABLED=0 go build -trimpath -ldflags "$LDFLAGS" -o "$BIN" ./cmd/sayumi
 SIZE="$(du -h "$BIN" | cut -f1)"
 echo "✓ built ./$BIN ($SIZE)"
 if [[ "$RUN" -eq 1 ]]; then
-  echo "▸ running ./$BIN…"
+  echo "▸ running ./${BIN}…"
   exec "./$BIN"
 fi
