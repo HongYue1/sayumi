@@ -172,38 +172,23 @@ func RegisterRoutes(mux *http.ServeMux, deps *Dependencies) {
 	mux.Handle("DELETE /api/books/{id}/bookmarks/{bid}", applyAuth(deps, deleteBookmarkHandler(deps)))
 }
 
-// isCrossSiteWrite reports whether the browser labeled this a state-changing
-// request initiated from another site.
+// blockCrossSiteWrites protects every API write, including cookie-free login and
+// profile creation. SameSite=Lax still sends cookies on same-site cross-origin
+// requests (for example from a sibling subdomain), so blocking only the
+// "cross-site" fetch classification leaves authenticated writes exposed too.
 //
-// Sec-Fetch-Site is set by the browser itself and cannot be forged by the page
-// making the request, and it is computed from the initiator's origin against
-// the request URL — not the Host header — so it stays correct behind a reverse
-// proxy that rewrites Host. Clients that send no Sec-Fetch-Site (curl, scripts,
-// pre-2020 browsers) are allowed through: this is defense in depth on top of
-// the session cookie's SameSite=Lax, not the primary gate.
-//
-// It closes the state-changing half of the cross-origin problem for the
-// endpoints that need no cookie and are therefore untouched by SameSite: a page
-// on any site could POST /api/auth/create in a loop to litter the library root
-// with profile directories, or burn a real profile's login-throttle budget from
-// the victim's own IP and lock them out. It does NOT stop DNS rebinding, where
-// the browser believes the request is same-origin; see the review notes.
-func isCrossSiteWrite(r *http.Request) bool {
-	switch r.Method {
-	case http.MethodGet, http.MethodHead, http.MethodOptions:
-		return false
-	}
-	return r.Header.Get("Sec-Fetch-Site") == "cross-site"
-}
-
+// The standard guard trusts browser-set Sec-Fetch-Site before comparing Origin
+// with Host. Modern same-origin requests therefore survive proxy Host rewriting;
+// proxies serving older clients without fetch metadata must preserve the public
+// Host for the Origin fallback. Headerless non-browser clients remain allowed.
+// This does not prevent DNS rebinding, which the browser sees as same-origin.
 func blockCrossSiteWrites(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isCrossSiteWrite(r) {
-			writeError(w, http.StatusForbidden, "cross_site", "cross-site request blocked")
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+	protection := http.NewCrossOriginProtection()
+	protection.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Preserve the API error contract rather than the stdlib's plain text.
+		writeError(w, http.StatusForbidden, "cross_site", "cross-site request blocked")
+	}))
+	return protection.Handler(next)
 }
 
 func NewHandler(deps *Dependencies, fontHandler http.Handler, staticHandler http.Handler) http.Handler {

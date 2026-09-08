@@ -1,11 +1,11 @@
-# Current task: CP38
+# Current task: CP39
 
-**Status: not started.** Review router construction and HTTP boundary wiring in
-`internal/api/router.go` and `internal/api/router_test.go`. Trace dependency
-initialization/maintenance, route registration, authorization placement, cross-site
-write protections, and shutdown/error handling at relevant caller boundaries.
-Preserve completed authentication/profile-manager contracts without re-reviewing
-completed batches or crediting dependency reads. No other pending batch is in scope.
+**Status: not started.** Review Go module and checksum metadata in `go.mod`
+and `go.sum`. Trace direct/indirect requirements to production imports and the
+supported Go/pure-Go SQLite build contract. Verify tidy/checksum consistency
+without speculative dependency or toolchain upgrades. Treat already-completed
+build scripts and package sources as dependency context only; do not re-review
+or credit them. No other pending batch is in scope.
 
 This file holds the active task, or the next task once the active one is complete.
 `TRACKER.md` holds file status. Git is the changelog: do not retain completed-task
@@ -76,7 +76,7 @@ its retained SHA-256 anchor is
 If verification fails, stop and investigate without modifying protected evidence.
 Legacy drivers and their historical handoffs remain in evidence/Git, not this task.
 
-## Finish CP38
+## Finish CP39
 
 1. Complete the bounded review and required regressions. Run focused checks and a
    fresh full `make check` on final sources, then the protection check above.
@@ -87,9 +87,9 @@ Legacy drivers and their historical handoffs remain in evidence/Git, not this ta
    not check-run history in the tracker.
 3. Replace this task with the next bounded task, leaving it explicitly not started.
    If blocked instead, retain only the active scope, blocker, and next action.
-   Do not append a completed-CP38 report; Git records the completed work.
+   Do not append a completed-CP39 report; Git records the completed work.
 4. Review the intended diff once and stage only relevant paths; make one
    conventional scoped local commit. Report its hash, findings, checks,
    limitations, and remaining inventory in chat. No amend or push.
-5. Stop after CP38 and provide the concise handoff required by `AGENTS.md`.
-   CP39 requires explicit continuation in a new thread.
+5. Stop after CP39 and provide the concise handoff required by `AGENTS.md`.
+   CP40 requires explicit continuation in a new thread.
