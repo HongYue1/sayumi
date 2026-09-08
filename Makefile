@@ -2,7 +2,7 @@
 # Thin wrapper over the build scripts; see build.sh / check.sh / release.sh.
 
 .DEFAULT_GOAL := build
-.PHONY: build run check fix release web clean fmt version bench deps tools release-tools
+.PHONY: build run check fix release web clean fmt version bench deps tools release-tools workflow-check
 
 # Explicit setup; build/check never install or switch toolchains.
 deps:
@@ -25,6 +25,13 @@ run:
 # All quality gates (frontend + backend), read-only/CI-safe.
 check:
 	bash ./check.sh
+
+# Explicit validator setup: bash ./provision.sh workflow-tools. Keep the same
+# built-in schema/expression checks on every host; shell behavior is tested below.
+workflow-check:
+	bash ./provision.sh check-bun
+	actionlint -shellcheck= -pyflakes= .github/workflows/ci.yml .github/workflows/go-toolchain-bump.yml
+	bun .github/scripts/workflow-tests.mjs
 
 # Repeatable Go-only benchmarks; e.g. make bench PKG=./cmd/sayumi BENCH=PrettyHandler.
 PKG ?= ./...

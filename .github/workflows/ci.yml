@@ -4,6 +4,9 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  # Required checks must also report against the merge queue's synthetic commit.
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
 
 permissions:
@@ -13,11 +16,12 @@ env:
   # Check the toolchain selected from go.mod, not an automatic replacement.
   GOTOOLCHAIN: local
 
-# PRs supersede stale runs. Default-branch commits get separate groups: merely
-# disabling cancellation still lets GitHub replace an older pending run.
+# Only newer revisions of the same PR supersede work. Pushes, merge groups and
+# manual runs are independent, including two event types for the same commit.
+# A separate run_id also prevents replacement of an older pending default run.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && github.sha || github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -36,182 +40,24 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          # GitHub scopes PR-written caches to the PR merge ref. They cannot be
+          # restored by the base branch; no privileged job consumes these caches.
           cache: true
+          cache-dependency-path: |
+            go.sum
+            provision.sh
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: frontend/package.json
 
-      # Exercise the actual maintenance scripts without network or repository
-      # writes. Keep these regressions here so workflow-only PRs run them too.
-      - name: Workflow regressions (offline)
-        id: workflow-tests
+      - name: Install workflow validator (pinned)
         shell: bash
-        run: |
-          bun - <<'JS'
-          import assert from "node:assert/strict";
-          import { spawnSync } from "node:child_process";
-          import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-          import { tmpdir } from "node:os";
-          import { join } from "node:path";
-          const load = async name => Bun.YAML.parse(await Bun.file(`.github/workflows/${name}.yml`).text());
-          const ci = await load("ci"), maintenance = await load("go-toolchain-bump"), release = await load("release");
-          const job = maintenance.jobs.bump;
-          const step = id => job.steps.find(s => s.id === id);
-          const ref = (id, key) => "$" + "{{ steps." + id + ".outputs." + key + " }}";
-          for (const workflow of [ci, maintenance]) {
-            for (const job of Object.values(workflow.jobs)) {
-              for (const s of job.steps) {
-                if (s.uses) assert.match(s.uses, /@[a-f0-9]{40}$/);
-                if (s.uses?.startsWith("actions/checkout@")) assert.equal(s.with["persist-credentials"], false);
-              }
-            }
-          }
-          // A missing/invalid version file can make setup-bun fall back to latest.
-          // Constrain the real pin and all consumers, not just one job's label.
-          const bunPin = JSON.parse(readFileSync("frontend/package.json", "utf8")).packageManager;
-          assert.match(bunPin, /^bun@(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/);
-          for (const consumer of [ci.jobs.check, ci.jobs["platform-test"], job, release.jobs.build]) {
-            const setups = consumer.steps.filter(s => s.uses?.startsWith("oven-sh/setup-bun@"));
-            assert.equal(setups.length, 1);
-            assert.deepEqual(setups[0].with, { "bun-version-file": "frontend/package.json" });
-          }
-          for (const consumer of [ci.jobs.check, ci.jobs["platform-test"], release.jobs.build]) {
-            const setup = consumer.steps.find(s => s.uses?.startsWith("actions/setup-go@"));
-            assert.equal(setup.with["go-version-file"], "go.mod");
-            assert.equal(setup.with["go-version"], undefined);
-          }
-          // All provisioning callers share policy and pin ownership. In
-          // particular, Windows must use Bash rather than the default pwsh.
-          for (const consumer of [ci.jobs.check, ci.jobs["platform-test"], job, release.jobs.build]) {
-            const install = consumer.steps.filter(s => s.name === "Install frontend deps");
-            assert.equal(install.length, 1);
-            assert.equal(install[0].run, "bash ./provision.sh frontend");
-            assert.equal(install[0].shell, "bash");
-            assert.equal(install[0]["working-directory"], undefined);
-            assert.ok(!consumer.steps.some(s => /^\s*go install\s/m.test(s.run || "")));
-          }
-          for (const consumer of [ci.jobs.check, job, release.jobs.build]) {
-            const tools = consumer.steps.filter(s => s.name === "Install Go quality tools (pinned)");
-            assert.equal(tools.length, 1);
-            assert.equal(tools[0].run, "bash ./provision.sh quality-tools");
-            assert.equal(tools[0].shell, "bash");
-          }
-          for (const name of ["Install frontend deps", "Install Go quality tools (pinned)"]) {
-            assert.equal(job.steps.find(s => s.name === name).if, "steps.bump.outputs.changed == 'true'");
-          }
-          const resources = release.jobs.build.steps.find(s => s.name === "Install go-winres");
-          assert.equal(resources.run, "bash ./provision.sh release-tools");
-          assert.equal(resources.shell, "bash");
-          assert.equal(ci.permissions.contents, "read");
-          assert.equal(ci.env.GOTOOLCHAIN, "local");
-          assert.equal(ci.jobs.check.env.CGO_ENABLED, "1");
-          assert.equal(ci.jobs["platform-test"].env.CGO_ENABLED, "0");
-          assert.equal(job.env.GOTOOLCHAIN, "local");
-          assert.equal(job.env.CGO_ENABLED, "1");
-          assert.equal(step("bump").env.OLDGO, ref("go-minor", "current"));
-          assert.equal(step("publish").env.NEWGO, ref("bump", "version"));
-          assert.equal(step("publish").if, "steps.bump.outputs.changed == 'true'");
-          assert.equal(step("publish").env.BASE_BRANCH, job.steps[0].with.ref);
-          let cases = 0;
-          const run = (script, env, success = true) => {
-            const dir = mkdtempSync(join(tmpdir(), "sayumi-workflow-"));
-            const output = join(dir, "output").replaceAll("\\", "/");
-            try {
-              const r = spawnSync(process.env.BASH || "bash", ["--noprofile", "--norc", "-euo", "pipefail", "-c", script], {
-                env: { ...process.env, GITHUB_OUTPUT: output, ...env }, encoding: "utf8", timeout: 10000,
-              });
-              assert.ifError(r.error);
-              assert.equal(r.status === 0, success, r.stdout + r.stderr);
-              cases++;
-              return r.stdout + r.stderr + (existsSync(output) ? readFileSync(output, "utf8") : "");
-            } finally {
-              rmSync(dir, { recursive: true, force: true });
-            }
-          };
-          const mockModule = `awk() { command awk "$1" <(printf '%s\\n' "$GO_MOD"); }\n`;
-          for (const [text, version] of [
-            ["module test\n\ngo 1.27.0\n", "1.27.0"],
-            ["go\t1.26.12\r\n", "1.26.12"],
-            ["go 1.27.1 // pinned patch\n", "1.27.1"],
-            ["module test\n", null], ["go 1.27\n", null],
-            ["go 1.27rc1\n", null], ["go 1.27.00\n", null],
-            ["go 1.27.0\ngo 1.26.1\n", null],
-          ]) {
-            const out = run(mockModule + step("go-minor").run, { GO_MOD: text }, version !== null);
-            if (version) assert.ok(out.includes(`current=${version}\nversion=${version.slice(0, version.lastIndexOf("."))}.x\n`));
-          }
-          const mockBump = String.raw`
-          go() {
-            case "$*" in
-              'get go@patch') return "$GET_STATUS" ;;
-              'mod tidy') return "$TIDY_STATUS" ;;
-              'list -m -f {{.GoVersion}}') printf '%s\n' "$CANDIDATE" ;;
-              *) return 90 ;;
-            esac
-          }
-          git() { [[ "$*" == 'diff --quiet -- go.mod go.sum' ]] || return 90; return "$DIRTY"; }
-          `;
-          const defaults = { OLDGO: "1.27.0", CANDIDATE: "1.27.1", DIRTY: "1", GET_STATUS: "0", TIDY_STATUS: "0" };
-          for (const [env, success, changed] of [
-            [{ CANDIDATE: "1.27.0", DIRTY: "0" }, true, false],
-            [{}, true, true], [{ OLDGO: "1.26.9", CANDIDATE: "1.26.10" }, true, true],
-            [{ OLDGO: "1.27.10", CANDIDATE: "1.27.9" }, false],
-            [{ CANDIDATE: "1.28.0" }, false], [{ CANDIDATE: "1.27rc1" }, false],
-            [{ CANDIDATE: "" }, false], [{ CANDIDATE: "1.27.0" }, false],
-            [{ GET_STATUS: "1" }, false], [{ TIDY_STATUS: "1" }, false],
-          ]) {
-            const out = run(mockBump + step("bump").run, { ...defaults, ...env }, success);
-            if (success) assert.ok(out.includes(`changed=${changed}\n`));
-            if (changed) assert.ok(out.includes(`version=${env.CANDIDATE || defaults.CANDIDATE}\n`));
-          }
-          const mockPublish = String.raw`
-          git() {
-            if [[ "$1" == ls-remote ]]; then
-              [[ -z "$REMOTE_OID" ]] || printf '%s\trefs/heads/deps/go-toolchain-patch\n' "$REMOTE_OID"
-              return "$REMOTE_STATUS"
-            fi
-            printf 'git'; printf ' <%s>' "$@"; printf '\n'
-            if [[ "$1" == push ]]; then return "$PUSH_STATUS"; fi
-          }
-          gh() {
-            if [[ "$1 $2" == 'pr list' ]]; then printf '%s' "$PR_NUMBER"; return "$PR_STATUS"; fi
-            printf 'gh'; printf ' <%s>' "$@"; printf '\n'
-            case "$1 $2" in
-              'pr create')
-                if [[ "$CREATE_STATUS" != 0 ]]; then
-                  echo 'GraphQL: GitHub Actions is not permitted to create or approve pull requests' >&2
-                fi
-                return "$CREATE_STATUS" ;;
-              'pr edit') return "$EDIT_STATUS" ;;
-            esac
-          }
-          `;
-          const publishing = { NEWGO: "1.27.1", BASE_BRANCH: "trunk", REMOTE_OID: "", REMOTE_STATUS: "0", PR_NUMBER: "", PR_STATUS: "0", PUSH_STATUS: "0", CREATE_STATUS: "0", EDIT_STATUS: "0" };
-          for (const number of ["", "42"]) {
-            const oid = number ? "a".repeat(40) : "";
-            const out = run(mockPublish + step("publish").run, { ...publishing, PR_NUMBER: number, REMOTE_OID: oid });
-            assert.ok(out.includes("<build(ci): bump Go to 1.27.1>"));
-            assert.ok(out.includes(`<--force-with-lease=refs/heads/deps/go-toolchain-patch:${oid}>`));
-            assert.ok(out.includes(number ? "gh <pr> <edit> <42>" : "gh <pr> <create> <--base> <trunk>"));
-          }
-          for (const env of [{ NEWGO: "" }, { REMOTE_STATUS: "1" }, { PR_STATUS: "1" }]) {
-            const out = run(mockPublish + step("publish").run, { ...publishing, ...env }, false);
-            assert.ok(!out.includes("gh <pr> <create>") && !out.includes("gh <pr> <edit>"));
-          }
-          // Repository policy is separate from the YAML token permissions.
-          // Preserve the real API error and never disguise it as an edit retry.
-          const denied = run(mockPublish + step("publish").run, { ...publishing, CREATE_STATUS: "1" }, false);
-          assert.ok(denied.includes("GraphQL: GitHub Actions is not permitted"));
-          assert.ok(denied.includes("::error::Bump branch pushed, but PR creation failed."));
-          assert.ok(denied.includes("Allow GitHub Actions to create and approve pull requests"));
-          assert.ok(!denied.includes("gh <pr> <edit>"));
-          const rejectedPush = run(mockPublish + step("publish").run, { ...publishing, PUSH_STATUS: "1" }, false);
-          assert.ok(!rejectedPush.includes("gh <pr> <create>") && !rejectedPush.includes("gh <pr> <edit>"));
-          const failedEdit = run(mockPublish + step("publish").run, { ...publishing, PR_NUMBER: "42", EDIT_STATUS: "1" }, false);
-          assert.ok(!failedEdit.includes("gh <pr> <create>"));
-          console.log(`Workflow regressions passed (${cases} shell cases).`);
-          JS
+        run: bash ./provision.sh workflow-tools
+
+      - name: Validate CI and maintenance workflows
+        shell: bash
+        run: make workflow-check
 
       - name: Install frontend deps
         shell: bash
@@ -252,6 +98,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            provision.sh
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: frontend/package.json

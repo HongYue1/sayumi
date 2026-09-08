@@ -3,12 +3,12 @@
 set -euo pipefail
 
 usage() {
-  printf 'Usage: bash ./provision.sh {frontend|quality-tools|release-tools|check-bun}\n'
+  printf 'Usage: bash ./provision.sh {frontend|quality-tools|release-tools|workflow-tools|check-bun}\n'
 }
 [[ $# -eq 1 ]] || { usage >&2; exit 2; }
 case "$1" in
   --help|-h) usage; exit 0 ;;
-  frontend|quality-tools|release-tools|check-bun) ;;
+  frontend|quality-tools|release-tools|workflow-tools|check-bun) ;;
   *) usage >&2; exit 2 ;;
 esac
 cd "$(dirname "$0")"
@@ -45,7 +45,7 @@ case "$1" in
     check_bun
     (cd frontend && bun install --frozen-lockfile --ignore-scripts)
     ;;
-  quality-tools|release-tools)
+  quality-tools|release-tools|workflow-tools)
     require_tool go
     # Version-suffixed installs keep each tool's module graph independent of
     # the application and of other tools (notably golangci-lint). A shared
@@ -59,6 +59,9 @@ case "$1" in
       # https://github.com/mvdan/gofumpt/releases/tag/v0.12.0
       go install mvdan.cc/gofumpt@v0.12.0
       go install golang.org/x/tools/cmd/goimports@v0.49.0
+    elif [[ "$1" == workflow-tools ]]; then
+      # Static workflow/expression validation; separate from application tools.
+      go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
     else
       go install github.com/tc-hib/go-winres@v0.3.3
     fi

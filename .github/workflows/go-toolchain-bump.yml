@@ -4,8 +4,9 @@
 # directive when a dependency demands it, so patch releases go unnoticed).
 #
 # The bump PR must be self-validating: PRs opened with GITHUB_TOKEN do not
-# trigger the ci.yml pull_request workflow, so this job runs make check itself
-# before proposing anything. Minor versions stay a manual, deliberate bump.
+# trigger the ci.yml pull_request workflow. A read-only job runs make check;
+# a fresh, cache-free job publishes only that validated Go directive change.
+# Minor/dependency/tidy changes stay manual, deliberate updates.
 #
 # Repository prerequisite: Actions > General > Workflow permissions > Allow
 # GitHub Actions to create and approve pull requests. YAML permissions alone
@@ -15,7 +16,7 @@ name: Go toolchain bump
 
 on:
   schedule:
-    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC, away from the busy hour boundary
   workflow_dispatch:
 
 permissions: {}
@@ -27,12 +28,15 @@ concurrency:
 
 jobs:
   bump:
-    name: Bump go patch version
+    name: Validate Go patch version
     # A manual run from a feature branch must not publish that branch as a bump.
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
+    outputs:
+      changed: ${{ steps.bump.outputs.changed }}
+      version: ${{ steps.validated.outputs.version }}
+      mod-blob: ${{ steps.validated.outputs.mod-blob }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -45,7 +49,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          # Freeze the event commit: never validate a moving branch tip.
+          ref: ${{ github.sha }}
           # Build scripts and dependency install hooks do not need Git credentials.
           persist-credentials: false
 
@@ -68,11 +73,13 @@ jobs:
         with:
           go-version: ${{ steps.go-minor.outputs.version }}
           check-latest: true
-          cache: true
+          # Candidate checks neither consume nor populate default-branch caches.
+          cache: false
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: frontend/package.json
+          no-cache: true
 
       - name: Bump go directive to the newest patch
         id: bump
@@ -93,6 +100,11 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "Already on the newest patch release."
           else
+            DIFF_STATUS=$?
+            if [[ "$DIFF_STATUS" != 1 ]]; then
+              echo "::error::git diff failed ($DIFF_STATUS); not a toolchain change"
+              exit "$DIFF_STATUS"
+            fi
             # A tidy-only change is not a toolchain bump; leave it for review.
             if [[ "$NEWGO" == "$OLDGO" ]]; then
               echo "::error::Module files changed without a Go patch bump"
@@ -115,6 +127,7 @@ jobs:
         run: bash ./provision.sh frontend
 
       - name: Run checks on the bumped toolchain
+        id: quality
         if: steps.bump.outputs.changed == 'true'
         run: |
           set -euo pipefail
@@ -124,24 +137,69 @@ jobs:
           test "$(go env CGO_ENABLED)" = 1
           make check
 
-      - name: Open (or update) the bump PR
-        id: publish
+      - name: Verify the module handoff
+        id: validated
         if: steps.bump.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
           NEWGO: ${{ steps.bump.outputs.version }}
+        run: bash .github/scripts/go-toolchain-patch.sh verify
+
+  publish:
+    name: Propose validated Go patch
+    needs: bump
+    if: >-
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      needs.bump.result == 'success' && needs.bump.outputs.changed == 'true'
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      # No dependency installs, cached executables or build artifacts cross into
+      # this job. Reconstruct the one permitted edit from this trusted checkout.
+      - name: Reconstruct the validated module
+        id: prepare
+        env:
+          NEWGO: ${{ needs.bump.outputs.version }}
+          MOD_BLOB: ${{ needs.bump.outputs.mod-blob }}
+        run: bash .github/scripts/go-toolchain-patch.sh prepare
+
+      - name: Open (or update) the bump PR
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEWGO: ${{ needs.bump.outputs.version }}
           BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          BASE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           : "${NEWGO:?missing validated Go version}"
           BRANCH="deps/go-toolchain-patch"
           # Expose Git authentication only after all build and check steps pass.
           gh auth setup-git
+          BASE_HEAD="$(git ls-remote --exit-code --heads origin "refs/heads/$BASE_BRANCH" | cut -f1)"
+          if [[ "$BASE_HEAD" != "$BASE_SHA" ]]; then
+            echo "::error::Default branch moved after validation; rerun from its new tip."
+            exit 1
+          fi
           REMOTE_HEAD="$(git ls-remote --heads origin "refs/heads/$BRANCH" | cut -f1)"
+          if [[ -n "$REMOTE_HEAD" && ! "$REMOTE_HEAD" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "::error::Invalid remote bot-branch tip"
+            exit 1
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$BRANCH"
-          git add -- go.mod go.sum
+          git add -- go.mod
           TITLE="build(ci): bump Go to ${NEWGO}"
           git commit -m "$TITLE"
           # Replace the bot branch only if it still has the tip we just observed;
@@ -150,7 +208,7 @@ jobs:
             origin "HEAD:refs/heads/$BRANCH"
           BODY="Automated toolchain patch bump (\`go get go@patch\`) so the
           govulncheck gate stays green. Validated by a full \`make check\` run in
-          the creating workflow (CI does not trigger on GITHUB_TOKEN PRs)."
+          the read-only job at base \`$BASE_SHA\` (CI does not trigger on GITHUB_TOKEN PRs)."
           # Do not hide an API/create failure behind an unrelated edit attempt.
           PR="$(gh pr list --state open --base "$BASE_BRANCH" --head "$BRANCH" \
             --json number --jq '.[0].number // empty')"

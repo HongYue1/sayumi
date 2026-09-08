@@ -84,7 +84,7 @@ func TestProvisionScriptGoTools(t *testing.T) {
 		"mvdan.cc/gofumpt",
 		"golang.org/x/tools/cmd/goimports",
 	}
-	for _, mode := range []string{"quality-tools", "release-tools"} {
+	for _, mode := range []string{"quality-tools", "release-tools", "workflow-tools"} {
 		t.Run(mode, func(t *testing.T) {
 			dir := provisionFixture(t)
 			got := runProvisionCommand(t, dir, provisionMocks(t, dir, nil), "bash", "./provision.sh", mode)
@@ -92,8 +92,11 @@ func TestProvisionScriptGoTools(t *testing.T) {
 				t.Fatalf("tool setup: exit=%d\n%s", got.code, got.output)
 			}
 			want := quality
-			if mode == "release-tools" {
+			switch mode {
+			case "release-tools":
 				want = []string{"github.com/tc-hib/go-winres"}
+			case "workflow-tools":
+				want = []string{"github.com/rhysd/actionlint/cmd/actionlint"}
 			}
 			calls := strings.Split(strings.TrimSpace(provisionCalls(t, dir)), "\n")
 			if len(calls) != len(want) {

@@ -116,6 +116,26 @@ Commit `go.mod`/`go.sum` and `frontend/package.json`/`frontend/bun.lock` togethe
 
 Dependabot checks actions and Go modules weekly. Its Bun lockfile-v2 support is [blocked upstream](https://github.com/dependabot/dependabot-core/issues/16026); keep the configured Bun job, but do not treat a lack of PRs as proof that the frontend is current or downgrade the lockfile to satisfy the bot. Until a bot update validates successfully, review frontend updates manually on a branch with the pinned Bun: update only the chosen package (`bun update <package>` within its declared range, or deliberately edit that range and run `bun install`), inspect the manifest/lock diff, then run `make deps` and the full race-enabled `GOTOOLCHAIN=local CGO_ENABLED=1 make check`. Keep the Solid prereleases coordinated. Go executable pins are not covered by the gomod updater: review their upstream releases, edit `provision.sh` once, reinstall, and run the same checks. Revert an unsuccessful scoped update rather than deleting lockfiles or relaxing gates.
 
+### CI and maintenance
+
+CI runs on pull requests (including forks and Dependabot), pushes to `main`/`master`, merge-queue checks and manual dispatch. Linux runs the full race-enabled gate; Windows/macOS run native CGO-free Go tests. No path filters or draft-PR skips hide required checks. Only a newer run for the same PR cancels earlier work; push, merge-group and manual runs remain independent.
+
+CI tokens are read-only and checkout does not persist credentials. GitHub scopes PR-written caches to the PR merge ref, not the base branch. Go cache keys include `go.sum` and the shared tool pins in `provision.sh`; caches are an optimization, not validation evidence. Do not cache credentials or pass PR caches/artifacts to a privileged job. Actions use full commit SHAs with version comments; verify updates against the upstream tag, not merely a matching SHA-shaped string.
+
+The Go patch workflow runs Mondays at 06:17 UTC or manually **from the default branch**. A read-only, cache-free job validates the frozen event commit with `make check`. A fresh publishing job runs no builds or dependency installers: it reconstructs only a strictly newer patch in the existing Go minor and matches the validated module blob. Dependency, `toolchain`, `go.sum`, or unrelated changes require manual review. If the default branch moves before publication, rerun from its new tip; the bot branch is updated with an explicit force-with-lease, never an unconditional force push.
+
+Keep repository defaults read-only, require review and status checks, and require approval for outside-contributor workflow runs. The Go updater additionally needs **Actions → General → Workflow permissions → Allow GitHub Actions to create and approve pull requests**; it only creates/updates PRs, never approves or merges them. PRs created with `GITHUB_TOKEN` do not trigger ordinary PR CI. The updater's full check is not a replacement for required PR status checks: if those remain pending, a maintainer can dispatch **CI** on `deps/go-toolchain-patch` and review the result, without bypassing branch protection. No local validation command below dispatches a workflow or publishes anything.
+
+For workflow edits, explicitly install the pinned validator, then run:
+
+```sh
+bash ./provision.sh workflow-tools # actionlint only; honors GOBIN and GOTOOLCHAIN=local
+make workflow-check
+GOTOOLCHAIN=local CGO_ENABLED=1 make check
+```
+
+`workflow-check` requires actionlint, Git, Bash and the pinned Bun; it never installs tools. It checks CI/maintenance YAML and expression types, then executes offline shell and temporary-Git regressions. Its actionlint invocation deliberately uses built-in checks only (`-shellcheck= -pyflakes=`), rather than silently varying with optional host tools. The same behavioral regressions run in ordinary Go tests (also requiring Git), so local `make check` covers module handoff, missing tools, Git/API failures and denied PR creation. Hosted scheduling, cache access controls and repository settings still need verification in GitHub; offline fixtures do not emulate the service.
+
 ### Commands
 
 ```sh
