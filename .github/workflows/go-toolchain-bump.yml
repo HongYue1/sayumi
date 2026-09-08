@@ -6,6 +6,11 @@
 # The bump PR must be self-validating: PRs opened with GITHUB_TOKEN do not
 # trigger the ci.yml pull_request workflow, so this job runs make check itself
 # before proposing anything. Minor versions stay a manual, deliberate bump.
+#
+# Repository prerequisite: Actions > General > Workflow permissions > Allow
+# GitHub Actions to create and approve pull requests. YAML permissions alone
+# cannot enable that policy; default workflow permissions can stay read-only.
+# This workflow creates/updates PRs only, never approves or merges them.
 name: Go toolchain bump
 
 on:
@@ -156,6 +161,11 @@ jobs:
           if [[ -n "$PR" ]]; then
             gh pr edit "$PR" --title "$TITLE" --body "$BODY"
           else
-            gh pr create --base "$BASE_BRANCH" --head "$BRANCH" \
-              --title "$TITLE" --body "$BODY"
+            if ! gh pr create --base "$BASE_BRANCH" --head "$BRANCH" \
+              --title "$TITLE" --body "$BODY"; then
+              echo "::error::Bump branch pushed, but PR creation failed. See the gh error above."
+              echo "If repository policy blocked creation, enable Settings > Actions > General > Workflow permissions > Allow GitHub Actions to create and approve pull requests."
+              echo "Default workflow permissions can remain read-only."
+              exit 1
+            fi
           fi

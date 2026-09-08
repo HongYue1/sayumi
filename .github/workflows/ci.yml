@@ -88,7 +88,7 @@ jobs:
               assert.ifError(r.error);
               assert.equal(r.status === 0, success, r.stdout + r.stderr);
               cases++;
-              return r.stdout + (existsSync(output) ? readFileSync(output, "utf8") : "");
+              return r.stdout + r.stderr + (existsSync(output) ? readFileSync(output, "utf8") : "");
             } finally {
               rmSync(dir, { recursive: true, force: true });
             }
@@ -136,13 +136,22 @@ jobs:
               return "$REMOTE_STATUS"
             fi
             printf 'git'; printf ' <%s>' "$@"; printf '\n'
+            if [[ "$1" == push ]]; then return "$PUSH_STATUS"; fi
           }
           gh() {
             if [[ "$1 $2" == 'pr list' ]]; then printf '%s' "$PR_NUMBER"; return "$PR_STATUS"; fi
             printf 'gh'; printf ' <%s>' "$@"; printf '\n'
+            case "$1 $2" in
+              'pr create')
+                if [[ "$CREATE_STATUS" != 0 ]]; then
+                  echo 'GraphQL: GitHub Actions is not permitted to create or approve pull requests' >&2
+                fi
+                return "$CREATE_STATUS" ;;
+              'pr edit') return "$EDIT_STATUS" ;;
+            esac
           }
           `;
-          const publishing = { NEWGO: "1.27.1", BASE_BRANCH: "trunk", REMOTE_OID: "", REMOTE_STATUS: "0", PR_NUMBER: "", PR_STATUS: "0" };
+          const publishing = { NEWGO: "1.27.1", BASE_BRANCH: "trunk", REMOTE_OID: "", REMOTE_STATUS: "0", PR_NUMBER: "", PR_STATUS: "0", PUSH_STATUS: "0", CREATE_STATUS: "0", EDIT_STATUS: "0" };
           for (const number of ["", "42"]) {
             const oid = number ? "a".repeat(40) : "";
             const out = run(mockPublish + step("publish").run, { ...publishing, PR_NUMBER: number, REMOTE_OID: oid });
@@ -154,6 +163,17 @@ jobs:
             const out = run(mockPublish + step("publish").run, { ...publishing, ...env }, false);
             assert.ok(!out.includes("gh <pr> <create>") && !out.includes("gh <pr> <edit>"));
           }
+          // Repository policy is separate from the YAML token permissions.
+          // Preserve the real API error and never disguise it as an edit retry.
+          const denied = run(mockPublish + step("publish").run, { ...publishing, CREATE_STATUS: "1" }, false);
+          assert.ok(denied.includes("GraphQL: GitHub Actions is not permitted"));
+          assert.ok(denied.includes("::error::Bump branch pushed, but PR creation failed."));
+          assert.ok(denied.includes("Allow GitHub Actions to create and approve pull requests"));
+          assert.ok(!denied.includes("gh <pr> <edit>"));
+          const rejectedPush = run(mockPublish + step("publish").run, { ...publishing, PUSH_STATUS: "1" }, false);
+          assert.ok(!rejectedPush.includes("gh <pr> <create>") && !rejectedPush.includes("gh <pr> <edit>"));
+          const failedEdit = run(mockPublish + step("publish").run, { ...publishing, PR_NUMBER: "42", EDIT_STATUS: "1" }, false);
+          assert.ok(!failedEdit.includes("gh <pr> <create>"));
           console.log(`Workflow regressions passed (${cases} shell cases).`);
           JS
 
