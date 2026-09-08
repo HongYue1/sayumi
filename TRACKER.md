@@ -1,6 +1,6 @@
 # Backend review tracker
 
-**156/164 files reviewed; 8 pending (all tooling).**
+**158/164 files reviewed; 6 pending (all tooling).**
 
 Scope: Go source, tests, and backend build/tooling configuration. Embedded fonts,
 icons, compiled resources, generated frontend output, and `.skills/` are excluded.
@@ -189,6 +189,6 @@ Current task and completion requirements: `TASK.md`. Change history: Git.
 - [x] `check.sh`
 - [x] `fix.sh`
 - [ ] `release.sh`
-- [ ] `go.mod`
-- [ ] `go.sum`
+- [x] `go.mod`
+- [x] `go.sum`
 - [ ] `cmd/sayumi/winres/winres.json`

@@ -1,11 +1,12 @@
-# Current task: CP39
+# Current task: CP40
 
-**Status: not started.** Review Go module and checksum metadata in `go.mod`
-and `go.sum`. Trace direct/indirect requirements to production imports and the
-supported Go/pure-Go SQLite build contract. Verify tidy/checksum consistency
-without speculative dependency or toolchain upgrades. Treat already-completed
-build scripts and package sources as dependency context only; do not re-review
-or credit them. No other pending batch is in scope.
+**Status: not started.** Review CI and Go toolchain-maintenance workflows in
+`.github/workflows/ci.yml` and `.github/workflows/go-toolchain-bump.yml` only.
+Trace permissions, action pins, quality-gate coverage, supported build settings,
+and current-minor patch selection. Validate locally without dispatching workflows,
+opening pull requests, or pushing. Treat completed build scripts, module metadata,
+and package sources as dependency context only; do not re-review or credit them.
+Release automation and the other pending tooling files are not in scope.
 
 This file holds the active task, or the next task once the active one is complete.
 `TRACKER.md` holds file status. Git is the changelog: do not retain completed-task
@@ -76,7 +77,7 @@ its retained SHA-256 anchor is
 If verification fails, stop and investigate without modifying protected evidence.
 Legacy drivers and their historical handoffs remain in evidence/Git, not this task.
 
-## Finish CP39
+## Finish CP40
 
 1. Complete the bounded review and required regressions. Run focused checks and a
    fresh full `make check` on final sources, then the protection check above.
@@ -87,9 +88,9 @@ Legacy drivers and their historical handoffs remain in evidence/Git, not this ta
    not check-run history in the tracker.
 3. Replace this task with the next bounded task, leaving it explicitly not started.
    If blocked instead, retain only the active scope, blocker, and next action.
-   Do not append a completed-CP39 report; Git records the completed work.
+   Do not append a completed-CP40 report; Git records the completed work.
 4. Review the intended diff once and stage only relevant paths; make one
    conventional scoped local commit. Report its hash, findings, checks,
    limitations, and remaining inventory in chat. No amend or push.
-5. Stop after CP39 and provide the concise handoff required by `AGENTS.md`.
-   CP40 requires explicit continuation in a new thread.
+5. Stop after CP40 and provide the concise handoff required by `AGENTS.md`.
+   CP41 requires explicit continuation in a new thread.
