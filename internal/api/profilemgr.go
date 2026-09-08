@@ -125,11 +125,17 @@ func (pd *profileDeps) markClosingAndWait() {
 
 type ProfileManager struct {
 	libraryRoot string
+	closeOnce   sync.Once
 	mu          sync.Mutex
 	cond        *sync.Cond
 	open        map[string]*profileDeps
 	blocked     map[string]bool
 	opening     map[string]bool
+	closed      bool
+
+	// Fixed before the manager is shared. Tests can pause a cold open at the
+	// publication boundary without relying on scan duration or global hooks.
+	loadProfile func(context.Context, string) (*profileDeps, error)
 }
 
 func NewProfileManager(libraryRoot string) *ProfileManager {
@@ -140,6 +146,7 @@ func NewProfileManager(libraryRoot string) *ProfileManager {
 		opening:     make(map[string]bool),
 	}
 	pm.cond = sync.NewCond(&pm.mu)
+	pm.loadProfile = pm.openProfile
 	return pm
 }
 
@@ -233,12 +240,8 @@ func (pm *ProfileManager) openProfile(ctx context.Context, profileName string) (
 	return pd, nil
 }
 
-func (pm *ProfileManager) lockProfiles(ctx context.Context, profileNames ...string) (func(), bool) {
+func (pm *ProfileManager) lockProfiles(ctx context.Context, profileNames ...string) (func(), error) {
 	names := normalizeProfileNames(profileNames)
-	if len(names) == 0 {
-		return func() {}, true
-	}
-
 	toClose := make(map[string]*profileDeps, len(names))
 
 	// Wake the cond if the caller's context is canceled so the wait loop
@@ -258,6 +261,17 @@ func (pm *ProfileManager) lockProfiles(ctx context.Context, profileNames ...stri
 	// exclusively, and whichever finished first would delete the other's block.
 	// Re-scanning from the start after every wait keeps the claim atomic.
 	for {
+		// Check even when every name is free, including just after a wake-up.
+		// Cancellation must not evict a profile merely because it won a race
+		// with the operation that was keeping the caller parked.
+		if pm.closed {
+			pm.mu.Unlock()
+			return nil, os.ErrClosed
+		}
+		if err := ctx.Err(); err != nil {
+			pm.mu.Unlock()
+			return nil, err
+		}
 		allFree := true
 		for _, name := range names {
 			if pm.blocked[name] || pm.opening[name] {
@@ -267,10 +281,6 @@ func (pm *ProfileManager) lockProfiles(ctx context.Context, profileNames ...stri
 		}
 		if allFree {
 			break
-		}
-		if ctx.Err() != nil {
-			pm.mu.Unlock()
-			return func() {}, false
 		}
 		pm.cond.Wait()
 	}
@@ -284,18 +294,26 @@ func (pm *ProfileManager) lockProfiles(ctx context.Context, profileNames ...stri
 	}
 	pm.mu.Unlock()
 
+	// Once detached, these dependencies must finish draining even if the
+	// request is canceled. Releasing the names sooner would let another open
+	// or filesystem mutation race the still-borrowed DB and file handles.
 	for _, name := range names {
 		pm.closeProfile(name, toClose[name])
 	}
 
-	return func() {
+	unlock := func() {
 		pm.mu.Lock()
 		for _, name := range names {
 			delete(pm.blocked, name)
 		}
 		pm.cond.Broadcast()
 		pm.mu.Unlock()
-	}, true
+	}
+	if err := ctx.Err(); err != nil {
+		unlock()
+		return nil, err
+	}
+	return unlock, nil
 }
 
 // Get opens a profile (or returns the already-open one), incrementing its
@@ -312,76 +330,79 @@ func (pm *ProfileManager) Get(ctx context.Context, profileName string) (*profile
 	})
 	defer stopWake()
 
+	pm.mu.Lock()
 	for {
-		pm.mu.Lock()
-		for pm.blocked[profileName] || pm.opening[profileName] {
-			if ctx.Err() != nil {
-				pm.mu.Unlock()
-				return nil, ctx.Err()
-			}
-			pm.cond.Wait()
+		if pm.closed {
+			pm.mu.Unlock()
+			return nil, os.ErrClosed
 		}
-
-		if pd, ok := pm.open[profileName]; ok {
-			if pd.acquire() {
-				pm.mu.Unlock()
-				return pd, nil
-			}
-			delete(pm.open, profileName)
-		}
-
-		pm.opening[profileName] = true
-		pm.mu.Unlock()
-
-		pd, err := pm.openProfile(ctx, profileName)
-
-		pm.mu.Lock()
-		delete(pm.opening, profileName)
-		pm.cond.Broadcast()
-
-		if err != nil {
+		if err := ctx.Err(); err != nil {
 			pm.mu.Unlock()
 			return nil, err
 		}
-
-		if existing, ok := pm.open[profileName]; ok {
-			if existing.acquire() {
-				pm.mu.Unlock()
-				pm.closeProfile(profileName, pd)
-				return existing, nil
-			}
-			delete(pm.open, profileName)
+		if !pm.blocked[profileName] && !pm.opening[profileName] {
+			break
 		}
-
-		if pm.blocked[profileName] {
-			pm.mu.Unlock()
-			pm.closeProfile(profileName, pd)
-			continue
-		}
-
-		if !pd.acquire() {
-			pm.mu.Unlock()
-			pm.closeProfile(profileName, pd)
-			continue
-		}
-
-		pm.open[profileName] = pd
-		pm.mu.Unlock()
-
-		slog.Info("profile opened", "profile", profileName, "books", pd.Books.Len())
-		return pd, nil
+		pm.cond.Wait()
 	}
+
+	if pd, ok := pm.open[profileName]; ok {
+		if pd.acquire() {
+			pm.mu.Unlock()
+			return pd, nil
+		}
+		delete(pm.open, profileName)
+	}
+
+	pm.opening[profileName] = true
+	pm.mu.Unlock()
+	pd, err := pm.loadProfile(ctx, profileName)
+
+	pm.mu.Lock()
+	if err == nil {
+		if pm.closed {
+			err = os.ErrClosed
+		} else {
+			err = ctx.Err()
+		}
+	}
+	if err != nil {
+		// Keep ownership of opening through cleanup. Waking a clone/delete
+		// or CloseAll before these handles close would expose a live DB.
+		pm.mu.Unlock()
+		pm.closeProfile(profileName, pd)
+		pm.mu.Lock()
+		delete(pm.opening, profileName)
+		pm.cond.Broadcast()
+		pm.mu.Unlock()
+		return nil, err
+	}
+
+	// The opening marker excludes other openers and profile lockers. Publish
+	// the fresh dependencies and their first reference in one critical section.
+	pd.acquire()
+	pm.open[profileName] = pd
+	delete(pm.opening, profileName)
+	pm.cond.Broadcast()
+	pm.mu.Unlock()
+
+	slog.Info("profile opened", "profile", profileName, "books", pd.Books.Len())
+	return pd, nil
 }
 
 func (pm *ProfileManager) Evict(profileName string) {
-	unlockProfiles, _ := pm.lockProfiles(context.Background(), profileName)
-	unlockProfiles()
+	if unlockProfiles, err := pm.lockProfiles(context.Background(), profileName); err == nil {
+		unlockProfiles()
+	}
 }
 
 func (pm *ProfileManager) FindBook(bookID string) (*profileDeps, bool) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
+	if pm.closed {
+		return nil, false
+	}
 	for profileName, pd := range pm.open {
 		if pm.blocked[profileName] {
 			continue
@@ -397,57 +418,71 @@ func (pm *ProfileManager) FindBook(bookID string) (*profileDeps, bool) {
 	return nil, false
 }
 
+// CloseAll permanently closes the manager. A login warm-up can outlive its
+// HTTP request, so a snapshot of open profiles alone is not a shutdown barrier.
+// Seal admission first, wait for open/clone/delete/evict owners, then drain all
+// references. Once also makes concurrent callers wait for the same teardown.
 func (pm *ProfileManager) CloseAll() {
-	pm.mu.Lock()
-	names := make([]string, 0, len(pm.open))
-	for name := range pm.open {
-		names = append(names, name)
-	}
-	pm.mu.Unlock()
+	pm.closeOnce.Do(func() {
+		pm.mu.Lock()
+		pm.closed = true
+		pm.cond.Broadcast()
+		for len(pm.opening) != 0 || len(pm.blocked) != 0 {
+			pm.cond.Wait()
+		}
+		toClose := pm.open
+		pm.open = nil
+		pm.mu.Unlock()
 
-	for _, name := range names {
-		pm.Evict(name)
-	}
+		for name, pd := range toClose {
+			pm.closeProfile(name, pd)
+		}
+	})
 }
 
 // CloneProfile copies srcProfile's directory into a new dstProfile directory.
 // It uses an os.Root for all source reads so symlinks that point outside the
 // source directory are rejected by the OS rather than silently followed.
+// It owns rollback of only the destination it creates, while both names remain
+// locked. Callers must not remove the destination on failure.
 func (pm *ProfileManager) CloneProfile(ctx context.Context, srcProfile, dstProfile string) (err error) {
-	unlockProfiles, locked := pm.lockProfiles(ctx, srcProfile, dstProfile)
-	if !locked {
-		return ctx.Err()
+	unlockProfiles, err := pm.lockProfiles(ctx, srcProfile, dstProfile)
+	if err != nil {
+		return err
 	}
 	defer unlockProfiles()
 
 	srcDir := pm.profileDir(srcProfile)
 	dstDir := pm.profileDir(dstProfile)
 
-	// Refuse if the destination directory already exists on disk. An orphaned
-	// directory from a previous failed clone would otherwise be silently
-	// overwritten and its contents lost. The caller must remove it manually or
-	// choose a different profile name.
-	if _, statErr := os.Stat(dstDir); statErr == nil {
-		return fmt.Errorf("destination profile directory %q already exists on disk; remove it manually or choose a different name", dstDir)
-	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return fmt.Errorf("stat destination dir: %w", statErr)
-	}
-
-	if err := os.MkdirAll(dstDir, 0o755); err != nil {
-		return fmt.Errorf("create destination dir: %w", err)
-	}
-
 	srcRoot, err := os.OpenRoot(srcDir)
 	if err != nil {
 		return fmt.Errorf("open source root: %w", err)
 	}
+	created := false
 	defer func() {
-		if closeErr := srcRoot.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("close source root: %w", closeErr)
+		if closeErr := srcRoot.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close source root: %w", closeErr))
+		}
+		if err != nil && created {
+			if removeErr := os.RemoveAll(dstDir); removeErr != nil {
+				err = errors.Join(err, fmt.Errorf("remove incomplete clone: %w", removeErr))
+			}
 		}
 	}()
 
-	return cloneRootDir(srcRoot, dstDir, ".", 0)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// Mkdir atomically claims a new directory. Stat followed by MkdirAll can
+	// adopt a path created in between; even a dangling symlink must be refused.
+	// A conflict gives us no ownership and must never trigger directory removal.
+	if err := os.Mkdir(dstDir, 0o755); err != nil {
+		return fmt.Errorf("create destination dir %q: %w", dstDir, err)
+	}
+	created = true
+
+	return cloneRootDir(ctx, srcRoot, dstDir, ".", 0)
 }
 
 const maxCloneDepth = 100
@@ -457,7 +492,10 @@ const maxCloneDepth = 100
 // copied; symlinks and special files are skipped. Because all reads go
 // through srcRoot (an os.Root), the OS refuses any path that would escape
 // the source directory, preventing symlink-based directory-traversal attacks.
-func cloneRootDir(srcRoot *os.Root, dstBase, relDir string, depth int) error {
+func cloneRootDir(ctx context.Context, srcRoot *os.Root, dstBase, relDir string, depth int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if depth > maxCloneDepth {
 		return fmt.Errorf("clone depth limit exceeded at %q", relDir)
 	}
@@ -477,6 +515,9 @@ func cloneRootDir(srcRoot *os.Root, dstBase, relDir string, depth int) error {
 	}
 
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		name := entry.Name()
 
 		// Build the path relative to srcRoot (os.Root uses forward slashes).
@@ -497,22 +538,26 @@ func cloneRootDir(srcRoot *os.Root, dstBase, relDir string, depth int) error {
 			if err := os.MkdirAll(dstPath, 0o755); err != nil {
 				return fmt.Errorf("create dir %q: %w", dstPath, err)
 			}
-			if err := cloneRootDir(srcRoot, dstBase, childRel, depth+1); err != nil {
+			if err := cloneRootDir(ctx, srcRoot, dstBase, childRel, depth+1); err != nil {
 				return err
 			}
 		} else if entry.Type().IsRegular() {
 			// Skip symlinks and special files; copy only regular files.
-			if err := copyFileFromRoot(srcRoot, childRel, dstPath); err != nil {
+			if err := copyFileFromRoot(ctx, srcRoot, childRel, dstPath); err != nil {
 				return err
 			}
 		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 // copyReaderToFile creates dst (and any missing parent directories), then
-// streams src into it. On any write error the partial file is removed.
-func copyReaderToFile(src io.Reader, dst string) error {
+// streams src into it. On cancellation or a copy/close error the partial file
+// is removed. Cancellation is checked between reads, not just between files.
+func copyReaderToFile(ctx context.Context, src io.Reader, dst string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return fmt.Errorf("create parent dir for %q: %w", dst, err)
 	}
@@ -522,10 +567,14 @@ func copyReaderToFile(src io.Reader, dst string) error {
 		return fmt.Errorf("create destination %q: %w", dst, err)
 	}
 
-	if _, err := io.Copy(out, src); err != nil {
+	_, copyErr := io.Copy(out, cloneReader{ctx: ctx, src: src})
+	if copyErr == nil {
+		copyErr = ctx.Err()
+	}
+	if copyErr != nil {
 		_ = out.Close()
 		_ = os.Remove(dst)
-		return fmt.Errorf("copy to %q: %w", dst, err)
+		return fmt.Errorf("copy to %q: %w", dst, copyErr)
 	}
 
 	if err := out.Close(); err != nil {
@@ -536,11 +585,23 @@ func copyReaderToFile(src io.Reader, dst string) error {
 	return nil
 }
 
-func copyFileFromRoot(srcRoot *os.Root, relPath, dst string) error {
+type cloneReader struct {
+	ctx context.Context
+	src io.Reader
+}
+
+func (r cloneReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.src.Read(p)
+}
+
+func copyFileFromRoot(ctx context.Context, srcRoot *os.Root, relPath, dst string) error {
 	in, err := srcRoot.Open(relPath)
 	if err != nil {
 		return fmt.Errorf("open source %q: %w", relPath, err)
 	}
 	defer func() { _ = in.Close() }()
-	return copyReaderToFile(in, dst)
+	return copyReaderToFile(ctx, in, dst)
 }

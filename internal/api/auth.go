@@ -751,9 +751,9 @@ func cloneProfileHandler(deps *Dependencies) http.HandlerFunc {
 				slog.Error("rollback cloned profile record", "profile", body.NewName, "err", rollbackErr)
 			}
 			cancelRollback()
-			if removeErr := os.RemoveAll(deps.ProfileMgr.profileDir(body.NewName)); removeErr != nil {
-				slog.Error("remove cloned profile dir", "profile", body.NewName, "err", removeErr)
-			}
+			// CloneProfile removes only a destination it created, under its
+			// profile locks. Removing here can destroy a pre-existing directory
+			// that the clone refused to adopt, or a later owner's new directory.
 			slog.Error("clone profile failed", "src", sess.profile, "dst", body.NewName, "err", err)
 			writeError(w, http.StatusInternalServerError, "clone_error", "failed to clone profile")
 			return
@@ -810,9 +810,9 @@ func deleteProfileHandler(deps *Dependencies) http.HandlerFunc {
 		deleteCtx, cancelDelete := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Second)
 		defer cancelDelete()
 
-		unlockProfile, locked := deps.ProfileMgr.lockProfiles(deleteCtx, sess.profile)
-		if !locked {
-			slog.Error("lock profile for deletion failed", "profile", sess.profile, "err", deleteCtx.Err())
+		unlockProfile, err := deps.ProfileMgr.lockProfiles(deleteCtx, sess.profile)
+		if err != nil {
+			slog.Error("lock profile for deletion failed", "profile", sess.profile, "err", err)
 			writeError(w, http.StatusInternalServerError, "server_error", "failed to delete profile")
 			return
 		}
