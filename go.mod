@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/andybalholm/brotli v1.2.3
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/image v0.45.0
 	golang.org/x/net v0.58.0
 	golang.org/x/sync v0.22.0
