@@ -55,7 +55,9 @@ case "$1" in
     if [[ "$1" == quality-tools ]]; then
       go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
       go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
-      go install mvdan.cc/gofumpt@v0.11.0
+      # Keep comments attached to imports; the Go 1.27 formatter fixes this.
+      # https://github.com/mvdan/gofumpt/releases/tag/v0.12.0
+      go install mvdan.cc/gofumpt@v0.12.0
       go install golang.org/x/tools/cmd/goimports@v0.49.0
     else
       go install github.com/tc-hib/go-winres@v0.3.3

@@ -102,7 +102,7 @@ export default function ShortcutsHelp() {
           tabindex="-1"
           onClick={close}
         />
-        {/* eslint-disable jsx-a11y/prefer-tag-over-role -- div+role kept over a native <dialog>: visual parity with the established design is the port's contract. */}
+        {/* div+role kept over a native <dialog>: visual parity with the established design is the port's contract. */}
         <div
           class="shortcuts-sheet"
           role="dialog"
@@ -160,7 +160,6 @@ export default function ShortcutsHelp() {
             </For>
           </div>
         </div>
-        {/* eslint-enable jsx-a11y/prefer-tag-over-role */}
       </div>
     </Show>
   );

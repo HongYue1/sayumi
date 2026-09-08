@@ -83,7 +83,7 @@ export default function AboutDialog() {
           tabindex="-1"
           onClick={close}
         />
-        {/* eslint-disable jsx-a11y/prefer-tag-over-role -- div+role kept over a native <dialog>: visual parity with the established design is the port's contract. */}
+        {/* div+role kept over a native <dialog>: visual parity with the established design is the port's contract. */}
         <div
           class="about-sheet paper"
           role="dialog"
@@ -165,7 +165,6 @@ export default function AboutDialog() {
             </button>
           </div>
         </div>
-        {/* eslint-enable jsx-a11y/prefer-tag-over-role */}
       </div>
     </Show>
   );

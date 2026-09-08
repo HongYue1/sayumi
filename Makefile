@@ -50,17 +50,9 @@ else
 	cd frontend && npm run build
 endif
 
-# Format imports first, then apply gofumpt's stricter rules. gofmt is needed
-# only when neither richer formatter is installed.
+# Go-only formatting with the same required tools/order as the full fix pass.
 fmt:
-ifneq (,$(shell command -v goimports))
-	goimports -w -local sayumi cmd internal
-endif
-ifneq (,$(shell command -v gofumpt))
-	gofumpt -w cmd internal
-else ifeq (,$(shell command -v goimports))
-	gofmt -w cmd internal
-endif
+	bash ./fix.sh --go-format
 
 version: web
 	@go run ./cmd/sayumi --version

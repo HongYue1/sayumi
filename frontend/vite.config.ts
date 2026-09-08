@@ -12,9 +12,9 @@ import { fileURLToPath } from "node:url";
 const root = dirname(fileURLToPath(import.meta.url));
 
 // The Bun global comes from the bun runtime that executes this config via
-// `bun run build/dev`. vite.config.ts sits outside tsconfig's src/** include,
-// so tsc never checks this file; this minimal declaration keeps editors and
-// the type-aware linter honest without pulling in @types/bun.
+// `bun run build/dev`. This config is checked by tsc and the type-aware linter;
+// a minimal declaration covers our Bun.build usage without adding runtime-wide
+// @types/bun globals to the browser application.
 declare const Bun: {
   build(options: {
     entrypoints: string[];

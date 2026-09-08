@@ -122,7 +122,8 @@ Dependabot checks actions and Go modules weekly. Its Bun lockfile-v2 support is 
 make build        # local optimized build (auto GOAMD64=v3 when supported)
 make run          # build, then run
 make check        # all quality gates: format, vet, lint, vulncheck, tests, tsc
-make fix          # auto-fix pass: imports, formatting, lint --fix, mod tidy
+make fix          # refresh frontend, then apply Go/frontend fixes and mod tidy
+make fmt          # Go-only imports + formatting; requires both formatters
 make release      # cross-compiled, portable archives in dist-release/
 ```
 
@@ -136,6 +137,16 @@ cd frontend && bun run dev
 The quality gates use gofumpt and goimports for formatting, golangci-lint and `go vet` for static analysis, govulncheck for known vulnerabilities, `go test` for the backend, and oxfmt, oxlint, `tsc`, plus vitest for the frontend.
 
 All four Go quality tools must be on `PATH`; a missing tool fails the check rather than skipping a gate. Checks refresh the generated frontend before Go analysis and tests, without modifying source files. `./check.sh --fast` skips only the final Go build, not frontend compilation or quality gates. Race tests run when `go env CGO_ENABLED` is `1`; a failed race run is never retried without `-race`. A cgo-disabled local run explicitly reports the missing race check, while CI requires race support and the production build remains CGO-free.
+
+### Formatting and diagnostics
+
+`make fmt` delegates to `bash ./fix.sh --go-format`: it requires both goimports and gofumpt before changing anything, runs them in that order, and stops if either fails. It needs neither Bun nor a frontend build. `make fix` additionally requires Go, the pinned Bun, and golangci-lint; it checks the complete tool set and Bun revision before the first mutation, refreshes the embedded frontend before Go analysis, then runs lint fixes before final formatting. Neither entry point installs tools, skips missing tools, or substitutes gofmt/npm. Review the changes and run `make check` afterward.
+
+Keep one formatting owner per language: standalone goimports/gofumpt (not golangci-lint's independently bundled formatter versions), and oxfmt with `.oxfmtrc.json` for TSX/CSS and frontend configuration. The Go formatter's import-comment preservation has an executable regression. Oxc updates are checked against the project's existing formatting and lint policy; do not add a second Biome/Prettier pass that can rewrite the first pass's output.
+
+Oxlint runs type-aware rules through `oxlint-tsgolint`; warnings and unused disable directives fail. Keep suppressions narrow and explained, including the Safari/VoiceOver `role="list"` exception for unstyled lists. The existing `prefer-tag-over-role` exception remains intentional: native-tag substitution flags custom listboxes, dialogs and live-status widgets without proving an accessibility defect; a blanket conversion would change their interaction/styling contracts. Do not retain per-site disable directives for globally disabled rules. The separate `tsc` check covers application sources **and** top-level `*.config.ts`, rejects switch fallthrough and unmarked overrides, and emits no JavaScript. Keep the stable compiler rather than substituting oxlint's experimental type-check mode or a native-preview package for this gate.
+
+Before adopting the Solid ESLint plugin, validate its reactivity diagnostics against this application's Solid 2 patterns. The 0.17 candidate flags intentionally class-held signal tuples in `FontRegistry`/`CustomThemes`; accepting the entire preset would require an application audit, not blanket suppressions or a framework rewrite. Its server-function rules do not apply to this Go-backed SPA. The tooling policy tests use disposable projects outside the source tree, retain the real include/alias rules, and run installed tools without symlinks or downloads.
 
 ## Architecture
 
