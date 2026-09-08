@@ -30,8 +30,9 @@ check:
 # built-in schema/expression checks on every host; shell behavior is tested below.
 workflow-check:
 	bash ./provision.sh check-bun
-	actionlint -shellcheck= -pyflakes= .github/workflows/ci.yml .github/workflows/go-toolchain-bump.yml
+	actionlint -shellcheck= -pyflakes= .github/workflows/ci.yml .github/workflows/go-toolchain-bump.yml .github/workflows/release.yml
 	bun .github/scripts/workflow-tests.mjs
+	bun .github/scripts/release-tests.mjs
 
 # Repeatable Go-only benchmarks; e.g. make bench PKG=./cmd/sayumi BENCH=PrettyHandler.
 PKG ?= ./...
