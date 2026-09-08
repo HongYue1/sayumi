@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Exercise actual Bun/Vite builds and filesystem-driven HMR in disposable
@@ -54,7 +55,9 @@ func TestViteFramePipeline(t *testing.T) {
 }
 
 func TestViteRejectsNode(t *testing.T) {
-	got := runProvisionCommand(t, filepath.Join("..", "..", "frontend"), nil, "node", frontendToolBin(t, "vite", "vite.js"), "build")
+	// Allow cold Node/Vite startup, but still require the Bun-only rejection
+	// before the build begins; a timeout is never an accepted diagnostic.
+	got := runProvisionCommandWithTimeout(t, filepath.Join("..", "..", "frontend"), nil, 90*time.Second, "node", frontendToolBin(t, "vite", "vite.js"), "build")
 	if got.code == 0 || !strings.Contains(got.output, "iframe build requires Bun") {
 		t.Fatalf("Node must fail before starting the build: exit=%d\n%s", got.code, got.output)
 	}
