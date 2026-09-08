@@ -148,6 +148,33 @@ Oxlint runs type-aware rules through `oxlint-tsgolint`; warnings and unused disa
 
 Before adopting the Solid ESLint plugin, validate its reactivity diagnostics against this application's Solid 2 patterns. The 0.17 candidate flags intentionally class-held signal tuples in `FontRegistry`/`CustomThemes`; accepting the entire preset would require an application audit, not blanket suppressions or a framework rewrite. Its server-function rules do not apply to this Go-backed SPA. The tooling policy tests use disposable projects outside the source tree, retain the real include/alias rules, and run installed tools without symlinks or downloads.
 
+### Tests, fuzzing and benchmarks
+
+Run Vitest through the Bun package scripts, not `bun test`: the runner remains Node-hosted with the Solid browser/development build and isolated happy-dom environments. Vitest 5 requires Node `^22.12.0 || ^24.0.0 || >=26.0.0`. It rejects unawaited async assertions; local and CI runs both reject `.only`. Use filename or `-t` filters instead. Suite fixtures still own mock clearing, so the upgrade does not silently erase setup/beforeAll history. The runner now installs DOM storage correctly without the old donor-window workaround. The executable policy fixtures cover selection, storage, legitimate fetch mocks, restored guards, and failing assertion/rejection/network paths, including suite teardown.
+
+```sh
+# From the repository root, after make deps and selecting the local compiler:
+export GOTOOLCHAIN=local
+CGO_ENABLED=1 make check
+CGO_ENABLED=1 go test -race -count=1 -cover ./internal/epub
+# Select one fuzz target in one package; normal go test runs its seeds only.
+go test -run '^$' -fuzz '^FuzzSanitizeStableTree$' -fuzztime=10s -parallel=2 ./internal/epub
+make bench PKG=./internal/epub BENCH=BenchmarkSanitizeParse/Plain COUNT=5 BENCHTIME=200ms
+
+# Focused frontend tests, optional leak diagnostics, and serial benchmarks:
+(cd frontend && bun run test src/iframe/frame.test.ts)
+(cd frontend && bun run test:diagnose src/test/library-harness.test.ts)
+(cd frontend && bun run bench)
+```
+
+Keep Go concurrency tests synchronized with channels or `testing/synctest`, not wall-clock sleeps; repeat/shuffle a focused race run when investigating order dependence. Coverage percentages locate unexercised code, not correctness. Keep any useful fuzz failure as a minimized regression; do not discard failures just to get a green run.
+
+`test:diagnose` adds async-resource stack traces and runs files serially. Leak reports are **advisory**, not a gate: even a zero exit can report leaks, including deliberately pending promise fixtures and DOM abort timers. Inspect the stacks and resource ownership; do not disable isolation, ignore unhandled errors, raise timeouts indiscriminately, or add retries to hide failures. Fake-timer fixtures should restore real timers with the existing leak-checking helper.
+
+Benchmarks stay separate from the unit gate. Vitest 5 registers `bench` through each test's context; explicitly await each registration's `.run()` (registration alone only warns and measures nothing). Fixture assertions run outside timed callbacks. CSS rule counts and a genuinely late search hit are checked before measuring. Run comparisons serially with unchanged fixtures, environment and cache state; the corrected late-hit fixture is not comparable to its old first-paragraph workload. Index-building timings also include the module-export getter overhead that Vitest reports; keep that warning visible and do not interpret those timings as production throughput.
+
+Happy-dom tests do not validate browser layout, CSP or sandbox enforcement. There is no real-browser E2E suite or frontend coverage provider configured. Adding either requires dedicated browser scenarios or a pinned runner-matching coverage provider and explicit provisioning, not an on-demand download during checks. Go's existing race/fuzz tools and the current DOM suites remain the baseline; no test-runtime or application-framework replacement is implied.
+
 ## Architecture
 
 The backend is plain Go on the standard-library HTTP router, storing data in per-profile SQLite databases through the CGO-free `modernc.org/sqlite` driver — the binary builds and runs without a C toolchain. The frontend is a Solid 2 single-page app built by Vite and embedded with `go:embed`, which is why a release is one file with nothing to install. EPUB files are parsed and sanitized on the server; each chapter renders inside a sandboxed iframe on the client.
