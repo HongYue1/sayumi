@@ -1,19 +1,14 @@
-# Current task: CP41
+# Current task
 
-**Status: not started.** Review release automation in
-`.github/workflows/release.yml` and `release.sh` only. Trace trigger and permission
-boundaries, action pins, validation before publication, portable build settings,
-and artifact packaging. Validate locally without dispatching workflows, creating
-tags or releases, or pushing. Treat completed workflows, build scripts, module
-metadata, and package sources as dependency context only; do not re-review or
-credit them. `.gitattributes` and `cmd/sayumi/winres/winres.json` remain pending
-and are not in scope.
+**Status: no active task.** The review inventory is exhausted. Await a new user
+request; do not invent another checkpoint or re-review completed entries in
+`TRACKER.md` without an explicit request.
 
-This file holds the active task, or the next task once the active one is complete.
+Record a new active task here only after the user supplies one.
 `TRACKER.md` holds file status. Git is the changelog: do not retain completed-task
 narratives, benchmark tables, session logs, or copied commit histories here.
 
-## Start safely
+## Start safely when work is authorized
 
 1. Open `C:\Users\Administrator\Documents\Projects\GO\sayumi` through Local_MCP;
    reuse an already-open workspace for this folder. These Markdown files are local
@@ -24,9 +19,10 @@ narratives, benchmark tables, session logs, or copied commit histories here.
 3. Use `git status` and `git log` for routine state checks, following the checkpoint
    workflow in `AGENTS.md`. The expected branch is `main`; preserve unrelated work.
    Do not reset an advanced checkout to a handoff commit or discard staged changes.
-4. Run the protected-evidence verification below. Choose one small, coherent batch
-   from the pending inventory; inspect dependency boundaries before fixing scope.
-   Record only that active scope and any real blockers here while work is underway.
+4. Run the protected-evidence verification below before substantive repository
+   work. When a new request authorizes more review, choose a bounded scope from
+   the new pending inventory and inspect dependency boundaries. Record only that
+   active scope and any real blockers here while work is underway.
 
 ## Review constraints
 
@@ -78,7 +74,7 @@ its retained SHA-256 anchor is
 If verification fails, stop and investigate without modifying protected evidence.
 Legacy drivers and their historical handoffs remain in evidence/Git, not this task.
 
-## Finish CP41
+## Completion rules
 
 1. Complete the bounded review and required regressions. Run focused checks and a
    fresh full `make check` on final sources, then the protection check above.
@@ -87,11 +83,11 @@ Legacy drivers and their historical handoffs remain in evidence/Git, not this ta
    files, counts, and remaining inventory. Do not declare the overall review done
    while any inventory entry remains pending. Keep completion requirements here,
    not check-run history in the tracker.
-3. Replace this task with the next bounded task, leaving it explicitly not started.
+3. When the inventory is exhausted, leave no active task and await a new request.
    If blocked instead, retain only the active scope, blocker, and next action.
-   Do not append a completed-CP41 report; Git records the completed work.
+   Do not append completed-task reports; Git records the completed work.
 4. Review the intended diff once and stage only relevant paths; make one
    conventional scoped local commit. Report its hash, findings, checks,
    limitations, and remaining inventory in chat. No amend or push.
-5. Stop after CP41 and provide the concise handoff required by `AGENTS.md`.
-   CP42 requires explicit continuation in a new thread.
+5. Stop at the requested scope and provide a concise handoff. Do not invent
+   a next checkpoint or continuation task.
