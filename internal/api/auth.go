@@ -77,13 +77,49 @@ type sessionStore struct {
 	mu      sync.Mutex
 	data    map[string]session
 	persist sessionPersistence
+
+	// Keep memory mutations and their disk writes in the same order without
+	// holding mu across I/O: get and profile checks must not wait on SQLite.
+	writeMu sync.Mutex
+
+	// Serialize credential reads/session issuance with profile create, clone,
+	// delete, and rollback. Otherwise a login can consume a provisional row or
+	// publish a session after deletion revoked the old ones; reusing that name
+	// would then grant the old session access to a different profile. This gate
+	// is only for auth/profile operations, never ordinary authenticated traffic.
+	profileOps chan struct{}
 }
 
 func newSessionStore(persist sessionPersistence) *sessionStore {
-	return &sessionStore{data: make(map[string]session), persist: persist}
+	return &sessionStore{
+		data:       make(map[string]session),
+		persist:    persist,
+		profileOps: make(chan struct{}, 1),
+	}
+}
+
+// Acquire before ProfileMgr's lifetime locks and without a borrowed profile ref.
+// Waiting is cancelable because another operation may be copying a whole library.
+func lockProfileOperation(deps *Dependencies, w http.ResponseWriter, r *http.Request) (func(), bool) {
+	select {
+	case deps.sessions.profileOps <- struct{}{}:
+		unlock := func() { <-deps.sessions.profileOps }
+		if r.Context().Err() == nil {
+			return unlock, true
+		}
+		unlock()
+	case <-r.Context().Done():
+	}
+	writeError(w, http.StatusInternalServerError, "server_error", "profile operation canceled")
+	return nil, false
 }
 
 func (ss *sessionStore) create(ctx context.Context, profile string, remember bool) (string, session, error) {
+	ss.writeMu.Lock()
+	defer ss.writeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return "", session{}, err
+	}
 	tokenBytes := make([]byte, tokenLen)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return "", session{}, fmt.Errorf("generate session token: %w", err)
@@ -129,32 +165,45 @@ func (ss *sessionStore) get(token string) (session, bool) {
 	return sess, true
 }
 
-func (ss *sessionStore) deleteToken(ctx context.Context, token string) {
+func (ss *sessionStore) deleteToken(ctx context.Context, token string) error {
+	ss.writeMu.Lock()
+	defer ss.writeMu.Unlock()
 	ss.mu.Lock()
 	delete(ss.data, token)
 	ss.mu.Unlock()
 	if ss.persist != nil {
-		if err := ss.persist.DeleteSession(ctx, token); err != nil {
+		// Revocation must survive a disconnect, or restore would log the user
+		// back in. Bound cleanup independently of the canceled request.
+		deleteCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if err := ss.persist.DeleteSession(deleteCtx, token); err != nil {
 			slog.Error("delete persisted session", "err", err)
+			return err
 		}
 	}
+	return nil
 }
 
 // markProfileVerified records that token's profile was just confirmed to exist,
-// suppressing the per-request existence check until "until". It is a no-op if
-// the token is gone (logged out or swept) so it never resurrects a dead session.
-func (ss *sessionStore) markProfileVerified(token string, until time.Time) {
+// suppressing the per-request existence check until "until". It returns the
+// still-live session; a revoked or expired token must not authorize the request
+// that just finished checking the profile.
+func (ss *sessionStore) markProfileVerified(token string, until time.Time) (session, bool) {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 	sess, ok := ss.data[token]
-	if !ok {
-		return
+	if !ok || time.Now().After(sess.expiry) {
+		delete(ss.data, token)
+		return session{}, false
 	}
 	sess.verifiedUntil = until
 	ss.data[token] = sess
+	return sess, true
 }
 
 func (ss *sessionStore) deleteAllForProfile(ctx context.Context, profile string) {
+	ss.writeMu.Lock()
+	defer ss.writeMu.Unlock()
 	ss.mu.Lock()
 	for token, sess := range ss.data {
 		if sess.profile == profile {
@@ -163,7 +212,9 @@ func (ss *sessionStore) deleteAllForProfile(ctx context.Context, profile string)
 	}
 	ss.mu.Unlock()
 	if ss.persist != nil {
-		if err := ss.persist.DeleteSessionsForProfile(ctx, profile); err != nil {
+		deleteCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if err := ss.persist.DeleteSessionsForProfile(deleteCtx, profile); err != nil {
 			slog.Error("delete persisted sessions for profile", "profile", profile, "err", err)
 		}
 	}
@@ -172,6 +223,8 @@ func (ss *sessionStore) deleteAllForProfile(ctx context.Context, profile string)
 // sweep removes all sessions whose expiry has passed. Called periodically
 // by Dependencies.StartBackgroundTasks.
 func (ss *sessionStore) sweep(ctx context.Context) {
+	ss.writeMu.Lock()
+	defer ss.writeMu.Unlock()
 	now := time.Now()
 	ss.mu.Lock()
 	for token, sess := range ss.data {
@@ -192,6 +245,8 @@ func (ss *sessionStore) sweep(ctx context.Context) {
 // Restored sessions carry remember=true (only those are persisted) and an empty
 // verifiedUntil, so the next request re-confirms the profile still exists.
 func (ss *sessionStore) restore(ctx context.Context) error {
+	ss.writeMu.Lock()
+	defer ss.writeMu.Unlock()
 	if ss.persist == nil {
 		return nil
 	}
@@ -297,15 +352,20 @@ func validateSession(deps *Dependencies, w http.ResponseWriter, r *http.Request)
 
 	if err := sessionProfileExists(r.Context(), deps, sess); err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
-			deps.sessions.deleteToken(r.Context(), token)
+			_ = deps.sessions.deleteToken(r.Context(), token) // failure is logged; the profile is gone
 			clearCookie(w, r)
 			return session{}, false, nil
 		}
 		return session{}, false, fmt.Errorf("verify session profile %q: %w", sess.profile, err)
 	}
 
-	deps.sessions.markProfileVerified(token, time.Now().Add(sessionProfileCheckTTL))
-	return sess, true, nil
+	// The lookup can outlive logout or expiry. Publish the cache result only
+	// if the token is still live, and do not authorize with the earlier copy.
+	sess, ok = deps.sessions.markProfileVerified(token, time.Now().Add(sessionProfileCheckTTL))
+	if !ok {
+		clearCookie(w, r)
+	}
+	return sess, ok, nil
 }
 
 func requireAuthenticatedSession(
@@ -369,6 +429,13 @@ func authMiddleware(deps *Dependencies) func(http.Handler) http.Handler {
 			}
 			defer pd.release()
 
+			// Get may have waited behind clone/delete or a cold open. Recheck
+			// revocation/expiry now that this ref pins one profile generation.
+			if _, _, live := sessionFromRequest(r, deps.sessions); !live {
+				clearCookie(w, r)
+				writeUnauthenticated(w)
+				return
+			}
 			next.ServeHTTP(w, withProfileDeps(r, pd))
 		})
 	}
@@ -549,6 +616,12 @@ func loginHandler(deps *Dependencies) http.HandlerFunc {
 		}
 		defer deps.throttle.releaseAttempt(key)
 
+		unlock, locked := lockProfileOperation(deps, w, r)
+		if !locked {
+			return
+		}
+		defer unlock()
+
 		profile, err := deps.ProfilesDB.GetProfileContext(r.Context(), body.Name)
 		if errors.Is(err, storage.ErrNotFound) {
 			// Equalize timing with the existing-profile path below (which runs
@@ -617,7 +690,12 @@ func loginHandler(deps *Dependencies) http.HandlerFunc {
 func logoutHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if cookie, err := r.Cookie(sessionCookie); err == nil {
-			deps.sessions.deleteToken(r.Context(), cookie.Value)
+			if err := deps.sessions.deleteToken(r.Context(), cookie.Value); err != nil {
+				// Keep the cookie so logout can retry even though memory is
+				// already revoked; otherwise the disk token survives invisibly.
+				writeError(w, http.StatusInternalServerError, "db_error", "failed to revoke session")
+				return
+			}
 		}
 		clearCookie(w, r)
 		w.WriteHeader(http.StatusNoContent)
@@ -651,6 +729,12 @@ func createProfileHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, "server_error", "failed to hash PIN")
 			return
 		}
+
+		unlock, locked := lockProfileOperation(deps, w, r)
+		if !locked {
+			return
+		}
+		defer unlock()
 
 		if err := deps.ProfilesDB.CreateProfileContext(r.Context(), body.Name, hash); err != nil {
 			if isUniqueConstraint(err) {
@@ -734,6 +818,18 @@ func cloneProfileHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
+		unlock, locked := lockProfileOperation(deps, w, r)
+		if !locked {
+			return
+		}
+		defer unlock()
+		// A preceding profile operation may have revoked this session while
+		// this request decoded its body, hashed the PIN, or waited for the gate.
+		sess, ok = requireAuthenticatedSession(deps, w, r, "clone profile")
+		if !ok {
+			return
+		}
+
 		if err := deps.ProfilesDB.CreateProfileContext(r.Context(), body.NewName, hash); err != nil {
 			if isUniqueConstraint(err) {
 				writeError(w, http.StatusConflict, "name_taken",
@@ -769,8 +865,7 @@ func cloneProfileHandler(deps *Dependencies) http.HandlerFunc {
 // middleware ref is still held.
 func deleteProfileHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		sess, ok := requireAuthenticatedSession(deps, w, r, "delete profile")
-		if !ok {
+		if _, ok := requireAuthenticatedSession(deps, w, r, "delete profile"); !ok {
 			return
 		}
 
@@ -778,6 +873,16 @@ func deleteProfileHandler(deps *Dependencies) http.HandlerFunc {
 			Pin string `json:"pin"`
 		}
 		if !decodeJSONBody(w, r, &body) {
+			return
+		}
+
+		unlock, locked := lockProfileOperation(deps, w, r)
+		if !locked {
+			return
+		}
+		defer unlock()
+		sess, ok := requireAuthenticatedSession(deps, w, r, "delete profile")
+		if !ok {
 			return
 		}
 
