@@ -2,6 +2,7 @@
   "name": "sayumi-frontend",
   "private": true,
   "type": "module",
+  "packageManager": "bun@1.4.2",
   "scripts": {
     "dev": "bun node_modules/vite/bin/vite.js",
     "build": "bun node_modules/vite/bin/vite.js build",

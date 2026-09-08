@@ -28,6 +28,24 @@ for tool in go bun gofumpt goimports golangci-lint govulncheck; do
 done
 [[ $overall -eq 0 ]] || exit "$overall"
 
+# setup-bun reads this same packageManager field in every workflow. Fail rather
+# than install/switch locally; --version alone can hide a canary's prerelease tag.
+if ! bun_pin="$(bun -p 'require("./frontend/package.json").packageManager' 2>&1)"; then
+  fail "cannot read Bun pin from frontend/package.json:
+$(printf '%s\n' "$bun_pin"|indent)"; exit 1
+fi
+if [[ ! "$bun_pin" =~ ^bun@(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+  fail "frontend/package.json packageManager must pin an exact stable Bun release (got '$bun_pin')"; exit 1
+fi
+if ! bun_revision="$(bun --revision 2>&1)"; then
+  fail "cannot read Bun revision:
+$(printf '%s\n' "$bun_revision"|indent)"; exit 1
+fi
+if [[ "${bun_revision%%+*}" != "${bun_pin#bun@}" ]]; then
+  fail "expected $bun_pin from frontend/package.json; found '$bun_revision' (select the pinned Bun explicitly; see README.md)"; exit 1
+fi
+ok "$bun_pin ($bun_revision)"
+
 step "1. Frontend build (//go:embed dist)"
 # An existing index.html proves existence, not freshness. Build before any Go
 # analysis/tests embed it, including --fast runs, and stop on prerequisite failure.

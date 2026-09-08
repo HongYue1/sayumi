@@ -81,7 +81,24 @@ The library path can also be set with the `SAYUMI_LIBRARY` environment variable.
 
 ## Development
 
-Building from source requires the Go version declared in `go.mod`, Bun for the frontend, and Bash (Git Bash on Windows). The Make targets wrap the scripts; `./check.sh` can also be run directly. npm alone is not sufficient because the frontend build uses `Bun.build`.
+Building from source requires the Go version declared in `go.mod`, the exact stable Bun release in `frontend/package.json`'s `packageManager` field, and Bash (Git Bash on Windows). The Make targets wrap the scripts; `./check.sh` can also be run directly. npm alone is not sufficient because the frontend build uses `Bun.build`.
+
+### Toolchain policy
+
+- `go.mod` is the Go version authority: its `go` directive is the language/module minimum and the exact toolchain selected by ordinary CI and releases. The maintenance workflow proposes validated patches within that minor; minor upgrades are deliberate. A duplicate `toolchain` directive or another version manager is unnecessary here.
+- `frontend/package.json` is the Bun version authority. Every workflow reads it with `bun-version-file`; do not duplicate the pin or use moving `latest`/`canary` labels or ranges. Stable Bun provides the iframe bundler needed by this project without making release output depend on the day CI runs.
+- Install/select those versions explicitly before working. `packageManager` is selection metadata, not a local installer: `make check` rejects a different Bun revision before building, including a canary with the same numeric `--version`. Nothing in the check installs or switches Bun. Use `GOTOOLCHAIN=local` to prevent Go's automatic toolchain downloads and switching.
+- Evaluate newer stable releases and prereleases in isolation on a branch, with a concrete capability or correctness reason. Adoption requires the frozen install, full `make check` with race support, and affected production builds; keep unsupported platform validation explicit. A prerelease would also need a retrievable fixed revision and an intentional update to the stable-only gate, never a moving channel label. Roll back an unsuccessful adoption by reverting its scoped commit and explicitly reselecting the previous toolchain.
+
+```sh
+# Inspect the pins/selected executables; these commands do not install tools.
+export GOTOOLCHAIN=local
+go version
+bun -p 'require("./frontend/package.json").packageManager'
+bun --revision
+```
+
+### Commands
 
 ```sh
 make build        # local optimized build (auto GOAMD64=v3 when supported)
@@ -94,7 +111,7 @@ make release      # cross-compiled, portable archives in dist-release/
 For frontend work, run a dev server that proxies the API to a binary listening on port 8080:
 
 ```sh
-cd frontend && bun install && bun run dev
+cd frontend && bun install --frozen-lockfile && bun run dev
 ```
 
 The quality gates use gofumpt and goimports for formatting, golangci-lint and `go vet` for static analysis, govulncheck for known vulnerabilities, `go test` for the backend, and oxfmt, oxlint, `tsc`, plus vitest for the frontend. Install the Go tools once:

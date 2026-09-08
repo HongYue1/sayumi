@@ -28,6 +28,46 @@ func TestCheckScriptRequiredTools(t *testing.T) {
 	}
 }
 
+func TestCheckScriptBunPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		env     map[string]string
+		want    string
+		success bool
+	}{
+		{name: "exact_stable", success: true, want: "bun@1.2.3"},
+		{name: "no_build_metadata", env: map[string]string{"CHECK_TEST_BUN_REVISION": "1.2.3"}, success: true, want: "bun@1.2.3"},
+		{name: "different_pin", env: map[string]string{"CHECK_TEST_BUN_PIN": "bun@1.20.30", "CHECK_TEST_BUN_REVISION": "1.20.30+abcdef123"}, success: true, want: "bun@1.20.30"},
+		{name: "wrong_patch", env: map[string]string{"CHECK_TEST_BUN_REVISION": "1.2.4+abcdef123"}, want: "expected bun@1.2.3"},
+		{name: "wrong_minor", env: map[string]string{"CHECK_TEST_BUN_REVISION": "1.3.0+abcdef123"}, want: "expected bun@1.2.3"},
+		// A canary may print the stable-looking version from --version. The
+		// revision must still reject it, even when the numeric version matches.
+		{name: "canary_same_version", env: map[string]string{"CHECK_TEST_BUN_REVISION": "1.2.3-canary.1+abcdef123"}, want: "expected bun@1.2.3"},
+		{name: "rc_same_version", env: map[string]string{"CHECK_TEST_BUN_REVISION": "1.2.3-rc.1+abcdef123"}, want: "expected bun@1.2.3"},
+		{name: "empty_revision", env: map[string]string{"CHECK_TEST_BUN_REVISION": ""}, want: "expected bun@1.2.3"},
+		{name: "empty_pin", env: map[string]string{"CHECK_TEST_BUN_PIN": ""}, want: "must pin an exact stable Bun release"},
+		{name: "missing_field", env: map[string]string{"CHECK_TEST_BUN_PIN": "undefined"}, want: "must pin an exact stable Bun release"},
+		{name: "wrong_manager", env: map[string]string{"CHECK_TEST_BUN_PIN": "npm@1.2.3"}, want: "must pin an exact stable Bun release"},
+		{name: "range", env: map[string]string{"CHECK_TEST_BUN_PIN": "bun@^1.2.3"}, want: "must pin an exact stable Bun release"},
+		{name: "floating_canary", env: map[string]string{"CHECK_TEST_BUN_PIN": "bun@canary"}, want: "must pin an exact stable Bun release"},
+		{name: "floating_latest", env: map[string]string{"CHECK_TEST_BUN_PIN": "bun@latest"}, want: "must pin an exact stable Bun release"},
+		{name: "partial_version", env: map[string]string{"CHECK_TEST_BUN_PIN": "bun@1.2"}, want: "must pin an exact stable Bun release"},
+		{name: "leading_zero", env: map[string]string{"CHECK_TEST_BUN_PIN": "bun@1.2.03"}, want: "must pin an exact stable Bun release"},
+		{name: "pin_read_failure", env: map[string]string{"CHECK_TEST_FAIL": "bun -p require(\"./frontend/package.json\").packageManager"}, want: "cannot read Bun pin"},
+		{name: "revision_failure", env: map[string]string{"CHECK_TEST_FAIL": "bun --revision"}, want: "cannot read Bun revision"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := runCheckScript(t, true, tc.env, "--fast")
+			if (got.code == 0) != tc.success || !strings.Contains(got.output, tc.want) {
+				t.Fatalf("Bun policy: exit=%d, success=%t, want %q\n%s", got.code, tc.success, tc.want, got.output)
+			}
+			if !tc.success && (strings.Contains(got.calls, "bun run ") || strings.Contains(got.calls, "go ")) {
+				t.Fatalf("Bun prerequisite failure ran downstream commands:\n%s", got.calls)
+			}
+		})
+	}
+}
+
 func TestCheckScriptFreshFrontend(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -47,7 +87,8 @@ func TestCheckScriptFreshFrontend(t *testing.T) {
 			if got.code != 0 {
 				t.Fatalf("exit=%d\n%s", got.code, got.output)
 			}
-			if !strings.HasPrefix(got.calls, "bun run build\n") || strings.Count(got.calls, "bun run build\n") != 1 {
+			prefix := "bun -p require(\"./frontend/package.json\").packageManager\nbun --revision\nbun run build\n"
+			if !strings.HasPrefix(got.calls, prefix) || strings.Count(got.calls, "bun run build\n") != 1 {
 				t.Fatalf("build fresh frontend exactly once, before Go checks:\n%s", got.calls)
 			}
 			for _, call := range []string{
@@ -180,7 +221,8 @@ func runCheckScript(t *testing.T, warm bool, env map[string]string, args ...stri
 	cmd.Env = append(cmd.Environ(),
 		"BASH_ENV="+filepath.ToSlash(filepath.Join(dir, "mock.sh")),
 		"CHECK_TEST_CALLS="+filepath.ToSlash(filepath.Join(dir, "calls")),
-		"CHECK_TEST_CGO=1", "CHECK_TEST_MISSING=", "CHECK_TEST_FAIL=", "CHECK_TEST_NO_OUTPUT=0", "NO_COLOR=1")
+		"CHECK_TEST_CGO=1", "CHECK_TEST_MISSING=", "CHECK_TEST_FAIL=", "CHECK_TEST_NO_OUTPUT=0", "NO_COLOR=1",
+		"CHECK_TEST_BUN_PIN=bun@1.2.3", "CHECK_TEST_BUN_REVISION=1.2.3+abcdef123")
 	for key, value := range env {
 		cmd.Env = append(cmd.Env, key+"="+value)
 	}
@@ -219,6 +261,8 @@ go() {
 }
 bun() {
   mock_tool bun "$@" || return
+  if [[ "$*" == '-p require("./frontend/package.json").packageManager' ]]; then printf '%s\n' "$CHECK_TEST_BUN_PIN"; fi
+  if [[ "$*" == --revision ]]; then printf '%s\n' "$CHECK_TEST_BUN_REVISION"; fi
   if [[ "$*" == 'run build' && "$CHECK_TEST_NO_OUTPUT" != 1 ]]; then
     printf 'fresh frontend\n' > ../cmd/sayumi/dist/index.html
   fi
