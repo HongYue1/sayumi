@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Run the installed tools on disposable projects, not synthetic CLI mocks or
@@ -59,7 +60,9 @@ func TestFrontendLintPolicy(t *testing.T) {
 			writeProvisionFile(t, dir, "src/view.tsx", []byte(tc.source))
 			// Resolve the installed type-aware engine from the real package root,
 			// while both lint rules and TypeScript inputs come from the fixture.
-			got := runProvisionCommand(t, filepath.Join("..", "..", "frontend"), nil, "bun", frontendToolBin(t, "oxlint", "oxlint"),
+			// Allow the real type-aware engine to start on cold Windows runners;
+			// every lint diagnostic and expected exit status remains mandatory.
+			got := runProvisionCommandWithTimeout(t, filepath.Join("..", "..", "frontend"), nil, 90*time.Second, "bun", frontendToolBin(t, "oxlint", "oxlint"),
 				"--config", filepath.Join(dir, ".oxlintrc.json"), "--tsconfig", filepath.Join(dir, "tsconfig.json"),
 				"--format", "json", filepath.Join(dir, "src"))
 			if tc.diagnostic == "" {

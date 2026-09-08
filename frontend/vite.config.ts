@@ -80,11 +80,11 @@ function frameScriptPlugin(): Plugin {
       // filtering HMR to just the IIFE would lose a shared module's shell update.
       // https://bun.sh/docs/bundler#metafile
       for (const input of Object.keys(result.metafile.inputs)) {
-        // Cross-drive Windows inputs use /C:/... rather than a cwd-relative path.
-        // Remove that leading separator before resolving, then use Vite's IDs.
+        // Bun may spell cross-drive inputs as ../../C:/... or /C:/....
+        // Recover the drive path; keep ordinary cwd-relative inputs unchanged.
         const nativeInput =
           process.platform === "win32"
-            ? input.replace(/^\/([a-z]:\/)/i, "$1")
+            ? input.replace(/^(?:\/|(?:\.\.\/)+)([a-z]:\/)/i, "$1")
             : input;
         this.addWatchFile(normalizePath(resolve(nativeInput)));
       }

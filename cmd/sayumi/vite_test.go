@@ -100,14 +100,33 @@ if (mode === "syntax" || mode === "sidecar") {
   await writeFile(framePath, mode === "syntax" ? "export const = ;" : 'import image from "./image.svg"; globalThis.image = image;');
   await assert.rejects(() => build(options), mode === "syntax" ? /frame\.ts/ : /one self-contained JavaScript IIFE/);
 } else if (mode === "metafile") {
-  // Keep the real compiler/output, but exercise absolute metadata spellings on
-  // every host, including Bun's cross-drive /C:/... form on Windows.
+  // Exercise the real compiler's cross-drive metadata without another disk,
+  // then cover additional absolute input spellings on every host.
   const plugin = config.plugins.find(p => p?.name === "frame-script");
   plugin.configResolved({ root });
   const expected = ["src/iframe/frame.ts", "src/lib/shared.ts", "src/lib/transitive.ts", "src/nested/new-dependency.ts"]
     .map(file => normalizePath(join(root, file))).sort();
   const originalBuild = Bun.build;
   try {
+    if (process.platform === "win32") {
+      // The file-namespace hooks supply this entry entirely from memory.
+      // Bun itself computes the ../.../D:/... key; do not synthesize it.
+      const drive = process.cwd()[0].toUpperCase() === "C" ? "D" : "C";
+      const virtual = drive + ":/__sayumi_metafile_fixture__/frame.ts";
+      const watched = [];
+      Bun.build = options => originalBuild({
+        ...options, entrypoints: ["sayumi-cross-drive-fixture"], write: false,
+        plugins: [{ name: "memory-only-cross-drive", setup(builder) {
+          builder.onResolve({ filter: /sayumi-cross-drive-fixture/ }, () => ({ path: virtual, namespace: "file" }));
+          builder.onLoad({ filter: /__sayumi_metafile_fixture__/, namespace: "file" }, () => ({
+            contents: 'globalThis.frameResult = "cross-drive";', loader: "ts",
+          }));
+        } }],
+      });
+      const js = await plugin.load.call({ addWatchFile(id) { watched.push(id); } }, "\0virtual:frame-script");
+      requireMarkers(js, "cross-drive");
+      assert.deepEqual(watched, [virtual]);
+    }
     for (const prefix of process.platform === "win32" ? ["", "/"] : [""]) {
       const watched = [];
       Bun.build = async options => {
