@@ -1,6 +1,6 @@
 # Backend review tracker
 
-**158/164 files reviewed; 6 pending (all tooling).**
+**160/164 files reviewed; 4 pending (all tooling).**
 
 Scope: Go source, tests, and backend build/tooling configuration. Embedded fonts,
 icons, compiled resources, generated frontend output, and `.skills/` are excluded.
@@ -181,8 +181,8 @@ Current task and completion requirements: `TASK.md`. Change history: Git.
 - [ ] `.gitattributes`
 - [x] `.gitignore`
 - [x] `.golangci.yml`
-- [ ] `.github/workflows/ci.yml`
-- [ ] `.github/workflows/go-toolchain-bump.yml`
+- [x] `.github/workflows/ci.yml`
+- [x] `.github/workflows/go-toolchain-bump.yml`
 - [ ] `.github/workflows/release.yml`
 - [x] `Makefile`
 - [x] `build.sh`

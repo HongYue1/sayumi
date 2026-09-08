@@ -9,10 +9,14 @@ on:
 permissions:
   contents: read
 
-# Supersede stale PR/branch runs, but never cancel a run on the default branch
-# so every commit that lands on main/master gets a complete CI pass.
+env:
+  # Check the toolchain selected from go.mod, not an automatic replacement.
+  GOTOOLCHAIN: local
+
+# PRs supersede stale runs. Default-branch commits get separate groups: merely
+# disabling cancellation still lets GitHub replace an older pending run.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && github.sha || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
 
 jobs:
@@ -26,6 +30,8 @@ jobs:
       CGO_ENABLED: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -36,16 +42,124 @@ jobs:
         with:
           bun-version: canary
 
+      # Exercise the actual maintenance scripts without network or repository
+      # writes. Keep these regressions here so workflow-only PRs run them too.
+      - name: Workflow regressions (offline)
+        id: workflow-tests
+        shell: bash
+        run: |
+          bun - <<'JS'
+          import assert from "node:assert/strict";
+          import { spawnSync } from "node:child_process";
+          import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+          import { tmpdir } from "node:os";
+          import { join } from "node:path";
+          const load = async name => Bun.YAML.parse(await Bun.file(`.github/workflows/${name}.yml`).text());
+          const ci = await load("ci"), maintenance = await load("go-toolchain-bump");
+          const job = maintenance.jobs.bump;
+          const step = id => job.steps.find(s => s.id === id);
+          const ref = (id, key) => "$" + "{{ steps." + id + ".outputs." + key + " }}";
+          for (const workflow of [ci, maintenance]) {
+            for (const job of Object.values(workflow.jobs)) {
+              for (const s of job.steps) {
+                if (s.uses) assert.match(s.uses, /@[a-f0-9]{40}$/);
+                if (s.uses?.startsWith("actions/checkout@")) assert.equal(s.with["persist-credentials"], false);
+              }
+            }
+          }
+          assert.equal(ci.permissions.contents, "read");
+          assert.equal(ci.env.GOTOOLCHAIN, "local");
+          assert.equal(ci.jobs.check.env.CGO_ENABLED, "1");
+          assert.equal(ci.jobs["platform-test"].env.CGO_ENABLED, "0");
+          assert.equal(job.env.GOTOOLCHAIN, "local");
+          assert.equal(job.env.CGO_ENABLED, "1");
+          assert.equal(step("bump").env.OLDGO, ref("go-minor", "current"));
+          assert.equal(step("publish").env.NEWGO, ref("bump", "version"));
+          assert.equal(step("publish").if, "steps.bump.outputs.changed == 'true'");
+          assert.equal(step("publish").env.BASE_BRANCH, job.steps[0].with.ref);
+          let cases = 0;
+          const run = (script, env, success = true) => {
+            const dir = mkdtempSync(join(tmpdir(), "sayumi-workflow-"));
+            const output = join(dir, "output").replaceAll("\\", "/");
+            try {
+              const r = spawnSync(process.env.BASH || "bash", ["--noprofile", "--norc", "-euo", "pipefail", "-c", script], {
+                env: { ...process.env, GITHUB_OUTPUT: output, ...env }, encoding: "utf8", timeout: 10000,
+              });
+              assert.ifError(r.error);
+              assert.equal(r.status === 0, success, r.stdout + r.stderr);
+              cases++;
+              return r.stdout + (existsSync(output) ? readFileSync(output, "utf8") : "");
+            } finally {
+              rmSync(dir, { recursive: true, force: true });
+            }
+          };
+          const mockModule = `awk() { command awk "$1" <(printf '%s\\n' "$GO_MOD"); }\n`;
+          for (const [text, version] of [
+            ["module test\n\ngo 1.27.0\n", "1.27.0"],
+            ["go\t1.26.12\r\n", "1.26.12"],
+            ["go 1.27.1 // pinned patch\n", "1.27.1"],
+            ["module test\n", null], ["go 1.27\n", null],
+            ["go 1.27rc1\n", null], ["go 1.27.00\n", null],
+            ["go 1.27.0\ngo 1.26.1\n", null],
+          ]) {
+            const out = run(mockModule + step("go-minor").run, { GO_MOD: text }, version !== null);
+            if (version) assert.ok(out.includes(`current=${version}\nversion=${version.slice(0, version.lastIndexOf("."))}.x\n`));
+          }
+          const mockBump = String.raw`
+          go() {
+            case "$*" in
+              'get go@patch') return "$GET_STATUS" ;;
+              'mod tidy') return "$TIDY_STATUS" ;;
+              'list -m -f {{.GoVersion}}') printf '%s\n' "$CANDIDATE" ;;
+              *) return 90 ;;
+            esac
+          }
+          git() { [[ "$*" == 'diff --quiet -- go.mod go.sum' ]] || return 90; return "$DIRTY"; }
+          `;
+          const defaults = { OLDGO: "1.27.0", CANDIDATE: "1.27.1", DIRTY: "1", GET_STATUS: "0", TIDY_STATUS: "0" };
+          for (const [env, success, changed] of [
+            [{ CANDIDATE: "1.27.0", DIRTY: "0" }, true, false],
+            [{}, true, true], [{ OLDGO: "1.26.9", CANDIDATE: "1.26.10" }, true, true],
+            [{ OLDGO: "1.27.10", CANDIDATE: "1.27.9" }, false],
+            [{ CANDIDATE: "1.28.0" }, false], [{ CANDIDATE: "1.27rc1" }, false],
+            [{ CANDIDATE: "" }, false], [{ CANDIDATE: "1.27.0" }, false],
+            [{ GET_STATUS: "1" }, false], [{ TIDY_STATUS: "1" }, false],
+          ]) {
+            const out = run(mockBump + step("bump").run, { ...defaults, ...env }, success);
+            if (success) assert.ok(out.includes(`changed=${changed}\n`));
+            if (changed) assert.ok(out.includes(`version=${env.CANDIDATE || defaults.CANDIDATE}\n`));
+          }
+          const mockPublish = String.raw`
+          git() {
+            if [[ "$1" == ls-remote ]]; then
+              [[ -z "$REMOTE_OID" ]] || printf '%s\trefs/heads/deps/go-toolchain-patch\n' "$REMOTE_OID"
+              return "$REMOTE_STATUS"
+            fi
+            printf 'git'; printf ' <%s>' "$@"; printf '\n'
+          }
+          gh() {
+            if [[ "$1 $2" == 'pr list' ]]; then printf '%s' "$PR_NUMBER"; return "$PR_STATUS"; fi
+            printf 'gh'; printf ' <%s>' "$@"; printf '\n'
+          }
+          `;
+          const publishing = { NEWGO: "1.27.1", BASE_BRANCH: "trunk", REMOTE_OID: "", REMOTE_STATUS: "0", PR_NUMBER: "", PR_STATUS: "0" };
+          for (const number of ["", "42"]) {
+            const oid = number ? "a".repeat(40) : "";
+            const out = run(mockPublish + step("publish").run, { ...publishing, PR_NUMBER: number, REMOTE_OID: oid });
+            assert.ok(out.includes("<build(ci): bump Go to 1.27.1>"));
+            assert.ok(out.includes(`<--force-with-lease=refs/heads/deps/go-toolchain-patch:${oid}>`));
+            assert.ok(out.includes(number ? "gh <pr> <edit> <42>" : "gh <pr> <create> <--base> <trunk>"));
+          }
+          for (const env of [{ NEWGO: "" }, { REMOTE_STATUS: "1" }, { PR_STATUS: "1" }]) {
+            const out = run(mockPublish + step("publish").run, { ...publishing, ...env }, false);
+            assert.ok(!out.includes("gh <pr> <create>") && !out.includes("gh <pr> <edit>"));
+          }
+          console.log(`Workflow regressions passed (${cases} shell cases).`);
+          JS
+
       - name: Install frontend deps
         working-directory: frontend
         run: bun install --frozen-lockfile
-
-      # Build the SPA first: cmd/sayumi/main.go has `//go:embed dist`, so the Go
-      # gates inside check.sh (go vet, golangci-lint, go test) fail on a clean
-      # checkout unless cmd/sayumi/dist already exists.
-      - name: Build frontend (populate //go:embed dist dir)
-        working-directory: frontend
-        run: bun run build
 
       # Pinned tool versions so check.sh actually RUNS the format/lint/vuln gates.
       # check.sh skips any tool that is not on PATH, so without this the lint and
@@ -57,19 +171,32 @@ jobs:
           go install mvdan.cc/gofumpt@v0.11.0
           go install golang.org/x/tools/cmd/goimports@v0.49.0
 
+      # make check builds the embedded frontend first. Require every optional
+      # quality tool and the race compiler rather than accepting a skipped gate.
       - name: Run checks
-        run: ./check.sh
+        run: |
+          set -euo pipefail
+          for tool in bun gofumpt goimports golangci-lint govulncheck gcc; do
+            command -v "$tool"
+          done
+          test "$(go env CGO_ENABLED)" = 1
+          make check
 
   platform-test:
     name: Native test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    # Linux covers the race detector; native hosts exercise the shipped pure-Go build.
+    env:
+      CGO_ENABLED: "0"
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -84,4 +211,4 @@ jobs:
         working-directory: frontend
         run: bun run build
       - name: Run native Go tests
-        run: go test ./...
+        run: go test -shuffle=on ./...

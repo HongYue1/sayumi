@@ -4,9 +4,8 @@
 # directive when a dependency demands it, so patch releases go unnoticed).
 #
 # The bump PR must be self-validating: PRs opened with GITHUB_TOKEN do not
-# trigger the ci.yml pull_request workflow, so this job runs check.sh itself
-# before proposing anything. Minor versions (1.26 -> 1.27) stay a manual,
-# deliberate bump — `go get go@patch` never crosses a minor.
+# trigger the ci.yml pull_request workflow, so this job runs make check itself
+# before proposing anything. Minor versions stay a manual, deliberate bump.
 name: Go toolchain bump
 
 on:
@@ -14,36 +13,51 @@ on:
     - cron: "0 6 * * 1" # Mondays 06:00 UTC
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: write
+permissions: {}
 
+# Do not interrupt a validated run halfway through publishing its single PR.
 concurrency:
   group: go-toolchain-bump
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   bump:
     name: Bump go patch version
+    # A manual run from a feature branch must not publish that branch as a bump.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    permissions:
+      contents: write
+      pull-requests: write
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      CGO_ENABLED: "1"
+      # Validate with setup-go's selected patch, never an auto-selected minor.
+      GOTOOLCHAIN: local
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          # Build scripts and dependency install hooks do not need Git credentials.
+          persist-credentials: false
 
       # Resolve the newest patch inside the go.mod minor. Using `stable` here
       # crosses into a newly released minor before the repo, its linters, and CI
       # are ready for it—the opposite of this workflow's patch-only contract.
       - name: Read current Go minor
         id: go-minor
-        shell: bash
         run: |
-          GO_VERSION="$(sed -n 's/^go //p' go.mod)"
-          GO_MINOR="${GO_VERSION%.*}"
-          if [[ ! "$GO_VERSION" =~ ^1\.[0-9]+\.[0-9]+$ ]]; then
+          set -euo pipefail
+          GO_VERSION="$(awk '$1 == "go" { sub(/\r$/, "", $2); print $2 }' go.mod)"
+          if [[ ! "$GO_VERSION" =~ ^1\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "::error::go.mod must pin a Go patch release (got '$GO_VERSION')"
             exit 1
           fi
-          echo "version=${GO_MINOR}.x" >> "$GITHUB_OUTPUT"
+          echo "current=$GO_VERSION" >> "$GITHUB_OUTPUT"
+          echo "version=${GO_VERSION%.*}.x" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -56,59 +70,92 @@ jobs:
           bun-version: canary
 
       - name: Bump go directive to the newest patch
+        id: bump
+        env:
+          OLDGO: ${{ steps.go-minor.outputs.current }}
         run: |
+          set -euo pipefail
           go get go@patch
           go mod tidy
-          if git diff --quiet; then
-            echo "noop=1" >> "$GITHUB_ENV"
+          NEWGO="$(go list -m -f '{{.GoVersion}}')"
+          if [[ ! "$NEWGO" =~ ^1\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ \
+                || "${NEWGO%.*}" != "${OLDGO%.*}" ]] \
+             || (( 10#${NEWGO##*.} < 10#${OLDGO##*.} )); then
+            echo "::error::Expected a non-decreasing patch of $OLDGO, got '$NEWGO'"
+            exit 1
+          fi
+          if git diff --quiet -- go.mod go.sum; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "Already on the newest patch release."
           else
-            NEWGO="$(go mod edit -json | sed -n 's/.*"Go": *"\([^"]*\)".*/\1/p')"
-            echo "newgo=$NEWGO" >> "$GITHUB_ENV"
+            # A tidy-only change is not a toolchain bump; leave it for review.
+            if [[ "$NEWGO" == "$OLDGO" ]]; then
+              echo "::error::Module files changed without a Go patch bump"
+              exit 1
+            fi
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "version=$NEWGO" >> "$GITHUB_OUTPUT"
           fi
 
       # Same pinned tools as ci.yml: check.sh skips anything not on PATH, and
       # the gates (govulncheck above all) are the point of the exercise.
       - name: Install Go quality tools (pinned)
-        if: env.noop != '1'
+        if: steps.bump.outputs.changed == 'true'
         run: |
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
           go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
           go install mvdan.cc/gofumpt@v0.11.0
           go install golang.org/x/tools/cmd/goimports@v0.49.0
 
-      # The Go gates need the embedded dist/ to exist; mirror ci.yml's build.
-      - name: Build frontend (populate //go:embed dist dir)
-        if: env.noop != '1'
+      # make check builds the embedded frontend before running the Go gates.
+      - name: Install frontend deps
+        if: steps.bump.outputs.changed == 'true'
         working-directory: frontend
-        run: |
-          bun install --frozen-lockfile
-          bun run build
+        run: bun install --frozen-lockfile
 
       - name: Run checks on the bumped toolchain
-        if: env.noop != '1'
-        run: ./check.sh
+        if: steps.bump.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          for tool in bun gofumpt goimports golangci-lint govulncheck gcc; do
+            command -v "$tool"
+          done
+          test "$(go env CGO_ENABLED)" = 1
+          make check
 
       - name: Open (or update) the bump PR
-        if: env.noop != '1'
+        id: publish
+        if: steps.bump.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          NEWGO: ${{ steps.bump.outputs.version }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          set -euo pipefail
+          : "${NEWGO:?missing validated Go version}"
           BRANCH="deps/go-toolchain-patch"
+          # Expose Git authentication only after all build and check steps pass.
+          gh auth setup-git
+          REMOTE_HEAD="$(git ls-remote --heads origin "refs/heads/$BRANCH" | cut -f1)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$BRANCH"
-          git add go.mod go.sum
-          git commit -m "build: bump go to ${NEWGO}"
-          # Force-push keeps one open PR even if last week's was never merged.
-          git push --force origin "$BRANCH"
+          git add -- go.mod go.sum
+          TITLE="build(ci): bump Go to ${NEWGO}"
+          git commit -m "$TITLE"
+          # Replace the bot branch only if it still has the tip we just observed;
+          # an empty lease also protects the first push from racing a new branch.
+          git push --force-with-lease="refs/heads/$BRANCH:$REMOTE_HEAD" \
+            origin "HEAD:refs/heads/$BRANCH"
           BODY="Automated toolchain patch bump (\`go get go@patch\`) so the
-          govulncheck gate stays green. Validated by a full \`check.sh\` run in
+          govulncheck gate stays green. Validated by a full \`make check\` run in
           the creating workflow (CI does not trigger on GITHUB_TOKEN PRs)."
-          gh pr create \
-            --base main --head "$BRANCH" \
-            --title "build: bump go to ${NEWGO}" \
-            --body "$BODY" \
-          || gh pr edit "$BRANCH" \
-            --title "build: bump go to ${NEWGO}" \
-            --body "$BODY"
+          # Do not hide an API/create failure behind an unrelated edit attempt.
+          PR="$(gh pr list --state open --base "$BASE_BRANCH" --head "$BRANCH" \
+            --json number --jq '.[0].number // empty')"
+          if [[ -n "$PR" ]]; then
+            gh pr edit "$PR" --title "$TITLE" --body "$BODY"
+          else
+            gh pr create --base "$BASE_BRANCH" --head "$BRANCH" \
+              --title "$TITLE" --body "$BODY"
+          fi
