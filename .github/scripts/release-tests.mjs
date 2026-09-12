@@ -168,22 +168,42 @@ export -f command git bun env go-winres go rm find
 bash --noprofile --norc ./release.sh "$@"
 `;
 // Windows releases a just-exited process's working directory and unmaps its
-// image asynchronously, so a fixture stays busy for a few milliseconds after
-// the release script's process tree has finished. Bun accepts node's
-// maxRetries/retryDelay on rmSync but does not retry, so retry here; a handle
-// that never goes away still fails the suite.
-const discard = path => {
-  for (let attempt = 1; ; attempt++) {
+// image asynchronously, so a fixture stays busy after the release script's
+// process tree has finished: a few milliseconds on an idle host, seconds on a
+// loaded runner. Bun accepts node's maxRetries/retryDelay on rmSync but does
+// not retry, so retry here against a wall-clock budget rather than an attempt
+// count; a handle that never goes away still fails the suite.
+const busyCodes = ["EBUSY", "EPERM", "EACCES", "ENOTEMPTY"];
+const retryUntilGone = (remove, path, budget = 30000) => {
+  const deadline = performance.now() + budget;
+  for (let attempt = 1, delay = 20; ; attempt++, delay = Math.min(delay * 2, 500)) {
     try {
-      rmSync(path, { recursive: true, force: true });
-      return;
+      remove(path);
+      return attempt;
     } catch (error) {
-      if (attempt === 50 || !["EBUSY", "EPERM", "EACCES", "ENOTEMPTY"].includes(error.code)) throw error;
-      Bun.sleepSync(20);
+      if (!busyCodes.includes(error.code) || performance.now() >= deadline) {
+        error.message += ` (gave up after ${attempt} attempts in ${budget} ms)`;
+        throw error;
+      }
+      Bun.sleepSync(delay);
     }
   }
 };
+const discard = path => retryUntilGone(p => rmSync(p, { recursive: true, force: true }), path);
 let cases = 0;
+// The first cleanup retry capped attempts, not time: 50 tries 20 ms apart gave
+// up after ~1 s, which an idle host never reaches and a loaded windows-latest
+// runner exceeded. Pin the budget itself rather than the attempt count.
+const busyFor = ms => {
+  const until = performance.now() + ms;
+  return () => {
+    if (performance.now() < until) throw Object.assign(new Error("EBUSY: resource busy or locked"), { code: "EBUSY" });
+  };
+};
+assert.ok(retryUntilGone(busyFor(1500), "fixture") > 1);
+assert.throws(() => retryUntilGone(busyFor(60000), "fixture", 100), /gave up after \d+ attempts in 100 ms/);
+assert.throws(() => retryUntilGone(() => { throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" }); }, "fixture"), /ENOSPC/);
+cases += 3;
 const scratch = mkdtempSync(join(tmpdir(), "sayumi release helper "));
 try {
   const packer = join(scratch, process.platform === "win32" ? "archive.exe" : "archive");
