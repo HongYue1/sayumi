@@ -167,6 +167,22 @@ find() { [[ "$FAIL_FONT_SCAN" == 0 ]] || return 68; builtin command find "$@"; }
 export -f command git bun env go-winres go rm find
 bash --noprofile --norc ./release.sh "$@"
 `;
+// Windows releases a just-exited process's working directory and unmaps its
+// image asynchronously, so a fixture stays busy for a few milliseconds after
+// the release script's process tree has finished. Bun accepts node's
+// maxRetries/retryDelay on rmSync but does not retry, so retry here; a handle
+// that never goes away still fails the suite.
+const discard = path => {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      rmSync(path, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (attempt === 50 || !["EBUSY", "EPERM", "EACCES", "ENOTEMPTY"].includes(error.code)) throw error;
+      Bun.sleepSync(20);
+    }
+  }
+};
 let cases = 0;
 const scratch = mkdtempSync(join(tmpdir(), "sayumi release helper "));
 try {
@@ -201,7 +217,7 @@ try {
       if (expected !== 0 && env.FAIL_CLEANUP !== "1") assert.ok(!existsSync(join(dir, "dist-release/_stage")), "failed release left staging");
       inspect(dir, r);
       cases++;
-    } finally { rmSync(dir, { recursive: true, force: true }); }
+    } finally { discard(dir); }
   };
   const noWork = dir => {
     assert.ok(!existsSync(join(dir, "events")));
@@ -281,5 +297,5 @@ try {
       cases++;
     }
   });
-} finally { rmSync(scratch, { recursive: true, force: true }); }
+} finally { discard(scratch); }
 console.log(`Release regressions passed (${cases} cases plus workflow, attributes and resource contracts).`);
