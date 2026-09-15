@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/andybalholm/brotli v1.2.3
-	golang.org/x/crypto v0.56.0
+	golang.org/x/crypto v0.57.0
 	golang.org/x/image v0.45.0
 	golang.org/x/net v0.58.0
 	golang.org/x/sync v0.23.0
@@ -17,7 +17,7 @@ require (
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
 	// SQLite's generated code requires the libc version from its go.mod;
 	// keep this paired with modernc.org/sqlite rather than upgrading it alone.
 	modernc.org/libc v1.75.6 // indirect
