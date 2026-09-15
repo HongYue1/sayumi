@@ -6,7 +6,7 @@
 //     (lint).
 //   - The backdrop dismiss is the shared .backdrop-dismiss button, guarded by
 //     !busy.
-import { createMemo, createSignal, onCleanup, onSettled, Show } from "solid-js";
+import { createMemo, createSignal, onSettled, Show } from "solid-js";
 import { getCoverUrl, type BookMeta } from "~/api/client";
 import { getErrorMessage } from "~/lib/errors";
 import { library } from "~/lib/library";
@@ -87,13 +87,14 @@ export default function EditBookDialog(props: Props) {
   let titleEl: HTMLInputElement | undefined;
   onSettled(() => {
     queueMicrotask(() => titleEl?.focus());
-  });
-
-  // The chosen file's object URL is revoked when replaced (below) and on
-  // destroy, so a dialog opened/closed repeatedly doesn't leak blob URLs.
-  onCleanup(() => {
-    const preview = coverPreview();
-    if (preview) URL.revokeObjectURL(preview);
+    // The chosen file's object URL is revoked when replaced (below) and on
+    // destroy, so a dialog opened/closed repeatedly doesn't leak blob URLs.
+    // Returned teardown, not onCleanup(): 2.0 pairs component setup and
+    // teardown in one onSettled and keeps onCleanup for primitive internals.
+    return () => {
+      const preview = coverPreview();
+      if (preview) URL.revokeObjectURL(preview);
+    };
   });
 
   function onCoverPick(e: Event & { currentTarget: HTMLInputElement }): void {

@@ -8,7 +8,15 @@
 //     typed to return never). Only the compute phase tracks, so
 //     session.profile is the sole dependency; everything the apply phase and
 //     the async continuation read stays untracked.
-import { createEffect, Match, onSettled, Show, Switch } from "solid-js";
+import {
+  createEffect,
+  Errored,
+  Match,
+  onSettled,
+  Show,
+  Switch,
+} from "solid-js";
+import { getErrorMessage } from "~/lib/errors";
 import { session } from "~/lib/session";
 import { router } from "~/lib/router";
 import { ui } from "~/lib/ui";
@@ -154,50 +162,83 @@ export default function App() {
       <OfflineBanner />
 
       <main>
-        <Switch fallback={<Library />}>
-          <Match when={session.status === "checking"}>
-            <div class="boot" role="status" aria-busy="true">
-              <span class="sr-only">Checking sign-in status…</span>
-            </div>
-          </Match>
-          <Match when={session.status === "unavailable"}>
+        {/* One boundary around everything routing can render. Without it a
+            throw while rendering a route -- or one travelling through the
+            reactive graph -- tears down the subtree and leaves an empty
+            <main> with no way back. reset() recomputes the failing sources,
+            which is a real recovery for a transient fault and simply errors
+            again for a persistent one. Errors raised inside event handlers
+            are still handled where they happen (see lib/errors.ts). */}
+        <Errored
+          fallback={(err, reset) => (
             <div class="boot boot-unavailable">
               <section
                 class="boot-card paper"
                 role="alert"
-                aria-labelledby="boot-unavailable-title"
+                aria-labelledby="boot-error-title"
               >
-                <p class="eyebrow">Connection</p>
-                <h1 id="boot-unavailable-title" class="display">
-                  Sayumi is unavailable
+                <p class="eyebrow">Unexpected error</p>
+                <h1 id="boot-error-title" class="display">
+                  Something went wrong
                 </h1>
                 <p>
-                  Your sign-in status is unknown because the server could not be
-                  reached.
+                  {getErrorMessage(
+                    err(),
+                    "Sayumi stopped drawing this page. Retrying rebuilds it from the current state.",
+                  )}
                 </p>
-                <button
-                  class="btn press"
-                  type="button"
-                  onClick={() => void session.init()}
-                >
+                <button class="btn press" type="button" onClick={reset}>
                   Try again
                 </button>
               </section>
             </div>
-          </Match>
-          <Match when={session.status === "signed-out"}>
-            <Login />
-          </Match>
-          <Match when={router.route.path === "/read/:id"}>
-            {/* `keyed` is the point here, not the guard: matchRoute only
+          )}
+        >
+          <Switch fallback={<Library />}>
+            <Match when={session.status === "checking"}>
+              <div class="boot" role="status" aria-busy="true">
+                <span class="sr-only">Checking sign-in status…</span>
+              </div>
+            </Match>
+            <Match when={session.status === "unavailable"}>
+              <div class="boot boot-unavailable">
+                <section
+                  class="boot-card paper"
+                  role="alert"
+                  aria-labelledby="boot-unavailable-title"
+                >
+                  <p class="eyebrow">Connection</p>
+                  <h1 id="boot-unavailable-title" class="display">
+                    Sayumi is unavailable
+                  </h1>
+                  <p>
+                    Your sign-in status is unknown because the server could not
+                    be reached.
+                  </p>
+                  <button
+                    class="btn press"
+                    type="button"
+                    onClick={() => void session.init()}
+                  >
+                    Try again
+                  </button>
+                </section>
+              </div>
+            </Match>
+            <Match when={session.status === "signed-out"}>
+              <Login />
+            </Match>
+            <Match when={router.route.path === "/read/:id"}>
+              {/* `keyed` is the point here, not the guard: matchRoute only
                 produces this path with a non-empty id (router.ts:20-25), so
                 the Show cannot fall through. Keyed remounts Read on a new book
                 id instead of reusing the instance. */}
-            <Show when={router.route.params.id} keyed>
-              {(id) => <Read bookId={id} />}
-            </Show>
-          </Match>
-        </Switch>
+              <Show when={router.route.params.id} keyed>
+                {(id) => <Read bookId={id} />}
+              </Show>
+            </Match>
+          </Switch>
+        </Errored>
       </main>
 
       <CommandPalette />

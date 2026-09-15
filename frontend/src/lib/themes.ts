@@ -289,6 +289,35 @@ export function isBuiltInTheme(id: string): boolean {
   return THEME_MAP.has(id);
 }
 
+/**
+ * Content equality for a derived theme list. Used as the `equals` option on
+ * the light/dark memos that merge THEMES with the profile's custom themes.
+ *
+ * Those memos allocate a fresh array on every customThemes write, so under the
+ * default reference equality each write notifies every subscriber even when
+ * the rows are identical -- the shape Solid 2.0 attribution reports as
+ * UNSTABLE_MEMO_OUTPUT. Comparing by field puts the cutoff at the memo: a
+ * reload that returns the same themes as new objects stops there, while a real
+ * create / rename / delete still differs and flows through.
+ */
+export function sameThemeList(a: ThemeDef[], b: ThemeDef[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every((t, i) => {
+    const other = b[i];
+    return (
+      other !== undefined &&
+      t.id === other.id &&
+      t.label === other.label &&
+      t.group === other.group &&
+      t.bg === other.bg &&
+      t.fg === other.fg &&
+      t.accent === other.accent &&
+      t.surface === other.surface
+    );
+  });
+}
+
 // ── Color math ──
 // themes.ts imports nothing from the app, which makes it the right home for
 // the shared hex helpers: theme.ts and flairs.ts both import from here, so the

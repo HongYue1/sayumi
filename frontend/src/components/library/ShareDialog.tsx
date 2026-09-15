@@ -7,7 +7,7 @@
 //     vars.
 //   - The backdrop dismiss is the shared .backdrop-dismiss button instead of
 //     the sheet stopPropagation trick, which jsx-a11y rejects.
-import { createMemo, createSignal, onCleanup, onSettled, Show } from "solid-js";
+import { createMemo, createSignal, onSettled, Show } from "solid-js";
 import { getDownloadUrl, uploadToGofile, type BookMeta } from "~/api/client";
 import { getErrorMessage } from "~/lib/errors";
 import { toast } from "~/lib/toast";
@@ -80,11 +80,6 @@ export default function ShareDialog(props: Props) {
     props.onclose();
   }
 
-  onCleanup(() => {
-    uploadController?.abort();
-    if (copiedResetTimer !== null) clearTimeout(copiedResetTimer);
-  });
-
   // Focus the download action, the control this dialog exists for. A ref
   // cannot do it: refs run while the node is still detached, so
   // a self-focusing ref would be a silent no-op and focusTrap's fallback
@@ -95,6 +90,13 @@ export default function ShareDialog(props: Props) {
   let downloadEl: HTMLAnchorElement | undefined;
   onSettled(() => {
     queueMicrotask(() => downloadEl?.focus());
+    // Dialog-lifetime teardown returned from the same block: 2.0 pairs
+    // component setup and teardown in onSettled and keeps onCleanup for
+    // custom-primitive internals.
+    return () => {
+      uploadController?.abort();
+      if (copiedResetTimer !== null) clearTimeout(copiedResetTimer);
+    };
   });
 
   function onKeydown(e: KeyboardEvent): void {

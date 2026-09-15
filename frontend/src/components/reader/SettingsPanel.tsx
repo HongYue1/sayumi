@@ -12,16 +12,15 @@
 //     child, so the dialog remounts per open and can seed its local state
 //     from props once (documented in that component).
 //   - aria-pressed gets "true"/"false" strings (EnumeratedPseudoBoolean).
-import {
-  createMemo,
-  createSignal,
-  For,
-  onCleanup,
-  onSettled,
-  Show,
-} from "solid-js";
+import { createMemo, createSignal, For, onSettled, Show } from "solid-js";
 import { settings, DEFAULT_USER_SETTINGS } from "~/lib/settings";
-import { THEMES, getTheme, isBuiltInTheme, type ThemeDef } from "~/lib/themes";
+import {
+  THEMES,
+  getTheme,
+  isBuiltInTheme,
+  sameThemeList,
+  type ThemeDef,
+} from "~/lib/themes";
 import { customThemes } from "~/lib/customThemes";
 import CustomThemeDialog from "./CustomThemeDialog";
 import DropSelect from "./DropSelect";
@@ -272,19 +271,33 @@ export default function SettingsPanel(props: Props) {
   // setup on a stray tap.
   const [resetArmed, setResetArmed] = createSignal(false);
   let resetTimer: ReturnType<typeof setTimeout> | undefined;
-  onCleanup(() => clearTimeout(resetTimer));
+  // Teardown returned from onSettled: 2.0 keeps component teardown in this
+  // shape and reserves onCleanup for custom-primitive internals.
+  onSettled(() => () => clearTimeout(resetTimer));
 
   // Built-ins plus the user's custom themes, split by group. Derived so that
   // creating / editing / deleting a custom theme (customThemes.list is a
   // reactive store) reflows the right row immediately.
-  const lightThemes = createMemo(() => [
-    ...THEMES.filter((t) => t.group === "light"),
-    ...customThemes.list.filter((t) => t.group === "light"),
-  ]);
-  const darkThemes = createMemo(() => [
-    ...THEMES.filter((t) => t.group === "dark"),
-    ...customThemes.list.filter((t) => t.group === "dark"),
-  ]);
+  //
+  // equals: sameThemeList keeps the cutoff at the memo. The compute allocates
+  // a fresh array on every customThemes write, so reference equality would
+  // re-render both swatch grids even when a reload returned exactly the same
+  // themes -- Solid 2.0 reports that as UNSTABLE_MEMO_OUTPUT. A real create /
+  // rename / delete differs by field and still flows through.
+  const lightThemes = createMemo(
+    () => [
+      ...THEMES.filter((t) => t.group === "light"),
+      ...customThemes.list.filter((t) => t.group === "light"),
+    ],
+    { equals: sameThemeList },
+  );
+  const darkThemes = createMemo(
+    () => [
+      ...THEMES.filter((t) => t.group === "dark"),
+      ...customThemes.list.filter((t) => t.group === "dark"),
+    ],
+    { equals: sameThemeList },
+  );
 
   // User font families and the currently-selected one (if a user font).
   const userFamilies = () => fontRegistry.families;

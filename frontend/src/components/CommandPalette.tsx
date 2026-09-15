@@ -133,8 +133,21 @@ export default function CommandPalette() {
     return out;
   });
 
+  // Equality boundary for the filter. The raw query changes on every
+  // keystroke, but the words it normalizes to often do not ("a b" -> "a b ",
+  // case changes, repeated spaces). Comparing the word list here stops those
+  // keystrokes before they rebuild the command list -- which spans every book
+  // and every theme -- and before the rendered rows are asked to reconcile.
+  const queryWords = createMemo<string[]>(
+    () => query().trim().toLowerCase().split(/\s+/).filter(Boolean),
+    {
+      equals: (prev, next) =>
+        prev.length === next.length && prev.every((w, i) => w === next[i]),
+    },
+  );
+
   const filtered = createMemo<Command[]>(() => {
-    const words = query().trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const words = queryWords();
     if (words.length === 0) return commands().slice(0, 50);
     // Match every typed word somewhere in the label/hint (order-independent),
     // so "theme sepia" matches "Theme: Sepia".

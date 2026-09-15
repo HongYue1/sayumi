@@ -12,7 +12,7 @@
 //     global sheet.
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { settings } from "~/lib/settings";
-import { THEMES, getTheme } from "~/lib/themes";
+import { THEMES, getTheme, sameThemeList } from "~/lib/themes";
 import { customThemes } from "~/lib/customThemes";
 import Icon from "~/lib/Icon";
 import { Check, ChevronDown } from "~/lib/icons";
@@ -37,25 +37,40 @@ export default function ThemeDropdown() {
   // empty, so a module-level filter over THEMES alone could never grow. That is
   // why a saved custom theme was resolvable by the trigger (which reads the
   // registry) yet had no row to pick it from in this menu.
-  const lightThemes = createMemo(() => [
-    ...THEMES.filter((t) => t.group === "light"),
-    ...customThemes.list.filter((t) => t.group === "light"),
-  ]);
-  const darkThemes = createMemo(() => [
-    ...THEMES.filter((t) => t.group === "dark"),
-    ...customThemes.list.filter((t) => t.group === "dark"),
-  ]);
+  //
+  // equals: sameThemeList puts the cutoff at the memo -- a fresh array per
+  // customThemes write would otherwise notify the swatch rows on every load or
+  // profile refresh that produced identical themes (UNSTABLE_MEMO_OUTPUT).
+  const lightThemes = createMemo(
+    () => [
+      ...THEMES.filter((t) => t.group === "light"),
+      ...customThemes.list.filter((t) => t.group === "light"),
+    ],
+    { equals: sameThemeList },
+  );
+  const darkThemes = createMemo(
+    () => [
+      ...THEMES.filter((t) => t.group === "dark"),
+      ...customThemes.list.filter((t) => t.group === "dark"),
+    ],
+    { equals: sameThemeList },
+  );
 
   // With every item at tabindex -1 the menu would be a keyboard dead-end (no
   // initial focus, and arrows/Home/End find activeElement outside the menu).
   // That is now only reachable when the saved id matches nothing on offer -- a
   // theme deleted elsewhere, or customs that have not loaded yet -- so fall
   // back to treating the first light swatch as the roving-focus entry point.
-  const hasActive = createMemo(() =>
-    [...lightThemes(), ...darkThemes()].some(
-      (t) => t.id === settings.value.theme,
-    ),
-  );
+  const hasActive = createMemo(() => {
+    // Two scans rather than a merged copy: this re-runs on every theme write,
+    // and the spread allocated an array the size of the whole catalogue to
+    // answer a yes/no question.
+    const id = settings.value.theme;
+    return (
+      lightThemes().some((t) => t.id === id) ||
+      darkThemes().some((t) => t.id === id)
+    );
+  });
 
   function toggle(): void {
     const next = !open();

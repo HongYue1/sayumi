@@ -29,7 +29,6 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  onCleanup,
   onSettled,
   Show,
 } from "solid-js";
@@ -279,16 +278,15 @@ export default function CustomThemeDialog(props: Props) {
     // Returned teardown, not onCleanup(): onCleanup inside onSettled throws
     // CLEANUP_IN_FORBIDDEN_SCOPE and the uncaught throw halts the reactive
     // system app-wide, taking the whole reader down with this dialog.
-    return () => window.removeEventListener("keydown", onKeydown, true);
-  });
-
-  onCleanup(() => {
-    operationController?.abort();
-    operationController = null;
-    if (deleteArmTimer !== undefined) clearTimeout(deleteArmTimer);
-    // Drop the live preview. The dialog is remounted per open, so unmount is
-    // the one point every dismissal path converges on.
-    setThemePreview(null);
+    return () => {
+      window.removeEventListener("keydown", onKeydown, true);
+      operationController?.abort();
+      operationController = null;
+      if (deleteArmTimer !== undefined) clearTimeout(deleteArmTimer);
+      // Drop the live preview. The dialog is remounted per open, so unmount
+      // is the one point every dismissal path converges on.
+      setThemePreview(null);
+    };
   });
 
   function toggleAuto(e: Event): void {

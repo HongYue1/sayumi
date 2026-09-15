@@ -21,8 +21,21 @@ never install/switch runtimes; Vitest remains Node-hosted.
 ## Conventions
 
 - Signals and memos: `createSignal`, `createMemo`. Effects are compute/apply
-  `createEffect(compute, apply)` pairs — only the compute phase tracks. Lifecycle is
-  `onSettled` / `onCleanup`. No Svelte files or rune modules remain.
+  `createEffect(compute, apply)` pairs — only the compute phase tracks. No Svelte
+  files or rune modules remain.
+- Lifecycle is `onSettled`, and teardown is the function it returns, so one call
+  site owns setup and cleanup (`onMount` does not exist in Solid 2.0).
+  `onCleanup` is reserved for custom-primitive internals, where there is no
+  setup callback to return from — `lib/focusTrap.ts`'s `trap()` is the only
+  place it is still used, and Solid rejects it inside `onSettled` or a tracked
+  effect (`CLEANUP_IN_FORBIDDEN_SCOPE`).
+- A memo that builds a fresh array or object each run takes an `equals`
+  comparator when its content is usually unchanged (`lib/themes.ts`'s
+  `sameThemeList`, the command palette's normalized query words). Without one
+  every subscriber re-runs for an identical value — what Solid 2.0 attribution
+  reports as `UNSTABLE_MEMO_OUTPUT`.
+- `<Errored>` in `App.tsx` guards the routed subtree: a render-time or reactive
+  throw shows a recovery card with `reset()` instead of a blank document.
 - Components are `.tsx`; stores are plain `.ts` modules built on signals (e.g.
   `lib/library.ts`).
 - Plain CSS with custom properties in `app.css`. No framework, no CSS-in-JS. Component

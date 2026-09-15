@@ -14,6 +14,7 @@ import {
   prefersBlackText,
   readableAccent,
   readerThemeVars,
+  sameThemeList,
   setCustomThemes,
   THEMES,
   type ThemeDef,
@@ -265,5 +266,43 @@ describe("themeGroupFor and autoAccent", () => {
     // with the day themes. Pinned because nothing else exercises that policy.
     expect(themeGroupFor("not-a-color")).toBe("light");
     expect(themeGroupFor("")).toBe("light");
+  });
+});
+
+describe("sameThemeList", () => {
+  const base: ThemeDef = {
+    id: "custom-1",
+    label: "Mine",
+    group: "dark",
+    bg: "#101010",
+    fg: "#f0f0f0",
+    accent: "#8ab4f8",
+  };
+
+  it("treats field-identical lists as equal across rebuilds", () => {
+    // This is the whole point of the comparator: the swatch memos allocate a
+    // new array on every customThemes write, and a reload re-maps fresh
+    // ThemeDef objects, so reference equality would report a change with no
+    // rendered consequence and re-run every subscriber.
+    expect(sameThemeList([base], [{ ...base }])).toBe(true);
+    expect(sameThemeList([], [])).toBe(true);
+  });
+
+  it("reports a rename, a regroup, a recolor, or a new surface", () => {
+    expect(sameThemeList([base], [{ ...base, label: "Renamed" }])).toBe(false);
+    expect(sameThemeList([base], [{ ...base, group: "light" }])).toBe(false);
+    expect(sameThemeList([base], [{ ...base, accent: "#ff0000" }])).toBe(false);
+    expect(sameThemeList([base], [{ ...base, bg: "#000000" }])).toBe(false);
+    expect(sameThemeList([base], [{ ...base, fg: "#ffffff" }])).toBe(false);
+    expect(sameThemeList([base], [{ ...base, surface: "#1c1c1c" }])).toBe(
+      false,
+    );
+  });
+
+  it("reports added, removed, and reordered themes", () => {
+    const other: ThemeDef = { ...base, id: "custom-2", label: "Other" };
+    expect(sameThemeList([base], [base, other])).toBe(false);
+    expect(sameThemeList([base, other], [base])).toBe(false);
+    expect(sameThemeList([base, other], [other, base])).toBe(false);
   });
 });

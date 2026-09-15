@@ -19,7 +19,7 @@
   },
   "devDependencies": {
     "@solidjs/testing-library": "1.0.0-beta.3",
-    "@solidjs/vite-plugin": "3.0.0-next.38",
+    "@solidjs/vite-plugin": "3.0.0-next.43",
     "@types/node": "^26.4.0",
     "happy-dom": "^20.12.0",
     "oxfmt": "^0.67.0",
@@ -30,7 +30,7 @@
     "vitest": "5.0.0"
   },
   "dependencies": {
-    "@solidjs/web": "2.0.0-rc.6",
-    "solid-js": "2.0.0-rc.6"
+    "@solidjs/web": "2.0.0-rc.8",
+    "solid-js": "2.0.0-rc.8"
   }
 }

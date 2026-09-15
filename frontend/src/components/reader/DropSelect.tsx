@@ -23,7 +23,7 @@ import {
   createMemo,
   createSignal,
   For,
-  onCleanup,
+  onSettled,
   Show,
 } from "solid-js";
 import Icon from "~/lib/Icon";
@@ -62,7 +62,9 @@ export default function DropSelect(p: DropSelectProps) {
   let menuEl: HTMLElement | undefined;
   let typeahead = "";
   let typeaheadTimer: ReturnType<typeof setTimeout> | undefined;
-  onCleanup(() => clearTimeout(typeaheadTimer));
+  // Teardown returned from onSettled: 2.0 keeps component teardown paired
+  // with setup here and reserves onCleanup for custom-primitive internals.
+  onSettled(() => () => clearTimeout(typeaheadTimer));
 
   // Flat option list in DOM order for label lookup, keyboard walk, and
   // type-ahead. Memos over props read fresh each render; the groups array is

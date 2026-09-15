@@ -1,7 +1,7 @@
 // ChapterFrame: sandboxed srcdoc iframe + postMessage bridge. Instance state
 // is plain `let` bindings by design — nothing rendered reads it. The iframe
 // lives exactly as long as the component, so teardown is component-level.
-import { onCleanup, onSettled } from "solid-js";
+import { onSettled } from "solid-js";
 import { buildFrameSrcdoc } from "~/iframe/buildFrameHtml";
 import { buildReaderFontFaces } from "~/lib/readerFontFaces";
 import type { ChapterFrameAPI, KeyEvent } from "./frame-types";
@@ -355,19 +355,18 @@ export default function ChapterFrame(props: Props) {
         clearTimeout(rasterRefreshTimer);
         rasterRefreshTimer = null;
       }
+      // The iframe is the component's root element and lives exactly as long
+      // as the component, so its teardown belongs in this same block: 2.0
+      // pairs component setup and teardown inside onSettled and reserves
+      // onCleanup for custom-primitive internals.
+      const w = iframeEl?.contentWindow;
+      ready = false;
+      loadedSeq = -1;
+      messageQueue.clear();
+      chapterMessageQueue.clear();
+      if (w) w.postMessage({ type: "destroy" }, FRAME_TARGET_ORIGIN);
+      iframeEl = undefined;
     };
-  });
-
-  // The iframe is the component's root element and lives exactly as long as
-  // the component, so its teardown is this component-level cleanup.
-  onCleanup(() => {
-    const w = iframeEl?.contentWindow;
-    ready = false;
-    loadedSeq = -1;
-    messageQueue.clear();
-    chapterMessageQueue.clear();
-    if (w) w.postMessage({ type: "destroy" }, FRAME_TARGET_ORIGIN);
-    iframeEl = undefined;
   });
 
   // sandbox: allow-scripts runs frame.ts. allow-popups (+ escape-sandbox) let
