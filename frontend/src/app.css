@@ -1838,6 +1838,7 @@ main {
   position: relative;
   width: min(30rem, 100%);
   max-height: calc(100vh - var(--sp-12));
+  max-height: calc(100dvh - var(--sp-12));
   overflow-y: auto;
   background: var(--raised);
   border: 1px solid var(--hairline);
@@ -4663,7 +4664,13 @@ main {
 
 .rdp {
   position: relative;
+  /* Two height declarations, the same pattern as .ctd-sheet and frame.css's
+     html.paged body rule: the dvh one wins where it is supported and is
+     dropped at parse where it is not. With 100vh alone the mobile URL bar
+     overlaps the bottom of the stage, putting the progress strip and the
+     last line of the page under the browser chrome. */
   height: calc(100vh - var(--offline-banner-h, 0px));
+  height: calc(100dvh - var(--offline-banner-h, 0px));
   overflow: hidden;
 }
 /* The chrome (bar + progress) overlays a full-bleed stage so toggling its
