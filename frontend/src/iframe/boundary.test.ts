@@ -211,6 +211,21 @@ describe("createBoundary", () => {
     expect(pill("bottom").style.transform).toBe("translateY(20px)");
   });
 
+  it("re-slides the pill when the writing mode flips mid-session", () => {
+    let mode: ReturnType<BoundaryDeps["getWritingMode"]> = "rl";
+    const { boundary } = setup({ getWritingMode: () => mode });
+    boundary.processTouch("end", TOUCH_THRESHOLD / 2);
+    expect(pill("bottom").style.transform).toBe("translateX(-20px)");
+
+    // Both vertical modes slide along X at the same offset, so the direction
+    // is the only thing that changes here. A diff key that leaves it out
+    // matches, skips the write, and strands the pill entering from the edge
+    // the reader has just stopped advancing towards.
+    mode = "lr";
+    boundary.processTouch("end", TOUCH_THRESHOLD / 2);
+    expect(pill("bottom").style.transform).toBe("translateX(20px)");
+  });
+
   it("honours reduced motion by fading without the slide", () => {
     const original = window.matchMedia;
     window.matchMedia = ((query: string) => ({

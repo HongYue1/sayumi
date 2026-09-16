@@ -217,7 +217,12 @@ export function createBoundary(deps: BoundaryDeps): BoundaryController {
     const label = active ? visual.label : "";
     const edge = active && visual.edge;
     const axis = deps.getWritingMode() ? "X" : "Y";
-    const key = `${axis}|${opacity}|${offset}|${label}|${edge}`;
+    // The slide direction flips between vertical-rl and vertical-lr while the
+    // axis stays "X", so the sign belongs in the key too. Without it that
+    // switch produces an identical key, the write is skipped, and the pill
+    // keeps sliding in from the edge the reader came from before.
+    const sign = slideSign(side);
+    const key = `${axis}${sign}|${opacity}|${offset}|${label}|${edge}`;
     if (side === "top") {
       if (key === appliedTop) return;
       appliedTop = key;
@@ -228,7 +233,7 @@ export function createBoundary(deps: BoundaryDeps): BoundaryController {
     labelEl.textContent = label;
     el.classList.toggle("edge", edge);
     el.style.opacity = String(opacity);
-    el.style.transform = `translate${axis}(${offset * slideSign(side)}px)`;
+    el.style.transform = `translate${axis}(${offset * sign}px)`;
   }
 
   function show(dir: IndicatorDirection | null, progress: number): void {
