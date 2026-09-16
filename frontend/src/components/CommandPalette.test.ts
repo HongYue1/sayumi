@@ -242,7 +242,7 @@ describe("command palette", () => {
     expect(labels()).toEqual(["Go to LibraryNavigate"]);
   });
 
-  it("caps the empty-query list at 50 rows, commands then books then themes", async () => {
+  it("caps the empty-query list per category, commands then books then themes", async () => {
     world.setBooks(
       Array.from({ length: 60 }, (_, i) =>
         book({ id: `b${i}`, title: `Book ${i}` }),
@@ -251,10 +251,13 @@ describe("command palette", () => {
     mount();
     open();
     await settle();
-    expect(options()).toHaveLength(50);
-    // 5 commands + 45 books: the themes are beyond the cap until typed.
+    // Rows run commands -> books -> themes. A single cap on the concatenated
+    // list pushed every theme past the end once a library passed ~45 books,
+    // leaving that whole category reachable only by typing, so each category
+    // now carries its own row budget.
     expect(labels()[0]).toBe("Go to LibraryNavigate");
-    expect(labels()[49]).toBe("Book 44Open book");
+    expect(labels().filter((l) => l.startsWith("Book ")).length).toBe(25);
+    expect(labels().some((l) => l.startsWith("Theme: "))).toBe(true);
   });
 
   it("shows the empty fallback and ignores Enter when nothing matches", async () => {

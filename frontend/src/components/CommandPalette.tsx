@@ -26,13 +26,37 @@ import Icon from "~/lib/Icon";
 import { Search } from "~/lib/icons";
 import { trap } from "~/lib/focusTrap";
 
+type CommandGroup = "action" | "book" | "theme";
+
 interface Command {
   id: string;
   label: string;
   hint?: string;
+  group: CommandGroup;
   run: () => void;
   /** Precomputed lowercased "label + hint" so filtering avoids per-key allocs. */
   haystack: string;
+}
+
+// A row budget per category rather than one cap on the concatenated list.
+// Rows run actions -> books -> themes, so a single flat cap pushed every
+// theme command past the end once a library passed ~45 books, leaving that
+// whole category reachable only by typing.
+const GROUP_ROW_CAP: Record<CommandGroup, number> = {
+  action: 10,
+  book: 25,
+  theme: 30,
+};
+
+function capByGroup(list: Command[]): Command[] {
+  const used: Record<CommandGroup, number> = { action: 0, book: 0, theme: 0 };
+  const out: Command[] = [];
+  for (const c of list) {
+    if (used[c.group] >= GROUP_ROW_CAP[c.group]) continue;
+    used[c.group]++;
+    out.push(c);
+  }
+  return out;
 }
 
 function close(): void {
@@ -72,30 +96,35 @@ export default function CommandPalette() {
         id: "nav-library",
         label: "Go to Library",
         hint: "Navigate",
+        group: "action",
         run: () => router.navigate("/"),
       },
       {
         id: "act-rescan",
         label: "Rescan library folder",
         hint: "Action",
+        group: "action",
         run: () => void library.rescan(),
       },
       {
         id: "act-shortcuts",
         label: "Keyboard shortcuts",
         hint: "Help",
+        group: "action",
         run: () => ui.openShortcuts(),
       },
       {
         id: "act-about",
         label: "About Sayumi",
         hint: "Help",
+        group: "action",
         run: () => ui.openAbout(),
       },
       {
         id: "act-signout",
         label: "Sign out",
         hint: "Account",
+        group: "action",
         run: signOutWithFeedback,
       },
     ];
@@ -104,6 +133,7 @@ export default function CommandPalette() {
         id: `book-${b.id}`,
         label: b.title,
         hint: b.author || "Open book",
+        group: "book",
         run: () => router.navigate(`/read/${encodeURIComponent(b.id)}`),
       });
     }
@@ -114,6 +144,7 @@ export default function CommandPalette() {
         hint: `${custom ? "Custom · " : ""}${
           t.group === "dark" ? "Dark" : "Light"
         }`,
+        group: "theme",
         run: () => {
           settings.update({ theme: t.id });
         },
@@ -148,12 +179,12 @@ export default function CommandPalette() {
 
   const filtered = createMemo<Command[]>(() => {
     const words = queryWords();
-    if (words.length === 0) return commands().slice(0, 50);
+    if (words.length === 0) return capByGroup(commands());
     // Match every typed word somewhere in the label/hint (order-independent),
     // so "theme sepia" matches "Theme: Sepia".
-    return commands()
-      .filter((c) => words.every((w) => c.haystack.includes(w)))
-      .slice(0, 50);
+    return capByGroup(
+      commands().filter((c) => words.every((w) => c.haystack.includes(w))),
+    );
   });
 
   // Clamp the raw selection into range as the filtered set shrinks (computed,
