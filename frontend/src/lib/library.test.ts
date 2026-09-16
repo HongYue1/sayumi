@@ -132,6 +132,21 @@ describe("library.visible (filter + sort)", () => {
     expect(store.visible.map((b) => b.id)).toEqual(["2", "1", "3"]);
   });
 
+  it("sorts recently added with a title tie-break", async () => {
+    // addedAt is second-resolution and a whole import batch shares one stamp,
+    // so ties are the common case here rather than the edge case. Seeded out
+    // of title order: a sort with no tie-break is stable, so it would hand
+    // back the server's order instead of the shelf's own collation.
+    const store = await seed([
+      book({ id: "1", title: "C", addedAt: "2024-06-01T10:00:00Z" }),
+      book({ id: "2", title: "A", addedAt: "2024-06-01T10:00:00Z" }),
+      book({ id: "3", title: "B", addedAt: "2024-06-01T10:00:00Z" }),
+    ]);
+    store.sort = "added";
+    flush();
+    expect(store.visible.map((b) => b.title)).toEqual(["A", "B", "C"]);
+  });
+
   it("sorts recently read descending with a title tie-break", async () => {
     const store = await seed([
       book({ id: "1", title: "C" }),

@@ -243,7 +243,7 @@ export class Library {
         );
         break;
       case "added":
-        list.sort((a, b) => compareIsoDesc(a.addedAt, b.addedAt));
+        list.sort((a, b) => compareIsoDesc(a.addedAt, b.addedAt) || byTitle(a, b));
         break;
       case "read":
         list.sort(
