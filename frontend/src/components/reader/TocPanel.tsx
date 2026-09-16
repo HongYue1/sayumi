@@ -357,6 +357,16 @@ export default function TocPanel(props: Props) {
     },
   );
 
+  // Announced from the pre-mounted region under the header: a live region
+  // inserted in the same tick as its text is not announced by NVDA or JAWS
+  // (WCAG 4.1.3), which is why the empty-state paragraph carries no role.
+  // The count wording deliberately differs from that paragraph, so a reader
+  // who lands on it does not hear the same sentence twice.
+  const filterStatus = (): string =>
+    query().trim() === ""
+      ? ""
+      : `${filteredRows().length} of ${rows().length} chapters match`;
+
   // Row title with the first query match wrapped in a <mark>; plain text when
   // unfiltered. Called inline from JSX so it re-tracks on query changes (a
   // per-row memo in the For callback would freeze at row-creation time).
@@ -394,6 +404,11 @@ export default function TocPanel(props: Props) {
           <Icon icon={X} size={18} labelFromParent />
         </button>
       </header>
+      {/* Pre-mounted live region: it exists from first paint and only its
+          text changes, which is the only way a filter result is announced. */}
+      <p class="sr-only" role="status">
+        {filterStatus()}
+      </p>
       <Show
         when={rows().length > 0}
         fallback={<p class="tocp-empty">No table of contents.</p>}
@@ -427,11 +442,7 @@ export default function TocPanel(props: Props) {
         </div>
         <Show
           when={filteredRows().length > 0}
-          fallback={
-            <p class="tocp-empty" role="status">
-              No chapters match “{query()}”.
-            </p>
-          }
+          fallback={<p class="tocp-empty">No chapters match “{query()}”.</p>}
         >
           <nav
             class="tocp-scroll"

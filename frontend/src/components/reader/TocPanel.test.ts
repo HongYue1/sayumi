@@ -208,19 +208,30 @@ describe("TocPanel", () => {
     expect(first.getAttribute("aria-posinset")).toBe("1");
   });
 
-  it("swaps the list for a status when nothing matches", async () => {
+  it("announces an empty filter from a region that predates the text", async () => {
     const toc = book(3);
     await mount(toc, toc[0]!);
     expect(rows()).toHaveLength(3);
+
+    // The region is in the accessibility tree before it has anything to say:
+    // one inserted in the same tick as its text gives AT no "before" to diff
+    // against, and NVDA and JAWS drop the announcement outright.
+    const live = container.querySelector('p.sr-only[role="status"]')!;
+    expect(live.textContent).toBe("");
 
     typeFilter("zzzz");
     await settle();
 
     expect(container.querySelector("nav.tocp-scroll")).toBeNull();
     const empty = container.querySelector("p.tocp-empty")!;
-    expect(empty.getAttribute("role")).toBe("status");
+    // The visible paragraph mounts together with its sentence, so it carries
+    // no role at all; the same region as before does the announcing, and its
+    // wording differs so the sentence is not read out twice.
+    expect(empty.getAttribute("role")).toBeNull();
     expect(empty.textContent).toContain("No chapters match");
     expect(empty.textContent).toContain("zzzz");
+    expect(container.querySelector('p.sr-only[role="status"]')).toBe(live);
+    expect(live.textContent).toBe("0 of 3 chapters match");
   });
 
   it("opens centered on the current chapter with focus in the filter", async () => {
