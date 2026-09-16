@@ -15,37 +15,7 @@ import { toast } from "~/lib/toast";
 import { trap } from "~/lib/focusTrap";
 import Icon from "~/lib/Icon";
 import { TriangleAlert, X } from "~/lib/icons";
-
-// The server additionally refuses Windows device names (validateProfileName
-// in internal/api/auth.go): a profile name becomes a directory verbatim, and
-// on Windows "nul" stats as an existing device, so a clone of one dies
-// server-side after the client waved it through -- with a message naming
-// rules the name satisfies. Same set Login carries (both mirror
-// validateProfileName); keep the two in sync or extract the shared validator.
-const RESERVED_NAMES = new Set([
-  "con",
-  "prn",
-  "aux",
-  "nul",
-  "com1",
-  "com2",
-  "com3",
-  "com4",
-  "com5",
-  "com6",
-  "com7",
-  "com8",
-  "com9",
-  "lpt1",
-  "lpt2",
-  "lpt3",
-  "lpt4",
-  "lpt5",
-  "lpt6",
-  "lpt7",
-  "lpt8",
-  "lpt9",
-]);
+import { PROFILE_NAME_MAX_LENGTH, profileNameProblem } from "~/lib/profileName";
 
 interface Props {
   mode: "clone" | "delete";
@@ -147,18 +117,16 @@ export default function ProfileDialog(props: Props) {
     const names = takenNames();
     return names !== null && names.includes(trimmedNewName().toLowerCase());
   });
-  const nameValid = createMemo(() =>
-    /^[a-zA-Z0-9](?:[a-zA-Z0-9 _-]{0,30}[a-zA-Z0-9])?$/.test(trimmedNewName()),
-  );
+  // The rules live in lib/profileName, which is pinned against
+  // validateProfileName in internal/api/auth.go: a profile name becomes a
+  // directory verbatim, so a clone the client waves through can still die
+  // server-side -- with a message naming rules the name satisfies. Only the
+  // taken-name check below is local to this form.
   const nameError = createMemo(() => {
     const name = trimmedNewName();
     if (name.length === 0) return null;
-    if (!nameValid()) {
-      return "Use 1–32 characters: letters, digits, spaces, dashes, or underscores; start and end with a letter or digit.";
-    }
-    if (RESERVED_NAMES.has(name.toLowerCase())) {
-      return `${name} is a name Windows reserves for a device. Pick another.`;
-    }
+    const problem = profileNameProblem(name);
+    if (problem !== null) return problem;
     return nameTaken() ? "That name is already taken." : null;
   });
   const newPinError = createMemo(() =>
@@ -372,7 +340,7 @@ export default function ProfileDialog(props: Props) {
                 type="text"
                 value={newName()}
                 onInput={(e) => setNewName(e.currentTarget.value)}
-                maxlength="32"
+                maxlength={String(PROFILE_NAME_MAX_LENGTH)}
                 autocomplete="off"
                 placeholder={`${props.profileName} (copy)`}
                 aria-invalid={nameError() !== null ? "true" : "false"}

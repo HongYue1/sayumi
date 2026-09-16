@@ -12,7 +12,15 @@
 //     so reading i() there snapshots the index and emits STRICT_READ_UNTRACKED.
 //   - The PIN form reads the selected profile through a keyed Show so the
 //     value is narrowed and stable.
-import { createSignal, For, Match, onSettled, Show, Switch } from "solid-js";
+import {
+  createMemo,
+  createSignal,
+  For,
+  Match,
+  onSettled,
+  Show,
+  Switch,
+} from "solid-js";
 import {
   ApiError,
   createProfile,
@@ -20,6 +28,7 @@ import {
   type ProfileInfo,
 } from "~/api/client";
 import { getErrorMessage } from "~/lib/errors";
+import { PROFILE_NAME_MAX_LENGTH, profileNameProblem } from "~/lib/profileName";
 import { session } from "~/lib/session";
 import Icon from "~/lib/Icon";
 import { ArrowLeft, Lock, Plus, TriangleAlert } from "~/lib/icons";
@@ -43,55 +52,11 @@ function focusOnMount(el: HTMLElement): void {
   });
 }
 
-// Mirrors internal/api/auth.go (validateProfileName): the same regex, the same
-// path-hostile characters, and the same Windows device names. Without it the
-// form posts "Jose", "_bob", "bob-" or "nul" and the server answers 400 with a
-// message that does not say which rule was broken.
-const NAME_PATTERN = /^[a-zA-Z0-9]([a-zA-Z0-9 _-]{0,30}[a-zA-Z0-9])?$/;
-const NAME_ILLEGAL = /[/\\:*?"<>|]|\.\./;
-const RESERVED_NAMES = new Set([
-  "con",
-  "prn",
-  "aux",
-  "nul",
-  "com1",
-  "com2",
-  "com3",
-  "com4",
-  "com5",
-  "com6",
-  "com7",
-  "com8",
-  "com9",
-  "lpt1",
-  "lpt2",
-  "lpt3",
-  "lpt4",
-  "lpt5",
-  "lpt6",
-  "lpt7",
-  "lpt8",
-  "lpt9",
-]);
-
 // Rendered into a permanently-mounted element and content-toggled, so it lives
 // here instead of inline in the JSX.
 const PIN_CONSEQUENCE =
   "Without a PIN this profile opens for anyone who can reach this server, " +
   "including other devices on the network when Sayumi runs with -network.";
-
-// "" when the name is acceptable, otherwise the message to show.
-function nameProblem(raw: string): string {
-  const name = raw.trim();
-  if (name === "") return "Enter a profile name.";
-  if (NAME_ILLEGAL.test(name) || !NAME_PATTERN.test(name)) {
-    return "Use letters, numbers, spaces, _ or -, up to 32 characters, starting and ending with a letter or number.";
-  }
-  if (RESERVED_NAMES.has(name.toLowerCase())) {
-    return `${name} is a name Windows reserves for a device. Pick another.`;
-  }
-  return "";
-}
 
 export default function Login() {
   const [profiles, setProfiles] = createSignal<ProfileInfo[]>([]);
@@ -111,9 +76,12 @@ export default function Login() {
   const [selected, setSelected] = createSignal<ProfileInfo | null>(null);
   const [pin, setPin] = createSignal("");
 
-  // Create form.
+  // Create form. One validator call per keystroke: the hint, its visibility
+  // and the submit's aria-disabled all read this memo, and the rules it
+  // applies are the ones lib/profileName pins against internal/api/auth.go.
   const [newName, setNewName] = createSignal("");
   const [newPin, setNewPin] = createSignal("");
+  const nameProblem = createMemo(() => profileNameProblem(newName()));
 
   // Set when the picker is reached by going BACK, so the destination can take
   // focus; forward transitions focus their own first field instead.
@@ -327,8 +295,8 @@ export default function Login() {
     e.preventDefault();
     if (inFlight) return;
     const name = newName().trim();
-    const problem = nameProblem(name);
-    if (problem !== "") {
+    const problem = nameProblem();
+    if (problem !== null) {
       setError(problem);
       return;
     }
@@ -440,15 +408,12 @@ export default function Login() {
                   value={newName()}
                   onInput={(e) => setNewName(e.currentTarget.value)}
                   placeholder="Profile name"
+                  maxlength={String(PROFILE_NAME_MAX_LENGTH)}
                   readonly={busy()}
                   aria-disabled={busy() ? "true" : "false"}
                 />
-                <Show
-                  when={
-                    newName().trim() !== "" && nameProblem(newName()) !== ""
-                  }
-                >
-                  <p class="login-muted login-hint">{nameProblem(newName())}</p>
+                <Show when={newName().trim() !== "" && nameProblem() !== null}>
+                  <p class="login-muted login-hint">{nameProblem()}</p>
                 </Show>
                 <input
                   class="field login-big"
@@ -476,7 +441,7 @@ export default function Login() {
                   class="btn press login-primary"
                   type="submit"
                   aria-disabled={
-                    busy() || nameProblem(newName()) !== "" ? "true" : "false"
+                    busy() || nameProblem() !== null ? "true" : "false"
                   }
                 >
                   {busy() ? "Creating…" : "Create & sign in"}
