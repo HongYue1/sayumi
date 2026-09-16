@@ -479,6 +479,20 @@ export default function SearchPanel(props: Props) {
     }
   }
 
+  // Text for the two pre-mounted regions in the header. Every state node
+  // below mounts together with its text, which NVDA and JAWS do not announce
+  // (WCAG 4.1.3), so none of them carries a role and these regions -- in the
+  // accessibility tree from first paint -- do the announcing. The wording is
+  // deliberately terser than the visible copy, so a reader who reaches the
+  // paragraph itself does not hear the same sentence twice.
+  const stateNote = (): string => {
+    if (status() === "loading") return "Searching\u2026";
+    if (status() !== "done" || resultItems().length > 0) return "";
+    return hasMore() ? "No displayable results on this page." : "No results.";
+  };
+  const stateAlert = (): string =>
+    status() === "error" ? errorMsg() : loadMoreError();
+
   // One affordance, both arms: the button pages on the server's hasMore +
   // cursor alone, and the inline error is the load-more failure surface. The
   // empty arm renders these too (see its Match below) — a page whose rows the
@@ -497,9 +511,7 @@ export default function SearchPanel(props: Props) {
           </button>
         </Show>
         <Show when={loadMoreError()}>
-          <p class="srp-state srp-inline-error" role="alert">
-            {loadMoreError()}
-          </p>
+          <p class="srp-state srp-inline-error">{loadMoreError()}</p>
         </Show>
       </>
     );
@@ -535,8 +547,18 @@ export default function SearchPanel(props: Props) {
               : undefined
           }
         />
+        {/* Pre-mounted live regions. A region inserted in the same tick as
+            its text gives AT no "before" to diff against and is not
+            announced, which is why nothing in the list below carries a
+            role: these three do all of the announcing. */}
         <span class="sr-only" aria-live="polite" aria-atomic="true">
           {countText()}
+        </span>
+        <span class="sr-only" role="status">
+          {stateNote()}
+        </span>
+        <span class="sr-only" role="alert">
+          {stateAlert()}
         </span>
         <Show when={countText()}>
           <span class="srp-count tnum" aria-hidden="true">
@@ -563,12 +585,10 @@ export default function SearchPanel(props: Props) {
       >
         <Switch>
           <Match when={status() === "loading"}>
-            <p class="srp-state" role="status">
-              Searching…
-            </p>
+            <p class="srp-state">Searching…</p>
           </Match>
           <Match when={status() === "error"}>
-            <div class="srp-state" role="alert">
+            <div class="srp-state">
               <p>{errorMsg()}</p>
               <button
                 class="btn-ghost press"
@@ -579,7 +599,7 @@ export default function SearchPanel(props: Props) {
             </div>
           </Match>
           <Match when={status() === "done" && resultItems().length === 0}>
-            <p class="srp-state" role="status">
+            <p class="srp-state">
               {hasMore()
                 ? `No displayable results on this page for “${query()}” — more matches may follow.`
                 : `No results for “${query()}”.`}

@@ -194,6 +194,30 @@ describe("reader search panel", () => {
     expect(all(".srp-group")).toHaveLength(2);
   });
 
+  it("announces state from regions that predate their text", async () => {
+    mount();
+    await settle();
+    // Both regions are in the accessibility tree from first paint: one
+    // inserted in the same tick as its text gives AT no "before" to diff
+    // against, and NVDA and JAWS drop the announcement outright.
+    const note = el('span.sr-only[role="status"]');
+    const alert = el('span.sr-only[role="alert"]');
+    expect(note.textContent).toBe("");
+    expect(alert.textContent).toBe("");
+
+    typeQuery("needle");
+    advance(300);
+    expect(note.textContent).toBe("Searching\u2026");
+
+    await settle();
+    // The visible paragraph mounts together with its sentence, so it holds
+    // no role; the announcement comes from the same node as before.
+    expect(el(".srp-state").getAttribute("role")).toBeNull();
+    expect(stateText()).toContain("No results for");
+    expect(el('span.sr-only[role="status"]')).toBe(note);
+    expect(note.textContent).toBe("No results.");
+  });
+
   it("clears the pending debounce when the panel closes", async () => {
     mount();
     await settle();
