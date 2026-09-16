@@ -276,12 +276,22 @@ describe("DropSelect", () => {
     }
   });
 
-  it("stays shut while disabled", async () => {
+  it("stays shut while disabled, and keeps its place in the tab order", async () => {
     mount({ disabled: true });
-    expect(trigger().disabled).toBe(true);
+    // aria-disabled, never disabled: the trigger sits inside panels that trap
+    // focus, so a real attribute blurs it the moment the mode flips underneath
+    // and drops focus to body. toggle() owns the refusal instead.
+    expect(trigger().disabled).toBe(false);
+    expect(trigger().getAttribute("aria-disabled")).toBe("true");
+    trigger().focus();
+    expect(document.activeElement).toBe(trigger());
+
     trigger().click();
     await settle();
     expect(menu()).toBeNull();
+    expect(trigger().getAttribute("aria-expanded")).toBe("false");
+    // The refused activation leaves focus exactly where it was.
+    expect(document.activeElement).toBe(trigger());
   });
 
   it("declares icon intents the development audit accepts", async () => {

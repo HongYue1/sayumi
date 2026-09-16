@@ -4366,10 +4366,13 @@ main {
     background var(--dur-fast) var(--ease-out),
     border-color var(--dur-fast) var(--ease-out);
 }
-.ds-trigger:hover:not(:disabled) {
+.ds-trigger:hover:not([aria-disabled="true"]) {
   background: var(--surface-hover);
 }
-.ds-trigger:disabled {
+/* aria-disabled, not :disabled: the trigger sits inside panels that trap
+   focus, so a real attribute blurs it the moment the mode flips underneath
+   and drops focus to body. toggle() owns the refusal. */
+.ds-trigger[aria-disabled="true"] {
   opacity: 0.5;
   cursor: default;
 }

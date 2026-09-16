@@ -280,6 +280,9 @@ export default function DropSelect(p: DropSelectProps) {
       class={["ds-root", { "ds-compact": p.compact === true }]}
       onFocusOut={onRootFocusOut}
     >
+      {/* aria-disabled, not disabled: these triggers live inside panels that
+          trap focus, and a real attribute blurs the trigger the moment the
+          mode flips under it, dropping focus to body. toggle() refuses. */}
       <button
         ref={(el) => (trigger = el)}
         id={p.id}
@@ -288,7 +291,7 @@ export default function DropSelect(p: DropSelectProps) {
         aria-haspopup="listbox"
         aria-expanded={open() ? "true" : "false"}
         aria-label={p.label}
-        disabled={p.disabled}
+        aria-disabled={p.disabled ? "true" : "false"}
         onClick={toggle}
       >
         <span class="ds-value">{currentLabel()}</span>
