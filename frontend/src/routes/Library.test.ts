@@ -296,6 +296,13 @@ describe("Library route: live regions (M4)", () => {
     const noresults = host.querySelector(".lib-noresults");
     expect(noresults).not.toBeNull();
     expect(noresults?.getAttribute("role")).toBeNull();
+
+    // The visible block complements the announcement rather than repeating
+    // it: a verbatim second copy had the sentence read out twice, once from
+    // the live region and once as the text the cursor lands on.
+    const announced = status?.textContent ?? "";
+    expect(announced).not.toBe("");
+    expect(noresults?.textContent).not.toContain(announced);
   });
 });
 

@@ -631,7 +631,13 @@ export default function Library() {
       ) : library.visible.length === 0 ? (
         <div class="lib-noresults">
           <p class="lib-empty-title display">Nothing on this shelf.</p>
-          <p class="lib-state">No books match your search or filters.</p>
+          {/* Deliberately NOT the live region's sentence: that text is
+              already in the accessibility tree above, and repeating it here
+              verbatim made a screen reader read the same line twice. This
+              copy names the way out instead. */}
+          <p class="lib-state">
+            Try a different search, or clear the filters to see everything.
+          </p>
           <button
             type="button"
             class="btn-ghost press"
