@@ -68,25 +68,51 @@ export function isProgressDuplicate(
 }
 
 /**
- * Returns the page-hide cache as the boot position, unconditionally. The server
- * value is never consulted, which is why its parameter is underscore-prefixed.
+ * The position cached by the reader's page-hide and unmount paths, plus the
+ * server timestamp that was current when it was written. That baseline is
+ * what makes the cache comparable at all -- see chooseBootProgress.
+ */
+export interface CachedProgress extends ProgressData {
+  serverUpdatedAt?: string;
+}
+
+/**
+ * Picks the boot position: the page-hide cache, unless the server can PROVE it
+ * moved on after that cache was written.
  *
- * This is a policy, not an arbitration, and the distinction matters: the cache
- * is removed only after a successful saveProgress from this tab, while the
- * page-hide and unmount paths write the cache and beacon WITHOUT saving. A
+ * The cache is removed only after a successful saveProgress from this tab,
+ * while the page-hide and unmount paths write it and beacon WITHOUT saving. A
  * beaconed cache therefore outlives having been persisted, so a cache entry
- * does not imply the server is behind. Another client that read on after this
- * one hid will be rewound on the next boot here, and the first flush persists
- * the rewind over it. Arbitrating needs a server timestamp:
- * storage.ProgressRecord.UpdatedAt exists but api.progressBody never
- * serializes it, so neither branch of the read path can return it. Deferred --
- * the fix is a server + client change, not a predicate change.
+ * does not imply the server is behind -- and preferring it unconditionally
+ * rewound any client that read on after this tab hid, then persisted the
+ * rewind over it on the first flush.
+ *
+ * Both sides of the comparison are timestamps the SERVER issued (the boot GET,
+ * or the PUT response for a position this tab saved), so no client clock
+ * enters into it; for the fixed `YYYY-MM-DD HH:MM:SS` layout lexicographic
+ * order is chronological order. Only a strictly newer server value overrules
+ * the cache. A missing timestamp on either side -- a cache written before the
+ * field existed, or a book the server holds no position for -- leaves the
+ * crash-guard copy in charge, exactly as before.
+ *
+ * The residual imprecision is deliberate: a staged position is re-stamped with
+ * the server's clock when it reaches the WAL, so the server can look newer
+ * than the instant this tab was told about by up to one flush interval. What
+ * that can cost is the un-beaconed tail of a crashed session (the beacon
+ * normally carries it, and then the server genuinely is newer). What the old
+ * policy cost was another client's entire session.
  */
 export function chooseBootProgress(
-  _server: ProgressData,
-  cached: ProgressData,
+  server: ProgressData,
+  cached: CachedProgress,
 ): ProgressData {
-  return cached;
+  const position: ProgressData = {
+    chapter: cached.chapter,
+    percent: cached.percent,
+    cfi: cached.cfi,
+  };
+  if (!cached.serverUpdatedAt || !server.updatedAt) return position;
+  return server.updatedAt > cached.serverUpdatedAt ? server : position;
 }
 
 /**

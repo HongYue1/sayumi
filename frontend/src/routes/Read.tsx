@@ -38,6 +38,7 @@ import {
   calcBookProgress,
   PROGRESS_UNSET,
 } from "~/lib/progress";
+import type { CachedProgress } from "~/lib/progress";
 import {
   getBook,
   getProgress,
@@ -692,10 +693,10 @@ export default function Read(props: Props) {
       if (bookLoaded && !isSpecimen) {
         // Mirror the page-hide path: the cache is the crash-guard copy when
         // the beacon never lands. A successful save is what removes it (see
-        // flushProgress), so its presence always means "newest known
-        // position" — chooseBootProgress prefers it over the server.
+        // flushProgress), so it is the newest position THIS tab knows —
+        // chooseBootProgress keeps it unless the server moved on since.
         try {
-          localStorage.setItem(progressCacheKey, JSON.stringify(saveData));
+          localStorage.setItem(progressCacheKey, JSON.stringify(cacheEntry()));
         } catch {
           // ignore
         }
@@ -742,6 +743,7 @@ export default function Read(props: Props) {
     let saved: ProgressData = { chapter: 0, percent: 0 };
     try {
       saved = await getProgress(bookId);
+      serverProgressUpdatedAt = saved.updatedAt;
       lastPersistedChapter = saved.chapter;
       lastPersistedPercent = saved.percent;
       lastPersistedCfi = saved.cfi;
@@ -750,14 +752,16 @@ export default function Read(props: Props) {
     }
 
     // A remaining page-hide cache is newer than the last successful normal
-    // save (which removes it), even when the user navigated backward.
+    // save from THIS tab (which removes it), even when the user navigated
+    // backward — but not necessarily newer than another client's reading, so
+    // chooseBootProgress compares the server timestamps before trusting it.
     try {
       // One-time migration: drop the pre-profile-scoped key so a stale cache
       // written by another profile can never win chooseBootProgress here.
       localStorage.removeItem(`sayumi:progress:${bookId}`);
       const raw = localStorage.getItem(progressCacheKey);
       if (raw) {
-        const cached: ProgressData = JSON.parse(raw);
+        const cached: CachedProgress = JSON.parse(raw);
         // The cache is writable by anything in this origin — validate before
         // trusting it. A non-integer/NaN chapter would slip the loadChapter
         // bounds guard (NaN comparisons are all false) and wedge the reader in
@@ -768,7 +772,9 @@ export default function Read(props: Props) {
           Number.isFinite(cached.percent) &&
           cached.percent >= 0 &&
           cached.percent <= 1 &&
-          (cached.cfi === undefined || typeof cached.cfi === "string");
+          (cached.cfi === undefined || typeof cached.cfi === "string") &&
+          (cached.serverUpdatedAt === undefined ||
+            typeof cached.serverUpdatedAt === "string");
         if (cacheOk) saved = chooseBootProgress(saved, cached);
       }
     } catch {
@@ -1004,6 +1010,19 @@ export default function Read(props: Props) {
   }
 
   // ---- progress persistence -----------------------------------------------
+  // The newest instant the SERVER has reported for this book's position, on
+  // its own clock: from the boot GET, then from each successful save. It rides
+  // along in the page-hide cache so the next boot can tell whether the server
+  // moved on after that cache was written (lib/progress.chooseBootProgress).
+  let serverProgressUpdatedAt: string | undefined;
+
+  // The crash-guard copy of the current position, tagged with that baseline.
+  // The page-hide and unmount paths write it and beacon WITHOUT saving; a
+  // successful save is what removes it.
+  function cacheEntry(): CachedProgress {
+    return { ...saveData, serverUpdatedAt: serverProgressUpdatedAt };
+  }
+
   function flushProgress(force = false): Promise<void> {
     if (!bookLoaded || isSpecimen) return Promise.resolve();
     const now = Date.now();
@@ -1028,11 +1047,14 @@ export default function Read(props: Props) {
     lastFlushTime = now;
     const payload = { ...saveData };
     return saveProgress(bookId, payload)
-      .then(() => {
+      .then((stored) => {
         publishLibraryProgress(payload.chapter, payload.percent);
         lastPersistedChapter = payload.chapter;
         lastPersistedPercent = payload.percent;
         lastPersistedCfi = payload.cfi;
+        // The server answers with the instant it recorded, so a later
+        // page-hide cache is compared against this save rather than boot.
+        serverProgressUpdatedAt = stored?.updatedAt ?? serverProgressUpdatedAt;
         try {
           localStorage.removeItem(progressCacheKey);
         } catch {
@@ -1085,7 +1107,7 @@ export default function Read(props: Props) {
     if (document.visibilityState === "hidden") {
       cancelProgressSave();
       try {
-        localStorage.setItem(progressCacheKey, JSON.stringify(saveData));
+        localStorage.setItem(progressCacheKey, JSON.stringify(cacheEntry()));
       } catch {
         // ignore
       }

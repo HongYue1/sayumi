@@ -465,6 +465,48 @@ describe("Read boot and restore", () => {
     expect(options.restore).toEqual({ percent: 0.8 });
   });
 
+  it("still prefers the cache when the server has not moved past it", async () => {
+    // The beacon never landed: the server is still at the position this tab
+    // was told about, so the unsaved cache is the newest thing anywhere.
+    localStorage.setItem(
+      "sayumi:progress::book1",
+      JSON.stringify({
+        chapter: 3,
+        percent: 0.8,
+        serverUpdatedAt: "2026-02-03 04:05:06",
+      }),
+    );
+    api.getProgress.mockResolvedValue({
+      chapter: 1,
+      percent: 0.1,
+      updatedAt: "2026-02-03 04:05:06",
+    });
+    await bootReader();
+    expect(loadChapterCalls()[0].data.chapterIndex).toBe(3);
+  });
+
+  it("yields to a position the server recorded after the cache", async () => {
+    // Another client read on after this tab hid. Booting from the cache here
+    // would rewind it, and the first flush would persist the rewind.
+    localStorage.setItem(
+      "sayumi:progress::book1",
+      JSON.stringify({
+        chapter: 3,
+        percent: 0.8,
+        serverUpdatedAt: "2026-02-03 04:05:06",
+      }),
+    );
+    api.getProgress.mockResolvedValue({
+      chapter: 4,
+      percent: 0.2,
+      updatedAt: "2026-02-03 04:05:07",
+    });
+    await bootReader();
+    const options = loadChapterCalls()[0];
+    expect(options.data.chapterIndex).toBe(4);
+    expect(options.restore).toEqual({ percent: 0.2 });
+  });
+
   it("removes the legacy pre-profile cache key during boot", async () => {
     localStorage.setItem(
       "sayumi:progress:book1",

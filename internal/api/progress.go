@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"sayumi/internal/storage"
 )
@@ -13,6 +14,15 @@ type progressBody struct {
 	Chapter int     `json:"chapter"`
 	Percent float64 `json:"percent"`
 	CFI     string  `json:"cfi,omitempty"`
+	// UpdatedAt is server-owned: the instant the answered position was recorded,
+	// on this server's clock. It is ignored on write (storage.SaveProgressContext
+	// deliberately stamps its own, so a client cannot dictate a position's age),
+	// and an unread book carries none. The reader keeps the newest value it has
+	// been told and compares it against the one stored with its page-hide cache
+	// to decide which of the two is actually newer -- without it, a tab that had
+	// merely been hidden rewound whatever another client had read since
+	// (frontend/src/lib/progress.ts).
+	UpdatedAt string `json:"updatedAt,omitempty"`
 }
 
 // getUserID returns the single-user id. Every profile is single-user today,
@@ -39,7 +49,7 @@ func getProgressHandler(_ *Dependencies) http.HandlerFunc {
 		// so prefer the coalescer's pending value to avoid returning a stale
 		// position right after the client scrolled.
 		if rec, ok := pd.Progress.get(bookID, userID); ok {
-			resp := progressBody{Chapter: rec.Chapter, Percent: rec.Percent}
+			resp := progressBody{Chapter: rec.Chapter, Percent: rec.Percent, UpdatedAt: rec.UpdatedAt}
 			if rec.CFI.Valid {
 				resp.CFI = rec.CFI.String
 			}
@@ -58,7 +68,7 @@ func getProgressHandler(_ *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		resp := progressBody{Chapter: prog.Chapter, Percent: prog.Percent}
+		resp := progressBody{Chapter: prog.Chapter, Percent: prog.Percent, UpdatedAt: prog.UpdatedAt}
 		if prog.CFI.Valid {
 			resp.CFI = prog.CFI.String
 		}
@@ -119,8 +129,16 @@ func putProgressHandler(_ *Dependencies) http.HandlerFunc {
 		// Stage into the per-profile coalescer instead of writing synchronously.
 		// The write is flushed on a short timer, collapsing the frequent scroll
 		// updates for one book into a single WAL commit.
-		pd.Progress.stage(toProgressRecord(bookID, getUserID(r), body))
+		record := toProgressRecord(bookID, getUserID(r), body)
+		// Stamp here instead of leaving it to stage(), so the response reports the
+		// same instant the read path will report for this position while it is
+		// still pending. The reader keeps it as the baseline for its page-hide
+		// cache; with no stamp in the response that baseline would stay at boot
+		// time and make the server look newer than the position it holds.
+		record.UpdatedAt = time.Now().UTC().Format(time.DateTime)
+		pd.Progress.stage(record)
 
+		body.UpdatedAt = record.UpdatedAt
 		writeJSON(w, http.StatusOK, body)
 	}
 }

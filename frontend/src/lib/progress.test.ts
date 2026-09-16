@@ -10,6 +10,7 @@ import {
   PROGRESS_UNSET,
 } from "~/lib/progress";
 import type { ProgressData } from "~/api/client";
+import type { CachedProgress } from "~/lib/progress";
 
 const p = (chapter: number, percent: number, cfi?: string): ProgressData =>
   ({ chapter, percent, cfi }) as ProgressData;
@@ -114,6 +115,17 @@ describe("isProgressDuplicate", () => {
 });
 
 describe("chooseBootProgress", () => {
+  // Both sides carry timestamps the SERVER issued: the cache keeps whichever
+  // one was current when it was written, so no client clock is compared.
+  const cachedAt = (
+    position: ProgressData,
+    serverUpdatedAt?: string,
+  ): CachedProgress => ({ ...position, serverUpdatedAt });
+  const serverAt = (
+    position: ProgressData,
+    updatedAt: string,
+  ): ProgressData => ({ ...position, updatedAt });
+
   it("uses the page-hide cache as the newer position", () => {
     expect(chooseBootProgress(p(1, 0.1), p(1, 0.5))).toMatchObject({
       chapter: 1,
@@ -131,16 +143,47 @@ describe("chooseBootProgress", () => {
       chooseBootProgress(p(5, 0.9, "cfi:5"), p(2, 0.25, "cfi:1/3")),
     ).toMatchObject({ cfi: "cfi:1/3" });
   });
-  it("never consults the server value, even at the origin", () => {
-    // Documents the policy rather than endorsing it: a cache written by a
-    // page hide outlives having been persisted, so this rewinds a client that
-    // read on elsewhere. Arbitration needs a server timestamp the API does
-    // not currently expose.
-    expect(chooseBootProgress(p(9, 0.99, "cfi:server"), p(0, 0, ""))).toEqual({
-      chapter: 0,
-      percent: 0,
-      cfi: "",
-    });
+  it("keeps the cache while the server has not moved past it", () => {
+    // The page-hide beacon never landed: the server still holds the position
+    // this tab was told about, so the unsaved cache is the newest thing here.
+    expect(
+      chooseBootProgress(
+        serverAt(p(1, 0.1), "2026-02-03 04:05:06"),
+        cachedAt(p(3, 0.8), "2026-02-03 04:05:06"),
+      ),
+    ).toMatchObject({ chapter: 3, percent: 0.8 });
+  });
+  it("yields to a position the server recorded after the cache was written", () => {
+    // The rewind this used to cause: another client read on after this tab
+    // hid, and the next boot here overwrote it with the older cached spot.
+    expect(
+      chooseBootProgress(
+        serverAt(p(9, 0.99, "cfi:server"), "2026-02-03 04:05:07"),
+        cachedAt(p(3, 0.8), "2026-02-03 04:05:06"),
+      ),
+    ).toMatchObject({ chapter: 9, percent: 0.99, cfi: "cfi:server" });
+  });
+  it("orders the fixed timestamp layout chronologically", () => {
+    // Same layout on both sides, so a plain string comparison is a date
+    // comparison -- but only in that direction: an older server value must
+    // not win just because it sorts differently.
+    expect(
+      chooseBootProgress(
+        serverAt(p(9, 0.99), "2026-02-03 09:00:00"),
+        cachedAt(p(3, 0.8), "2026-02-03 10:00:00"),
+      ),
+    ).toMatchObject({ chapter: 3, percent: 0.8 });
+  });
+  it("keeps the cache when either side has no timestamp", () => {
+    // A cache written before the baseline existed, and a book the server
+    // holds no position for: neither pair can be ordered, so the crash-guard
+    // copy stands -- the behaviour every earlier cache shipped with.
+    expect(
+      chooseBootProgress(serverAt(p(9, 0.99), "2026-02-03 04:05:07"), p(0, 0)),
+    ).toMatchObject({ chapter: 0, percent: 0 });
+    expect(
+      chooseBootProgress(p(9, 0.99), cachedAt(p(0, 0), "2026-02-03 04:05:06")),
+    ).toMatchObject({ chapter: 0, percent: 0 });
   });
 });
 

@@ -24,18 +24,34 @@ func progressRequest(pd *profileDeps, method, body string) *http.Request {
 	return withProfileDeps(r, pd)
 }
 
-func assertProgressResponse(t *testing.T, w *httptest.ResponseRecorder, want progressBody) {
+func decodeProgress(t *testing.T, w *httptest.ResponseRecorder) progressBody {
 	t.Helper()
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
-	}
-	if got := w.Header().Get("Content-Type"); got != "application/json; charset=utf-8" {
-		t.Errorf("content type = %q, want JSON", got)
 	}
 	var got progressBody
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode progress response: %v", err)
 	}
+	return got
+}
+
+func assertProgressResponse(t *testing.T, w *httptest.ResponseRecorder, want progressBody) {
+	t.Helper()
+	if got := w.Header().Get("Content-Type"); got != "application/json; charset=utf-8" {
+		t.Errorf("content type = %q, want JSON", got)
+	}
+	got := decodeProgress(t, w)
+	// updatedAt comes from the server's clock, so it cannot be spelled out in a
+	// want literal: check its layout here and blank it before comparing the
+	// position. TestProgressReportsServerTimestamp covers that it is actually
+	// reported everywhere the reader needs it.
+	if got.UpdatedAt != "" {
+		if _, err := time.Parse(time.DateTime, got.UpdatedAt); err != nil {
+			t.Errorf("updatedAt = %q, want the %s layout", got.UpdatedAt, time.DateTime)
+		}
+	}
+	got.UpdatedAt = want.UpdatedAt
 	if got != want {
 		t.Errorf("progress = %+v, want %+v", got, want)
 	}
@@ -375,5 +391,47 @@ func TestProgressHandlersProfileIsolation(t *testing.T) {
 			getProgressHandler(nil)(w, progressRequest(tt.pd, http.MethodGet, ""))
 			assertProgressResponse(t, w, tt.want)
 		})
+	}
+}
+
+// The reader decides between the server's position and its own page-hide cache
+// by comparing server timestamps, so every answered position has to carry one:
+// from the coalescer while the write is still pending, from the row once it has
+// landed, and from the PUT response so a tab that just saved can advance its
+// baseline instead of looking outdated to itself. An unread book has no
+// position and nothing to stamp.
+func TestProgressReportsServerTimestamp(t *testing.T) {
+	t.Parallel()
+	pd := newEnrichDeps(t)
+
+	w := httptest.NewRecorder()
+	getProgressHandler(nil)(w, progressRequest(pd, http.MethodGet, ""))
+	if stamp := decodeProgress(t, w).UpdatedAt; stamp != "" {
+		t.Errorf("unread book reported a timestamp: %q", stamp)
+	}
+
+	w = httptest.NewRecorder()
+	putProgressHandler(nil)(w, progressRequest(pd, http.MethodPut, `{"chapter":2,"percent":0.25}`))
+	saved := decodeProgress(t, w).UpdatedAt
+	if _, err := time.Parse(time.DateTime, saved); err != nil {
+		t.Fatalf("PUT response timestamp = %q: %v", saved, err)
+	}
+
+	w = httptest.NewRecorder()
+	getProgressHandler(nil)(w, progressRequest(pd, http.MethodGet, ""))
+	if pending := decodeProgress(t, w).UpdatedAt; pending != saved {
+		t.Errorf("pending timestamp = %q, want the PUT's %q", pending, saved)
+	}
+
+	// The flush re-stamps with its own clock, which may only move forward.
+	pd.Progress.stop()
+	w = httptest.NewRecorder()
+	getProgressHandler(nil)(w, progressRequest(pd, http.MethodGet, ""))
+	flushed := decodeProgress(t, w).UpdatedAt
+	if _, err := time.Parse(time.DateTime, flushed); err != nil {
+		t.Fatalf("flushed timestamp = %q: %v", flushed, err)
+	}
+	if flushed < saved {
+		t.Errorf("flushed timestamp = %q, older than the staged %q", flushed, saved)
 	}
 }
