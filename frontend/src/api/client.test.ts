@@ -248,6 +248,26 @@ describe("per-attempt timeout", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("bounds a single-shot request that never gets an answer", async () => {
+    // getAuthStatus goes straight through request(), which passed no timeout
+    // at all: the promise never settled, so a server that stopped answering
+    // left the login screen spinning forever with nothing to report.
+    fetchMock.mockImplementation(
+      (_input: unknown, init?: { signal?: AbortSignal }) => neverSettles(init),
+    );
+    const settled = getAuthStatus().catch((e) => e);
+    await vi.advanceTimersByTimeAsync(20_000);
+    const err = await settled;
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({
+      code: "network_error",
+      message: "Request timed out",
+    });
+    // Same doctrine as the retry path: slow is not gone.
+    expect(isReachable()).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("releases the timeout timer as soon as the request settles", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ ok: true }));
     await expect(

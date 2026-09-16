@@ -144,8 +144,16 @@ async function parseSuccessResponse<T>(res: Response): Promise<T> {
   }
 }
 
-// Per-attempt network timeout. Without it a connection that is accepted but
-// never answered would hang forever and never reach the retry path.
+// Per-attempt network timeout, applied to EVERY request unless the call site
+// overrides it. Without it a connection that is accepted but never answered
+// hangs forever: the promise never settles, so the caller's loading state
+// never clears, the retry path is never reached, and nothing ever tells the
+// user the server stopped talking. Only requestWithRetry used to pass it,
+// which left every single-shot endpoint (auth, settings, progress, search,
+// bookmarks, ...) unbounded.
+//
+// Pass 0 to opt out, or a larger value for an endpoint that is legitimately
+// slow (uploads, rescans) rather than dropping the bound entirely.
 const DEFAULT_TIMEOUT_MS = 20_000;
 
 // True for the abort reason withTimeout raises. A timed-out attempt is not a
@@ -194,7 +202,7 @@ async function request<T>(
   path: string,
   body?: unknown,
   signal?: AbortSignal,
-  timeoutMs?: number,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
   keepalive?: boolean,
 ): Promise<T> {
   // Bind authentication failures to the profile generation that launched the
@@ -633,6 +641,8 @@ export function rescanFonts(signal?: AbortSignal): Promise<UserFontFamily[]> {
     "/fonts/rescan",
     undefined,
     signal,
+    // Opens every file under ./Fonts/ to read its metrics.
+    2 * 60 * 1000,
   ).then(acceptFontsResponse);
 }
 
@@ -659,6 +669,15 @@ export interface ProgressData {
   chapter: number;
   percent: number;
   cfi?: string;
+  /**
+   * When the server last recorded this position, on the SERVER's clock
+   * (`YYYY-MM-DD HH:MM:SS`, UTC). Server-owned: sending one changes nothing
+   * (storage stamps its own), and a book the server holds no position for
+   * carries none. The reader keeps the newest value it has been told and
+   * compares it with the one stored alongside its page-hide cache to decide
+   * which of the two is actually newer -- see lib/progress.ts.
+   */
+  updatedAt?: string;
 }
 
 export function getBooks(signal?: AbortSignal): Promise<BookMeta[]> {
@@ -680,6 +699,10 @@ export function rescanLibrary(
     "/library/rescan",
     undefined,
     signal,
+    // Walks the whole library folder and imports what it finds; minutes is
+    // normal for a large shelf, and the work commits server-side regardless
+    // of whether this client is still listening.
+    10 * 60 * 1000,
   );
 }
 
@@ -712,9 +735,16 @@ export function uploadBook(
 ): Promise<{ book: BookMeta; duplicate: boolean }> {
   const form = new FormData();
   form.append("epub", file);
-  return request<BookMeta>("POST", "/books/upload", form, signal).then(
-    (book) => ({ book, duplicate: book.duplicate === true }),
-  );
+  return request<BookMeta>(
+    "POST",
+    "/books/upload",
+    form,
+    signal,
+    // A large .epub over a slow link, plus the server-side parse and cover
+    // resize, runs well past the default bound. A POST is never retried, so
+    // aborting here would lose a half-finished import rather than repeat it.
+    10 * 60 * 1000,
+  ).then((book) => ({ book, duplicate: book.duplicate === true }));
 }
 
 // version (the book's updatedAt) is appended as ?v= so that editing a cover —
@@ -758,6 +788,9 @@ export function uploadCover(
     `/books/${pathSegment(id)}/cover`,
     form,
     signal,
+    // Upload plus a server-side decode and resize: slower than a JSON call,
+    // far quicker than a whole book.
+    2 * 60 * 1000,
   );
 }
 
@@ -977,6 +1010,9 @@ export function searchBook(
     `/books/${pathSegment(bookId)}/search?${params}`,
     undefined,
     signal,
+    // The first query on a long book scans chapters server-side; later pages
+    // come off that work. Still bounded, just not at the default.
+    60 * 1000,
   );
 }
 
