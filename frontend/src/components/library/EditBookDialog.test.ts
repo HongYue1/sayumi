@@ -23,6 +23,10 @@
 //     the same holds for the fields, which go readonly instead. The guard that
 //     keeps one activation to one request therefore lives in submit(), pinned
 //     here by a second activation while the first is still in flight.
+//   - Close, Cancel and the cover picker follow the same rule: a real
+//     attribute blurred the control the reader had just pressed and dropped
+//     focus to body inside the trap, so every dismiss routes through
+//     requestClose() and the picker refuses a pick that lands mid-save.
 //   - Escape that belongs to an IME composition is not a dismissal.
 //   - A rejected cover pick reports itself without discarding an already
 //     staged valid image.
@@ -141,6 +145,8 @@ describe("EditBookDialog", () => {
     container.querySelector<HTMLButtonElement>(".eb-close")!;
   const saveButton = (): HTMLButtonElement =>
     container.querySelector<HTMLButtonElement>(".eb-save")!;
+  const cancelButton = (): HTMLButtonElement =>
+    container.querySelector<HTMLButtonElement>(".eb-cancel")!;
   const titleNote = (): HTMLElement | null =>
     container.querySelector<HTMLElement>("#book-title-error");
   const authorNote = (): HTMLElement | null =>
@@ -252,6 +258,50 @@ describe("EditBookDialog", () => {
     await settle();
 
     expect(stubs.toasts).toEqual(["Saved changes"]);
+    expect(closes).toBe(1);
+  });
+
+  it("keeps the dismiss controls focusable and refuses them mid-save", async () => {
+    await mount();
+    type(titleInput(), "Tehanu");
+    await settle();
+
+    let release: (() => void) | undefined;
+    stubs.editMetadata.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          release = () => resolve();
+        }),
+    );
+    saveButton().click();
+    await settle();
+
+    // aria-disabled, never disabled: a real attribute blurs whichever control
+    // holds focus and strands the keyboard user on body inside the trap.
+    for (const control of [closeButton(), cancelButton()]) {
+      expect(control.hasAttribute("disabled")).toBe(false);
+      expect(control.getAttribute("aria-disabled")).toBe("true");
+      control.focus();
+      expect(document.activeElement).toBe(control);
+
+      control.click();
+      await settle();
+      // requestClose() refuses, and refusing costs no focus.
+      expect(closes).toBe(0);
+      expect(document.activeElement).toBe(control);
+    }
+
+    // The picker stays live for the same reason, so its own guard has to drop
+    // a late pick: the running save froze its cover when it started.
+    expect(fileInput().hasAttribute("disabled")).toBe(false);
+    expect(fileInput().getAttribute("aria-disabled")).toBe("true");
+    pick([new File(["x"], "late.png", { type: "image/png" })]);
+    await settle();
+    expect(coverName()).toBeNull();
+    expect(coverError()).toBeNull();
+
+    release?.();
+    await settle();
     expect(closes).toBe(1);
   });
 

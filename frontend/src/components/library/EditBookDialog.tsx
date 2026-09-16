@@ -4,8 +4,8 @@
 //     after a successful stage.
 //   - The file input's event is typed via an intersection, not an `as` cast
 //     (lint).
-//   - The backdrop dismiss is the shared .backdrop-dismiss button, guarded by
-//     !busy.
+//   - Every dismiss path -- Close, Cancel, Escape and the shared
+//     .backdrop-dismiss button -- goes through requestClose, inert while busy.
 import { createMemo, createSignal, onSettled, Show } from "solid-js";
 import { getCoverUrl, type BookMeta } from "~/api/client";
 import { getErrorMessage } from "~/lib/errors";
@@ -99,6 +99,13 @@ export default function EditBookDialog(props: Props) {
 
   function onCoverPick(e: Event & { currentTarget: HTMLInputElement }): void {
     const input = e.currentTarget;
+    // aria-disabled leaves the picker live (see requestClose), so the refusal
+    // belongs here: submit() froze its cover when the save began, so a pick
+    // landing now would preview a file no request is going to upload.
+    if (busy()) {
+      input.value = "";
+      return;
+    }
     const file = input.files?.[0] ?? null;
     if (!file) return;
     setError(null);
@@ -135,9 +142,9 @@ export default function EditBookDialog(props: Props) {
     e.preventDefault();
     if (!canSubmit()) return;
 
-    // Freeze one coherent submission. Controls are disabled below while busy,
-    // but these snapshots also prevent a late file-picker event from changing
-    // which values an already-running save commits.
+    // Freeze one coherent submission. The controls below refuse input while
+    // busy, but these snapshots also prevent a late file-picker event from
+    // changing which values an already-running save commits.
     const submittedTitle = trimmedTitle();
     const submittedAuthor = trimmedAuthor();
     const submittedCover = coverFile();
@@ -172,6 +179,15 @@ export default function EditBookDialog(props: Props) {
     }
   }
 
+  // Close and Cancel carry aria-disabled rather than disabled: a real
+  // attribute blurs whichever one holds focus the moment a save starts,
+  // dropping the keyboard user to body inside the trap. That leaves this as
+  // the only thing refusing a dismiss mid-save, so every path routes here.
+  function requestClose(): void {
+    if (busy()) return;
+    props.onclose();
+  }
+
   function onKeydown(e: KeyboardEvent): void {
     // An IME uses Escape to abandon a composition, and capture at window beats
     // the field, so without this the dialog closed and dropped the edit
@@ -181,7 +197,7 @@ export default function EditBookDialog(props: Props) {
       e.preventDefault();
       // Consume so the reader/library window key handlers don't also act on it.
       e.stopImmediatePropagation();
-      if (!busy()) props.onclose();
+      requestClose();
     }
   }
 
@@ -201,9 +217,7 @@ export default function EditBookDialog(props: Props) {
         class="backdrop-dismiss"
         aria-label="Close"
         tabindex="-1"
-        onClick={() => {
-          if (!busy()) props.onclose();
-        }}
+        onClick={requestClose}
       />
       {/* div+role kept over a native <dialog>: visual parity with the established design is the port's contract. */}
       <div
@@ -222,8 +236,8 @@ export default function EditBookDialog(props: Props) {
           <button
             class="icon-btn press eb-close"
             aria-label="Close"
-            onClick={() => props.onclose()}
-            disabled={busy()}
+            aria-disabled={busy() ? "true" : "false"}
+            onClick={requestClose}
           >
             <Icon icon={X} size={18} labelFromParent />
           </button>
@@ -263,7 +277,7 @@ export default function EditBookDialog(props: Props) {
                       ? "cover-hint cover-pick-error"
                       : "cover-hint"
                   }
-                  disabled={busy()}
+                  aria-disabled={busy() ? "true" : "false"}
                   onChange={onCoverPick}
                 />
               </label>
@@ -352,9 +366,9 @@ export default function EditBookDialog(props: Props) {
           <div class="eb-actions">
             <button
               type="button"
-              class="btn-ghost press"
-              onClick={() => props.onclose()}
-              disabled={busy()}
+              class="btn-ghost press eb-cancel"
+              aria-disabled={busy() ? "true" : "false"}
+              onClick={requestClose}
             >
               Cancel
             </button>

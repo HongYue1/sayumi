@@ -386,9 +386,9 @@ select optgroup {
 }
 
 /* aria-disabled, never :disabled, on long-request controls (login, profile
-   dialog, library bar): a real disabled attribute blurs the control
-   mid-request and drops it from the tab order. Same dimming, but the control
-   keeps pointer and focus so the handler guard owns the refusal. */
+   dialog, library bar, edit-book dismiss): a real disabled attribute blurs
+   the control mid-request and drops it from the tab order. Same dimming, but
+   the control keeps pointer and focus so the handler guard owns the refusal. */
 .login-primary[aria-disabled="true"],
 .login-back[aria-disabled="true"],
 .login-new[aria-disabled="true"],
@@ -397,7 +397,9 @@ select optgroup {
 .pd-actions button[aria-disabled="true"],
 .lib-upload[aria-disabled="true"],
 .lib-empty .btn[aria-disabled="true"],
-.lib-bar .icon-btn[aria-disabled="true"] {
+.lib-bar .icon-btn[aria-disabled="true"],
+.eb-close[aria-disabled="true"],
+.eb-cancel[aria-disabled="true"] {
   opacity: 0.45;
   cursor: default;
 }
@@ -1945,7 +1947,7 @@ main {
   opacity: 0;
   cursor: pointer;
 }
-.eb-file-input:disabled {
+.eb-file-input[aria-disabled="true"] {
   cursor: not-allowed;
 }
 .eb-cover-name {
