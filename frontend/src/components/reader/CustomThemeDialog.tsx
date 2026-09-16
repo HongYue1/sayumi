@@ -437,16 +437,21 @@ export default function CustomThemeDialog(props: Props) {
                 }}
                 ref={(el) => (nameEl = el)}
               />
+              {/* No role here: this element is inserted in the same tick as
+                  its text, which NVDA and JAWS do not announce (WCAG 4.1.3).
+                  The pre-mounted region below carries the announcement. */}
               <Show when={visibleNameError()}>
-                <small
-                  id="theme-name-error"
-                  class="ctd-field-error"
-                  role="alert"
-                >
+                <small id="theme-name-error" class="ctd-field-error">
                   {visibleNameError()}
                 </small>
               </Show>
             </label>
+
+            {/* Pre-mounted live region: it exists from first paint and only
+                its text changes, so the validator message is announced. */}
+            <p class="sr-only" role="alert">
+              {visibleNameError()}
+            </p>
 
             <div class="ctd-colors">
               <ColorRow

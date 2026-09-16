@@ -155,6 +155,14 @@ export default function BookmarksPanel(props: Props) {
         </button>
       </header>
 
+      {/* Pre-mounted live region. The per-row message below is inserted in
+          the same tick as its text, which NVDA and JAWS do not announce
+          (WCAG 4.1.3) -- this region exists from first paint and only its
+          text changes, so that paragraph carries no role. */}
+      <p class="sr-only" role="alert">
+        {editError()}
+      </p>
+
       <div class="bmp-list">
         <Show
           when={sorted().length > 0}
@@ -253,7 +261,6 @@ export default function BookmarksPanel(props: Props) {
                         <p
                           class="bmp-edit-error"
                           id={`bookmark-edit-error-${bm.id}`}
-                          role="alert"
                         >
                           {editError()}
                         </p>

@@ -152,6 +152,8 @@ describe("CustomThemeDialog", () => {
     );
   const errEl = (): HTMLElement | null =>
     document.querySelector<HTMLElement>("#theme-name-error");
+  const liveRegion = (): HTMLElement | null =>
+    document.querySelector<HTMLElement>('p.sr-only[role="alert"]');
 
   function typeInto(field: HTMLInputElement, value: string): void {
     field.value = value;
@@ -248,10 +250,15 @@ describe("CustomThemeDialog", () => {
     // 61 code points, over the 60-char cap the server enforces at
     // internal/api/customthemes.go (maxThemeNameLen). maxlength is 120 units
     // of slack, so this types fine and only the validator can stop it.
+    // The region exists before it has anything to say: one inserted in the
+    // same tick as its text is not announced by NVDA or JAWS (WCAG 4.1.3).
+    expect(liveRegion()?.textContent).toBe("");
     typeInto(nameField(), "x".repeat(61));
     const err = errEl();
-    expect(err?.getAttribute("role")).toBe("alert");
+    // Visible message mounts with its text, so the role lives on the region.
+    expect(err?.getAttribute("role")).toBeNull();
     expect(err?.textContent).toContain("at most 60 characters");
+    expect(liveRegion()?.textContent).toContain("at most 60 characters");
     expect(nameField().getAttribute("aria-describedby")).toBe(
       "theme-name-error",
     );
@@ -260,6 +267,7 @@ describe("CustomThemeDialog", () => {
     expect(stubs.create).not.toHaveBeenCalled();
     typeInto(nameField(), "Short name");
     expect(errEl()).toBeNull();
+    expect(liveRegion()?.textContent).toBe("");
   });
 
   it("seeds the manual accent picker from the current auto suggestion", async () => {

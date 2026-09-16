@@ -114,6 +114,8 @@ describe("BookmarksPanel", () => {
     container.querySelector<HTMLTextAreaElement>(".bmp-edit textarea.field");
   const errEl = (): HTMLElement | null =>
     container.querySelector<HTMLElement>(".bmp-edit-error");
+  const liveRegion = (): HTMLElement | null =>
+    container.querySelector<HTMLElement>('p.sr-only[role="alert"]');
   const saveBtn = (): HTMLButtonElement =>
     container.querySelector<HTMLButtonElement>(".bmp-edit-actions .btn")!;
 
@@ -238,14 +240,19 @@ describe("BookmarksPanel", () => {
     await settle();
     expect(onupdate).not.toHaveBeenCalled();
     const err = errEl();
-    expect(err?.getAttribute("role")).toBe("alert");
+    // The visible message is inserted in the same tick as its text, which
+    // NVDA and JAWS do not announce (WCAG 4.1.3), so it carries no role and
+    // the announcement comes from the region mounted under the header.
+    expect(err?.getAttribute("role")).toBeNull();
     expect(err?.textContent).toContain("3003");
+    expect(liveRegion()?.textContent).toContain("3003");
     expect(labelField()?.getAttribute("aria-describedby")).toBe(
       err?.id ?? null,
     );
     typeInto(labelField()!, "short");
     await settle();
     expect(errEl()).toBeNull();
+    expect(liveRegion()?.textContent).toBe("");
   });
 
   it("rejects an over-cap note with its own wording", async () => {
