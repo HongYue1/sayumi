@@ -48,6 +48,46 @@ function read(): number | null {
 
 const [size, setSize] = createSignal<number | null>(read());
 
+/** Trailing window before a chosen size reaches storage. A drag fires oninput
+ *  on every pointermove -- dozens of events a second -- and setItem is a
+ *  synchronous main-thread write, so persisting each tick lands one inside
+ *  every frame of the drag. The signal above is what the shelf reads and it
+ *  stays immediate, so the live reflow is unaffected; only the durable copy
+ *  waits for the drag to settle. Same trailing-debounce shape as the settings
+ *  store's 500ms save, shorter because this write never leaves the device. */
+const PERSIST_DELAY_MS = 200;
+
+let persistTimer: ReturnType<typeof setTimeout> | undefined;
+/** The size a pending timer will write; only meaningful while one is armed. */
+let pendingPx = 0;
+
+function write(px: number): void {
+  try {
+    localStorage.setItem(KEY, String(px));
+  } catch {
+    // Blocked or full storage must not break the control: the signal is what
+    // the shelf reads, and it is already correct for this tab.
+  }
+}
+
+function cancelPendingWrite(): void {
+  if (persistTimer === undefined) return;
+  clearTimeout(persistTimer);
+  persistTimer = undefined;
+}
+
+/** Write a staged size now: a trailing-only timer would drop the last drag of
+ *  a closing tab, the same hazard the settings store flushes on pagehide. */
+function flushPendingWrite(): void {
+  if (persistTimer === undefined) return;
+  cancelPendingWrite();
+  write(pendingPx);
+}
+
+// App-lifetime listener, never removed: this preference outlives every
+// component that edits it, matching the settings store's pagehide flush.
+window.addEventListener("pagehide", flushPendingWrite);
+
 /**
  * The value for the shelf's `--card-size` custom property.
  *
@@ -73,22 +113,27 @@ export const cardSize = {
   set(px: number): void {
     const next = clampSize(px);
     setSize(next);
-    try {
-      localStorage.setItem(KEY, String(next));
-    } catch {
-      // Blocked or full storage must not break the control: the signal above
-      // is what the shelf reads, and it is already correct for this tab.
-    }
+    // Debounced on purpose -- see PERSIST_DELAY_MS. The signal above already
+    // carries the new size, so only the stored copy trails the drag.
+    pendingPx = next;
+    cancelPendingWrite();
+    persistTimer = setTimeout(() => {
+      persistTimer = undefined;
+      write(pendingPx);
+    }, PERSIST_DELAY_MS);
   },
 
   /** Back to the fluid default -- removes the key rather than storing a
    *  sentinel, so "never chose" and "chose auto" stay the same state. */
   reset(): void {
     setSize(null);
+    // Dropped rather than flushed: Auto is one click, and a size still waiting
+    // on the timer would otherwise land after it and bring the size back.
+    cancelPendingWrite();
     try {
       localStorage.removeItem(KEY);
     } catch {
-      // See set().
+      // See write().
     }
   },
 };

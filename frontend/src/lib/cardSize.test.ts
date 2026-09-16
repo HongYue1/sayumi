@@ -13,6 +13,10 @@
 //     the bounds in a later version cannot leave a stale 400px in force.
 //   - localStorage is allowed to fail (private modes, full quota). The signal
 //     is the source of truth for the tab either way.
+//   - The signal is immediate but the WRITE is debounced, so a drag costs one
+//     storage write instead of one per pointermove. pagehide flushes a size
+//     still waiting on that timer, and reset() drops it rather than letting it
+//     land after Auto and resurrect the size that was just cleared.
 //
 // Every test re-imports the module: the signal is module-level and seeds from
 // storage at import time, so that seeding is itself behaviour under test.
@@ -30,6 +34,10 @@ async function load(): Promise<typeof CardSizeModule> {
 
 describe("card size preference", () => {
   beforeEach(() => {
+    // Fake timers throughout: the storage write is debounced, so advancing
+    // them is the only way to reach it. Restoring real timers in the teardown
+    // also discards whatever a re-imported copy of the module left pending.
+    vi.useFakeTimers();
     localStorage.removeItem(KEY);
   });
 
@@ -40,6 +48,7 @@ describe("card size preference", () => {
     } catch {
       // A test that stubs storage into throwing must not fail the teardown.
     }
+    vi.useRealTimers();
   });
 
   it("starts with no preference, leaving the shelf fluid", async () => {
@@ -80,12 +89,57 @@ describe("card size preference", () => {
     cardSize.set(171.6);
     flush();
     expect(cardSize.value).toBe(172);
+    // The shelf already has the new size; only storage waits for the timer.
+    expect(localStorage.getItem(KEY)).toBeNull();
+    vi.advanceTimersByTime(200);
     expect(localStorage.getItem(KEY)).toBe("172");
 
     cardSize.set(9999);
     flush();
     expect(cardSize.value).toBe(CARD_SIZE_MAX);
+    vi.advanceTimersByTime(200);
     expect(localStorage.getItem(KEY)).toBe(String(CARD_SIZE_MAX));
+  });
+
+  it("coalesces a drag into a single storage write", async () => {
+    const { cardSize } = await load();
+    const setItem = vi.spyOn(localStorage, "setItem");
+
+    // What a drag actually sends: one oninput per pointermove. Writing each
+    // one put a synchronous storage write inside every frame of the drag.
+    for (const px of [130, 140, 150, 160, 170, 180]) cardSize.set(px);
+    flush();
+    expect(setItem).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(200);
+    expect(setItem).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(KEY)).toBe("180");
+  });
+
+  it("flushes a size still waiting on the timer when the page hides", async () => {
+    const { cardSize } = await load();
+    cardSize.set(208);
+    flush();
+    expect(localStorage.getItem(KEY)).toBeNull();
+
+    // A closing tab never reaches a trailing timer, so the last drag of the
+    // session would be lost without this -- the hazard the settings store
+    // flushes on pagehide too.
+    window.dispatchEvent(new Event("pagehide"));
+    expect(localStorage.getItem(KEY)).toBe("208");
+  });
+
+  it("drops a staged size when Auto is chosen before it lands", async () => {
+    const { cardSize } = await load();
+    cardSize.set(208);
+    cardSize.reset();
+    flush();
+    expect(cardSize.value).toBeNull();
+    expect(localStorage.getItem(KEY)).toBeNull();
+
+    // The staged write must not arrive after the reset and bring the size back.
+    vi.advanceTimersByTime(200);
+    expect(localStorage.getItem(KEY)).toBeNull();
   });
 
   it("reset() removes the key instead of storing a sentinel", async () => {
@@ -122,6 +176,11 @@ describe("card size preference", () => {
     try {
       cardSize.set(200);
       flush();
+      expect(cardSize.value).toBe(200);
+      // The throwing write now happens inside the debounce timer, where an
+      // escaping error would be an unhandled rejection rather than a caught
+      // one, so advance into it.
+      vi.advanceTimersByTime(200);
       expect(cardSize.value).toBe(200);
 
       cardSize.reset();
