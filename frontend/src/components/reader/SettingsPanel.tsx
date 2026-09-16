@@ -149,6 +149,9 @@ function AutoRow(p: AutoRowProps) {
   // Computed once per read so an empty note renders nothing at all (no orphan
   // " \u00b7 " separator) and so Auto rows can still carry one.
   const headNote = (): string => (p.headNote ? p.headNote(p.value) : "");
+  // One source of truth for the two arms that make the slider inert: Auto
+  // owns the value, or the current mode makes the setting meaningless.
+  const inert = (): boolean => p.value === null || !!p.disabledReason;
   return (
     <div class={["stp-row", { "stp-row-disabled": !!p.disabledReason }]}>
       <div class="stp-row-head">
@@ -178,15 +181,26 @@ function AutoRow(p: AutoRowProps) {
         </Show>
       </div>
       <div class="stp-slider">
+        {/* aria-disabled, not disabled: a real attribute blurs the thumb the
+            moment Auto is ticked, dropping focus to body inside the panel's
+            focus trap. Unlike a button, a range widget has already moved
+            itself by the time the handler runs, so refusing the change also
+            means putting the thumb back where the setting says it belongs. */}
         <input
           type="range"
           min={p.min}
           max={p.max}
           step={p.step}
           value={p.value ?? p.fallback}
-          disabled={p.value === null || !!p.disabledReason}
+          aria-disabled={inert() ? "true" : "false"}
           aria-label={p.label}
-          onInput={(e) => p.apply(+e.currentTarget.value)}
+          onInput={(e) => {
+            if (inert()) {
+              e.currentTarget.value = String(p.value ?? p.fallback);
+              return;
+            }
+            p.apply(+e.currentTarget.value);
+          }}
         />
         <span class="stp-val">
           {p.disabledReason
@@ -473,8 +487,13 @@ export default function SettingsPanel(props: Props) {
     set("fontRoles", next);
   }
 
+  // The button is aria-disabled rather than disabled, so the refusal lives
+  // here: both arms of "can't scan right now" are checked on entry instead of
+  // being enforced by the DOM.
+  const rescanInert = (): boolean => rescanning() || s().preserveFonts;
+
   async function rescan(): Promise<void> {
-    if (rescanning()) return;
+    if (rescanInert()) return;
     setRescanning(true);
     try {
       if (!(await fontRegistry.rescan())) {
@@ -765,10 +784,13 @@ export default function SettingsPanel(props: Props) {
             )}
           </Show>
 
+          {/* aria-disabled, not disabled: a real attribute blurs the button
+              the instant a scan starts, dropping focus to body inside the
+              panel's focus trap. rescan() holds the guard. */}
           <button
             class="stp-rescan"
+            aria-disabled={rescanInert() ? "true" : "false"}
             onClick={() => void rescan()}
-            disabled={rescanning() || s().preserveFonts}
           >
             {rescanning() ? "Scanning…" : "Rescan fonts folder"}
           </button>

@@ -4512,11 +4512,14 @@ main {
     background var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out);
 }
-.stp-rescan:hover:not(:disabled) {
+.stp-rescan:hover:not([aria-disabled="true"]) {
   background: var(--surface-hover);
   color: var(--fg);
 }
-.stp-rescan:disabled {
+/* aria-disabled, not :disabled: a real attribute blurs the button the instant
+   the scan it started is under way, dropping focus to body inside the panel's
+   trap -- rescan() is already inert, so the attribute only has to say so. */
+.stp-rescan[aria-disabled="true"] {
   opacity: 0.6;
   cursor: default;
 }
@@ -4614,7 +4617,10 @@ main {
     0 0 0 1px var(--hairline-strong),
     var(--shadow-1);
 }
-.stp-slider input[type="range"]:disabled {
+/* aria-disabled, not :disabled: ticking Auto would otherwise blur the thumb
+   the reader is holding. The onInput guard refuses the change and restores
+   the DOM value, since a range widget moves before its handler runs. */
+.stp-slider input[type="range"][aria-disabled="true"] {
   opacity: 0.45;
   cursor: default;
 }

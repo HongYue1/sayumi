@@ -564,6 +564,83 @@ describe("reader settings panel", () => {
     expect(api.createPreset).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the rescan button focusable and refuses both inert arms", async () => {
+    world.setFamilies([family("user:minion")]);
+    world.setSettings({ preserveFonts: false });
+    const scan = deferred<boolean>();
+    rescanFonts.mockReturnValueOnce(scan.promise);
+    mount();
+    await settle();
+
+    const button = el(".stp-rescan") as HTMLButtonElement;
+    expect(button.getAttribute("aria-disabled")).toBe("false");
+    button.focus();
+    button.click();
+    flush();
+
+    // aria-disabled, never disabled: a real attribute blurs the button the
+    // instant the scan starts, dropping focus to body inside the focus trap.
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    expect(text(button)).toContain("Scanning");
+    expect(document.activeElement).toBe(button);
+
+    // rescan() holds the guard, so a second activation buys nothing.
+    button.click();
+    flush();
+    expect(rescanFonts).toHaveBeenCalledTimes(1);
+
+    scan.resolve(true);
+    await settle();
+    expect(button.getAttribute("aria-disabled")).toBe("false");
+
+    // Preserved publisher fonts make a scan pointless. That arm is refused by
+    // the same guard rather than by removing the button from the tab order.
+    world.setSettings({ preserveFonts: true });
+    flush();
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    button.click();
+    flush();
+    expect(rescanFonts).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an Auto slider focusable and puts a refused drag back", async () => {
+    world.setSettings({ lineHeight: null });
+    mount();
+    await settle();
+
+    const slider = el('input[aria-label="Line height"]') as HTMLInputElement;
+    // aria-disabled, never disabled: the thumb keeps focus when Auto is
+    // ticked, so onInput owns the refusal.
+    expect(slider.disabled).toBe(false);
+    expect(slider.getAttribute("aria-disabled")).toBe("true");
+    slider.focus();
+    expect(document.activeElement).toBe(slider);
+
+    const parked = slider.value;
+    slider.value = "2.4";
+    slider.dispatchEvent(new Event("input", { bubbles: true }));
+    flush();
+
+    // A range widget has already moved itself by the time the handler runs, so
+    // refusing the change also means putting the thumb back where the setting
+    // says it belongs -- otherwise it sticks at 2.4 while the row reads Auto.
+    expect(world.updates).toEqual([]);
+    expect(slider.value).toBe(parked);
+    expect(document.activeElement).toBe(slider);
+
+    // Off Auto the very same input commits again.
+    world.setSettings({ lineHeight: 1.6 });
+    flush();
+    expect(slider.getAttribute("aria-disabled")).toBe("false");
+    slider.value = "2";
+    slider.dispatchEvent(new Event("input", { bubbles: true }));
+    flush();
+    expect(world.updates).toEqual([{ lineHeight: 2 }]);
+    expect(slider.value).toBe("2");
+  });
+
   it("names the detected file on Auto and never preselects it", async () => {
     world.setFamilies([family("user:minion", { regular: "Regular.otf" })]);
     world.setSettings({ fontFamily: "user:minion", preserveFonts: false });
