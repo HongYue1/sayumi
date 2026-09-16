@@ -1063,6 +1063,23 @@ describe("Read progress", () => {
     }
   });
 
+  it("runs a single exit for two back presses", async () => {
+    await bootReader();
+    frameHandler("onposition")(0, 0.3, undefined);
+    await settle();
+    // Escape twice with nothing open. The second press must join the exit
+    // already in flight instead of issuing its own position request, whose
+    // later, staler answer would be the one persisted.
+    frameHandler("onkey")(key("Escape"));
+    frameHandler("onkey")(key("Escape"));
+    await settle();
+    expect(frame.api.requestPosition).toHaveBeenCalledTimes(1);
+    frameHandler("onposition")(0, 0.5, undefined);
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith("/"));
+    expect(api.saveProgress).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledTimes(1);
+  });
+
   it("beacons and writes the crash-guard cache on page hide, without a save", async () => {
     await bootReader();
     frameHandler("onposition")(0, 0.3, undefined);

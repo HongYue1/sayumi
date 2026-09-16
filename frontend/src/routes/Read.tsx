@@ -358,6 +358,10 @@ export default function Read(props: Props) {
   // by the next handlePosition report, or by its timeout — whichever first.
   let pendingPositionResolve: (() => void) | null = null;
   let pendingPositionTimer: ReturnType<typeof setTimeout> | undefined;
+  // Exactly one request is in flight at a time: a second caller joins the
+  // first instead of overwriting its resolver, which left the earlier waiter
+  // to be settled by its timeout alone.
+  let pendingPositionRequest: Promise<void> | null = null;
   let lastPersistedChapter = PROGRESS_UNSET;
   let lastPersistedPercent = PROGRESS_UNSET;
   // Part of the dedupe key, not just payload: a relayout can hold percent
@@ -712,6 +716,7 @@ export default function Read(props: Props) {
         pendingPositionTimer = undefined;
       }
       pendingPositionResolve = null;
+      pendingPositionRequest = null;
       if (applyRaf !== null) cancelAnimationFrame(applyRaf);
       panelPrewarm?.cancel();
     };
@@ -1091,15 +1096,18 @@ export default function Read(props: Props) {
   // position then is the load target and saveData already holds it.
   function requestFreshPosition(): Promise<void> {
     if (!api || chapterLoadInProgress) return Promise.resolve();
-    return new Promise((resolve) => {
+    if (pendingPositionRequest) return pendingPositionRequest;
+    pendingPositionRequest = new Promise((resolve) => {
       pendingPositionResolve = resolve;
       api?.requestPosition();
       pendingPositionTimer = setTimeout(() => {
         pendingPositionTimer = undefined;
         pendingPositionResolve = null;
+        pendingPositionRequest = null;
         resolve();
       }, POSITION_REQUEST_TIMEOUT_MS);
     });
+    return pendingPositionRequest;
   }
 
   function handleVisibility(): void {
@@ -1173,6 +1181,7 @@ export default function Read(props: Props) {
     if (pendingPositionResolve) {
       const resolve = pendingPositionResolve;
       pendingPositionResolve = null;
+      pendingPositionRequest = null;
       if (pendingPositionTimer) {
         clearTimeout(pendingPositionTimer);
         pendingPositionTimer = undefined;
@@ -1250,15 +1259,26 @@ export default function Read(props: Props) {
     else if (book() && currentChapter() + 1 < book()!.chapterCount)
       void loadChapter(currentChapter() + 1, "top");
   }
+  // Plain mirror rather than a signal: two Escapes in one tick (or Escape
+  // plus the bar's Back button) both entered, so a single exit ran two
+  // position requests and two flushes, and the later, staler answer could be
+  // the one persisted.
+  let backInFlight = false;
   function handleBack(): void {
     // Persist the live position before leaving: a scroll burst followed by an
     // immediate Back would otherwise flush the pre-burst saveData (the frame
     // reports on a ~200ms trailing edge). The wait is one postMessage round
     // trip, bounded by the request timeout — then navigate either way.
+    if (backInFlight) return;
+    backInFlight = true;
     void (async () => {
-      await requestFreshPosition();
-      await flushProgress(true);
-      router.navigate("/");
+      try {
+        await requestFreshPosition();
+        await flushProgress(true);
+        router.navigate("/");
+      } finally {
+        backInFlight = false;
+      }
     })();
   }
 
