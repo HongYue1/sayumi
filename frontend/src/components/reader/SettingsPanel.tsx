@@ -419,8 +419,16 @@ export default function SettingsPanel(props: Props) {
     }
   }
 
-  function openCreate(): void {
-    setEditor({ base: getTheme(s().theme), edit: null });
+  // Each swatch grid carries its own "+", so seed from the group that was
+  // clicked: the button under Light must not hand the editor a dark palette
+  // just because a dark theme happens to be active.
+  function openCreate(group: ThemeDef["group"]): void {
+    const active = getTheme(s().theme);
+    const base =
+      active.group === group
+        ? active
+        : (THEMES.find((t) => t.group === group) ?? active);
+    setEditor({ base, edit: null });
   }
 
   function openEdit(t: ThemeDef): void {
@@ -633,9 +641,9 @@ export default function SettingsPanel(props: Props) {
             </For>
             <button
               class="stp-swatch stp-add"
-              title="Create custom theme"
-              aria-label="Create custom theme"
-              onClick={openCreate}
+              title="Create light theme"
+              aria-label="Create light theme"
+              onClick={() => openCreate("light")}
             >
               <Icon icon={Plus} size={16} labelFromParent />
             </button>
@@ -655,9 +663,9 @@ export default function SettingsPanel(props: Props) {
             </For>
             <button
               class="stp-swatch stp-add"
-              title="Create custom theme"
-              aria-label="Create custom theme"
-              onClick={openCreate}
+              title="Create dark theme"
+              aria-label="Create dark theme"
+              onClick={() => openCreate("dark")}
             >
               <Icon icon={Plus} size={16} labelFromParent />
             </button>

@@ -24,6 +24,7 @@ import type * as SettingsModule from "~/lib/settings";
 import type * as ToastModule from "~/lib/toast";
 import { DEFAULT_USER_SETTINGS, settings } from "~/lib/settings";
 import { SPECIMEN_BOOK_ID } from "~/lib/specimen";
+import { THEMES } from "~/lib/themes";
 import SettingsPanel from "~/components/reader/SettingsPanel";
 
 const api = vi.hoisted(() => ({
@@ -343,6 +344,20 @@ afterEach(() => {
 });
 
 describe("reader settings panel", () => {
+  it("seeds a new theme from the group whose button was clicked", async () => {
+    const dark = THEMES.find((t) => t.group === "dark");
+    if (!dark) throw new Error("no dark built-in theme");
+    world.setSettings({ theme: dark.id });
+    mount();
+    await settle();
+    // Both grids used to carry the same "+" seeded from the active theme, so
+    // the one under Light opened a dark editor. The dialog derives its group
+    // from the seeded background.
+    el('[aria-label="Create light theme"]').click();
+    await settle();
+    expect(text(document.querySelector(".ctd-hint strong"))).toBe("Light");
+  });
+
   it("retries an unloaded custom-theme registry on mount", async () => {
     world.themesLoaded = false;
     mount();
