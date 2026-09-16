@@ -21,7 +21,10 @@
 
 /** Caller-supplied options; the payloads are bound in buildFrameHtml.ts. */
 export interface FrameSrcdocOptions {
-  /** Script nonce. Must survive [^a-zA-Z0-9-] stripping; crypto.randomUUID does. */
+  /**
+   * Script nonce. Must survive [^a-zA-Z0-9-] stripping, which every arm of
+   * createFrameNonce() below guarantees.
+   */
   nonce: string;
   /** Theme id, e.g. "catppuccin", or a custom theme's id. */
   theme: string;
@@ -58,6 +61,43 @@ function escapeRawText(payload: string, tag: "style" | "script"): string {
 
 /** Built-in ids are lowercase-kebab; custom ids are minted server-side. */
 const THEME_ID = /^[a-z0-9-]{1,64}$/;
+
+// Counter for the no-WebCrypto arm of createFrameNonce, so two frames built in
+// the same millisecond cannot collide.
+let nonceCounter = 0;
+
+/**
+ * Mints the script nonce for one frame document.
+ *
+ * crypto.randomUUID is SECURE-CONTEXT ONLY. Sayumi is documented as a
+ * plain-HTTP LAN server, and over http://192.168.x.x the property is
+ * undefined: calling it threw while the reader was building its srcdoc, the
+ * Errored boundary swallowed it, and the book never rendered while the rest
+ * of the app worked. Never reach for it unguarded here again.
+ *
+ * crypto.getRandomValues is NOT gated on a secure context, so the fallback
+ * keeps the same unpredictability on exactly the deployment that lost it. The
+ * final arm is for a runtime with no WebCrypto at all, where uniqueness is the
+ * only property still available to promise -- and uniqueness is all the CSP
+ * nonce needs to keep the engine running.
+ *
+ * Every arm emits [0-9a-z-] only, so renderFrameSrcdoc's strip is a no-op and
+ * can never empty the nonce.
+ */
+export function createFrameNonce(
+  source: Partial<Crypto> | undefined = globalThis.crypto,
+): string {
+  if (typeof source?.randomUUID === "function") return source.randomUUID();
+  if (typeof source?.getRandomValues === "function") {
+    const bytes = source.getRandomValues(new Uint8Array(16));
+    let hex = "";
+    for (const byte of bytes) hex += byte.toString(16).padStart(2, "0");
+    return hex;
+  }
+  nonceCounter += 1;
+  const noise = Math.random().toString(36).slice(2);
+  return `f${Date.now().toString(36)}-${nonceCounter.toString(36)}-${noise}`;
+}
 
 export function renderFrameSrcdoc(input: FrameSrcdocInput): string {
   const nonce = input.nonce.replace(/[^a-zA-Z0-9-]/g, "");

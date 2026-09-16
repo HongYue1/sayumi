@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderFrameSrcdoc } from "./frameHtmlTemplate";
+import { createFrameNonce, renderFrameSrcdoc } from "./frameHtmlTemplate";
 
 const base = {
   nonce: "abc-123",
@@ -107,5 +107,41 @@ describe("renderFrameSrcdoc", () => {
       '<html lang="en"',
     );
     expect(renderFrameSrcdoc(base)).toContain('<html class="theme-');
+  });
+});
+
+describe("createFrameNonce", () => {
+  // crypto exists over plain HTTP but randomUUID does not, because it is
+  // secure-context only. This is the exact shape that threw while building the
+  // srcdoc and took the whole reader route down on a LAN address.
+  const insecureCrypto: Partial<Crypto> = {
+    getRandomValues: <T extends ArrayBufferView | null>(array: T): T => {
+      if (array instanceof Uint8Array) array.fill(0x0a);
+      return array;
+    },
+  };
+
+  it("hex-encodes getRandomValues when randomUUID is missing", () => {
+    expect(createFrameNonce(insecureCrypto)).toBe("0a".repeat(16));
+  });
+
+  it("stays unique when there is no WebCrypto at all", () => {
+    const nonces = new Set([
+      createFrameNonce({}),
+      createFrameNonce({}),
+      createFrameNonce({}),
+    ]);
+    expect(nonces.size).toBe(3);
+  });
+
+  it("produces a nonce the template accepts on every arm", () => {
+    for (const source of [globalThis.crypto, insecureCrypto, {}, undefined]) {
+      const nonce = createFrameNonce(source);
+      expect(nonce).toMatch(/^[\dA-Za-z-]+$/);
+      // renderFrameSrcdoc throws when stripping empties the nonce.
+      expect(renderFrameSrcdoc({ ...base, nonce })).toContain(
+        `script-src 'nonce-${nonce}'`,
+      );
+    }
   });
 });

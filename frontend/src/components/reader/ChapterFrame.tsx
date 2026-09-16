@@ -3,6 +3,7 @@
 // lives exactly as long as the component, so teardown is component-level.
 import { onSettled } from "solid-js";
 import { buildFrameSrcdoc } from "~/iframe/buildFrameHtml";
+import { createFrameNonce } from "~/iframe/frameHtmlTemplate";
 import { buildReaderFontFaces } from "~/lib/readerFontFaces";
 import type { ChapterFrameAPI, KeyEvent } from "./frame-types";
 import type {
@@ -121,7 +122,9 @@ export default function ChapterFrame(props: Props) {
   // rule — the light palette — and a custom dark theme flashes white until the
   // first apply-settings arrives.
   const srcdoc = buildFrameSrcdoc({
-    nonce: crypto.randomUUID(),
+    // Not crypto.randomUUID: it is secure-context only, and this app is
+    // served over plain HTTP on the LAN. See createFrameNonce.
+    nonce: createFrameNonce(),
     theme: props.initialTheme,
     themeVars: props.initialThemeVars,
     language: props.initialLanguage,
