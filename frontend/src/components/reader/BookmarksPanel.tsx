@@ -106,6 +106,21 @@ export default function BookmarksPanel(props: Props) {
     },
   );
 
+  // <For> never tells a row that it is leaving, so the ref map is pruned
+  // against the rendered set instead. Without this it retains a detached
+  // button (and its subtree) for every bookmark ever shown, for as long as
+  // the panel stays mounted.
+  createEffect(
+    () => sorted(),
+    (rows) => {
+      const live = new Set(rows.map((bm) => bm.id));
+      for (const id of editButtons.keys()) {
+        if (!live.has(id)) editButtons.delete(id);
+      }
+      return undefined;
+    },
+  );
+
   // Keep edit-mode keys local: Esc cancels (and is stopped from bubbling to the
   // reader's own Esc handler), Enter in the single-line label field saves. The
   // note textarea keeps Enter for newlines. Attached to the .bmp-edit WRAPPER
