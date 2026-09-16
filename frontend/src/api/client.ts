@@ -1098,12 +1098,21 @@ export async function getVersion(signal?: AbortSignal): Promise<VersionInfo> {
   return request<VersionInfo>("GET", "/version", undefined, signal);
 }
 
+/** Bound for the reachability probe: long enough that a loaded server still
+ *  answers, short enough to stay inside the banner's poll cadence. */
+const HEALTH_TIMEOUT_MS = 5000;
+
 export async function checkHealth(): Promise<boolean> {
+  // The same cancellable timer request() uses, for the reason documented on
+  // withTimeout: AbortSignal.timeout's timer cannot be cleared, so a probe
+  // answered in milliseconds would still pin an armed 5s timer -- once per
+  // poll, in every open tab, for as long as the app is running.
+  const { signal, dispose } = withTimeout(undefined, HEALTH_TIMEOUT_MS);
   try {
     const res = await fetch(`${BASE}/health`, {
       method: "GET",
       credentials: "same-origin",
-      signal: AbortSignal.timeout(5000),
+      signal,
     });
     if (res.ok) reportReachable();
     else reportUnreachable();
@@ -1118,5 +1127,7 @@ export async function checkHealth(): Promise<boolean> {
     if (isTimeoutError(error)) return isReachable();
     reportUnreachable();
     return false;
+  } finally {
+    dispose();
   }
 }

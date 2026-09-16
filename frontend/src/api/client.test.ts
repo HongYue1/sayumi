@@ -425,4 +425,40 @@ describe("checkHealth", () => {
     expect(isReachable()).toBe(false);
     reportReachable();
   });
+
+  it("ends a stalled probe on its own bound", async () => {
+    // Pins the timer, not only the bound: AbortSignal.timeout's timer is
+    // native and cannot be cleared, so it answers to neither fake timers here
+    // nor a dispose() in the app, and every poll left one armed for 5s. A
+    // fetch that settles only when its signal aborts leaves that bound as the
+    // single way out of the probe.
+    vi.useFakeTimers();
+    try {
+      fetchMock.mockImplementation(
+        (_input: unknown, init?: { signal?: AbortSignal }) =>
+          new Promise<Response>((_resolve, reject) => {
+            const signal = init?.signal;
+            if (!signal) return;
+            signal.addEventListener("abort", () => {
+              reject(signal.reason as Error);
+            });
+          }),
+      );
+
+      let done = false;
+      const settled = checkHealth().then((reachable) => {
+        done = true;
+        return reachable;
+      });
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(done).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
+      // Its own timeout stays inconclusive, so the previous verdict holds.
+      await expect(settled).resolves.toBe(true);
+      expect(isReachable()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
