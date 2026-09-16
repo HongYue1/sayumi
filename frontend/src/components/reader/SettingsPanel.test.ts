@@ -510,10 +510,22 @@ describe("reader settings panel", () => {
     ]);
   });
 
+  it("keeps the mode note mounted and empty until it has something to say", async () => {
+    mount();
+    await settle();
+    // A region inserted in the same tick as its text gives AT no "before" to
+    // diff against, and NVDA and JAWS drop the announcement outright. This
+    // one is in the tree from first paint; only its sentence changes.
+    const note = el(".stp-mode-note");
+    expect(note.getAttribute("role")).toBe("status");
+    expect(text(note)).toBe("");
+  });
+
   it("explains a vertical fallback and enables effective-scroll controls", async () => {
     world.setSettings({ displayMode: "paged", contentWidth: 65 });
     mount("scroll", "vertical-writing");
     await settle();
+    expect(el(".stp-mode-note").getAttribute("role")).toBe("status");
     expect(text(el(".stp-mode-note"))).toContain(
       "Vertical writing uses Scroll for this chapter",
     );

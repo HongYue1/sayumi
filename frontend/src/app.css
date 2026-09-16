@@ -4654,6 +4654,16 @@ main {
   font-size: var(--text-xs);
   color: var(--muted);
 }
+/* Permanently-mounted live region (see SettingsPanel.tsx): collapse to nothing
+   while empty. Same contract as .lib-live and .login-live -- deliberately NOT
+   display:none / visibility:hidden, either of which would drop the region out
+   of the accessibility tree and reintroduce the WCAG 4.1.3 failure. */
+.stp-mode-note:empty {
+  margin: 0;
+  padding: 0;
+  height: 0;
+  overflow: hidden;
+}
 .stp-row-disabled .stp-label {
   color: var(--faint);
 }

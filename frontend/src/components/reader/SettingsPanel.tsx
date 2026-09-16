@@ -492,6 +492,15 @@ export default function SettingsPanel(props: Props) {
   // being enforced by the DOM.
   const rescanInert = (): boolean => rescanning() || s().preserveFonts;
 
+  // The fallback notice is a live region, so it stays mounted for the life of
+  // the panel and only its text changes: a region inserted in the same tick as
+  // its text is not announced by NVDA or JAWS (WCAG 4.1.3). .stp-mode-note
+  // collapses it while empty without taking it out of the accessibility tree.
+  const modeNote = (): string =>
+    props.modeFallback === "vertical-writing"
+      ? "Vertical writing uses Scroll for this chapter. Your paged preference remains active for horizontal chapters."
+      : "";
+
   async function rescan(): Promise<void> {
     if (rescanInert()) return;
     setRescanning(true);
@@ -635,12 +644,12 @@ export default function SettingsPanel(props: Props) {
               )}
             </For>
           </div>
-          <Show when={props.modeFallback === "vertical-writing"}>
-            <p class="stp-hint stp-mode-note" role="status">
-              Vertical writing uses Scroll for this chapter. Your paged
-              preference remains active for horizontal chapters.
-            </p>
-          </Show>
+          {/* Deliberately not Show-wrapped: this paragraph is the live
+              region, and one inserted together with its text announces
+              nothing. It stays put and only the sentence changes. */}
+          <p class="stp-hint stp-mode-note" role="status">
+            {modeNote()}
+          </p>
         </section>
 
         <section class="stp-section">
