@@ -29,11 +29,15 @@ export interface CodePointMatch {
   after: string;
 }
 
-export function findFoldedCodePointRange(
-  source: string,
+/**
+ * The scan itself, over an already-folded haystack. Kept separate so a caller
+ * that also needs the source's own code points can segment the string once and
+ * fold that array, rather than walking the string again.
+ */
+function findRangeInFolded(
+  haystack: readonly string[],
   needle: readonly string[],
 ): { start: number; end: number } | null {
-  const haystack = foldSearchText(source);
   if (needle.length === 0 || needle.length > haystack.length) return null;
 
   const limit = haystack.length - needle.length;
@@ -49,14 +53,28 @@ export function findFoldedCodePointRange(
   return null;
 }
 
+export function findFoldedCodePointRange(
+  source: string,
+  needle: readonly string[],
+): { start: number; end: number } | null {
+  return findRangeInFolded(foldSearchText(source), needle);
+}
+
 /** Splits on code-point boundaries; no returned part can hold half a pair. */
 export function splitFoldedCodePointMatch(
   source: string,
   foldedQuery: readonly string[],
 ): CodePointMatch | null {
-  const range = findFoldedCodePointRange(source, foldedQuery);
-  if (!range) return null;
+  // One segmentation pass: the folded haystack is derived from the very array
+  // the slices below index into. Going through findFoldedCodePointRange would
+  // walk the string once to fold it and once more to split it, and a
+  // highlighted TOC row pays that on every keystroke.
   const chars = toCodePoints(source);
+  const range = findRangeInFolded(
+    chars.map((char) => foldSearchCodePoint(char)),
+    foldedQuery,
+  );
+  if (!range) return null;
   return {
     before: chars.slice(0, range.start).join(""),
     match: chars.slice(range.start, range.end).join(""),
