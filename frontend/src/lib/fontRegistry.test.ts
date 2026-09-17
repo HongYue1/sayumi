@@ -196,15 +196,47 @@ describe("reachability self-heal", () => {
       setTimeout(resolve, 0);
     });
 
-  it("ignores the recovery edge until a load has succeeded", async () => {
+  it("runs the boot load it missed on the recovery edge", async () => {
+    // load() is called once per reader mount (Read.tsx), so a failed boot
+    // GET /fonts used to cost the entire mount: the registry stayed unloaded,
+    // this edge skipped it, and the settings panel kept the selected user
+    // family (its `!loaded` branches hold the id) with no faces behind it.
+    mocks.getFonts.mockResolvedValueOnce([family("user:Late")]);
     const registry = new FontRegistry();
     const stop = registry.watchReachability();
+
+    reportUnreachable();
+    reportReachable();
+    await vi.waitFor(() => expect(mocks.getFonts).toHaveBeenCalledTimes(1));
+    flush();
+    stop();
+
+    expect([...registry.families].map((f) => f.id)).toEqual(["user:Late"]);
+    expect(registry.loaded).toBe(true);
+  });
+
+  it("joins an in-flight boot load on the edge", async () => {
+    // Why the unloaded edge calls load() and not reload(): the shared
+    // in-flight promise absorbs an edge that lands while boot is still open,
+    // so recovery can never double-fetch the catalogue.
+    const boot = deferred<UserFontFamily[]>();
+    mocks.getFonts.mockReturnValueOnce(boot.promise);
+    const registry = new FontRegistry();
+    const stop = registry.watchReachability();
+
+    const loading = registry.load();
+    await vi.waitFor(() => expect(mocks.getFonts).toHaveBeenCalledTimes(1));
     reportUnreachable();
     reportReachable();
     await tick();
+    expect(mocks.getFonts).toHaveBeenCalledTimes(1);
+
+    boot.resolve([family("user:Boot")]);
+    await loading;
+    flush();
     stop();
-    expect(mocks.getFonts).not.toHaveBeenCalled();
-    expect(registry.loaded).toBe(false);
+
+    expect([...registry.families].map((f) => f.id)).toEqual(["user:Boot"]);
   });
 
   it("does not refetch on the down-edge", async () => {

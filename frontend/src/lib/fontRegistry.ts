@@ -149,16 +149,22 @@ export class FontRegistry {
   }
 
   /**
-   * Self-heal on reachability recovery. load()'s #loadedPlain early return is
-   * correct for boot, so the recovery edge routes around it — but only for a
-   * registry that HAS loaded: a never-loaded one keeps its existing retry
-   * semantics (the next load() caller retries). Returns the unsubscribe
-   * function.
+   * Self-heal on reachability recovery. A loaded registry re-fetches to replace
+   * the server's user-font token; a never-loaded one runs the boot load it
+   * missed, because "the next load() caller retries" has no one to rely on:
+   * load() is called once per reader mount (Read.tsx), so a boot /fonts
+   * failure would otherwise leave that whole mount without user fonts while
+   * the settings panel still shows the selected family (its `!loaded` branches
+   * keep the id, so the selection outlives the faces).
+   *
+   * The unloaded edge calls load(), not reload(): load() shares an in-flight
+   * boot request instead of firing a second one, and its #loadedPlain early
+   * return makes a late edge a no-op. Returns the unsubscribe function.
    */
   watchReachability(): () => void {
     return subscribeReachability((reachable) => {
-      if (!reachable || !this.#loadedPlain) return;
-      void this.reload();
+      if (!reachable) return;
+      void (this.#loadedPlain ? this.reload() : this.load());
     });
   }
 
