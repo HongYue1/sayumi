@@ -158,6 +158,10 @@ export default function Library() {
   function onSortKeydown(
     e: KeyboardEvent & { currentTarget: HTMLDivElement },
   ): void {
+    // Escape abandons an IME composition and the arrows walk its candidate
+    // list, so a composing keystroke is never a dismissal or a move here.
+    // ThemeDropdown, ProfileMenu and BookCard guard their menus the same way.
+    if (e.isComposing) return;
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
@@ -612,6 +616,10 @@ export default function Library() {
               value={newFlair()}
               onInput={(e) => setNewFlair(e.currentTarget.value)}
               onKeyDown={(e) => {
+                // Enter commits an IME candidate rather than the field, so
+                // without this the same keystroke created a flair from the
+                // half-composed label.
+                if (e.isComposing) return;
                 if (e.key === "Enter") void addFlair();
               }}
               aria-label="New flair name"

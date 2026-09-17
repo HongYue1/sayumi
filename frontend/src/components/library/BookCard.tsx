@@ -271,10 +271,12 @@ export default function BookCard(props: Props) {
         if (orphaned) trigger?.focus();
       };
       const onWindowKeyDown = (e: KeyboardEvent): void => {
-        if (e.key === "Escape") {
-          e.preventDefault();
-          closeMenu();
-        }
+        // This listener spans the window, so it would also consume the
+        // Escape that abandons an IME composition elsewhere in the document.
+        // Same guard as ProfileMenu's and ThemeDropdown's window handlers.
+        if (e.key !== "Escape" || e.isComposing) return;
+        e.preventDefault();
+        closeMenu();
       };
       window.addEventListener("click", onWindowClick, true);
       window.addEventListener("keydown", onWindowKeyDown);
@@ -355,6 +357,9 @@ export default function BookCard(props: Props) {
   function onMenuKeydown(
     e: KeyboardEvent & { currentTarget: HTMLDivElement },
   ): void {
+    // Composition owns Escape and the arrows while it is active, exactly as
+    // in the peer menus, so nothing here acts on a composing keystroke.
+    if (e.isComposing) return;
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();

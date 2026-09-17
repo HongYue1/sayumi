@@ -228,6 +228,20 @@ describe("Library route: sort menu (H4, L1)", () => {
     expect(host.querySelector(".lib-sort-menu")).toBeNull();
   });
 
+  it("leaves a composing Escape to the IME", async () => {
+    const host = await mount();
+    const menu = openMenu(host);
+    menu.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Escape",
+        isComposing: true,
+        bubbles: true,
+      }),
+    );
+    flush();
+    expect(host.querySelector(".lib-sort-menu")).not.toBeNull();
+  });
+
   it("renders exactly one item per sort option", async () => {
     // Guards the <For> -> .map() conversion: SORT_OPTIONS is frozen, so the
     // reconciler node was pure overhead, but the rewrite must still emit the
@@ -566,5 +580,40 @@ describe("Library route: busy controls stay focusable", () => {
     expect(Number(name.getAttribute("maxlength"))).toBeGreaterThanOrEqual(
       longest.length,
     );
+  });
+
+  it("leaves a composing Enter to the IME", async () => {
+    api.getBooks.mockResolvedValue([book({ id: "1", title: "Dune" })]);
+    api.createFlair.mockResolvedValue({
+      id: "cf1",
+      label: "\u306d\u3053",
+      color: "#3b82f6",
+    });
+    const host = await mount();
+    const name = host.querySelector<HTMLInputElement>(".lib-addflair input");
+    if (!name) throw new Error("add-flair controls did not render");
+
+    name.value = "\u306d\u3053";
+    name.dispatchEvent(new Event("input", { bubbles: true }));
+    flush();
+
+    // The Enter that commits a candidate must not also submit the label.
+    name.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        isComposing: true,
+        bubbles: true,
+      }),
+    );
+    flush();
+    expect(api.createFlair).not.toHaveBeenCalled();
+
+    // The next Enter, once composition has ended, still submits it.
+    name.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    );
+    flush();
+    expect(api.createFlair).toHaveBeenCalledTimes(1);
+    await settle();
   });
 });

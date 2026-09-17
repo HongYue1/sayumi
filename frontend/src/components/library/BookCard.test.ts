@@ -330,6 +330,29 @@ describe("BookCard", () => {
     expect(gear().getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("leaves a composing Escape to the IME", async () => {
+    mount();
+    await settle();
+
+    gear().click();
+    await settle();
+
+    // Two handlers see this keystroke -- the menu's own keydown and the
+    // window listener an open menu installs. Neither may read it as a
+    // dismissal, so press() is bypassed to carry the composing flag.
+    (document.activeElement ?? document.body).dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Escape",
+        isComposing: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await settle();
+
+    expect(menu()).not.toBeNull();
+  });
+
   it("closes on Tab so the key keeps leaving the menu", async () => {
     mount();
     await settle();
