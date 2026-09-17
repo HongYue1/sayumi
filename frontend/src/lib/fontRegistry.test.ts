@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { flush } from "solid-js";
+import { createEffect, createRoot, flush } from "solid-js";
 import type { UserFontFamily } from "~/api/client";
 import { reportReachable, reportUnreachable } from "~/lib/reachability";
 
@@ -179,6 +179,39 @@ describe("font registry", () => {
 
     expect(registry.get("user:Ghost")).toBeUndefined();
     expect(registry.cssValue("user:Ghost")).toBeNull();
+  });
+
+  it("invalidates a tracked list read when a publish lands", async () => {
+    // The list is reactive-only on purpose. Every consumer reads it from a
+    // memo -- the reader's @font-face CSS, the settings pickers, the iframe
+    // payload -- so this invalidation is what re-pushes them after a reload.
+    // A plain mirror beside the signal would serve the fresh array while
+    // re-running none of them.
+    mocks.getFonts.mockResolvedValueOnce([family("user:Before")]);
+    const registry = new FontRegistry();
+    await registry.load();
+    flush();
+
+    const seen: string[][] = [];
+    const dispose = createRoot((stop) => {
+      createEffect(
+        () => registry.families.map((f) => f.id),
+        (ids) => {
+          seen.push(ids);
+          return undefined;
+        },
+      );
+      return stop;
+    });
+    flush();
+    expect(seen).toEqual([["user:Before"]]);
+
+    mocks.getFonts.mockResolvedValueOnce([family("user:After")]);
+    await expect(registry.reload()).resolves.toBe(true);
+    flush();
+
+    expect(seen).toEqual([["user:Before"], ["user:After"]]);
+    dispose();
   });
 });
 

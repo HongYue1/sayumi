@@ -74,6 +74,17 @@ export class FontRegistry {
     return this.#loadedSignal[0]();
   }
 
+  /**
+   * The user families. Reactive only: deliberately without a plain mirror of
+   * the kind #loadedPlain keeps. That mirror serves the guards inside this
+   * class (load()'s early return, watchReachability's branch), which run in
+   * the same tick as #publish. Every consumer of the list is a tracked read
+   * instead — Read's activeFont and fontFaceCSS memos, SettingsPanel's
+   * pickers, and settings.toIframeSettings through cssValue() — and that read
+   * is exactly what re-pushes the faces and the reader payload once a publish
+   * lands. A plain mirror would hand those callers the new array while
+   * re-running nothing.
+   */
   get families(): UserFontFamily[] {
     return this.#familiesSignal[0]();
   }
