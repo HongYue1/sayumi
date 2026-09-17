@@ -176,15 +176,28 @@ export function focusTrap(node: HTMLElement): () => void {
     doc.removeEventListener("keydown", onKeydown, true);
     const index = traps.lastIndexOf(node);
     if (index !== -1) traps.splice(index, 1);
-    if (traps.length === 0) ACTIVE_TRAPS.delete(doc);
+    // Drop the registry entry only while this array is still the document's.
+    // A repeated teardown holds the array it captured at creation, and a
+    // later trap may already have replaced it (emptying the list deletes the
+    // entry, so the next trap starts a fresh array). Deleting through that
+    // stale reference evicts a LIVE trap, and the trap opened after it seeds
+    // a second, parallel registry where two traps each read themselves as
+    // topmost and both preventDefault Tab. Same ownership test scrollLock
+    // makes before it restores (DOCUMENT_LOCKS.get(doc) !== state).
+    if (traps.length === 0 && ACTIVE_TRAPS.get(doc) === traps) {
+      ACTIVE_TRAPS.delete(doc);
+    }
     if (addedTabIndex && node.getAttribute("tabindex") === "-1") {
       node.removeAttribute("tabindex");
     }
     // Return focus to whatever triggered the overlay, if it's still around --
     // but only while this dialog still owns focus. Something that deliberately
-    // took focus before teardown keeps it, and this is also what makes a second
-    // dispose harmless: no separate idempotence flag, which would be a second
-    // guard on the same symptom.
+    // took focus before teardown keeps it, which is also why a second dispose
+    // needs no idempotence flag: every step above is already a no-op the
+    // second time round -- the splice finds nothing, the registry is no
+    // longer ours, removeEventListener repeats safely, and scrollLock's
+    // release guards itself -- so a flag would only be a second guard on the
+    // same symptom.
     const active = doc.activeElement;
     const ownsFocus =
       active === null || active === doc.body || node.contains(active);

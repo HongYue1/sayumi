@@ -432,6 +432,55 @@ describe("focusTrap", () => {
     expect(document.activeElement).toBe(elsewhere);
   });
 
+  it("keeps a live trap registered when a stale dispose repeats", async () => {
+    const closed = document.createElement("div");
+    const closedButton = document.createElement("button");
+    markVisible(closedButton);
+    closed.append(closedButton);
+
+    const background = document.createElement("div");
+    const backgroundButton = document.createElement("button");
+    markVisible(backgroundButton);
+    background.append(backgroundButton);
+
+    const front = document.createElement("div");
+    const frontFirst = document.createElement("button");
+    const frontLast = document.createElement("button");
+    markVisible(frontFirst);
+    markVisible(frontLast);
+    front.append(frontFirst, frontLast);
+
+    document.body.append(closed, background, front);
+
+    // A panel that opened and closed on its own: its teardown emptied the
+    // per-document registry and removed the entry.
+    const disposeClosed = focusTrap(closed);
+    await Promise.resolve();
+    disposeClosed();
+
+    const disposeBackground = focusTrap(background);
+    await Promise.resolve();
+    // The repeat holds the array it captured, which is no longer the
+    // document's. Deleting through it evicted the live trap, and the trap
+    // opened next then started a second registry where both were topmost.
+    disposeClosed();
+
+    const disposeFront = focusTrap(front);
+    await Promise.resolve();
+    try {
+      frontFirst.focus();
+      const event = pressTab(frontFirst);
+      // One registry: only the front trap acts, and it has no wrap to make
+      // from the first of its two stops, so Tab is left alone. With two
+      // registries the background trap fired as well and pulled focus out.
+      expect(event.defaultPrevented).toBe(false);
+      expect(document.activeElement).toBe(frontFirst);
+    } finally {
+      disposeFront();
+      disposeBackground();
+    }
+  });
+
   it("leaves focus alone when something else took it before teardown", async () => {
     const trigger = document.createElement("button");
     const elsewhere = document.createElement("button");
