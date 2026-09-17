@@ -156,8 +156,11 @@ export class Library {
   constructor() {
     // Detached on purpose: in Solid 2.0 a root is owned by its parent by
     // default, so an app-lifetime singleton opts into global lifetime
-    // explicitly. The instance is never disposed; its memos are pure
-    // derivations that autodispose when unwatched and recompute on next read.
+    // explicitly. The instance is never disposed, so nothing tears these
+    // memos down on its behalf: detaching alone does not make a memo
+    // self-disposing -- MemoOptions.lazy does, which is why all three take
+    // it. Safe because they are pure derivations: no cleanup, no side
+    // effects.
     const derived = runWithOwner(null, () => {
       // Sort and filter are split across two memos on purpose. Fused, the
       // single memo depended on books, sort, debouncedQuery AND flairFilters,
@@ -168,18 +171,28 @@ export class Library {
       // never needs to re-sort.
       //
       // `sorted` is a local const built BEFORE `visible`, and is passed in as
-      // an argument rather than read back off `this`. createMemo evaluates its
-      // body eagerly, so the visible memo runs during this constructor call --
-      // declaring both in one object literal and reading `this.#sorted()`
-      // inside threw, because the field is only assigned after runWithOwner
-      // returns.
-      const sorted = createMemo<BookMeta[]>(() => this.#computeSorted());
+      // an argument rather than read back off `this`, because the field is
+      // only assigned after runWithOwner returns: a body reading
+      // `this.#sorted()` threw back when memo bodies ran eagerly. lazy now
+      // defers every body to its first read, but keeping the local const
+      // puts that ordering hazard out of reach either way.
+      //
+      // lazy is also what keeps the work on demand. Measured on RC8, a
+      // non-lazy memo recomputes on every source write until something reads
+      // it, so a session that deep-links into the reader and never renders
+      // the library was re-sorting and re-filtering the whole list on each
+      // progress stamp. Once watched, lazy behaves like non-lazy.
+      const sorted = createMemo<BookMeta[]>(() => this.#computeSorted(), {
+        lazy: true,
+      });
       return {
-        allFlairs: createMemo<FlairDef[]>(() => [
-          ...DEFAULT_FLAIRS,
-          ...this.customFlairs,
-        ]),
-        visible: createMemo<BookMeta[]>(() => this.#computeVisible(sorted())),
+        allFlairs: createMemo<FlairDef[]>(
+          () => [...DEFAULT_FLAIRS, ...this.customFlairs],
+          { lazy: true },
+        ),
+        visible: createMemo<BookMeta[]>(() => this.#computeVisible(sorted()), {
+          lazy: true,
+        }),
       };
     });
     this.#allFlairs = derived.allFlairs;

@@ -231,12 +231,11 @@ class Settings {
 
   constructor() {
     // Detached on purpose: in Solid 2.0 ownership is the default, so document
-    // lifetime is an explicit opt-in via runWithOwner(null, ...). Unowned
-    // memos autodispose once they lose their last subscriber — every
-    // settings.iframe subscriber is route-scoped in Read.tsx, so
-    // the memo tears down with the reader route and recomputes on the next
-    // mount. Safe here because the derivation is pure (no cleanup, no side
-    // effects), and while unsubscribed it skips recompute on settings writes.
+    // lifetime is an explicit opt-in via runWithOwner(null, ...). Detaching
+    // is not what makes a memo self-disposing though -- autodisposal is
+    // MemoOptions.lazy, below -- and this store is never disposed, so the
+    // memo is alive for the whole document. Safe because the derivation is
+    // pure: no cleanup, no side effects.
     this.#iframe = runWithOwner(null, () =>
       createMemo(
         () => toIframeSettings(this.value, customThemes.list, themePreview()),
@@ -247,7 +246,15 @@ class Settings {
         // is selected. Comparing by field puts the cutoff at the memo instead of
         // postMessaging an identical apply-settings into the reader frame
         // (Read.tsx's settings effect) -- UNSTABLE_MEMO_OUTPUT otherwise.
-        { equals: sameIframeSettings },
+        //
+        // lazy, because every settings.iframe subscriber is route-scoped in
+        // Read.tsx. Measured on RC8: a non-lazy memo computes once at
+        // construction and then on every settings write until its first read,
+        // so before a book is ever opened each theme or font edit rebuilt a
+        // payload nobody consumes. lazy holds the first run until the first
+        // read; from then on writes only mark it stale while unwatched and
+        // the next read recomputes, which is what non-lazy already did.
+        { equals: sameIframeSettings, lazy: true },
       ),
     );
 
