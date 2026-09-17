@@ -534,6 +534,7 @@ export default function Login() {
                   )}
                 </For>
               </ul>
+              {/* eslint-enable jsx-a11y/no-redundant-roles */}
               {/* Gated on busy() like every other control here: an ungated
                   escape hatch during an in-flight sign-in unmounts the form
                   whose request is still running. */}

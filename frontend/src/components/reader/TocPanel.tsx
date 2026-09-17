@@ -518,6 +518,7 @@ export default function TocPanel(props: Props) {
                   }}
                 </For>
               </ul>
+              {/* eslint-enable jsx-a11y/no-redundant-roles */}
             </div>
           </nav>
         </Show>
