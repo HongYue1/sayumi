@@ -222,6 +222,7 @@ export default function ShareDialog(props: Props) {
             </h2>
           </div>
           <button
+            type="button"
             class="icon-btn press sd-close"
             aria-label={busy() ? "Cancel upload and close" : "Close"}
             onClick={close}
@@ -257,6 +258,7 @@ export default function ShareDialog(props: Props) {
               out of the dialog for the duration. upload() entry-guards the
               busy state, so the attribute only has to say so. */}
           <button
+            type="button"
             class="btn press sd-upload-btn"
             onClick={() => void upload()}
             aria-disabled={busy() ? "true" : "false"}

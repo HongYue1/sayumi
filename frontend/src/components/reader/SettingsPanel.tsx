@@ -225,6 +225,7 @@ interface SwatchProps {
 function Swatch(p: SwatchProps) {
   const button = (
     <button
+      type="button"
       class={["stp-swatch", { active: p.active }]}
       aria-pressed={p.active ? "true" : "false"}
       style={{ background: p.t.bg, color: p.t.fg }}
@@ -243,6 +244,7 @@ function Swatch(p: SwatchProps) {
         <div class="stp-swatch-wrap">
           {button}
           <button
+            type="button"
             class="stp-edit"
             title={`Edit ${p.t.label}`}
             aria-label={`Edit ${p.t.label}`}
@@ -565,6 +567,7 @@ export default function SettingsPanel(props: Props) {
           <h2 class="display stp-title">Settings</h2>
         </div>
         <button
+          type="button"
           class="icon-btn press stp-close"
           onClick={props.onclose}
           aria-label="Close settings"
@@ -587,6 +590,7 @@ export default function SettingsPanel(props: Props) {
                 {(p) => (
                   <div class="stp-preset-chip">
                     <button
+                      type="button"
                       class="stp-preset-apply"
                       onClick={() => applyPreset(p)}
                       title={`Apply ${p.name}`}
@@ -594,6 +598,7 @@ export default function SettingsPanel(props: Props) {
                       {p.name}
                     </button>
                     <button
+                      type="button"
                       class="stp-preset-del"
                       onClick={() => void removePreset(p)}
                       aria-label={`Delete preset ${p.name}`}
@@ -610,7 +615,11 @@ export default function SettingsPanel(props: Props) {
           <Show
             when={naming()}
             fallback={
-              <button class="stp-preset-new" onClick={startNaming}>
+              <button
+                type="button"
+                class="stp-preset-new"
+                onClick={startNaming}
+              >
                 + Save current as preset
               </button>
             }
@@ -651,6 +660,7 @@ export default function SettingsPanel(props: Props) {
             <For each={MODES}>
               {(m) => (
                 <button
+                  type="button"
                   class={[{ active: s().displayMode === m.id }]}
                   aria-pressed={s().displayMode === m.id ? "true" : "false"}
                   onClick={() => set("displayMode", m.id)}
@@ -684,6 +694,7 @@ export default function SettingsPanel(props: Props) {
               )}
             </For>
             <button
+              type="button"
               class="stp-swatch stp-add"
               title="Create light theme"
               aria-label="Create light theme"
@@ -706,6 +717,7 @@ export default function SettingsPanel(props: Props) {
               )}
             </For>
             <button
+              type="button"
               class="stp-swatch stp-add"
               title="Create dark theme"
               aria-label="Create dark theme"
@@ -719,6 +731,7 @@ export default function SettingsPanel(props: Props) {
         <section class="stp-section">
           <h3>Font</h3>
           <button
+            type="button"
             class="stp-specimen"
             onClick={() => openSpecimen(props.onclose)}
           >
@@ -813,6 +826,7 @@ export default function SettingsPanel(props: Props) {
               the instant a scan starts, dropping focus to body inside the
               panel's focus trap. rescan() holds the guard. */}
           <button
+            type="button"
             class="stp-rescan"
             aria-disabled={rescanInert() ? "true" : "false"}
             onClick={() => void rescan()}
@@ -1008,6 +1022,7 @@ export default function SettingsPanel(props: Props) {
               <For each={TITLE_ALIGNS}>
                 {(a) => (
                   <button
+                    type="button"
                     class={[{ active: s().chapterTitleAlign === a.id }]}
                     aria-pressed={
                       s().chapterTitleAlign === a.id ? "true" : "false"
@@ -1118,11 +1133,12 @@ export default function SettingsPanel(props: Props) {
             ui store, so the reader opens it without owning it -- and without a
             second focus trap inside this panel. Above the reset button so the
             armed two-step destructive control stays last. */}
-        <button class="stp-about" onClick={() => ui.openAbout()}>
+        <button type="button" class="stp-about" onClick={() => ui.openAbout()}>
           <Icon icon={Info} size={15} decorative />
           About Sayumi
         </button>
         <button
+          type="button"
           class={["stp-reset", { armed: resetArmed() }]}
           onClick={resetToDefaults}
           aria-label="Reset all settings to defaults"

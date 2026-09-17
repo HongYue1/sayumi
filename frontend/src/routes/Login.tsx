@@ -515,6 +515,7 @@ export default function Login() {
                   {(p, i) => (
                     <li style={{ "--i": String(i()) }}>
                       <button
+                        type="button"
                         class="login-profile"
                         onClick={() => void pick(p)}
                         aria-disabled={busy() ? "true" : "false"}

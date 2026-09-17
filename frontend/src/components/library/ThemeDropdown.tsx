@@ -244,6 +244,7 @@ export default function ThemeDropdown() {
   return (
     <div class="theme-dd" onFocusOut={onRootFocusOut}>
       <button
+        type="button"
         ref={(el) => (trigger = el)}
         id="td-trigger"
         class={["td-trigger", { open: open() }]}
@@ -288,6 +289,7 @@ export default function ThemeDropdown() {
                   active() || (i() === 0 && !hasActive());
                 return (
                   <button
+                    type="button"
                     class={["td-pick", { active: active() }]}
                     role="menuitemradio"
                     aria-checked={active() ? "true" : "false"}
@@ -330,6 +332,7 @@ export default function ThemeDropdown() {
                 const active = () => settings.value.theme === t.id;
                 return (
                   <button
+                    type="button"
                     class={["td-pick", { active: active() }]}
                     role="menuitemradio"
                     aria-checked={active() ? "true" : "false"}

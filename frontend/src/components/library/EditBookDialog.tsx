@@ -257,6 +257,7 @@ export default function EditBookDialog(props: Props) {
             <h2 class="display">Edit book</h2>
           </div>
           <button
+            type="button"
             class="icon-btn press eb-close"
             aria-label="Close"
             aria-disabled={busy() ? "true" : "false"}

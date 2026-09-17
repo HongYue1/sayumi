@@ -398,6 +398,7 @@ export default function TocPanel(props: Props) {
           </h2>
         </div>
         <button
+          type="button"
           class="icon-btn press tocp-close"
           onClick={props.onclose}
           aria-label="Close table of contents"
@@ -433,6 +434,7 @@ export default function TocPanel(props: Props) {
           />
           <Show when={query()}>
             <button
+              type="button"
               class="tocp-clear"
               onClick={clearQuery}
               aria-label="Clear filter"
@@ -479,6 +481,7 @@ export default function TocPanel(props: Props) {
                         aria-posinset={globalIndex() + 1}
                       >
                         <button
+                          type="button"
                           id={rowId(globalIndex())}
                           class={[
                             "tocp-entry",

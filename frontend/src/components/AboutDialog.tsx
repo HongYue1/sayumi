@@ -93,6 +93,7 @@ export default function AboutDialog() {
           ref={trap()}
         >
           <button
+            type="button"
             class="icon-btn press about-close"
             aria-label="Close"
             onClick={close}

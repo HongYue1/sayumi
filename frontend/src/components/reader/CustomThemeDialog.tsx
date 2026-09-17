@@ -406,6 +406,7 @@ export default function CustomThemeDialog(props: Props) {
               </h2>
             </div>
             <button
+              type="button"
               class="icon-btn press ctd-close"
               aria-label={closeLabel()}
               onClick={close}

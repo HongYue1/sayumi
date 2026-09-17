@@ -117,6 +117,7 @@ export default function ShortcutsHelp() {
               <h2 class="display">Keyboard shortcuts</h2>
             </div>
             <button
+              type="button"
               class="icon-btn press shortcuts-close"
               aria-label="Close"
               onClick={close}

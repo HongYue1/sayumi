@@ -147,6 +147,7 @@ export default function BookmarksPanel(props: Props) {
           <h2 class="display bmp-title">Bookmarks</h2>
         </div>
         <button
+          type="button"
           class="icon-btn press bmp-close"
           onClick={props.onclose}
           aria-label="Close bookmarks"
@@ -184,6 +185,7 @@ export default function BookmarksPanel(props: Props) {
                       <>
                         <span class="bmp-ribbon" aria-hidden="true" />
                         <button
+                          type="button"
                           class="bmp-open"
                           onClick={() => props.onnavigate(bm)}
                           aria-label={`Go to bookmark: ${bookmarkName(bm)}, chapter ${bm.chapter + 1}, ${Math.round(bm.percent * 100)}%`}
@@ -199,6 +201,7 @@ export default function BookmarksPanel(props: Props) {
                         </button>
                         <div class="bmp-actions">
                           <button
+                            type="button"
                             class="bmp-row-btn press"
                             onClick={() => startEdit(bm)}
                             aria-label={`Edit bookmark: ${bookmarkName(bm)}`}
@@ -209,6 +212,7 @@ export default function BookmarksPanel(props: Props) {
                             <Icon icon={Pencil} size={15} labelFromParent />
                           </button>
                           <button
+                            type="button"
                             class="bmp-row-btn press danger"
                             onClick={() => props.ondelete(bm.id)}
                             aria-label={`Delete bookmark: ${bookmarkName(bm)}`}
@@ -267,12 +271,14 @@ export default function BookmarksPanel(props: Props) {
                       </Show>
                       <div class="bmp-actions bmp-edit-actions">
                         <button
+                          type="button"
                           class="btn press bmp-small"
                           onClick={() => saveEdit(bm.id)}
                         >
                           Save
                         </button>
                         <button
+                          type="button"
                           class="btn-ghost press bmp-small"
                           onClick={() => finishEdit(bm.id)}
                         >

@@ -200,6 +200,7 @@ export default function ProfileMenu(props: Props) {
   return (
     <div class="profile-menu" onFocusOut={onRootFocusOut}>
       <button
+        type="button"
         ref={(el) => (trigger = el)}
         id="pm-trigger"
         class={["pm-trigger", { open: open() }]}
@@ -225,6 +226,7 @@ export default function ProfileMenu(props: Props) {
           onKeyDown={onMenuKeydown}
         >
           <button
+            type="button"
             class="pm-item"
             role="menuitem"
             tabindex="0"
@@ -234,6 +236,7 @@ export default function ProfileMenu(props: Props) {
             Clone profile…
           </button>
           <button
+            type="button"
             class="pm-item danger"
             role="menuitem"
             tabindex="-1"
@@ -247,6 +250,7 @@ export default function ProfileMenu(props: Props) {
               opens is focus-trapped and snapshots activeElement on mount, so
               focus has to be back on the trigger before it appears. */}
           <button
+            type="button"
             class="pm-item"
             role="menuitem"
             tabindex="-1"
@@ -256,6 +260,7 @@ export default function ProfileMenu(props: Props) {
             About Sayumi…
           </button>
           <button
+            type="button"
             class="pm-item"
             role="menuitem"
             tabindex="-1"

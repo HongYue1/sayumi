@@ -336,6 +336,7 @@ export default function ProfileDialog(props: Props) {
             </h2>
           </div>
           <button
+            type="button"
             class="icon-btn press pd-close"
             aria-label="Close"
             onClick={() => {

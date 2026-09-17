@@ -1742,6 +1742,7 @@ export default function Read(props: Props) {
         aria-hidden={!chromeVisible() ? "true" : "false"}
       >
         <button
+          type="button"
           class="rdp-icon"
           onClick={handleBack}
           aria-label="Back to library"
@@ -1766,6 +1767,7 @@ export default function Read(props: Props) {
         <div class="rdp-tools">
           <Show when={!isSpecimen}>
             <button
+              type="button"
               class={["rdp-icon", { active: currentBookmarkId() !== null }]}
               onClick={() => void toggleBookmark()}
               aria-label={
@@ -1779,6 +1781,7 @@ export default function Read(props: Props) {
               />
             </button>
             <button
+              type="button"
               class="rdp-icon rdp-fold"
               onClick={() => togglePanel("bookmarks")}
               aria-label="Bookmarks"
@@ -1787,6 +1790,7 @@ export default function Read(props: Props) {
               <Icon icon={BookMarked} labelFromParent />
             </button>
             <button
+              type="button"
               class="rdp-icon rdp-fold"
               onClick={() => togglePanel("search")}
               aria-label="Search in book"
@@ -1796,6 +1800,7 @@ export default function Read(props: Props) {
             </button>
           </Show>
           <button
+            type="button"
             class={["rdp-icon", { "rdp-fold": !isSpecimen }]}
             onClick={() => togglePanel("settings")}
             aria-label="Settings"
@@ -1805,6 +1810,7 @@ export default function Read(props: Props) {
           </button>
           <Show when={!isSpecimen}>
             <button
+              type="button"
               class="rdp-icon"
               onClick={() => togglePanel("toc")}
               aria-label="Table of contents"
@@ -1814,6 +1820,7 @@ export default function Read(props: Props) {
             </button>
           </Show>
           <button
+            type="button"
             class={["rdp-icon", { "rdp-fold": !isSpecimen }]}
             onClick={() => ui.openShortcuts()}
             aria-label="Keyboard shortcuts"
@@ -1824,6 +1831,7 @@ export default function Read(props: Props) {
             {/* Narrow viewports: the folded tools live here instead. */}
             <div class="rdp-more-dd">
               <button
+                type="button"
                 ref={(el) => {
                   moreBtn = el;
                 }}
@@ -1847,6 +1855,7 @@ export default function Read(props: Props) {
                   onKeyDown={onMoreKeydown}
                 >
                   <button
+                    type="button"
                     class="rdp-mrow"
                     role="menuitem"
                     tabindex="0"
@@ -1856,6 +1865,7 @@ export default function Read(props: Props) {
                     Search in book
                   </button>
                   <button
+                    type="button"
                     class="rdp-mrow"
                     role="menuitem"
                     tabindex="-1"
@@ -1865,6 +1875,7 @@ export default function Read(props: Props) {
                     Bookmarks
                   </button>
                   <button
+                    type="button"
                     class="rdp-mrow"
                     role="menuitem"
                     tabindex="-1"
@@ -1874,6 +1885,7 @@ export default function Read(props: Props) {
                     Settings
                   </button>
                   <button
+                    type="button"
                     class="rdp-mrow"
                     role="menuitem"
                     tabindex="-1"
@@ -1933,6 +1945,7 @@ export default function Read(props: Props) {
               </p>
               <Show when={error()}>{(message) => <p>{message()}</p>}</Show>
               <button
+                type="button"
                 class="btn-ghost press"
                 onClick={() => void retryFailed()}
                 aria-disabled={retrying() ? "true" : "false"}
@@ -1969,6 +1982,7 @@ export default function Read(props: Props) {
                   />
                 </div>
                 <button
+                  type="button"
                   class="rdp-scrim"
                   aria-label="Close panel backdrop"
                   tabindex="-1"
@@ -2000,6 +2014,7 @@ export default function Read(props: Props) {
             />
           </div>
           <button
+            type="button"
             class="rdp-scrim"
             aria-label="Close panel backdrop"
             tabindex="-1"
@@ -2032,6 +2047,7 @@ export default function Read(props: Props) {
                   />
                 </div>
                 <button
+                  type="button"
                   class="rdp-scrim"
                   aria-label="Close panel backdrop"
                   tabindex="-1"
@@ -2060,6 +2076,7 @@ export default function Read(props: Props) {
           {/* Settings only: an invisible click-catcher instead of the veil, so
               the typography controls live-preview against the undimmed page. */}
           <button
+            type="button"
             class="rdp-scrim rdp-quiet"
             aria-label="Close panel backdrop"
             tabindex="-1"

@@ -538,6 +538,7 @@ export default function SearchPanel(props: Props) {
       <>
         <Show when={hasMore()}>
           <button
+            type="button"
             class="srp-more btn-ghost press"
             onClick={() => void loadMore()}
             aria-disabled={loadingMore() ? "true" : "false"}
@@ -601,6 +602,7 @@ export default function SearchPanel(props: Props) {
           </span>
         </Show>
         <button
+          type="button"
           class="icon-btn press srp-close"
           onClick={props.onclose}
           aria-label="Close search"
@@ -639,6 +641,7 @@ export default function SearchPanel(props: Props) {
                   <For each={group.items}>
                     {(it) => (
                       <button
+                        type="button"
                         class="srp-result"
                         id={it.id}
                         role="option"
@@ -669,6 +672,7 @@ export default function SearchPanel(props: Props) {
             <div class="srp-state">
               <p>{retryInFlight() ? "Searching…" : errorMsg()}</p>
               <button
+                type="button"
                 class="btn-ghost press"
                 onClick={() => void retrySearch()}
                 aria-disabled={retryInFlight() ? "true" : "false"}
