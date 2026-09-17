@@ -4,12 +4,11 @@
 // Solid 2.0 notes:
 //   - The outside-dismiss window listener attaches only while the menu is
 //     open, via a compute/apply createEffect.
-//   - toggle() computes `next` once: reading open() right after setOpen would
-//     still return the pre-write value (batched).
-//   - close() refuses a repeat through the openNow mirror, never open(): that
-//     same batching would hand a second dismissal in one tick the pre-write
-//     value, and the trigger would be re-focused after focus had legitimately
-//     moved on.
+//   - toggle() and close() read the openNow mirror, never open(): a signal
+//     read cannot see its own write in the same tick (batched), so anything
+//     landing in the tick of a write sees the pre-write value -- a toggle
+//     would re-open the menu that just closed, and a second dismissal would
+//     re-focus the trigger after focus had legitimately moved on.
 //   - No `as` casts: event targets are narrowed with instanceof.
 //   - Class names get a .td- prefix: .trigger/.pick/.caret are shared by
 //     convention across the library subtree and would collide in the one
@@ -26,8 +25,9 @@ export default function ThemeDropdown() {
   let trigger: HTMLButtonElement | undefined;
   let menuEl: HTMLElement | undefined;
   // Plain mirror of open() for the dismissal guard: a signal read cannot see
-  // its own write in the same tick (the reason toggle() computes `next`
-  // once), so every write goes through setOpenState and guards read openNow.
+  // its own write in the same tick, so every write goes through setOpenState
+  // and every read that must see the current state -- the dismissal guards and
+  // toggle() alike -- reads openNow.
   let openNow = false;
   function setOpenState(next: boolean): void {
     openNow = next;
@@ -85,7 +85,10 @@ export default function ThemeDropdown() {
   });
 
   function toggle(): void {
-    const next = !open();
+    // The mirror, not open(): a toggle that lands in the tick of a dismissal
+    // would compute `next` from the pre-write value and re-open what just
+    // closed.
+    const next = !openNow;
     setOpenState(next);
     // App boot normally loads the profile registry. If that non-fatal request
     // failed, opening a theme selector is an explicit, bounded retry point.

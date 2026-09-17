@@ -7,12 +7,11 @@
 // Solid 2.0 notes:
 //   - The outside-dismiss listeners attach only while open, via a
 //     compute/apply createEffect (ThemeDropdown shape).
-//   - toggle() computes `next` once: reading open() right after setOpen would
-//     still return the pre-write value (batched).
-//   - close() refuses a repeat through the openNow mirror, never open(): that
-//     same batching would hand a second dismissal in one tick the pre-write
-//     value, and the trigger would be re-focused after focus had legitimately
-//     moved on.
+//   - toggle() and close() read the openNow mirror, never open(): a signal
+//     read cannot see its own write in the same tick (batched), so anything
+//     landing in the tick of a write sees the pre-write value -- a toggle
+//     would re-open the list that just closed, and a second dismissal would
+//     re-focus the trigger after focus had legitimately moved on.
 //   - Props are read as accessors (p.value), never destructured.
 //   - Focus moves into the menu one microtask after open: Solid runs element
 //     refs while the node is still detached, so focusing in the ref no-ops.
@@ -88,7 +87,10 @@ export default function DropSelect(p: DropSelectProps) {
 
   function toggle(): void {
     if (p.disabled) return;
-    setOpenState(!open());
+    // The mirror, not open(): the batching described above would hand a toggle
+    // that lands in the tick of a dismissal the pre-write value, re-opening
+    // the list that just closed.
+    setOpenState(!openNow);
   }
   function close(restoreFocus = true): void {
     // A dismissal that lands after the menu already closed must not pull
