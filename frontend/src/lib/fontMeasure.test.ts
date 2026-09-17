@@ -16,6 +16,7 @@ let bounds: "native" | "missing" | "zero" = "native";
 let readback: "normal" | "blank" | "clipped" | "denied" = "normal";
 let noContext = false;
 let controlWidths = [45, 60, 55];
+let rasterFonts: string[] = [];
 let fontsDescriptor: PropertyDescriptor | undefined;
 const registered = new Set<unknown>();
 const fontSet = {
@@ -34,6 +35,7 @@ function installStubs() {
   readback = "normal";
   noContext = false;
   controlWidths = [45, 60, 55];
+  rasterFonts = [];
   registered.clear();
   fontSet.add.mockClear();
   fontSet.delete.mockClear();
@@ -102,6 +104,7 @@ function installStubs() {
       clearRect() {},
       fillText(g: string) {
         drawn = g;
+        rasterFonts.push(font);
       },
       getImageData() {
         if (readback === "denied") throw new Error("readback denied");
@@ -298,6 +301,26 @@ describe("measureFamilyAdjusts", () => {
       });
     },
   );
+
+  it("rasterizes with the stack the native path reports", async () => {
+    installStubs();
+    // The substitution check leaves ctx.font on the second control stack,
+    // while the native branch reports the first stack's ascent. The raster
+    // fallback stands in for that branch, so it has to measure the same
+    // stack rather than whichever comparison ran last.
+    ascents = [50, 40];
+    bounds = "missing";
+    const measure = await freshMeasure();
+    expect(await measure([fam()], undefined)).toEqual({
+      "user:Minion": 1.25,
+    });
+
+    const stacks = new Set(
+      rasterFonts.map((f) => f.replace(/"[^"]+"/, '"probe"')),
+    );
+    expect(rasterFonts.length).toBeGreaterThan(0);
+    expect([...stacks]).toEqual(['400 100px "probe", serif']);
+  });
 
   it.each(["blank", "clipped", "denied"] as const)(
     "declines %s pixel readback",

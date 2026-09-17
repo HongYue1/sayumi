@@ -131,6 +131,12 @@ function glyphAscent(
   ) {
     // Extended TextMetrics may be unavailable while rasterization still works.
     // Fixed dimensions bound allocation/work; readback denial is caught below.
+    // Re-select the first stack: the substitution check above left ctx.font on
+    // the second control, while the native branch reports the FIRST stack's
+    // ascent. Both stacks agreed on the advance, so this measures the same
+    // face either way -- it stops the rasterized stack from depending on
+    // which comparison happened to run last.
+    ctx.font = font(FALLBACKS[0], true);
     ascent = rasterAscent(ctx, glyph);
   } else if (Math.abs(ascent - other.actualBoundingBoxAscent) > 0.01) {
     return undefined;
