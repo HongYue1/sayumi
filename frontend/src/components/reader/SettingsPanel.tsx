@@ -657,18 +657,19 @@ export default function SettingsPanel(props: Props) {
         <section class="stp-section">
           <h3>Reading mode</h3>
           <div class="stp-segmented" role="group" aria-label="Reading mode">
-            <For each={MODES}>
-              {(m) => (
-                <button
-                  type="button"
-                  class={[{ active: s().displayMode === m.id }]}
-                  aria-pressed={s().displayMode === m.id ? "true" : "false"}
-                  onClick={() => set("displayMode", m.id)}
-                >
-                  {m.label}
-                </button>
-              )}
-            </For>
+            {/* .map() rather than <For>: MODES is a frozen module constant, so
+                <For> would keep a reconciler alive for buttons that never
+                change. The attributes inside stay reactive either way. */}
+            {MODES.map((m) => (
+              <button
+                type="button"
+                class={[{ active: s().displayMode === m.id }]}
+                aria-pressed={s().displayMode === m.id ? "true" : "false"}
+                onClick={() => set("displayMode", m.id)}
+              >
+                {m.label}
+              </button>
+            ))}
           </div>
           {/* Deliberately not Show-wrapped: this paragraph is the live
               region, and one inserted together with its text announces
@@ -1019,20 +1020,18 @@ export default function SettingsPanel(props: Props) {
               role="group"
               aria-label="Chapter title alignment"
             >
-              <For each={TITLE_ALIGNS}>
-                {(a) => (
-                  <button
-                    type="button"
-                    class={[{ active: s().chapterTitleAlign === a.id }]}
-                    aria-pressed={
-                      s().chapterTitleAlign === a.id ? "true" : "false"
-                    }
-                    onClick={() => set("chapterTitleAlign", a.id)}
-                  >
-                    {a.label}
-                  </button>
-                )}
-              </For>
+              {TITLE_ALIGNS.map((a) => (
+                <button
+                  type="button"
+                  class={[{ active: s().chapterTitleAlign === a.id }]}
+                  aria-pressed={
+                    s().chapterTitleAlign === a.id ? "true" : "false"
+                  }
+                  onClick={() => set("chapterTitleAlign", a.id)}
+                >
+                  {a.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -1062,23 +1061,21 @@ export default function SettingsPanel(props: Props) {
               />
               Override each heading size
             </label>
-            <For each={HEADERS}>
-              {(h) => (
-                <AutoRow
-                  label={h.label}
-                  value={s()[h.key]}
-                  min={10}
-                  max={100}
-                  step={1}
-                  fallback={32}
-                  unit="px"
-                  apply={(v) => set(h.key, v)}
-                  disabledReason={
-                    s().headerSizesEnabled ? null : "Turn on above to edit"
-                  }
-                />
-              )}
-            </For>
+            {HEADERS.map((h) => (
+              <AutoRow
+                label={h.label}
+                value={s()[h.key]}
+                min={10}
+                max={100}
+                step={1}
+                fallback={32}
+                unit="px"
+                apply={(v) => set(h.key, v)}
+                disabledReason={
+                  s().headerSizesEnabled ? null : "Turn on above to edit"
+                }
+              />
+            ))}
           </details>
 
           <AutoRow
