@@ -71,6 +71,10 @@ function onWindowKey(e: KeyboardEvent): void {
 
 export default function App() {
   let appliedThemeKey: string | null = null;
+  // Whether the current chrome paint came from an unsaved draft. A draft is the
+  // one palette no later run is guaranteed to replace, so the stand-down below
+  // has to undo it explicitly.
+  let paintedDraft = false;
 
   onSettled(() => {
     // Re-apply the cached theme (already set pre-paint by the index.html
@@ -149,6 +153,14 @@ export default function App() {
     },
     (active) => {
       if (active === null) {
+        // A draft outlives its editor. Sign-out unmounts the reader route, and
+        // with it the dialog whose teardown clears the draft -- but this
+        // resolver stands down in the same tick and nothing else paints chrome,
+        // so the login screen would keep a palette the user never saved, down
+        // to data-theme="draft-preview". Revert to the pre-paint cache, the
+        // same source boot paints from.
+        if (paintedDraft) applyTheme(getCachedThemeId());
+        paintedDraft = false;
         appliedThemeKey = null;
         return undefined;
       }
@@ -176,6 +188,7 @@ export default function App() {
       ].join("\u0000");
       if (key !== appliedThemeKey) {
         appliedThemeKey = key;
+        paintedDraft = draft;
         // previewTheme paints without writing the pre-paint cache, so a draft
         // cannot survive a reload.
         if (draft) previewTheme(theme);

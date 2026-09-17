@@ -19,7 +19,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createComponent, flush } from "solid-js";
 import { render } from "@solidjs/web";
-import { DEFAULT_THEME_ID } from "~/lib/themes";
+import { DEFAULT_THEME_ID, type ThemeDef } from "~/lib/themes";
 import type * as ApiClient from "~/api/client";
 
 const api = vi.hoisted(() => ({
@@ -86,6 +86,7 @@ async function loadShell() {
     settingsMod,
     customThemesMod,
     themesMod,
+    themePreviewMod,
     libraryMod,
     routerMod,
   ] = await Promise.all([
@@ -95,6 +96,7 @@ async function loadShell() {
     import("~/lib/settings"),
     import("~/lib/customThemes"),
     import("~/lib/themes"),
+    import("~/lib/themePreview"),
     import("~/lib/library"),
     import("~/lib/router"),
   ]);
@@ -105,6 +107,7 @@ async function loadShell() {
     settings: settingsMod.settings,
     customThemes: customThemesMod.customThemes,
     setCustomThemes: themesMod.setCustomThemes,
+    setThemePreview: themePreviewMod.setThemePreview,
     library: libraryMod.library,
     router: routerMod.router,
   };
@@ -305,6 +308,35 @@ describe("App shell", () => {
       "light",
       "nord",
     ]);
+  });
+
+  it("repaints the saved theme when a draft is abandoned by sign-out", async () => {
+    // The custom-theme dialog publishes its unsaved palette here and drops it
+    // on unmount -- but sign-out unmounts the reader route and the resolver
+    // stands down in the same tick, so only an explicit revert keeps a palette
+    // the user never saved off the login screen.
+    localStorage.setItem("sayumi:theme", "nord");
+    const shell = await signedIn("ada");
+
+    const draft: ThemeDef = {
+      id: "draft-preview",
+      label: "Preview",
+      group: "dark",
+      bg: "#101014",
+      fg: "#f4f4f5",
+      accent: "#f97316",
+    };
+    shell.setThemePreview(draft);
+    await settle();
+    // previewTheme is not stubbed, so the draft really is on the document root.
+    expect(document.documentElement.dataset.theme).toBe("draft-preview");
+
+    applyTheme.mockClear();
+    await shell.session.logout();
+    await settle();
+
+    expect(shell.session.profile).toBeNull();
+    expect(applyTheme.mock.calls).toEqual([["nord"]]);
   });
 
   it("leaves the theme alone when the settings load failed", async () => {
