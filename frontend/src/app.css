@@ -2026,11 +2026,15 @@ main {
   border-top: 1px solid var(--hairline);
 }
 
-/* ---- Profile dialog ----------------------------------------------------- */
-/* Everything prefixed .pd-; the backdrop is the shared .backdrop-dismiss,
-   and .eyebrow/.display/.icon-btn/.press/.btn/.btn-ghost/.field are reused
+/* ---- Profile + confirm dialogs ------------------------------------------ */
+/* Everything prefixed .pd- (profile) or .cfm- (the shared destructive
+   confirmation). Both dialogs share this chrome rather than restating it, so
+   a change to the sheet, the header or the destructive button lands on both;
+   the backdrop is the shared .backdrop-dismiss, and
+   .eyebrow/.display/.icon-btn/.press/.btn/.btn-ghost/.field are reused
    from the global design system. */
-.pd-overlay {
+.pd-overlay,
+.cfm-overlay {
   position: fixed;
   inset: 0;
   z-index: 60;
@@ -2038,7 +2042,8 @@ main {
   place-items: center;
   padding: var(--sp-6);
 }
-.pd-sheet {
+.pd-sheet,
+.cfm-sheet {
   position: relative;
   width: min(26rem, 100%);
   max-height: calc(100dvh - var(--sp-12));
@@ -2049,7 +2054,8 @@ main {
   box-shadow: var(--shadow-3);
   animation: app-sheet-in var(--dur-slow) var(--ease-out);
 }
-.pd-sheet header {
+.pd-sheet header,
+.cfm-sheet header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -2061,24 +2067,29 @@ main {
   z-index: 1;
   background: var(--raised);
 }
-.pd-head-text {
+.pd-head-text,
+.cfm-head-text {
   display: flex;
   flex-direction: column;
   gap: var(--sp-1);
 }
-.pd-head-text .eyebrow {
+.pd-head-text .eyebrow,
+.cfm-head-text .eyebrow {
   margin: 0;
 }
-.pd-sheet h2 {
+.pd-sheet h2,
+.cfm-sheet h2 {
   margin: 0;
   font-size: var(--text-xl);
   font-weight: 540;
   line-height: var(--lh-tight);
 }
-.pd-close {
+.pd-close,
+.cfm-close {
   flex-shrink: 0;
 }
-.pd-sheet form {
+.pd-sheet form,
+.cfm-body {
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);
@@ -2094,7 +2105,8 @@ main {
   color: var(--fg);
   font-weight: 640;
 }
-.pd-warn {
+.pd-warn,
+.cfm-warn {
   display: flex;
   gap: var(--sp-3);
   padding: var(--sp-3);
@@ -2103,7 +2115,8 @@ main {
   background: color-mix(in srgb, var(--danger) 10%, transparent);
   color: var(--danger);
 }
-.pd-warn p {
+.pd-warn p,
+.cfm-warn p {
   margin: 0;
   font-size: var(--text-sm);
   line-height: 1.5;
@@ -2170,7 +2183,8 @@ main {
 .pd-retry {
   flex-shrink: 0;
 }
-.pd-actions {
+.pd-actions,
+.cfm-actions {
   display: flex;
   justify-content: flex-end;
   gap: var(--sp-2);
@@ -2179,7 +2193,8 @@ main {
   border-top: 1px solid var(--hairline);
 }
 /* Filled destructive action -- deliberately the only loud red in the app. */
-.pd-btn-del {
+.pd-btn-del,
+.cfm-btn-del {
   font-family: var(--font-ui);
   font-size: var(--text-sm);
   font-weight: 560;
@@ -2198,7 +2213,8 @@ main {
     filter var(--dur-fast) var(--ease-out),
     box-shadow var(--dur) var(--ease-out);
 }
-.pd-btn-del:hover:not([aria-disabled="true"]) {
+.pd-btn-del:hover:not([aria-disabled="true"]),
+.cfm-btn-del:hover:not([aria-disabled="true"]) {
   filter: brightness(1.08);
   box-shadow: var(--shadow-2);
 }
