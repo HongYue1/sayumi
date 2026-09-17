@@ -6,7 +6,13 @@
 //     required; the abort controller and timers are plain (non-reactive)
 //     vars.
 //   - The backdrop dismiss is the shared .backdrop-dismiss button instead of
-//     the sheet stopPropagation trick, which jsx-a11y rejects.
+//     the sheet stopPropagation trick, which jsx-a11y rejects. It refuses
+//     while an upload runs (as ProfileDialog and EditBookDialog do): a click
+//     outside the sheet is the one dismissal that can be a slip, and here
+//     closing aborts a transfer that can be minutes in.
+//   - Copying feature-detects instead of assuming navigator.clipboard, which
+//     exists only in a secure context -- not on the plain-HTTP LAN address
+//     this dialog's own copy points readers at.
 import { createMemo, createSignal, onSettled, Show } from "solid-js";
 import { getDownloadUrl, uploadToGofile, type BookMeta } from "~/api/client";
 import { getErrorMessage } from "~/lib/errors";
@@ -67,11 +73,54 @@ export default function ShareDialog(props: Props) {
     }
   }
 
+  // The rendered link, which the copy fallbacks need as a selection target.
+  let linkEl: HTMLAnchorElement | undefined;
+
+  type CopyOutcome = "copied" | "selected" | "failed";
+
+  function selectLinkText(): boolean {
+    const selection = window.getSelection?.();
+    if (!linkEl || !selection) return false;
+    const range = document.createRange();
+    range.selectNodeContents(linkEl);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  }
+
+  async function writeToClipboard(link: string): Promise<CopyOutcome> {
+    // Feature-detected, not merely try/caught: navigator.clipboard is
+    // secure-context only, so on the plain-HTTP LAN deployment the property
+    // is absent and reading through it threw before anything was attempted
+    // -- every copy ended in "Could not copy link".
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(link);
+        return "copied";
+      } catch {
+        // Denied by permissions or by the embedding: fall through to the
+        // legacy path rather than give up while an option remains.
+      }
+    }
+    // execCommand is deprecated, but it is the only copy a non-secure
+    // context has, and it copies the selection -- so the link has to be the
+    // selection first. Selecting the link in place also leaves focus alone,
+    // which a scratch textarea would not: appended to body it sits outside
+    // the focus trap, which would pull focus back and drop the selection.
+    if (!selectLinkText()) return "failed";
+    try {
+      if (document.execCommand("copy")) return "copied";
+    } catch {
+      // Fall through -- the link is selected either way.
+    }
+    return "selected";
+  }
+
   async function copyLink(): Promise<void> {
     const link = url();
     if (!link) return;
-    try {
-      await navigator.clipboard.writeText(link);
+    const outcome = await writeToClipboard(link);
+    if (outcome === "copied") {
       setCopied(true);
       toast.show("Link copied");
       if (copiedResetTimer !== null) clearTimeout(copiedResetTimer);
@@ -79,9 +128,16 @@ export default function ShareDialog(props: Props) {
         setCopied(false);
         copiedResetTimer = null;
       }, 1500);
-    } catch {
-      toast.show("Could not copy link");
+      return;
     }
+    // Nothing would write for us. The fallback highlighted the link on its
+    // way out, so the reader's own Ctrl+C is one keystroke away; say that
+    // instead of reporting a flat failure.
+    toast.show(
+      outcome === "selected"
+        ? "Link selected — press Ctrl+C to copy"
+        : "Could not copy link",
+    );
   }
 
   function close(): void {
@@ -134,12 +190,19 @@ export default function ShareDialog(props: Props) {
 
   return (
     <div class="sd-overlay" role="presentation">
+      {/* Inert while busy, matching ProfileDialog and EditBookDialog: the
+          header button (labelled "Cancel upload and close") and Escape are
+          the deliberate cancel paths, while a click that lands outside the
+          sheet is as likely to be a slip -- and close() aborts an upload
+          that can run for the 30-minute gofile timeout. */}
       <button
         type="button"
         class="backdrop-dismiss"
         aria-label="Close"
         tabindex="-1"
-        onClick={close}
+        onClick={() => {
+          if (!busy()) close();
+        }}
       />
       {/* div+role kept over a native <dialog>: visual parity with the established design is the port's contract. */}
       <div
@@ -209,7 +272,12 @@ export default function ShareDialog(props: Props) {
           <Show when={url()}>
             {(link) => (
               <div class="sd-result">
-                <a href={link()} target="_blank" rel="noopener noreferrer">
+                <a
+                  href={link()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  ref={(el) => (linkEl = el)}
+                >
                   {link()}
                 </a>
                 <button

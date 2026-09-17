@@ -21,6 +21,11 @@
 //   - Two activations in the same tick start one upload. busy() cannot
 //     refuse the second one, because a signal read taken inside the flush of
 //     its own write still returns the pre-write value.
+//   - A backdrop click while an upload runs does nothing: it is the one
+//     dismissal that can be a slip, and dismissing aborts the transfer.
+//   - Copying survives a non-secure context, where navigator.clipboard does
+//     not exist -- the legacy command copies a selection of the link, and if
+//     that refuses too the link is left selected and the toast says so.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@solidjs/web";
 import { flush } from "solid-js";
@@ -129,6 +134,27 @@ describe("ShareDialog", () => {
     container.querySelector<HTMLElement>(".sd-error");
   const liveRegion = (): HTMLElement =>
     container.querySelector<HTMLElement>('.sr-only[role="alert"]')!;
+  const backdrop = (): HTMLButtonElement =>
+    container.querySelector<HTMLButtonElement>(".backdrop-dismiss")!;
+
+  // A non-secure origin has no navigator.clipboard at all. Deleting the
+  // property is not enough -- happy-dom defines clipboard on
+  // Navigator.prototype, and a working implementation then shows through the
+  // hole, so the own property is overwritten with undefined instead.
+  // execCommand is the reverse case: happy-dom has none, so it is defined
+  // here rather than spied on.
+  function withoutClipboard(copyResult: boolean): ReturnType<typeof vi.fn> {
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      configurable: true,
+    });
+    const exec = vi.fn(() => copyResult);
+    Object.defineProperty(document, "execCommand", {
+      value: exec,
+      configurable: true,
+    });
+    return exec;
+  }
 
   function key(target: EventTarget, init: KeyboardEventInit): void {
     target.dispatchEvent(
@@ -272,6 +298,79 @@ describe("ShareDialog", () => {
 
     expect(stubs.clipboard).toHaveBeenCalledWith("https://gofile.io/d/abc");
     expect(stubs.toasts).toEqual(["Link copied"]);
+  });
+
+  it("copies the link with no navigator.clipboard at all", async () => {
+    const exec = withoutClipboard(true);
+    try {
+      stubs.uploadToGofile.mockResolvedValue({
+        downloadPage: "https://gofile.io/d/abc",
+      });
+      await mount();
+      uploadBtn().click();
+      await settle();
+
+      copyBtn().click();
+      await settle();
+
+      // The legacy command copies the selection, so the link has to be the
+      // selection by the time it runs.
+      expect(window.getSelection()?.toString()).toContain("gofile.io/d/abc");
+      expect(exec).toHaveBeenCalledWith("copy");
+      expect(stubs.toasts).toEqual(["Link copied"]);
+    } finally {
+      Reflect.deleteProperty(document, "execCommand");
+    }
+  });
+
+  it("leaves the link selected when nothing will copy for it", async () => {
+    withoutClipboard(false);
+    try {
+      stubs.uploadToGofile.mockResolvedValue({
+        downloadPage: "https://gofile.io/d/abc",
+      });
+      await mount();
+      uploadBtn().click();
+      await settle();
+
+      copyBtn().click();
+      await settle();
+
+      // A dead end still leaves the reader one keystroke away, and the
+      // button must not claim a copy that never happened.
+      expect(stubs.toasts).toEqual(["Link selected — press Ctrl+C to copy"]);
+      expect(copyBtn().getAttribute("aria-label")).toBe("Copy link");
+    } finally {
+      Reflect.deleteProperty(document, "execCommand");
+    }
+  });
+
+  it("ignores a backdrop click while an upload is in flight", async () => {
+    let resolveUpload: ((value: { downloadPage: string }) => void) | undefined;
+    stubs.uploadToGofile.mockImplementation(
+      () =>
+        new Promise<{ downloadPage: string }>((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    await mount();
+
+    uploadBtn().click();
+    await settle();
+
+    backdrop().click();
+    await settle();
+    // Dismissing aborts the transfer, and a click landing outside the sheet
+    // is as likely to be a slip: the header button (which says it cancels)
+    // and Escape stay the deliberate paths.
+    expect(closes).toBe(0);
+
+    resolveUpload?.({ downloadPage: "https://gofile.io/d/abc" });
+    await settle();
+
+    backdrop().click();
+    await settle();
+    expect(closes).toBe(1);
   });
 
   it("announces an ApiError from a region that exists before it has text", async () => {
