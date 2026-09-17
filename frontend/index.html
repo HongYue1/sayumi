@@ -58,12 +58,16 @@
           // The writer (applyTheme, lib/theme.ts) always stores the full shape;
           // a cache missing or mistyping a core token is corrupt or stale, and
           // painting it would hold broken vars until the settings load lands.
+          // scheme is the one entry that lands on a real CSS property rather
+          // than a custom one, so it is checked by value: an unrecognized
+          // scheme leaves the controls and scrollbars on the opposite scheme
+          // from the palette painted around them.
           if (
             typeof v.bg !== "string" ||
             typeof v.fg !== "string" ||
             typeof v.accent !== "string" ||
             typeof v.accentFg !== "string" ||
-            typeof v.scheme !== "string"
+            (v.scheme !== "light" && v.scheme !== "dark")
           ) {
             return;
           }

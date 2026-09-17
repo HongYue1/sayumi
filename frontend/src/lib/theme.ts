@@ -54,7 +54,11 @@ function applyCachedTheme(id: string): boolean {
     typeof v.fg !== "string" ||
     typeof v.accent !== "string" ||
     typeof v.accentFg !== "string" ||
-    typeof v.scheme !== "string"
+    // colorScheme is a real CSS property, not a custom one: a value outside
+    // the two paintTheme can write is not a palette this cache ever held, and
+    // painting it would leave the controls and scrollbars on the opposite
+    // scheme from the tokens above. Refuse the entry whole instead.
+    (v.scheme !== "light" && v.scheme !== "dark")
   ) {
     return false;
   }
@@ -90,7 +94,7 @@ function paintTheme(t: ThemeDef): {
   accentFg: string;
   elevated: string;
   accentInk: string;
-  scheme: string;
+  scheme: "light" | "dark";
 } {
   const accentFg = onAccentColor(t.accent);
   const scheme = t.group === "dark" ? "dark" : "light";
