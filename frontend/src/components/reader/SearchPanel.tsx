@@ -574,43 +574,28 @@ export default function SearchPanel(props: Props) {
         </button>
       </header>
 
-      <div
-        class="srp-list"
-        id="search-results"
-        role="listbox"
-        aria-label="Search results"
-        tabindex="-1"
-        onMouseDown={onListMouseDown}
-        onClick={onListClick}
-      >
-        <Switch>
-          <Match when={status() === "loading"}>
-            <p class="srp-state">Searching…</p>
-          </Match>
-          <Match when={status() === "error"}>
-            <div class="srp-state">
-              <p>{errorMsg()}</p>
-              <button
-                class="btn-ghost press"
-                onClick={() => void run(lastQuery)}
-              >
-                Try again
-              </button>
-            </div>
-          </Match>
-          <Match when={status() === "done" && resultItems().length === 0}>
-            <p class="srp-state">
-              {hasMore()
-                ? `No displayable results on this page for “${query()}” — more matches may follow.`
-                : `No results for “${query()}”.`}
-            </p>
-            {loadMoreControls()}
-          </Match>
-          <Match when={status() === "done"}>
+      {/* The scroll container is not the listbox. A listbox owns options and
+          their groups, so the state lines, the retry button and the
+          load-more control sit beside it rather than inside it, where AT
+          walking the list would count them as results. The id stays on the
+          listbox because the combobox's aria-controls and
+          aria-activedescendant point into it. */}
+      <div class="srp-list" onMouseDown={onListMouseDown} onClick={onListClick}>
+        <div
+          class="srp-options"
+          id="search-results"
+          role="listbox"
+          aria-label="Search results"
+          tabindex="-1"
+        >
+          <Show when={status() === "done"}>
             <For each={groups()}>
               {(group) => (
                 <div class="srp-group" role="group" aria-label={group.label}>
-                  <div class="srp-group-head">
+                  {/* The head repeats the group's own name and a count the
+                      option list already conveys, so it is decorative here
+                      rather than invalid owned content. */}
+                  <div class="srp-group-head" aria-hidden="true">
                     {group.label}
                     <span class="srp-group-count tnum">
                       {group.items.length}
@@ -639,6 +624,31 @@ export default function SearchPanel(props: Props) {
                 </div>
               )}
             </For>
+          </Show>
+        </div>
+        <Switch>
+          <Match when={status() === "loading"}>
+            <p class="srp-state">Searching…</p>
+          </Match>
+          <Match when={status() === "error"}>
+            <div class="srp-state">
+              <p>{errorMsg()}</p>
+              <button
+                class="btn-ghost press"
+                onClick={() => void run(lastQuery)}
+              >
+                Try again
+              </button>
+            </div>
+          </Match>
+          <Match when={status() === "done"}>
+            <Show when={resultItems().length === 0}>
+              <p class="srp-state">
+                {hasMore()
+                  ? `No displayable results on this page for “${query()}” — more matches may follow.`
+                  : `No results for “${query()}”.`}
+              </p>
+            </Show>
             {loadMoreControls()}
           </Match>
         </Switch>

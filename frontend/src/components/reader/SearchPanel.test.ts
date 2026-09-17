@@ -218,6 +218,38 @@ describe("reader search panel", () => {
     expect(note.textContent).toBe("No results.");
   });
 
+  it("keeps non-option content out of the listbox", async () => {
+    api.searchBook.mockResolvedValueOnce(page([result()], true, "c1"));
+    mount();
+    await settle();
+    typeQuery("needle");
+    advance(300);
+    await settle();
+
+    const list = el("#search-results");
+    expect(list.getAttribute("role")).toBe("listbox");
+    // A listbox owns options and the groups that hold them. Anything else
+    // inside it is read as a result by AT walking the list, so the state
+    // lines and the paging controls are siblings of the listbox instead.
+    expect([...list.children].map((n) => n.getAttribute("role"))).toEqual([
+      "group",
+    ]);
+    expect(all("#search-results button:not(.srp-result)")).toHaveLength(0);
+    // The head repeats the group's own aria-label, so it is decorative.
+    expect(el(".srp-group-head").getAttribute("aria-hidden")).toBe("true");
+    expect(el(".srp-more").closest("#search-results")).toBeNull();
+
+    // The retry affordance of a failed search is not an option either.
+    api.searchBook.mockRejectedValueOnce(new Error("boom"));
+    typeQuery("other");
+    advance(300);
+    await settle();
+    const retry = el(".srp-state button");
+    expect(retry.textContent?.trim()).toBe("Try again");
+    expect(retry.closest("#search-results")).toBeNull();
+    expect(el("#search-results").children).toHaveLength(0);
+  });
+
   it("clears the pending debounce when the panel closes", async () => {
     mount();
     await settle();
