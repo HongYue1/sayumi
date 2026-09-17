@@ -1,4 +1,8 @@
-interface ReaderFont {
+/**
+ * One built-in reading face. Exported because it names both what
+ * READER_FONTS holds and what getFontById hands back.
+ */
+export interface ReaderFont {
   id: string;
   label: string;
   family: string;
