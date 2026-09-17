@@ -303,6 +303,14 @@ function formatHint(url: string): string {
  * then re-sent to the iframe. `measured` carries ink-measured size ratios by
  * family id (see lib/fontMeasure); they override the server metrics wherever
  * present, so a face whose tables lie still matches once measured.
+ *
+ * The embedded set is cached (its only input is the metrics table) while user
+ * faces are rebuilt on every call. The asymmetry is deliberate: a user face
+ * depends on the family objects, the role map AND the measured ratios, so a
+ * cache would need all three as its key — which is the comparison Read's
+ * memo already performs. settings is a property-tracking store, so a
+ * type-scale edit never reaches here: the rebuild is paid on font, role and
+ * registry changes only.
  */
 export function buildAllFontFaces(
   userFamilies: UserFontFamily[],

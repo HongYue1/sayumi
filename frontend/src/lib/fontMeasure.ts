@@ -29,6 +29,15 @@ let referenceDocument: Document | null = null;
 // Fresh registry objects invalidate rescans/reconnects without retaining old
 // registries. URL keys distinguish role picks and server tokens; cache only
 // successful calibrations and bound each family's number of retained files.
+//
+// Every catalogue response therefore re-measures, including one fetched by a
+// reachability recovery edge. That is affordable because the production
+// caller (Read's calibration effect) asks for ONE family — its active regular
+// face — never the whole list, so an edge costs a single FontFace.load() and
+// its glyph probes rather than one per installed family. Keying on fam.id
+// would not avoid the usual case anyway: the cached URL carries the server's
+// token, which changes on restart. It would only serve stale ink for a
+// rescanned file that kept its name.
 const measured = new WeakMap<UserFontFamily, Map<string, Ink>>();
 const MAX_CACHED_FILES = 8;
 

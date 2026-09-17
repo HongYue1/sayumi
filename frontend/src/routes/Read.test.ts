@@ -440,6 +440,35 @@ describe("Read font calibration ownership", () => {
     await settle();
     expect(measure).toHaveBeenCalledTimes(1);
   });
+
+  it("calibrates only the active face, not the catalogue", async () => {
+    // The ink cache is keyed on the UserFontFamily object and /fonts hands
+    // back fresh objects, so every catalogue response re-measures. Asking for
+    // one family is what keeps that affordable: a registry reload (or a
+    // reachability recovery edge) costs one face load, not one per installed
+    // family. Measuring the list here would multiply that by the catalogue.
+    const measure = vi
+      .spyOn(fontMeasure, "measureFamilyAdjusts")
+      .mockResolvedValue({ "user:Calibration": 1.1 });
+    await setupFamily();
+    expect(measure).toHaveBeenCalledTimes(1);
+    expect(measure.mock.calls[0][0]).toHaveLength(1);
+    expect(measure.mock.calls[0][0][0].id).toBe("user:Calibration");
+  });
+
+  it("does not rebuild the font faces for an unrelated settings edit", async () => {
+    // settings is a property-tracking store, so the @font-face memo wakes for
+    // font family/role and registry changes only. A type-scale edit must not
+    // re-concatenate every family's rules or re-push them to the frame.
+    vi.spyOn(fontMeasure, "measureFamilyAdjusts").mockResolvedValue({
+      "user:Calibration": 1.1,
+    });
+    await setupFamily();
+    const writes = vi.mocked(frame.api.setFontFaces).mock.calls.length;
+    settings.update({ letterSpacing: 0.02 });
+    await settle();
+    expect(frame.api.setFontFaces).toHaveBeenCalledTimes(writes);
+  });
 });
 
 describe("Read boot and restore", () => {
