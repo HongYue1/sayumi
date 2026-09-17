@@ -210,9 +210,13 @@ async function request<T>(
   // request. A late 401 from an old profile must not sign out a newer login.
   const sessionEpoch = currentSessionEpoch();
   const { signal: attemptSignal, dispose } = withTimeout(signal, timeoutMs);
+  // Only a JSON body declares a Content-Type: FormData sets its own, boundary
+  // included, and overriding it breaks the upload. Deciding that before the
+  // headers are built keeps it to one build per request.
+  const jsonBody = body != null && !(body instanceof FormData);
   const options: RequestInit = {
     method,
-    headers: buildHeaders(),
+    headers: buildHeaders(jsonBody),
     credentials: "same-origin",
     signal: attemptSignal,
   };
@@ -220,14 +224,8 @@ async function request<T>(
   // beaconProgress); only the settings save passes it today.
   if (keepalive) options.keepalive = true;
 
-  if (body != null) {
-    if (body instanceof FormData) {
-      options.body = body;
-    } else {
-      options.headers = buildHeaders(true);
-      options.body = JSON.stringify(body);
-    }
-  }
+  if (body instanceof FormData) options.body = body;
+  else if (jsonBody) options.body = JSON.stringify(body);
 
   let res: Response;
   try {
@@ -391,6 +389,11 @@ export async function requestWithRetry<T>(
         throw error;
       }
 
+      // Deliberately jitterless. The herd is one user's few in-flight
+      // requests -- the reader prefetches at most two neighbours -- against a
+      // server on this machine, so spreading them buys nothing a local socket
+      // queue does not already absorb, and the storm worth preventing is the
+      // one the snapshot above already stops.
       await sleep(500 * 2 ** attempt, sig);
     }
   }
@@ -636,6 +639,11 @@ interface FontsResponse {
   userToken: string;
 }
 
+// Both are server-lifetime values, not per-profile state, so module scope is
+// deliberate and surviving a profile switch is correct: the token is minted
+// once per process (see userFontUrl) and the metrics describe the faces
+// compiled into the binary. A restart invalidates both, and the first /fonts
+// response of the next session replaces them.
 let userFontToken = "";
 let embeddedFontMetrics: Record<string, FontMetrics> = {};
 
@@ -769,7 +777,7 @@ export function uploadBook(
     // resize, runs well past the default bound. A POST is never retried, so
     // aborting here would lose a half-finished import rather than repeat it.
     10 * 60 * 1000,
-  ).then((book) => ({ book, duplicate: book.duplicate === true }));
+  ).then(({ duplicate, ...book }) => ({ book, duplicate: duplicate === true }));
 }
 
 // version (the book's updatedAt) is appended as ?v= so that editing a cover —
@@ -846,10 +854,12 @@ export interface ChapterData {
   resourceBase?: string;
 }
 
+// attempts is forwarded exactly as given: omitting it takes requestWithRetry's
+// own default instead of restating the number here, where the two could drift.
 export function fetchChapter(
   bookId: string,
   index: number,
-  attempts = 3,
+  attempts?: number,
   signal?: AbortSignal,
 ): Promise<ChapterData> {
   return requestWithRetry<ChapterData>(
@@ -1119,7 +1129,7 @@ export interface VersionInfo {
 
 /** Reads the running server's build stamp. Auth-gated server-side, like the
  *  About sheet that displays it. */
-export async function getVersion(signal?: AbortSignal): Promise<VersionInfo> {
+export function getVersion(signal?: AbortSignal): Promise<VersionInfo> {
   return request<VersionInfo>("GET", "/version", undefined, signal);
 }
 
