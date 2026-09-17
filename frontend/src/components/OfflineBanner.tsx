@@ -45,6 +45,12 @@ function isHidden(): boolean {
 
 export default function OfflineBanner() {
   const [offline, setOffline] = createSignal(false);
+  const [announcement, setAnnouncement] = createSignal("");
+  // Recovery needs words of its own: emptying the live region announces
+  // nothing, so without this flag a user who heard the outage would never hear
+  // it lift. Before the first outage there is nothing to report, which is why
+  // the region starts -- and while the server behaves, stays -- empty.
+  let announcedOutage = false;
   let offlinePlain = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let checkInFlight = false;
@@ -80,9 +86,19 @@ export default function OfflineBanner() {
     }, delay);
   }
 
+  function announce(isOffline: boolean): void {
+    if (isOffline) {
+      announcedOutage = true;
+      setAnnouncement("Server unreachable");
+      return;
+    }
+    setAnnouncement(announcedOutage ? "Server reachable again" : "");
+  }
+
   function setOfflineState(value: boolean): void {
     offlinePlain = value;
     setOffline(value);
+    announce(value);
     scheduleNext();
   }
 
@@ -95,6 +111,7 @@ export default function OfflineBanner() {
       if (!mounted) return;
       offlinePlain = !healthy;
       setOffline(!healthy);
+      announce(!healthy);
     } finally {
       checkInFlight = false;
       if (mounted) setChecking(false);
@@ -104,17 +121,15 @@ export default function OfflineBanner() {
     }
   }
 
-  function handleOnline(): void {
-    void check();
-  }
-  function handleOffline(): void {
-    // The OS network interface is down, but that alone does NOT mean the
-    // sayumi server is unreachable: on a localhost deployment 127.0.0.1 still
-    // answers with WiFi off, so trusting the `offline` event would flash a
-    // false banner. Defer to a real /health probe instead (checkHealth is
-    // 5s-bounded and fails fast on a genuinely dead LAN), keeping the banner
-    // driven by actual request reachability -- this module's source of truth --
-    // in both the localhost and LAN deployments.
+  // One handler for focus, online and offline, because all three mean the same
+  // thing here: re-probe. The OS `offline` event especially is not evidence on
+  // its own -- on a localhost deployment 127.0.0.1 still answers with WiFi
+  // off, so trusting it would flash a false banner. Defer to a real /health
+  // probe instead (checkHealth is 5s-bounded and fails fast on a genuinely
+  // dead LAN), keeping the banner driven by actual request reachability --
+  // this module's source of truth -- in both the localhost and LAN
+  // deployments.
+  function probeHealth(): void {
     void check();
   }
   function handleVisibility(): void {
@@ -137,18 +152,18 @@ export default function OfflineBanner() {
     });
     void check();
 
-    window.addEventListener("focus", handleOnline);
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
+    window.addEventListener("focus", probeHealth);
+    window.addEventListener("online", probeHealth);
+    window.addEventListener("offline", probeHealth);
     document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
       mounted = false;
       clearTimer();
       unsubscribe();
-      window.removeEventListener("focus", handleOnline);
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("focus", probeHealth);
+      window.removeEventListener("online", probeHealth);
+      window.removeEventListener("offline", probeHealth);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   });
@@ -160,7 +175,7 @@ export default function OfflineBanner() {
           of the visual flow, so unlike .lib-live/.login-live it needs no
           :empty collapse rule. */}
       <div class="sr-only" role="alert">
-        {offline() ? "Server unreachable" : ""}
+        {announcement()}
       </div>
       <Show when={offline()}>
         <div class="offline-banner">

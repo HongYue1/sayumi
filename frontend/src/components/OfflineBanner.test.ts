@@ -131,6 +131,24 @@ describe("OfflineBanner", () => {
     expect(htmlHasOpenClass()).toBe(false);
   });
 
+  it("announces the recovery, and says nothing before an outage", async () => {
+    mount();
+    await settle();
+    // Nothing to report yet: the boot state is "reachable".
+    expect(live().textContent).toBe("");
+
+    reportUnreachable();
+    flush();
+    expect(live().textContent).toBe("Server unreachable");
+
+    reportReachable();
+    flush();
+    // Emptying the region announces nothing, so coming back needs its own
+    // sentence or the outage is the last thing the user ever hears.
+    expect(live().textContent).toBe("Server reachable again");
+    expect(banner()).toBeNull();
+  });
+
   it("mirrors an already-unreachable flag before the first probe answers", () => {
     reportUnreachable();
     checkHealth.mockResolvedValue(false);
