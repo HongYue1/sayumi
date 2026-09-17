@@ -639,3 +639,33 @@ describe("toIframeSettings", () => {
     expect(payload.fontSize).toBe(33);
   });
 });
+
+describe("sameIframeSettings", () => {
+  it("holds for two mappings of the same settings", async () => {
+    const { sameIframeSettings, toIframeSettings } =
+      await import("~/lib/settings");
+    const a = toIframeSettings(full());
+    const b = toIframeSettings(full());
+    // Two payloads, never the same object -- the point of the comparator.
+    expect(a).not.toBe(b);
+    expect(sameIframeSettings(a, b)).toBe(true);
+  });
+
+  it("breaks on every field the payload carries", async () => {
+    const { sameIframeSettings, toIframeSettings } =
+      await import("~/lib/settings");
+    const base = toIframeSettings(full());
+    // Key-driven rather than a hand-listed set: a field added to
+    // toIframeSettings but left out of the comparison would stall at the memo
+    // and never reach the frame again, so every key has to break equality.
+    const ignored = Object.keys(base).filter((key) => {
+      const changed = {
+        ...base,
+        [key]:
+          key === "margins" ? { top: 1, bottom: 2, side: 3 } : "__changed__",
+      } as unknown as typeof base;
+      return sameIframeSettings(base, changed);
+    });
+    expect(ignored).toEqual([]);
+  });
+});

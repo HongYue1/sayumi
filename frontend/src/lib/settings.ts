@@ -154,6 +154,36 @@ export function toIframeSettings(
   };
 }
 
+/**
+ * Field equality for the reader payload, used as the `iframe` memo's `equals`.
+ *
+ * Key-driven rather than a hand-listed field comparison: every value in the
+ * payload is a primitive apart from `margins`, so a field added to
+ * toIframeSettings is compared automatically instead of quietly dropping out
+ * of the comparison and never reaching the frame again.
+ */
+export function sameIframeSettings(
+  a: IframeSettings,
+  b: IframeSettings,
+): boolean {
+  if (a === b) return true;
+  if (
+    a.margins.top !== b.margins.top ||
+    a.margins.bottom !== b.margins.bottom ||
+    a.margins.side !== b.margins.side
+  ) {
+    return false;
+  }
+  const other = new Map(Object.entries(b));
+  const entries = Object.entries(a);
+  if (entries.length !== other.size) return false;
+  for (const [key, value] of entries) {
+    if (key === "margins") continue;
+    if (!other.has(key) || other.get(key) !== value) return false;
+  }
+  return true;
+}
+
 class Settings {
   // A store, not a signal: store drafts track at property level, so a
   // per-field mutation wakes only the consumers reading that property — a
@@ -198,8 +228,16 @@ class Settings {
     // mount. Safe here because the derivation is pure (no cleanup, no side
     // effects), and while unsubscribed it skips recompute on settings writes.
     this.#iframe = runWithOwner(null, () =>
-      createMemo(() =>
-        toIframeSettings(this.value, customThemes.list, themePreview()),
+      createMemo(
+        () => toIframeSettings(this.value, customThemes.list, themePreview()),
+        // The mapping allocates a fresh payload every run while several inputs
+        // change without changing the result: CustomThemeDialog republishes the
+        // preview draft on every keystroke in the name field, and a custom
+        // theme load/create/delete leaves themeVars null while a built-in theme
+        // is selected. Comparing by field puts the cutoff at the memo instead of
+        // postMessaging an identical apply-settings into the reader frame
+        // (Read.tsx's settings effect) -- UNSTABLE_MEMO_OUTPUT otherwise.
+        { equals: sameIframeSettings },
       ),
     );
 
