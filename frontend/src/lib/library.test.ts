@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createMemo, createRoot, flush, mapArray } from "solid-js";
-import type { BookMeta } from "~/api/client";
+import type { BookMeta, FlairDef } from "~/api/client";
 import {
   libraryApi as mocks,
   restoreRealTimersWithoutLeaks,
@@ -386,6 +386,115 @@ describe("library.setFlair", () => {
     await m3;
     flush();
     expect(store.books[0].flairId).toBe("reading");
+  });
+});
+
+describe("library.removeCustomFlair", () => {
+  const custom: FlairDef = {
+    id: "cf1",
+    label: "Favourites",
+    color: "#3b82f6",
+  };
+
+  /** Seeds books plus one custom flair through the real load path. */
+  async function seedWithCustomFlair(
+    books: BookMeta[],
+  ): Promise<InstanceType<typeof Library>> {
+    mocks.getFlairs.mockResolvedValue([custom]);
+    const store = await seed(books);
+    // The flair fetch is fire-and-forget beside the book load, so let it land
+    // before a test asserts on customFlairs.
+    await settleStore();
+    flush();
+    return store;
+  }
+
+  it("drops the flair optimistically and restores it when the delete fails", async () => {
+    const store = await seedWithCustomFlair([
+      book({ id: "a", title: "A", flairId: "cf1" }),
+      book({ id: "b", title: "B", flairId: "cf1" }),
+      book({ id: "c", title: "C", flairId: "reading" }),
+    ]);
+    store.toggleFlairFilter("cf1");
+    flush();
+    const request = deferred<void>();
+    mocks.deleteFlair.mockReturnValueOnce(request.promise);
+
+    const removal = store.removeCustomFlair("cf1");
+    flush();
+    expect(store.books.map((b) => b.flairId)).toEqual([
+      undefined,
+      undefined,
+      "reading",
+    ]);
+    expect(store.customFlairs.map((f) => f.id)).toEqual([]);
+    expect([...store.flairFilters]).toEqual([]);
+
+    request.reject(new ApiError("Flair is still in use", 409, "conflict"));
+    await removal;
+    flush();
+
+    // The flair, its filter, and every assignment the delete cleared all come
+    // back, and a book that never carried it is untouched throughout.
+    expect(store.books.map((b) => b.flairId)).toEqual([
+      "cf1",
+      "cf1",
+      "reading",
+    ]);
+    expect(store.customFlairs.map((f) => f.id)).toEqual(["cf1"]);
+    expect([...store.flairFilters]).toEqual(["cf1"]);
+    expect(toast).toHaveBeenCalledWith("Flair is still in use");
+  });
+
+  it("leaves a book that took another flair while the delete was in flight", async () => {
+    const store = await seedWithCustomFlair([
+      book({ id: "a", title: "A", flairId: "cf1" }),
+      book({ id: "b", title: "B", flairId: "cf1" }),
+    ]);
+    const request = deferred<void>();
+    mocks.deleteFlair.mockReturnValueOnce(request.promise);
+    mocks.setBookFlair.mockResolvedValue(undefined);
+
+    const removal = store.removeCustomFlair("cf1");
+    flush();
+    await store.setFlair("b", "reading");
+    flush();
+
+    request.reject(new Error("nope"));
+    await removal;
+    flush();
+
+    // The rollback re-applies the flair only where the delete's own clear is
+    // still standing; b's newer assignment owns that book now.
+    expect(store.books[0].flairId).toBe("cf1");
+    expect(store.books[1].flairId).toBe("reading");
+  });
+
+  it("stamps the books it clears so an older failure cannot revive the flair", async () => {
+    const store = await seedWithCustomFlair([
+      book({ id: "a", title: "A", flairId: "reading" }),
+    ]);
+    const assignment = deferred<void>();
+    mocks.setBookFlair.mockReturnValueOnce(assignment.promise);
+    mocks.deleteFlair.mockResolvedValue(undefined);
+
+    const assign = store.setFlair("a", "cf1");
+    flush();
+    expect(store.books[0].flairId).toBe("cf1");
+
+    await store.removeCustomFlair("cf1");
+    flush();
+    expect(store.books[0].flairId).toBeUndefined();
+
+    // The delete is the newest write to this book, so the failed assignment
+    // must not roll "reading" back over it. The write stamps the delete
+    // records are the only thing that tells those two apart - which is why
+    // they are settled outside the store's draft callback rather than inside
+    // it.
+    assignment.reject(new Error("late failure"));
+    await assign;
+    flush();
+    expect(store.books[0].flairId).toBeUndefined();
   });
 });
 

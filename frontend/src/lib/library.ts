@@ -158,7 +158,13 @@ export class Library {
    *  write from a later call that toggled the same value back (ABA), so each
    *  mutator captures the stamp before its optimistic write and keeps the
    *  rollback only while its own bump is still the newest write to that book.
-   *  Server responses that replace a record wholesale clear the entry. */
+   *  Server responses that replace a record wholesale clear the entry.
+   *
+   *  These stamps are plain, non-reactive state, so each one is settled
+   *  outside the store's draft callback - the same boundary toast.ts keeps
+   *  for its timer bookkeeping. A draft runs once per write today, but it is
+   *  the store's staging area, not a place to commit bookkeeping that has to
+   *  count exactly once. */
   readonly #bookWrites = new Map<string, number>();
 
   #stampBookWrite(id: string): void {
@@ -573,13 +579,18 @@ export class Library {
       // Roll back only while this call's write is still the newest one: an
       // overlapping setFlair that landed meanwhile owns the book now, even
       // when it re-wrote the same value this call had optimistically set.
-      this.#books[1]((s) => {
-        const book = s.find((b) => b.id === bookId);
-        if (book && (this.#bookWrites.get(bookId) ?? 0) === stamp + 1) {
-          book.flairId = prevFlair;
-          this.#stampBookWrite(bookId);
-        }
-      });
+      // Ownership is decided before the draft opens and stamped after it
+      // closes, so the draft carries only the store write.
+      const owned =
+        (this.#bookWrites.get(bookId) ?? 0) === stamp + 1 &&
+        this.books.some((b) => b.id === bookId);
+      if (owned) {
+        this.#books[1]((s) => {
+          const book = s.find((b) => b.id === bookId);
+          if (book) book.flairId = prevFlair;
+        });
+        this.#stampBookWrite(bookId);
+      }
       toast.show(getErrorMessage(e, "Could not update flair"));
     }
   }
@@ -640,12 +651,12 @@ export class Library {
     });
     this.#books[1]((s) => {
       for (const book of s) {
-        if (book.flairId === id) {
-          book.flairId = undefined;
-          this.#stampBookWrite(book.id);
-        }
+        if (book.flairId === id) book.flairId = undefined;
       }
     });
+    // `affected` is exactly the set that loop clears, so the stamps land
+    // outside the draft without a second pass over the store.
+    for (const bookId of affected) this.#stampBookWrite(bookId);
     try {
       await deleteFlair(id);
     } catch (e) {
@@ -666,14 +677,20 @@ export class Library {
           if (!s.includes(id)) s.push(id);
         });
       }
+      // A book that took a different flair while the delete was in flight
+      // keeps it, so the restore set is resolved first and both the store
+      // write and the stamps work from it.
+      const restored = new Set(
+        this.books
+          .filter((b) => affected.has(b.id) && b.flairId === undefined)
+          .map((b) => b.id),
+      );
       this.#books[1]((s) => {
         for (const book of s) {
-          if (affected.has(book.id) && book.flairId === undefined) {
-            book.flairId = id;
-            this.#stampBookWrite(book.id);
-          }
+          if (restored.has(book.id)) book.flairId = id;
         }
       });
+      for (const bookId of restored) this.#stampBookWrite(bookId);
       toast.show(getErrorMessage(e, "Could not delete flair"));
     }
   }
@@ -805,17 +822,20 @@ export class Library {
       // Restore this book's previous title/author on the current array, and
       // only the keys still holding THIS call's optimistic value - a newer
       // overlapping edit owns those keys now.
-      if (prevMeta) {
+      // Same newest-write guard as setFlair's rollback: an overlapping edit
+      // owns the book now, even if it re-typed the same text. Checked outside
+      // the draft, which then carries only the store write.
+      const owned =
+        (this.#bookWrites.get(id) ?? 0) === stamp + 1 &&
+        this.books.some((b) => b.id === id);
+      if (prevMeta && owned) {
         this.#books[1]((s) => {
           const book = s.find((b) => b.id === id);
           if (!book) return;
-          // Same newest-write guard as setFlair's rollback: an overlapping
-          // edit owns the book now, even if it re-typed the same text.
-          if ((this.#bookWrites.get(id) ?? 0) !== stamp + 1) return;
           book.title = prevMeta.title;
           book.author = prevMeta.author;
-          this.#stampBookWrite(id);
         });
+        this.#stampBookWrite(id);
       }
       // The rollback restores the likely case (a pre-commit rejection); the
       // reconcile heals the ambiguous one. The caller's view is unchanged:
