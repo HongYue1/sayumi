@@ -414,6 +414,33 @@ describe("App shell", () => {
     });
   });
 
+  it("replaces a saved theme id the registry no longer knows", async () => {
+    // Deleting a custom theme from another tab (or another device) leaves its
+    // id in settings with nothing to resolve. applyTheme reads an id it cannot
+    // resolve as "registry not loaded yet" and keeps the pre-paint cache, so
+    // without a repair the shell stays painted in a theme that no longer
+    // exists, the menu checks nothing, and the reader gets themeVars: null.
+    localStorage.setItem("sayumi:theme", "custom:gone");
+    api.getSettings.mockResolvedValue({ theme: "custom:gone" });
+    api.getCustomThemes.mockResolvedValue([]);
+
+    const shell = await signedIn("ada");
+    await vi.waitFor(() => {
+      flush();
+      expect(shell.customThemes.loaded).toBe(true);
+      expect(shell.settings.value.theme).toBe("light");
+    });
+    await settle();
+
+    // The shell ends painted in a theme that exists, and the repair is a
+    // single write: the next compute sees the replacement id and stands down.
+    expect(applyTheme.mock.calls.at(-1)?.[0]).toBe("light");
+    expect(applyTheme.mock.calls.at(-1)?.[1]).toMatchObject({ id: "light" });
+    const settled = applyTheme.mock.calls.length;
+    await settle();
+    expect(applyTheme.mock.calls).toHaveLength(settled);
+  });
+
   it("does not let a superseded profile's load paint the theme", async () => {
     localStorage.setItem("sayumi:theme", "light");
     let releaseAda = (): void => {};

@@ -318,6 +318,13 @@ export default function ThemeDropdown() {
             Dark
           </p>
           <fieldset class="td-swatches" aria-labelledby="theme-grp-dark">
+            {/* No focusEntry twin here, deliberately. A roving-tabindex menu
+                must nominate exactly ONE tabbable item, and the light branch
+                above already owns the fallback for a saved id that matches
+                nothing (see hasActive). Mirroring it here would make two
+                swatches tabbable -- and the focus-on-open lookup takes the
+                first tabindex="0" it finds, which is still the light one --
+                so the asymmetry is the invariant, not an oversight. */}
             <For each={darkThemes()}>
               {(t) => {
                 const active = () => settings.value.theme === t.id;

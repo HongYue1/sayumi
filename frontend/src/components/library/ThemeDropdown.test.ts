@@ -184,6 +184,32 @@ describe("ThemeDropdown", () => {
     expect(document.activeElement).not.toBe(trigger());
   });
 
+  it("keeps one entry point when the saved theme is gone", async () => {
+    // A custom theme deleted from another tab or device: the id survives in
+    // settings but matches no swatch on offer. The light branch's fallback is
+    // deliberately the ONLY fallback -- a roving-tabindex menu must nominate
+    // exactly one tabbable item, so mirroring it into the dark branch would
+    // hand the menu two entry points rather than fix anything.
+    stubs.state.theme = "custom:deleted";
+    await mount();
+    await openMenu();
+
+    const tabbable = items().filter(
+      (el) => el.getAttribute("tabindex") === "0",
+    );
+    const firstLight = THEMES.find((t) => t.group === "light")!;
+    expect(tabbable).toHaveLength(1);
+    expect(tabbable[0].getAttribute("aria-label")).toBe(firstLight.label);
+    expect(document.activeElement).toBe(tabbable[0]);
+
+    // Nothing is checked, which is the honest report: the saved theme no
+    // longer exists.
+    const checked = items().filter(
+      (el) => el.getAttribute("aria-checked") === "true",
+    );
+    expect(checked).toHaveLength(0);
+  });
+
   it("owns nothing but the swatch groups", async () => {
     await mount();
     await openMenu();

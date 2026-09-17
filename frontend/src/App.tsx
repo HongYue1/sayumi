@@ -24,7 +24,7 @@ import { ui } from "~/lib/ui";
 import { keyboardEventIsOwnedByTarget } from "~/lib/keyboard";
 import { settings } from "~/lib/settings";
 import { applyTheme, getCachedThemeId, previewTheme } from "~/lib/theme";
-import { getTheme } from "~/lib/themes";
+import { getTheme, isBuiltInTheme } from "~/lib/themes";
 import { themePreview } from "~/lib/themePreview";
 import { customThemes } from "~/lib/customThemes";
 import { library } from "~/lib/library";
@@ -123,17 +123,43 @@ export default function App() {
       // itself. This effect stays the only painter of app chrome.
       const draft = themePreview();
       if (draft !== null) {
-        return { profile, id: draft.id, theme: draft, draft: true };
+        return {
+          profile,
+          id: draft.id,
+          theme: draft,
+          draft: true,
+          dead: false,
+        };
       }
+      // A custom theme deleted from another tab or device leaves a dead id
+      // here. getTheme resolves it to the light fallback, but applyTheme
+      // refuses to paint a fallback under a foreign id -- it reuses the
+      // pre-paint cache and waits for a later paint that, for an id no
+      // registry will ever hold again, never comes. The shell would stay
+      // painted in a deleted theme, the menu would check nothing, and the
+      // reader payload would ship themeVars: null. Repair the id instead,
+      // but only once the registry is loaded enough to prove the absence.
+      // The deleted definition's group died with it, so getTheme's fallback
+      // is the only honest target.
       const id = settings.value.theme;
-      return { profile, id, theme: getTheme(id), draft: false };
+      const dead =
+        customThemes.loaded && !isBuiltInTheme(id) && !customThemes.get(id);
+      return { profile, id, theme: getTheme(id), draft: false, dead };
     },
     (active) => {
       if (active === null) {
         appliedThemeKey = null;
         return undefined;
       }
-      const { profile, id, theme, draft } = active;
+      const { profile, id, theme, draft, dead } = active;
+      if (dead) {
+        // settings.update mutates its store synchronously, so this effect's
+        // next compute sees the replacement id and the branch stands down:
+        // one write, no loop. Painting is left to that run, so the repair
+        // never flashes a theme the user did not choose.
+        settings.update({ theme: theme.id });
+        return undefined;
+      }
       const key = [
         // Part of the key so leaving preview repaints the saved theme even when
         // the draft happened to resolve to the same id and colors.
