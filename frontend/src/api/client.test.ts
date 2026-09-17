@@ -18,6 +18,7 @@ import {
   reportReachable,
   reportUnreachable,
 } from "~/lib/reachability";
+import { getErrorMessage } from "~/lib/errors";
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -42,6 +43,9 @@ describe("requestWithRetry", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    // Reachability is shared module state and the network-error cases below
+    // flip it, so reset it rather than leaking a verdict into the next test.
+    reportReachable();
   });
 
   it("retries an idempotent GET on a 500 and then succeeds", async () => {
@@ -141,6 +145,44 @@ describe("requestWithRetry", () => {
     expect(err).toMatchObject({ name: "AbortError" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps its full retry budget when the connection keeps failing", async () => {
+    // The first failure reports the server unreachable. Read per attempt,
+    // that verdict became attempt 2's go/no-go snapshot and classified its
+    // own network error as non-retryable, cutting the budget from 3 to 2.
+    reportReachable();
+    fetchMock
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }, 200));
+    const p = requestWithRetry<{ ok: boolean }>(
+      "GET",
+      "/x",
+      undefined,
+      noTimeout(3),
+    );
+    await vi.runAllTimersAsync();
+    await expect(p).resolves.toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not retry a request that starts while the server is down", async () => {
+    // The short-circuit the snapshot exists for: a server already known to be
+    // gone must not cost 3 attempts x backoff x timeout on every navigation.
+    reportUnreachable();
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+    const settled = requestWithRetry(
+      "GET",
+      "/x",
+      undefined,
+      noTimeout(3),
+    ).catch((e) => e);
+    await vi.runAllTimersAsync();
+    const err = await settled;
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ code: "network_error" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 // These cases drive the real per-attempt timer, which the block above disables
@@ -213,7 +255,7 @@ describe("per-attempt timeout", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it("rethrows a timeout that fires while the body streams", async () => {
+  it("retries a timeout that fires while the body streams", async () => {
     let calls = 0;
     fetchMock.mockImplementation(
       (_input: unknown, init?: { signal?: AbortSignal }) => {
@@ -222,9 +264,10 @@ describe("per-attempt timeout", () => {
         const signal = init?.signal;
         // Headers answered, body stalls: res.json() waits on a stream that
         // only ends when the attempt's timeout aborts it. The rejection is
-        // the signal's TimeoutError reason - wrapping it as ApiError(200,
-        // invalid_response) would spend the retry budget and misreport a
-        // stalled-but-answered body as malformed.
+        // the signal's TimeoutError reason - as ApiError(200,
+        // invalid_response) it would be classified non-retryable and
+        // misreport a stalled-but-answered body as malformed, so request()
+        // gives it the retryable network_error shape instead.
         return Promise.resolve(
           new Response(
             new ReadableStream({
@@ -246,6 +289,42 @@ describe("per-attempt timeout", () => {
     await vi.runAllTimersAsync();
     await expect(p).resolves.toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports a body-phase timeout like a headers-phase one", async () => {
+    fetchMock.mockImplementation(
+      (_input: unknown, init?: { signal?: AbortSignal }) => {
+        const signal = init?.signal;
+        return Promise.resolve(
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                signal?.addEventListener("abort", () => {
+                  controller.error(signal.reason as Error);
+                });
+              },
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      },
+    );
+    const settled = requestWithRetry("GET", "/x", undefined, {
+      attempts: 1,
+      timeoutMs: 20_000,
+    }).catch((e) => e);
+    await vi.runAllTimersAsync();
+    const err = await settled;
+    // Raw, this reached call sites as a TimeoutError DOMException, which
+    // getErrorMessage's ApiError narrowing drops -- so the same timeout that
+    // reads "Request timed out" from the headers phase showed up as each
+    // caller's generic copy once the headers had already arrived.
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({
+      code: "network_error",
+      message: "Request timed out",
+    });
+    expect(getErrorMessage(err, "Couldn't load")).toBe("Request timed out");
   });
 
   it("bounds a single-shot request that never gets an answer", async () => {

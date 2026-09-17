@@ -127,9 +127,10 @@ async function parseSuccessResponse<T>(res: Response): Promise<T> {
     // Wrapping it as ApiError would defeat callers' AbortError checks (e.g.
     // the reader treats aborted chapter fetches as "superseded", not errors).
     // The per-attempt timeout aborts with a TimeoutError and gets the same
-    // rethrow: wrapped, a stalled-but-answered 200 would masquerade as a
-    // malformed body, spend its retry budget, and lose the truthful
-    // "Request timed out" message a headers-phase timeout already gets.
+    // rethrow: wrapped here as invalid_response, a stalled-but-answered 200
+    // would be classified non-retryable and misreport a stalled body as
+    // malformed. request() re-wraps it as the network_error ApiError a
+    // headers-phase timeout raises, so both phases report identically.
     if (
       error instanceof DOMException &&
       (error.name === "AbortError" || error.name === "TimeoutError")
@@ -282,6 +283,25 @@ async function request<T>(
     }
 
     return await parseSuccessResponse<T>(res);
+  } catch (error) {
+    // A timeout that fires after the headers arrived -- the body stalls, or an
+    // error body does -- is the same user-visible failure as one that fires
+    // before them, so it gets the same shape. Left raw as the TimeoutError
+    // DOMException parseSuccessResponse rethrows, getErrorMessage()'s ApiError
+    // narrowing drops it and the call site prints its own generic copy instead
+    // of "Request timed out". Retry classification is unchanged: a status-less
+    // ApiError stays retryable for idempotent methods. AbortError is left raw
+    // on purpose -- callers check for it to tell a superseded request from a
+    // failed one.
+    if (isTimeoutError(error)) {
+      throw new ApiError(
+        networkErrorMessage(error),
+        undefined,
+        "network_error",
+        error,
+      );
+    }
+    throw error;
   } finally {
     dispose();
   }
@@ -327,14 +347,19 @@ export async function requestWithRetry<T>(
   const sig = options.signal;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
+  // Snapshot reachability ONCE, before the first attempt. request() flips the
+  // shared signal to unreachable on a network failure, so reading
+  // isReachable() after a catch would always be false for the very network
+  // error we want to retry — which silently killed idempotent network-error
+  // retries. Re-reading it per attempt moved the same bug one step along:
+  // attempt 1's failure poisoned attempt 2's snapshot, so a server that kept
+  // refusing connections got 2 attempts instead of 3, and only timeouts
+  // (which never report unreachable) kept the full budget. Read once, it
+  // answers the question that was always intended: did we already know the
+  // server was down when this request started?
+  const reachableAtStart = isReachable();
+
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    // Snapshot reachability BEFORE the attempt. request() flips the shared
-    // signal to unreachable on a network failure, so reading isReachable()
-    // after the catch would always be false for the very network error we want
-    // to retry — which silently killed idempotent network-error retries. Taken
-    // beforehand, a server we already knew was down still short-circuits the
-    // retry storm on later requests.
-    const reachableBeforeAttempt = isReachable();
     try {
       return await request<T>(method, path, body, sig, timeoutMs);
     } catch (error) {
@@ -350,14 +375,14 @@ export async function requestWithRetry<T>(
         method === "PUT" ||
         method === "DELETE" ||
         method === "OPTIONS";
-      // Once we already knew the server was unreachable (before this attempt),
-      // stop the per-request retry storm (3 attempts x exponential backoff x
-      // 20s timeout on every navigation). The reachability poll drives recovery
-      // instead. A network error during THIS attempt still retries, because the
-      // snapshot predates request()'s reportUnreachable().
+      // Once we already knew the server was unreachable (before this request
+      // started), stop the per-request retry storm (3 attempts x exponential
+      // backoff x 20s timeout on every navigation). The reachability poll
+      // drives recovery instead. Network errors raised by THIS request still
+      // retry, because the snapshot predates request()'s reportUnreachable().
       const isRetryable =
         idempotent &&
-        reachableBeforeAttempt &&
+        reachableAtStart &&
         (!(error instanceof ApiError) ||
           error.status === undefined ||
           error.status >= 500);
