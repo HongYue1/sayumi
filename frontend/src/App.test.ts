@@ -34,6 +34,8 @@ const api = vi.hoisted(() => ({
 
 const applyTheme = vi.hoisted(() => vi.fn());
 const stubs = vi.hoisted(() => ({
+  // Flipped by the overlay-boundary test; the palette is its throwing stub.
+  paletteThrows: false,
   marker: (id: string) => () => {
     const el = document.createElement("div");
     el.dataset.stub = id;
@@ -66,7 +68,10 @@ vi.mock("~/components/OfflineBanner", () => ({
   default: stubs.marker("offline"),
 }));
 vi.mock("~/components/CommandPalette", () => ({
-  default: stubs.marker("palette"),
+  default: () => {
+    if (stubs.paletteThrows) throw new Error("palette boom");
+    return stubs.marker("palette")();
+  },
 }));
 vi.mock("~/components/ShortcutsHelp", () => ({
   default: stubs.marker("shortcuts"),
@@ -166,6 +171,7 @@ describe("App shell", () => {
     localStorage.clear();
     window.location.hash = "#/";
     applyTheme.mockClear();
+    stubs.paletteThrows = false;
     stubs.read.mockClear();
     api.getAuthStatus.mockReset();
     api.getCustomThemes.mockReset();
@@ -542,6 +548,24 @@ describe("App shell", () => {
     expect(e.defaultPrevented).toBe(true);
   });
 
+  it("ignores a chord held down at the OS repeat rate", async () => {
+    // Auto-repeat delivers one keydown per repeat, each in its own tick, so
+    // toggling on every one of them would flicker the palette and settle
+    // wherever the key came up.
+    const shell = await signedIn();
+
+    press({ key: "k", ctrlKey: true });
+    expect(shell.ui.palette).toBe(true);
+
+    const held = press({ key: "k", ctrlKey: true, repeat: true });
+    expect(shell.ui.palette).toBe(true);
+    expect(held.defaultPrevented).toBe(false);
+
+    const heldQuestion = press({ key: "?", repeat: true });
+    expect(shell.ui.shortcuts).toBe(false);
+    expect(heldQuestion.defaultPrevented).toBe(false);
+  });
+
   it("leaves AltGr+K to the keyboard layout", async () => {
     // AltGr reaches the DOM as ctrl+alt on Windows and most Linux layouts,
     // where AltGr+K is a character. frame.ts's key handler already excludes
@@ -699,6 +723,24 @@ describe("App shell", () => {
     // than holding a dead failure in an assertive region all session.
     expect(stub("read")).not.toBeNull();
     expect(host.querySelector('p.sr-only[role="alert"]')?.textContent).toBe("");
+  });
+
+  it("keeps a failing overlay from taking the shell down", async () => {
+    // The overlay layer renders outside <main>, so without a boundary of its
+    // own a throw there reaches the render root and blanks the document,
+    // routes included.
+    stubs.paletteThrows = true;
+
+    await signedIn();
+
+    expect(stub("library")).not.toBeNull();
+    expect(stub("palette")).toBeNull();
+    // The layer goes down together; only the routes are spared.
+    expect(stub("toaster")).toBeNull();
+
+    const alert = host.querySelector('p.sr-only[role="alert"]');
+    expect(alert?.textContent).toContain("Something went wrong");
+    expect(alert?.textContent).toContain("Reload the page");
   });
 
   it("re-activates the library store when the profile changes", async () => {
