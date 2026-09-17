@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createComponent, flush } from "solid-js";
 import { render } from "@solidjs/web";
@@ -1514,6 +1515,47 @@ describe("Read chrome", () => {
       expect(bar.getAttribute("aria-hidden")).not.toBe("true");
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+describe("Read panel chunks", () => {
+  // Every lazy panel is named twice: clientOnly() renders it and
+  // prewarmPanels() warms the same chunk on idle. The prewarm swallows its
+  // rejections on purpose -- a cold open is the only cost and idle work must
+  // stay silent -- so a specifier that stopped resolving would prewarm nothing
+  // for good, with no failure anywhere to show it. Read the route as text: the
+  // strings are the contract, and a mocked import would hide exactly the drift
+  // this pins.
+  const source = readFileSync("src/routes/Read.tsx", "utf8");
+
+  function unique(matches: Iterable<RegExpExecArray>): string[] {
+    return [...new Set(Array.from(matches, (match) => match[1] ?? ""))].sort();
+  }
+
+  it("prewarms exactly the panels it renders lazily", () => {
+    const rendered = unique(
+      source.matchAll(/clientOnly\(\s*\(\)\s*=>\s*import\("([^"]+)"\)/gu),
+    );
+    const start = source.indexOf("function prewarmPanels");
+    const body = source.slice(start, source.indexOf("\n  }\n", start));
+    const prewarmed = unique(body.matchAll(/import\("([^"]+)"\)/gu));
+
+    expect(rendered).toHaveLength(4);
+    expect(prewarmed).toEqual(rendered);
+  });
+
+  it("names panel modules that exist", () => {
+    const rendered = unique(
+      source.matchAll(/clientOnly\(\s*\(\)\s*=>\s*import\("([^"]+)"\)/gu),
+    );
+
+    for (const specifier of rendered) {
+      const path = specifier.replace(/^~\//u, "src/");
+      expect(
+        existsSync(`${path}.tsx`) || existsSync(`${path}.ts`),
+        specifier,
+      ).toBe(true);
     }
   });
 });
