@@ -76,10 +76,16 @@ never install/switch runtimes; Vitest remains Node-hosted.
 - **Router hash parsing is defensive.** A malformed percent-encoded book ID in
   `#/read/<id>` is an invalid route and falls back to the library — never a crash
   or a stuck reader.
-- **A list styled `list-style: none` keeps `role="list"`**, behind a one-line
-  `eslint-disable jsx-a11y/no-redundant-roles -- …` comment (the TocPanel shape):
-  Safari/VoiceOver drop the semantics, and a config-level exception would hide
-  the next instance.
+- **A list styled `list-style: none` keeps `role="list"`**, behind a paired
+  `eslint-disable jsx-a11y/no-redundant-roles -- …` / `eslint-enable` comment
+  wrapped around that one element (the TocPanel shape): Safari/VoiceOver drop
+  the semantics, and a config-level exception would hide the next instance. A
+  bare `eslint-disable` silences the rule to the end of the file, so the next
+  redundant role in that file would land unseen.
+- **Application code is browser-only.** `@types/node` is on the whole project
+  for `*.config.ts` and the suites that read sources off disk, so `tsc` would
+  happily accept `process` or `node:fs` inside a component;
+  `src/nodeGlobals.test.ts` is what refuses it.
 - **Every `<Icon>` declares exactly one accessibility intent.** Use `label` for a
   meaningful standalone image, `decorative` beside exposed text or outside a control,
   and `labelFromParent` only for an icon-only control that owns a non-empty

@@ -16,6 +16,10 @@
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
+    // "node" is here for *.config.ts and for the suites that read sources off
+    // disk; one project keeps the ~/* aliases and type-aware lint working for
+    // tests too. It also means tsc would accept a Node API in a browser
+    // module, which src/nodeGlobals.test.ts exists to refuse.
     "types": ["vite/client", "node"],
     "paths": { "~/*": ["./src/*"] }
   },
