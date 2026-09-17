@@ -31,6 +31,25 @@ describe("matchRoute", () => {
     expect(matchRoute("/x/read/abc")).toEqual({ path: "/", params: {} });
     expect(matchRoute("/read/a/b")).toEqual({ path: "/", params: {} });
   });
+
+  it("falls back to the library for a query or fragment tail", () => {
+    // "?" and "#" sit outside the capture, so a link-mangled hash cannot
+    // smuggle its tail into the id. Load-bearing: App.tsx would hand
+    // "abc?x=1" to the reader as a book id and render a 404 where the
+    // library belongs.
+    expect(matchRoute("/read/abc?x=1")).toEqual({ path: "/", params: {} });
+    expect(matchRoute("/read/abc#frag")).toEqual({ path: "/", params: {} });
+  });
+
+  it("still accepts an id whose encoded form contains ? or #", () => {
+    // The control for the rule above: every /read/ call site encodes its id
+    // first, so a genuine id carrying those characters arrives as %3F/%23
+    // and must keep decoding to the literal id.
+    expect(matchRoute("/read/a%3Fb%23c")).toEqual({
+      path: "/read/:id",
+      params: { id: "a?b#c" },
+    });
+  });
 });
 
 /** Subscribes an effect to the route signal; count() reports apply runs. */

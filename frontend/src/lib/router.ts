@@ -1,8 +1,9 @@
 // Tiny hash-based router built on a Solid signal.
 //
 // Behaviour contract worth keeping: hash parsing treats malformed
-// percent-encoded book IDs as invalid routes and falls back to the library,
-// rather than throwing during module initialization or a hashchange event.
+// percent-encoded book IDs and query/fragment tails as invalid routes and
+// falls back to the library, rather than throwing during module
+// initialization or a hashchange event.
 import { createSignal } from "solid-js";
 
 export interface Route {
@@ -18,7 +19,14 @@ export interface Router {
 }
 
 export function matchRoute(path: string): Route {
-  const m = path.match(/^\/read\/([^/]+)$/);
+  // The capture excludes "?" and "#" as well as "/": a hash such as
+  // "#/read/abc?x=1" would otherwise decode the tail into the id, and
+  // App.tsx hands that straight to the reader, which 404s on a book id
+  // nobody owns. The app's own links never carry either character raw --
+  // the /read/ call sites encodeURIComponent them into %3F and %23 -- so
+  // rejecting the raw forms costs nothing and routes a hand-edited or
+  // link-mangled hash to the library.
+  const m = path.match(/^\/read\/([^/?#]+)$/);
   if (m) {
     try {
       return {
