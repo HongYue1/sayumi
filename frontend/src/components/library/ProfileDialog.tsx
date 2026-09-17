@@ -7,6 +7,11 @@
 //     toast.
 //   - The backdrop dismiss is the shared .backdrop-dismiss button, guarded by
 //     !busy.
+//   - Both arms end at finish(), which clears the busy state BEFORE
+//     onclose(): a host that does not unmount is then left with a live
+//     dialog rather than one whose every exit is dead, and the same latch
+//     keeps the cleared state from re-arming a submit that already
+//     succeeded. EditBookDialog's save follows the same shape.
 import { createMemo, createSignal, onSettled, Show } from "solid-js";
 import { session } from "~/lib/session";
 import { listProfiles } from "~/api/client";
@@ -177,13 +182,28 @@ export default function ProfileDialog(props: Props) {
   // canSubmit() reads the busy signal, and two activations in the same tick
   // both see its pre-write value, so the memo cannot serialise a submit on
   // its own -- a double activation would clone the profile twice. This plain
-  // mirror flips synchronously and is cleared wherever setBusy(false) runs;
-  // the clone path deliberately leaves both set, because it is closing.
+  // mirror flips synchronously and is cleared wherever setBusy(false) runs.
   let submitting = false;
+  // Latched by finish(), which is what lets the busy state be cleared on a
+  // path that has already done its work without re-arming it.
+  let closed = false;
+
+  // The one terminal exit for both arms: unblock the dismissals, latch the
+  // action shut, then ask the host to close. deleteCurrent() can resolve
+  // WITHOUT clearing the session (its epoch early return), so "session.profile
+  // is now null and App unmounts this dialog" is not a guaranteed
+  // postcondition; leaving busy set for the host to clean up leaves a busy
+  // modal whose every exit is dead.
+  function finish(): void {
+    closed = true;
+    submitting = false;
+    setBusy(false);
+    props.onclose();
+  }
 
   async function submit(e: Event): Promise<void> {
     e.preventDefault();
-    if (submitting || !canSubmit()) return;
+    if (submitting || closed || !canSubmit()) return;
     submitting = true;
     setBusy(true);
     setError(null);
@@ -193,7 +213,7 @@ export default function ProfileDialog(props: Props) {
         const submittedPin = newPin();
         await session.clone(name, submittedPin);
         toast.show(`Created a copy: “${name}”`);
-        props.onclose();
+        finish();
       } else {
         // Snapshot the name first: profileName is the reactive
         // session.profile prop, and deleteCurrent() nulls it -- reading it
@@ -202,15 +222,7 @@ export default function ProfileDialog(props: Props) {
         const submittedPin = pin();
         await session.deleteCurrent(submittedPin);
         toast.show(`Deleted profile “${name}”`);
-        // Own the teardown. deleteCurrent() can resolve WITHOUT clearing the
-        // session (its epoch early return), so "session.profile is now null
-        // and App unmounts this dialog" is not a guaranteed postcondition.
-        // Closing and unblocking here makes the external unmount an
-        // optimisation rather than the contract; without it that path leaves
-        // a busy modal whose every exit is dead.
-        submitting = false;
-        setBusy(false);
-        props.onclose();
+        finish();
       }
     } catch (err) {
       setError(getErrorMessage(err, "Something went wrong."));

@@ -6,6 +6,13 @@
 //     (lint).
 //   - Every dismiss path -- Close, Cancel, Escape and the shared
 //     .backdrop-dismiss button -- goes through requestClose, inert while busy.
+//   - submit() is serialised by a plain mirror rather than the busy signal
+//     (two activations in the same tick both read its pre-write value), and
+//     it ends at finish(), which clears the busy state BEFORE onclose(). A
+//     host that does not unmount is then left with a live dialog instead of
+//     one whose every exit is dead -- ProfileDialog's delete arm documents
+//     that hazard -- and the same latch stops the cleared state from
+//     re-arming a save that already succeeded.
 import { createMemo, createSignal, onSettled, Show } from "solid-js";
 import { getCoverUrl, type BookMeta } from "~/api/client";
 import { getErrorMessage } from "~/lib/errors";
@@ -138,9 +145,24 @@ export default function EditBookDialog(props: Props) {
         : null),
   );
 
+  // See the header: canSubmit() reads the busy signal, so it cannot
+  // serialise this on its own.
+  let submitting = false;
+  let closed = false;
+
+  // The one terminal exit: unblock every dismissal, latch the save shut, and
+  // only then hand off to the host.
+  function finish(): void {
+    closed = true;
+    submitting = false;
+    setBusy(false);
+    props.onclose();
+  }
+
   async function submit(e: Event): Promise<void> {
     e.preventDefault();
-    if (!canSubmit()) return;
+    if (submitting || closed || !canSubmit()) return;
+    submitting = true;
 
     // Freeze one coherent submission. The controls below refuse input while
     // busy, but these snapshots also prevent a late file-picker event from
@@ -167,7 +189,7 @@ export default function EditBookDialog(props: Props) {
         await library.replaceCover(props.book.id, submittedCover);
       }
       toast.show("Saved changes");
-      props.onclose();
+      finish();
     } catch (err) {
       const message = getErrorMessage(err, "Something went wrong.");
       setError(
@@ -175,6 +197,7 @@ export default function EditBookDialog(props: Props) {
           ? `Book details were saved, but the cover could not be replaced: ${message}`
           : message,
       );
+      submitting = false;
       setBusy(false);
     }
   }

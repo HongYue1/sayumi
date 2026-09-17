@@ -17,8 +17,10 @@
 //     it has anything to say.
 //   - A Windows device name is rejected client-side with its own message;
 //     the server's blanket regex message names rules the name satisfies.
-//   - A successful delete owns its teardown -- toast, unblock, close --
-//     instead of delegating it to an unmount deleteCurrent does not promise.
+//   - Both success arms own their teardown -- toast, unblock, close -- instead
+//     of delegating it to an unmount that neither deleteCurrent nor the host
+//     promises, and a latch then refuses a second submit so the unblocked
+//     state cannot re-run work that already succeeded.
 //   - The mount fetch is aborted on dispose, and a PIN-probe failure fails
 //     closed: no PIN field, no enabled delete, a visible retry.
 //   - Capture-phase Escape leaves an active IME composition untouched.
@@ -215,6 +217,32 @@ describe("ProfileDialog", () => {
     expect(closes).toBe(1);
     expect(submitButton().getAttribute("aria-disabled")).toBe("false");
     expect(closeButton().getAttribute("aria-disabled")).toBe("false");
+  });
+
+  it("unblocks itself before handing a finished clone to the host", async () => {
+    await mount("clone");
+    type(nameInput(), "Alina");
+    await settle();
+
+    submitButton().click();
+    await settle();
+
+    expect(stubs.clone).toHaveBeenCalledTimes(1);
+    expect(stubs.toasts).toEqual(["Created a copy: “Alina”"]);
+    // Same contract as the delete arm above: the host unmounting on onclose
+    // is an optimisation, not a postcondition, so the dialog clears its own
+    // busy state first. Leaving it set hands a host that keeps the dialog
+    // mounted a modal whose every exit is refused.
+    expect(closes).toBe(1);
+    expect(closeButton().getAttribute("aria-disabled")).toBe("false");
+    expect(nameInput().readOnly).toBe(false);
+
+    // The latch is the other half: unblocking must not re-arm a clone that
+    // already happened.
+    submitButton().click();
+    await settle();
+    expect(stubs.clone).toHaveBeenCalledTimes(1);
+    expect(closes).toBe(1);
   });
 
   // A failed clone has to show what the server said, not a house fallback that

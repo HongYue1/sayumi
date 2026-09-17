@@ -27,6 +27,10 @@
 //     attribute blurred the control the reader had just pressed and dropped
 //     focus to body inside the trap, so every dismiss routes through
 //     requestClose() and the picker refuses a pick that lands mid-save.
+//   - A finished save owns its teardown -- toast, unblock, close -- instead of
+//     delegating the unblock to an unmount the host does not promise, and a
+//     latch then refuses a second save so the unblocked form cannot re-run
+//     one that already succeeded.
 //   - Escape that belongs to an IME composition is not a dismissal.
 //   - A rejected cover pick reports itself without discarding an already
 //     staged valid image.
@@ -258,6 +262,36 @@ describe("EditBookDialog", () => {
     await settle();
 
     expect(stubs.toasts).toEqual(["Saved changes"]);
+    expect(closes).toBe(1);
+  });
+
+  it("unblocks itself before handing a finished save to the host", async () => {
+    await mount();
+    type(titleInput(), "Tehanu");
+    await settle();
+
+    saveButton().click();
+    await settle();
+
+    expect(stubs.editMetadata).toHaveBeenCalledTimes(1);
+    expect(stubs.toasts).toEqual(["Saved changes"]);
+    // The host unmounting on onclose is an optimisation, not a postcondition
+    // (ProfileDialog's delete arm documents the same hazard), so the dialog
+    // clears its own busy state first. Leaving it set hands a host that keeps
+    // the dialog mounted a modal whose every exit is refused.
+    expect(closes).toBe(1);
+    expect(closeButton().getAttribute("aria-disabled")).toBe("false");
+    expect(titleInput().hasAttribute("readonly")).toBe(false);
+
+    // The latch is the other half. The form is live again and can be made
+    // dirty, so canSubmit() alone would admit a second save of work that has
+    // already been handed off.
+    type(titleInput(), "Tehanu Revised");
+    await settle();
+    saveButton().click();
+    await settle();
+
+    expect(stubs.editMetadata).toHaveBeenCalledTimes(1);
     expect(closes).toBe(1);
   });
 
