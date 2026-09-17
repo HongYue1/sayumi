@@ -278,8 +278,11 @@ export async function measureFamilyAdjusts(
         const ink =
           cache?.get(key) ?? (await readInk(doc, url, variable, signal));
         if (!ink || signal?.aborted) continue;
-        const ratio = adjustment(reference, ink);
-        if (ratio === undefined) continue;
+        // Cache every successful measurement, including one that no ratio
+        // agrees on: the ink describes the file and the reference is fixed, so
+        // a later catalogue pass would re-download and re-rasterise the face
+        // only to reach the same verdict. A FAILED measurement stays uncached
+        // -- that can be a timeout or an unreachable font route, worth a retry.
         const entries = cache ?? new Map<string, Ink>();
         entries.delete(key);
         entries.set(key, ink);
@@ -288,6 +291,8 @@ export async function measureFamilyAdjusts(
           if (oldest !== undefined) entries.delete(oldest);
         }
         measured.set(fam, entries);
+        const ratio = adjustment(reference, ink);
+        if (ratio === undefined) continue;
         out[id] = ratio;
       }
     }),

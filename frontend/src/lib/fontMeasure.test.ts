@@ -412,6 +412,21 @@ describe("measureFamilyAdjusts", () => {
     expect(createdSources).toHaveLength(4);
   });
 
+  it("caches a measurement that reaches no usable ratio", async () => {
+    installStubs();
+    // One shared letter is not enough for agreement, but the ink still
+    // describes the file and the reference is fixed -- re-downloading and
+    // re-rasterising the face on the next pass can only repeat the verdict.
+    profiles = [undefined, { x: 40 }];
+    const measure = await freshMeasure();
+    const family = fam();
+    expect(await measure([family], undefined)).toEqual({});
+    expect(createdSources).toHaveLength(2);
+
+    expect(await measure([family], undefined)).toEqual({});
+    expect(createdSources).toHaveLength(2);
+  });
+
   it("bounds cached files and retries failed family loads", async () => {
     installStubs();
     const measure = await freshMeasure();
