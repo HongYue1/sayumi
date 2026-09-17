@@ -250,6 +250,39 @@ describe("reader search panel", () => {
     expect(el("#search-results").children).toHaveLength(0);
   });
 
+  it("keeps the retry mounted and busy while the retry search runs", async () => {
+    api.searchBook.mockRejectedValueOnce(new Error("boom"));
+    mount();
+    await settle();
+    typeQuery("needle");
+    advance(300);
+    await settle();
+    const retry = el(".srp-state button");
+
+    const pending = deferred<ApiClient.SearchResponse>();
+    api.searchBook.mockReturnValueOnce(pending.promise);
+    retry.focus();
+    retry.click();
+    await settle();
+
+    // The plain loading line carries no button, so rendering it here would
+    // unmount the control under the user's finger and drop focus to <body>.
+    // Staying on the same arm keeps the node and reports progress on it.
+    expect(el(".srp-state button")).toBe(retry);
+    expect(retry.getAttribute("aria-busy")).toBe("true");
+    expect(retry.getAttribute("aria-disabled")).toBe("true");
+    expect(document.activeElement).toBe(retry);
+    expect(stateText()).toContain("Searching");
+
+    pending.resolve(page([result()]));
+    await settle();
+
+    // Results are where the button legitimately goes away, so focus returns
+    // to the field that owns the combobox.
+    expect(rows()).toHaveLength(1);
+    expect(document.activeElement).toBe(field());
+  });
+
   it("clears the pending debounce when the panel closes", async () => {
     mount();
     await settle();

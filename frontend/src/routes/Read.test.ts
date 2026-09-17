@@ -595,6 +595,40 @@ describe("Read boot and restore", () => {
     expect(api.getBookmarks).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps the retry mounted and busy while the book reopens", async () => {
+    api.getBook.mockRejectedValueOnce(new Error("boom"));
+    await bootToBookError();
+    const errorBlock = document.querySelector(".rdp-error");
+    if (!errorBlock) throw new Error("error block missing");
+    const retryBtn = Array.from(errorBlock.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.includes("Retry"),
+    );
+    if (!retryBtn) throw new Error("retry button missing");
+
+    let releaseBook!: (detail: ApiClient.BookDetail) => void;
+    api.getBook.mockReturnValueOnce(
+      new Promise<ApiClient.BookDetail>((resolve) => {
+        releaseBook = resolve;
+      }),
+    );
+    retryBtn.focus();
+    retryBtn.click();
+    await settle();
+
+    // This stage sits outside every focus trap, so unmounting the block
+    // mid-attempt strands focus on <body> with no trap to pull it back.
+    expect(retryBtn.isConnected).toBe(true);
+    expect(retryBtn.getAttribute("aria-busy")).toBe("true");
+    expect(retryBtn.getAttribute("aria-disabled")).toBe("true");
+    expect(document.activeElement).toBe(retryBtn);
+    expect(document.body.textContent).toContain("Retrying");
+
+    releaseBook(book());
+    await settle();
+    await settle();
+    expect(document.querySelector(".rdp-error")).toBeNull();
+  });
+
   it("says offline plainly when the book fetch fails while unreachable", async () => {
     reachable.mockReturnValue(false);
     api.getBook.mockRejectedValueOnce(new Error("boom"));

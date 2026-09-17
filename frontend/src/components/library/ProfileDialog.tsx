@@ -74,7 +74,10 @@ export default function ProfileDialog(props: Props) {
     const controller = new AbortController();
     prerequisiteAbort = controller;
     setCheckingPrerequisite(true);
-    setPrerequisiteError(null);
+    // The failure notice is deliberately NOT cleared here; each arm clears it
+    // where it knows it succeeded. Clearing it up front would unmount the
+    // Retry button that lives inside the notice -- the control the user just
+    // activated -- and drop focus to <body> for the length of the attempt.
     if (props.mode === "clone") {
       // This list is a correctness gate, not optional decoration. Profile
       // names map to directories, so a case-only duplicate can alias the same
@@ -84,6 +87,7 @@ export default function ProfileDialog(props: Props) {
         const profiles = await listProfiles(controller.signal);
         if (superseded()) return;
         setTakenNames(profiles.map((profile) => profile.name.toLowerCase()));
+        setPrerequisiteError(null);
       } catch (err) {
         if (superseded()) return;
         setPrerequisiteError(
@@ -102,6 +106,7 @@ export default function ProfileDialog(props: Props) {
       const pinProtected = await session.currentHasPin();
       if (superseded()) return;
       setHasPin(pinProtected);
+      setPrerequisiteError(null);
     } catch (err) {
       if (superseded()) return;
       setPrerequisiteError(
@@ -286,6 +291,23 @@ export default function ProfileDialog(props: Props) {
     );
   });
 
+  // Retry survives its own activation: the notice around it stays mounted for
+  // the whole attempt (see loadPrerequisite) and the button reports busy
+  // through aria instead of disappearing under the pointer or the trap.
+  // Success is the one moment the notice legitimately goes away, so focus
+  // moves to the field this dialog exists for -- and only when nothing else
+  // claimed it, which is BookCard's orphan rule: never steal a real
+  // destination's focus back.
+  async function retryPrerequisite(): Promise<void> {
+    if (busy() || checkingPrerequisite()) return;
+    const held = document.activeElement;
+    await loadPrerequisite();
+    if (prerequisiteError() !== null) return;
+    const now = document.activeElement;
+    if (now !== held && now !== document.body) return;
+    (props.mode === "clone" ? newNameEl : confirmNameEl)?.focus();
+  }
+
   return (
     <div class="pd-overlay" role="presentation">
       <button
@@ -452,17 +474,18 @@ export default function ProfileDialog(props: Props) {
           <Show when={checkingPrerequisite()}>
             <p class="pd-prereq-status">{progressNote()}</p>
           </Show>
-          <Show when={!checkingPrerequisite() && prerequisiteError()}>
+          <Show when={prerequisiteError()}>
             {(message) => (
               <div class="pd-prereq-error">
                 <p class="pd-error">{message()}</p>
                 <button
                   type="button"
                   class="btn-ghost press pd-retry"
-                  onClick={() => {
-                    if (!busy()) void loadPrerequisite();
-                  }}
-                  aria-disabled={busy() ? "true" : "false"}
+                  onClick={() => void retryPrerequisite()}
+                  aria-disabled={
+                    busy() || checkingPrerequisite() ? "true" : "false"
+                  }
+                  aria-busy={checkingPrerequisite() ? "true" : "false"}
                 >
                   Retry
                 </button>

@@ -187,6 +187,11 @@ export default function Read(props: Props) {
   // True when the book itself (not just a chapter) failed to load, so Retry
   // re-fetches the book and the empty frame shows a book-level message.
   const [bookLoadFailed, setBookLoadFailed] = createSignal(false);
+  // A retry in flight. The Retry button lives inside the error block that the
+  // retry clears, so without this the activation unmounts the control under
+  // the user's focus -- and unlike the side panels, the stage sits outside
+  // every focus trap, so nothing tabs that focus back off <body>.
+  const [retrying, setRetrying] = createSignal(false);
   const [activePanel, setActivePanel] = createSignal<Panel>("none");
   const [bookmarks, setBookmarks] = createSignal<Bookmark[]>([]);
   const [chromeVisible, setChromeVisible] = createSignal(true);
@@ -859,9 +864,31 @@ export default function Read(props: Props) {
     }
   }
 
-  function retryOpen(): void {
+  async function retryOpen(): Promise<void> {
     void refreshBookmarks();
-    void openBook(lastBootProgress);
+    await openBook(lastBootProgress);
+  }
+
+  // The single entry point for the error block's Retry. It holds the block
+  // open for the whole attempt and marks the button busy, so the control
+  // survives its own activation; whichever step failed is the step retried.
+  async function retryFailed(): Promise<void> {
+    if (retrying()) return;
+    setRetrying(true);
+    try {
+      if (bookLoadFailed()) {
+        await retryOpen();
+        return;
+      }
+      await loadChapter(
+        lastFailedNav?.index ?? currentChapter(),
+        lastFailedNav?.scrollTo ?? "top",
+        lastFailedNav?.fragment,
+        lastFailedNav?.restore,
+      );
+    } finally {
+      setRetrying(false);
+    }
   }
 
   function tryInitialLoad(): void {
@@ -1891,22 +1918,17 @@ export default function Read(props: Props) {
             </div>
           </Show>
 
-          <Show when={error()}>
+          <Show when={error() || retrying()}>
             <div class="rdp-error">
-              <p class="rdp-error-title display">Something went wrong.</p>
-              <p>{error()}</p>
+              <p class="rdp-error-title display">
+                {error() ? "Something went wrong." : "Retrying\u2026"}
+              </p>
+              <Show when={error()}>{(message) => <p>{message()}</p>}</Show>
               <button
                 class="btn-ghost press"
-                onClick={() =>
-                  bookLoadFailed()
-                    ? retryOpen()
-                    : void loadChapter(
-                        lastFailedNav?.index ?? currentChapter(),
-                        lastFailedNav?.scrollTo ?? "top",
-                        lastFailedNav?.fragment,
-                        lastFailedNav?.restore,
-                      )
-                }
+                onClick={() => void retryFailed()}
+                aria-disabled={retrying() ? "true" : "false"}
+                aria-busy={retrying() ? "true" : "false"}
               >
                 Retry
               </button>

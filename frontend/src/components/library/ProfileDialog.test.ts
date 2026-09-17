@@ -27,7 +27,9 @@
 //     difference between a correct entry and a submit that stayed inert with
 //     nothing on screen explaining why.
 //   - The mount fetch is aborted on dispose, and a PIN-probe failure fails
-//     closed: no PIN field, no enabled delete, a visible retry.
+//     closed: no PIN field, no enabled delete, a visible retry -- and that
+//     retry stays mounted while it re-checks, so activating it cannot drop
+//     focus to <body>.
 //   - Capture-phase Escape leaves an active IME composition untouched.
 //   - Two submits in the same tick clone once. canSubmit() reads the busy
 //     signal, whose write neither activation can see yet, so a plain mirror
@@ -409,6 +411,42 @@ describe("ProfileDialog", () => {
 
     expect(container.querySelectorAll('input[type="password"]').length).toBe(1);
     expect(liveRegion()!.textContent).toBe("");
+  });
+
+  it("keeps the retry mounted and busy while the re-check runs", async () => {
+    stubs.currentHasPin.mockRejectedValueOnce(
+      new ApiError("boom", 500, "server_error"),
+    );
+    await mount("delete");
+    const retry = retryButton();
+    if (!retry) throw new Error("retry button missing");
+
+    let releasePin!: (hasPin: boolean) => void;
+    stubs.currentHasPin.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          releasePin = resolve;
+        }),
+    );
+    retry.focus();
+    retry.click();
+    await settle();
+
+    // Clearing the error at the head of the re-check would unmount the very
+    // button being activated, and the DOM moves focus to <body> when the
+    // focused node leaves the document.
+    expect(retryButton()).toBe(retry);
+    expect(retry.getAttribute("aria-busy")).toBe("true");
+    expect(retry.getAttribute("aria-disabled")).toBe("true");
+    expect(document.activeElement).toBe(retry);
+
+    releasePin(false);
+    await settle();
+
+    // Success is the one moment the notice legitimately goes away, so the
+    // dialog hands focus to the field the mode exists for.
+    expect(retryButton()).toBeNull();
+    expect(document.activeElement).toBe(confirmInput());
   });
 
   it("keeps busy controls focusable and inert while a clone is in flight", async () => {

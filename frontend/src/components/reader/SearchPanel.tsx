@@ -143,6 +143,12 @@ export default function SearchPanel(props: Props) {
   const [loadMoreError, setLoadMoreError] = createSignal("");
   const [resultItems, setResultItems] = createSignal<SearchResultItem[]>([]);
   const [groups, setGroups] = createSignal<Group[]>([]);
+  // A retry started from the failed state. While one runs, that state keeps
+  // its button mounted and busy instead of swapping to the bare "Searching…"
+  // line: the swap would unmount the control the user just activated, and
+  // inside the panel's focus trap that focus lands on <body>.
+  const [retrying, setRetrying] = createSignal(false);
+  const retryInFlight = (): boolean => retrying() && status() === "loading";
 
   let input: HTMLInputElement | undefined;
   let debounce: ReturnType<typeof setTimeout> | undefined;
@@ -358,6 +364,23 @@ export default function SearchPanel(props: Props) {
     } finally {
       if (my === token) abort = undefined;
     }
+  }
+
+  async function retrySearch(): Promise<void> {
+    if (retryInFlight()) return;
+    const held = document.activeElement;
+    setRetrying(true);
+    try {
+      await run(lastQuery);
+    } finally {
+      setRetrying(false);
+    }
+    // A result (or a search that superseded this one) is where the button
+    // legitimately goes away: focus goes back to the field that owns the
+    // combobox, and only when nothing else claimed it in the meantime.
+    if (status() === "error") return;
+    const now = document.activeElement;
+    if (now === held || now === document.body) input?.focus();
   }
 
   async function loadMore(): Promise<void> {
@@ -627,15 +650,17 @@ export default function SearchPanel(props: Props) {
           </Show>
         </div>
         <Switch>
-          <Match when={status() === "loading"}>
+          <Match when={status() === "loading" && !retryInFlight()}>
             <p class="srp-state">Searching…</p>
           </Match>
-          <Match when={status() === "error"}>
+          <Match when={status() === "error" || retryInFlight()}>
             <div class="srp-state">
-              <p>{errorMsg()}</p>
+              <p>{retryInFlight() ? "Searching…" : errorMsg()}</p>
               <button
                 class="btn-ghost press"
-                onClick={() => void run(lastQuery)}
+                onClick={() => void retrySearch()}
+                aria-disabled={retryInFlight() ? "true" : "false"}
+                aria-busy={retryInFlight() ? "true" : "false"}
               >
                 Try again
               </button>
