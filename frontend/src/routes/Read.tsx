@@ -1845,6 +1845,16 @@ export default function Read(props: Props) {
       </header>
 
       <div class="rdp-stage">
+        {/* Pre-mounted live regions, deliberately outside the stage content
+            so an open panel's inert does not silence them. A region
+            inserted in the same tick as its text is not announced by NVDA
+            or JAWS (WCAG 4.1.3), so the blocks below carry no role. */}
+        <p class="sr-only" role="status">
+          {chapterLoading() ? "Loading chapter\u2026" : ""}
+        </p>
+        <p class="sr-only" role="alert">
+          {error()}
+        </p>
         <div class="rdp-stage-content" inert={panelOpen()}>
           <Show when={book()}>
             <ChapterFrame
@@ -1864,16 +1874,15 @@ export default function Read(props: Props) {
           </Show>
 
           <Show when={chapterLoading()}>
-            <div class="rdp-loading" role="status" aria-live="polite">
-              <span class="rdp-loading-mark" aria-hidden="true">
-                ❦
-              </span>
-              <span class="sr-only">Loading chapter…</span>
+            {/* Purely decorative: the region above says "Loading chapter",
+                so repeating it here would read the same line twice. */}
+            <div class="rdp-loading" aria-hidden="true">
+              <span class="rdp-loading-mark">❦</span>
             </div>
           </Show>
 
           <Show when={error()}>
-            <div class="rdp-error" role="alert">
+            <div class="rdp-error">
               <p class="rdp-error-title display">Something went wrong.</p>
               <p>{error()}</p>
               <button

@@ -287,13 +287,16 @@ async function bootReader(): Promise<void> {
   await settle();
 }
 
-/** Mounts Read with getBook failing; waits for the book-level error UI. */
+/** Mounts Read with getBook failing; waits for the book-level error UI.
+ *  Waits on the visible block, not on [role="alert"]: the stage's alert
+ *  region is pre-mounted and empty from first paint, so it would match
+ *  before the error exists. */
 async function bootToBookError(): Promise<void> {
   const host = document.createElement("div");
   document.body.appendChild(host);
   dispose = render(() => createComponent(Read, { bookId: "book1" }), host);
   await vi.waitFor(() =>
-    expect(document.querySelector('[role="alert"]')).not.toBeNull(),
+    expect(document.querySelector(".rdp-error")).not.toBeNull(),
   );
 }
 
@@ -552,7 +555,12 @@ describe("Read boot and restore", () => {
   it("boots at {0,0} with no error UI when the progress fetch fails", async () => {
     api.getProgress.mockRejectedValue(new Error("down"));
     await bootReader();
-    expect(document.querySelector('[role="alert"]')).toBeNull();
+    expect(document.querySelector(".rdp-error")).toBeNull();
+    // The region stays mounted so a later failure has a "before" to diff
+    // against; silence is an empty region, not an absent one.
+    expect(document.querySelector('p.sr-only[role="alert"]')?.textContent).toBe(
+      "",
+    );
     expect(
       (frame.api.loadChapter as ReturnType<typeof vi.fn>).mock.calls[0][0].data
         .chapterIndex,
@@ -563,10 +571,16 @@ describe("Read boot and restore", () => {
     api.getBook.mockRejectedValueOnce(new Error("boom"));
     await bootToBookError();
     expect(frame.api.loadChapter).not.toHaveBeenCalled();
-    const alert = document.querySelector('[role="alert"]');
-    if (!alert) throw new Error("alert missing");
-    const retryBtn = Array.from(alert.querySelectorAll("button")).find((btn) =>
-      btn.textContent?.includes("Retry"),
+    const errorBlock = document.querySelector(".rdp-error");
+    if (!errorBlock) throw new Error("error block missing");
+    // The wording is announced from the pre-mounted region; the visible
+    // block carries no role, so it is not read a second time.
+    expect(errorBlock.getAttribute("role")).toBeNull();
+    expect(
+      document.querySelector('p.sr-only[role="alert"]')?.textContent,
+    ).not.toBe("");
+    const retryBtn = Array.from(errorBlock.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.includes("Retry"),
     );
     if (!retryBtn) throw new Error("retry button missing");
     retryBtn.click();
