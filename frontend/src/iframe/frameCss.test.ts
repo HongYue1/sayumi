@@ -6,6 +6,7 @@
 // import resolves empty under vitest, so this asserts against the real file.
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
+import { PAGE_INDICATOR_CLEARANCE } from "./pagination";
 
 const frameCSS = readFileSync("src/iframe/frame.css", "utf8");
 
@@ -39,5 +40,36 @@ describe("paged #content overflow", () => {
     // No paged class: the scroll-mode #content has no overflow-x rule, so a
     // wheel keeps driving the chapter the way scroll mode expects.
     expect(getComputedStyle(content).overflowX).not.toBe("hidden");
+  });
+});
+
+describe("page indicator clearance", () => {
+  it("reserves a paged bottom inset the whole pill fits inside", () => {
+    mountShell();
+    document.documentElement.classList.add("paged");
+    const pill = document.createElement("div");
+    pill.id = "page-indicator";
+    document.body.append(pill);
+
+    const style = getComputedStyle(pill);
+    const px = (value: string): number => Number.parseFloat(value) || 0;
+    // The pill is fixed against the viewport bottom, so the strip it covers is
+    // its offset plus its own box. There is no layout here, so the box is
+    // summed from the declarations; a line box is never shorter than the font
+    // size, which makes the sum a floor on the rendered pill rather than a
+    // guess at it.
+    expect(px(style.bottom)).toBeGreaterThan(0);
+    expect(px(style.fontSize)).toBeGreaterThan(0);
+    expect(px(style.paddingBottom)).toBeGreaterThan(0);
+
+    const covered =
+      px(style.bottom) +
+      px(style.fontSize) +
+      px(style.paddingTop) +
+      px(style.paddingBottom) +
+      px(style.borderTopWidth) +
+      px(style.borderBottomWidth);
+
+    expect(PAGE_INDICATOR_CLEARANCE).toBeGreaterThanOrEqual(covered);
   });
 });

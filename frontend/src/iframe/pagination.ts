@@ -18,8 +18,11 @@ const PAGE_TURN_FADE_IN_MS = 110;
 // regardless of frame pacing. 0.2 => at least ~5 frames per phase.
 const MAX_FADE_STEP = 0.2;
 // Minimum bottom inset for the paged column box so the last line never sits
-// under the fixed #page-indicator pill (bottom: 12px + pill height).
-const PAGE_INDICATOR_CLEARANCE = 32;
+// under the fixed #page-indicator pill (bottom: 12px + pill height). The
+// number is a hand-sum of frame.css's #page-indicator box, which is why it is
+// exported: frameCss.test.ts mounts that rule and fails if the pill grows past
+// the strip reserved here.
+export const PAGE_INDICATOR_CLEARANCE = 32;
 
 export type PaginationDeps = {
   /** The paged multicol scroller (#content); null before the shell exists. */
