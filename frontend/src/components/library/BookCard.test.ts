@@ -25,8 +25,18 @@
 //   - Driving the menus must not log STRICT_READ_UNTRACKED. The dismiss
 //     effect's apply phase is an untracked scope, so it resolves its chips
 //     through a plain lookup rather than a memo.
-// The menuEl reset in closeMenu is hygiene with no observable behaviour today
-// (the ref is always reassigned on the next open), so nothing here asserts it.
+//   - The edge-flip is a decision about geometry, so it has to be revisited
+//     when the geometry moves. A resize or a shelf scroll re-measures while
+//     the popover is open, and the measurement is taken as if the menu were
+//     unflipped, so a flip that is no longer needed is given up instead of
+//     latching. Switching chip to chip is the case that never passes through
+//     the closed state, and so the case a reset-on-close would miss.
+//   - A dismissing click leaves focus wherever it legitimately landed, but a
+//     click on something unfocusable orphans it on <body>: the item holding
+//     focus is removed with the menu, so the chip takes it back.
+// Each popover keeps its own ref, so the reset in closeMenu is hygiene with no
+// observable behaviour today (a ref is always reassigned on the next open) and
+// nothing here asserts it.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { render } from "@solidjs/web";
 import { flush } from "solid-js";
@@ -68,6 +78,7 @@ describe("BookCard", () => {
   let shared: string[];
   let flaired: Array<[string, string | null]>;
   let logged: string[];
+  const viewportRestores: Array<() => void> = [];
   let realError: typeof console.error;
   let realWarn: typeof console.warn;
   let realLog: typeof console.log;
@@ -140,6 +151,30 @@ describe("BookCard", () => {
     );
   }
 
+  // The DOM shim reports a fixed viewport and a zero rect for every element,
+  // so the flip tests state the viewport they mean and let the rects stay
+  // zero: a 4x4 viewport overflows for any popover, a roomy one for none.
+  // innerWidth/innerHeight live on the prototype, so an own value property
+  // shadows them and the restore removes it again (reversed, so nested stubs
+  // unwind to the original rather than to each other).
+  function setViewport(width: number, height: number): void {
+    for (const [key, value] of [
+      ["innerWidth", width],
+      ["innerHeight", height],
+    ] as const) {
+      const prev = Object.getOwnPropertyDescriptor(window, key);
+      viewportRestores.push(() => {
+        if (prev) Object.defineProperty(window, key, prev);
+        else Reflect.deleteProperty(window, key);
+      });
+      Object.defineProperty(window, key, {
+        configurable: true,
+        writable: true,
+        value,
+      });
+    }
+  }
+
   beforeEach(() => {
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -173,6 +208,7 @@ describe("BookCard", () => {
     dispose = undefined;
     flush();
     container.remove();
+    for (const restore of viewportRestores.splice(0).toReversed()) restore();
   });
 
   it("renders the caption, the cover and the progress rail", async () => {
@@ -556,5 +592,76 @@ describe("BookCard", () => {
     // Already clear: the entry is the state of record, not another toggle.
     expect(flaired).toEqual([]);
     expect(menu()).toBeNull();
+  });
+
+  it("re-measures the flip while the menu stays open", async () => {
+    mount();
+    await settle();
+    setViewport(1024, 768);
+
+    gear().click();
+    await settle();
+    const pop = container.querySelector<HTMLElement>(".bc-actions-menu");
+    if (!pop) throw new Error("actions menu missing");
+    expect(pop.classList.contains("flip-y")).toBe(false);
+
+    // The card moves under the open popover. Nothing reactive changed, so
+    // only a listener can notice that the menu no longer fits.
+    setViewport(4, 4);
+    window.dispatchEvent(new Event("resize"));
+    await settle();
+    expect(pop.classList.contains("flip-y")).toBe(true);
+
+    // And back again: the measurement is taken as if the menu were unflipped,
+    // so room recovered is a flip given up. Scroll is captured rather than
+    // bubbled, because it is the shelf that scrolls, not the window.
+    setViewport(1024, 768);
+    container.dispatchEvent(new Event("scroll"));
+    await settle();
+    expect(pop.classList.contains("flip-y")).toBe(false);
+  });
+
+  it("opens the second menu unflipped when the chips are switched", async () => {
+    mount();
+    await settle();
+    setViewport(4, 4);
+
+    chip().click();
+    await settle();
+    const flairPop = container.querySelector<HTMLElement>(".bc-flair-menu");
+    expect(flairPop?.classList.contains("flip-x")).toBe(true);
+
+    // A switch never passes through the closed state, so a flip retired only
+    // on close rides into the next menu even when it has room to spare.
+    setViewport(1024, 768);
+    gear().click();
+    await settle();
+    const actionsPop = container.querySelector<HTMLElement>(".bc-actions-menu");
+    expect(actionsPop?.classList.contains("flip-x")).toBe(false);
+    expect(actionsPop?.classList.contains("flip-y")).toBe(false);
+  });
+
+  it("hands focus back to the chip when a dismissing click orphans it", async () => {
+    mount();
+    await settle();
+
+    gear().focus();
+    gear().click();
+    await settle();
+    expect(focused()).toBe("Edit");
+
+    // The shelf background takes the click but cannot take focus, and the
+    // item that holds it is removed with the menu. Escape restores the chip;
+    // so does this, because the alternative is focus stranded on <body>.
+    const shelf = document.createElement("div");
+    document.body.appendChild(shelf);
+    try {
+      shelf.click();
+      await settle();
+      expect(menu()).toBeNull();
+      expect(document.activeElement).toBe(gear());
+    } finally {
+      shelf.remove();
+    }
   });
 });

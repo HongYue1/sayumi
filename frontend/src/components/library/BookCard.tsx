@@ -63,22 +63,72 @@ export default function BookCard(props: Props) {
     props.flairs.some((f) => f.id === props.book.flairId),
   );
 
+  let cardEl: HTMLDivElement | undefined;
   let flairBtn: HTMLButtonElement | undefined;
   let actionsBtn: HTMLButtonElement | undefined;
-  let menuEl: HTMLDivElement | undefined;
+  let flairMenuEl: HTMLDivElement | undefined;
+  let actionsMenuEl: HTMLDivElement | undefined;
   let overlayEl: HTMLButtonElement | undefined;
   // The trigger that owns a popover. A plain lookup, not a memo: it is
   // read from effect apply phases, which are untracked scopes where a memo
   // read logs STRICT_READ_UNTRACKED (see Read.tsx).
   const triggerFor = (menu: MenuKind | null): HTMLButtonElement | undefined =>
     menu === "flair" ? flairBtn : menu === "actions" ? actionsBtn : undefined;
+  // The popover a menu kind owns, in the same shape as triggerFor. A single
+  // shared ref would be correct only while the two menus stay mutually
+  // exclusive and every close nulls it — a pair of rules nothing in the types
+  // enforces, and one a direct chip-to-chip switch already sidesteps, since
+  // that path never passes through null.
+  const menuFor = (menu: MenuKind | null): HTMLDivElement | undefined =>
+    menu === "flair"
+      ? flairMenuEl
+      : menu === "actions"
+        ? actionsMenuEl
+        : undefined;
   // Stable popover ids so each chip can point at the menu it owns.
   const flairMenuId = (): string => `bc-flair-menu-${props.book.id}`;
   const actionsMenuId = (): string => `bc-actions-menu-${props.book.id}`;
   // Flip the open popover inward when a card near the right/bottom viewport
-  // edge would otherwise open it off-screen.
+  // edge would otherwise open it off-screen. The signals drive the class list;
+  // the plain mirrors carry the same state into untracked scopes (the effect
+  // apply phase, the reflow listeners), where the measurement has to know
+  // which way the menu is currently flipped.
   const [flipX, setFlipX] = createSignal(false);
   const [flipY, setFlipY] = createSignal(false);
+  let flippedX = false;
+  let flippedY = false;
+
+  function applyFlip(x: boolean, y: boolean): void {
+    flippedX = x;
+    flippedY = y;
+    setFlipX(x);
+    setFlipY(y);
+  }
+
+  // Decide both flips from the popover's geometry, always as if it were
+  // unflipped. A flipped menu measures as fitting precisely *because* it is
+  // flipped, so taking its rect at face value would latch the first flip for
+  // as long as the card lives. The CSS pairs each flip with the edge it
+  // replaces — `left: var(--sp-2)` against `right: var(--sp-2)`, `top: 2.4rem`
+  // against `bottom: calc(100% - 2.4rem)` — so the default position is
+  // recoverable from the card box without restating those offsets here.
+  function measureFlip(menu: MenuKind): void {
+    const el = menuFor(menu);
+    const card = cardEl;
+    if (!el || !card) {
+      applyFlip(false, false);
+      return;
+    }
+    const r = el.getBoundingClientRect();
+    const c = card.getBoundingClientRect();
+    const margin = 8;
+    const right = flippedX ? c.left + (c.right - r.right) + r.width : r.right;
+    const bottom = flippedY ? r.bottom + r.height : r.bottom;
+    applyFlip(
+      right > window.innerWidth - margin,
+      bottom > window.innerHeight - margin,
+    );
+  }
 
   function toggleFlair(e: MouseEvent): void {
     e.stopPropagation();
@@ -99,8 +149,9 @@ export default function BookCard(props: Props) {
     // single-popover components carry.
     const trigger = triggerFor(openMenu());
     setOpenMenu(null);
-    // Drop the stale node so a queued focus can't land in a closed popover.
-    menuEl = undefined;
+    // Drop the stale nodes so a queued focus can't land in a closed popover.
+    flairMenuEl = undefined;
+    actionsMenuEl = undefined;
     if (restoreFocus) trigger?.focus();
   }
 
@@ -198,14 +249,25 @@ export default function BookCard(props: Props) {
       const onWindowClick = (e: MouseEvent): void => {
         const t = e.target;
         if (!(t instanceof Node)) return;
-        if (menuEl?.contains(t) || trigger?.contains(t)) return;
+        if (menuFor(menu)?.contains(t) || trigger?.contains(t)) return;
         // The one swallow: the open-book overlay beneath the menu. Everything
         // else — the peer chip included — closes and lets the click land.
         if (overlayEl?.contains(t)) {
           e.preventDefault();
           e.stopPropagation();
         }
+        // Read the focus holder before closing: the item holding it is still
+        // mounted here, and the removal that strands focus lands on the next
+        // flush. A click that took a real control keeps it — a dismissal
+        // never steals focus back. Focus is orphaned in two shapes: the click
+        // blurred to <body> because its target was unfocusable, or it never
+        // moved and still sits in the menu about to be removed. Both end on
+        // <body>, which is nobody's destination, so the chip takes it back.
+        const held = document.activeElement;
+        const orphaned =
+          !held || held === document.body || !!menuFor(menu)?.contains(held);
         closeMenu(false);
+        if (orphaned) trigger?.focus();
       };
       const onWindowKeyDown = (e: KeyboardEvent): void => {
         if (e.key === "Escape") {
@@ -222,29 +284,36 @@ export default function BookCard(props: Props) {
     },
   );
 
-  // Measure the open menu once and flip it inward if it spills past the
-  // viewport edge; reset on close so the next open re-measures from the
-  // default top-left position rather than inheriting a stale flip. Reads
-  // openMenu/menuEl only (never flipX/flipY), so applying a flip doesn't
-  // re-trigger this effect.
-  // Compute/apply pair (same one-shot hazard as above). The DOM read of
-  // menuEl lives in the apply phase, which runs post-flush — after the
-  // menu's ref has been assigned on open. Compute reads openMenu() only
-  // (never flipX/flipY), so applying a flip doesn't re-trigger this effect.
+  // Flip the open menu inward when it spills past a viewport edge, and reset
+  // on close. Compute/apply pair (same one-shot hazard as above): the DOM read
+  // lives in the apply phase, which runs post-flush — after the menu's ref has
+  // been assigned on open. Compute reads openMenu() only (never flipX/flipY,
+  // which the mirrors carry instead), so applying a flip cannot re-trigger it.
+  //
+  // The decision then has to survive the card moving underneath it. A viewport
+  // resize or a shelf scroll changes the geometry without touching a single
+  // signal, so these listeners re-measure for as long as the popover is open.
+  // Re-measuring beats dismissing, which would punish a user who scrolled by
+  // one line. Scoped to the open menu, exactly like the dismiss listeners; the
+  // scroll listener captures because scroll events don't bubble.
   createEffect(
     () => openMenu(),
     (menu) => {
-      const el = menuEl;
-      if (!menu || !el) {
-        setFlipX(false);
-        setFlipY(false);
+      if (!menu) {
+        applyFlip(false, false);
         return undefined;
       }
-      const r = el.getBoundingClientRect();
-      const margin = 8;
-      if (r.right > window.innerWidth - margin) setFlipX(true);
-      if (r.bottom > window.innerHeight - margin) setFlipY(true);
-      return undefined;
+      measureFlip(menu);
+      const onReflow = (): void => measureFlip(menu);
+      window.addEventListener("resize", onReflow);
+      window.addEventListener("scroll", onReflow, {
+        capture: true,
+        passive: true,
+      });
+      return () => {
+        window.removeEventListener("resize", onReflow);
+        window.removeEventListener("scroll", onReflow, { capture: true });
+      };
     },
   );
 
@@ -264,7 +333,7 @@ export default function BookCard(props: Props) {
       if (!menu) return undefined;
       queueMicrotask(() => {
         if (gen !== menuGen) return;
-        const el = menuEl;
+        const el = menuFor(menu);
         if (!el) return;
         const items = Array.from(
           el.querySelectorAll<HTMLButtonElement>(".bc-menu-item"),
@@ -339,6 +408,7 @@ export default function BookCard(props: Props) {
 
   return (
     <div
+      ref={cardEl}
       class="bc-card"
       role="listitem"
       onFocusOut={onCardFocusOut}
@@ -464,7 +534,7 @@ export default function BookCard(props: Props) {
 
       <Show when={openMenu() === "flair"}>
         <div
-          ref={menuEl}
+          ref={flairMenuEl}
           id={flairMenuId()}
           class={[
             "bc-flair-menu paper",
@@ -530,7 +600,7 @@ export default function BookCard(props: Props) {
 
       <Show when={openMenu() === "actions"}>
         <div
-          ref={menuEl}
+          ref={actionsMenuEl}
           id={actionsMenuId()}
           class={[
             "bc-actions-menu paper",
