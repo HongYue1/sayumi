@@ -200,8 +200,13 @@ describe("App shell", () => {
     const shell = await boot();
     const placeholder = host.querySelector(".boot");
     expect(placeholder).not.toBeNull();
-    expect(placeholder?.getAttribute("role")).toBe("status");
+    // The placeholder appears together with its copy, which NVDA and JAWS
+    // do not announce, so it carries no role of its own: the wording lives
+    // in a region that was already in the tree.
+    expect(placeholder?.getAttribute("role")).toBeNull();
     expect(placeholder?.getAttribute("aria-busy")).toBe("true");
+    const progress = host.querySelector('p.sr-only[role="status"]');
+    expect(progress?.textContent).toBe("Checking sign-in status\u2026");
     expect(stub("login")).toBeNull();
 
     release();
@@ -209,6 +214,9 @@ describe("App shell", () => {
 
     expect(shell.session.status).toBe("signed-out");
     expect(host.querySelector(".boot")).toBeNull();
+    // Same node, emptied: the region outlives the state it describes.
+    expect(host.querySelector('p.sr-only[role="status"]')).toBe(progress);
+    expect(progress?.textContent).toBe("");
     expect(stub("login")).not.toBeNull();
   });
 
@@ -225,9 +233,11 @@ describe("App shell", () => {
     expect(stub("login")).toBeNull();
     expect(stub("library")).toBeNull();
     expect(stub("offline")).not.toBeNull();
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain(
-      "Your sign-in status is unknown",
-    );
+    // The card mounts together with its copy, so the announcement comes
+    // from the pre-mounted region and the card carries no role itself.
+    const alert = host.querySelector('p.sr-only[role="alert"]');
+    expect(alert?.textContent).toContain("Your sign-in status is unknown");
+    expect(host.querySelector(".boot-card")?.getAttribute("role")).toBeNull();
 
     const retry = Array.from(host.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Try again",
@@ -594,6 +604,37 @@ describe("App shell", () => {
 
     expect(stubs.read).toHaveBeenCalledTimes(2);
     expect(stub("read")?.getAttribute("data-book-id")).toBe("hyperion");
+  });
+
+  it("announces a caught render error from the pre-mounted region", async () => {
+    window.location.hash = "#/read/dune";
+    stubs.read.mockImplementationOnce(() => {
+      throw new Error("render boom");
+    });
+
+    await signedIn();
+
+    // A bare Error is a frontend bug, so getErrorMessage keeps the internal
+    // exception string out and the shell's own sentence is what is read.
+    const alert = host.querySelector('p.sr-only[role="alert"]');
+    expect(alert?.textContent).toContain("Something went wrong");
+    expect(alert?.textContent).toContain("Sayumi stopped drawing this page");
+    // The fallback card arrives together with its copy, so the role belongs
+    // to the region outside the boundary, which predates the failure.
+    expect(host.querySelector(".boot-card")?.getAttribute("role")).toBeNull();
+    expect(stub("read")).toBeNull();
+
+    const retry = Array.from(host.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Try again",
+    );
+    expect(retry).toBeDefined();
+    retry?.click();
+    await settle();
+
+    // reset() rebuilds the subtree, and the region empties with it rather
+    // than holding a dead failure in an assertive region all session.
+    expect(stub("read")).not.toBeNull();
+    expect(host.querySelector('p.sr-only[role="alert"]')?.textContent).toBe("");
   });
 
   it("re-activates the library store when the profile changes", async () => {

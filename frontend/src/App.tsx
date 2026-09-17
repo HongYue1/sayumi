@@ -10,6 +10,7 @@
 //     the async continuation read stays untracked.
 import {
   createEffect,
+  createSignal,
   Errored,
   Match,
   onSettled,
@@ -157,11 +158,54 @@ export default function App() {
     },
   );
 
+  // A caught render error replaces everything inside the boundary, so a
+  // role on the fallback card would arrive in the same tick as its copy and
+  // never be announced. The fallback mirrors its message into the assertive
+  // region instead -- that region sits outside the boundary, so it predates
+  // the failure -- and clears it again when reset() rebuilds the subtree.
+  const [boundaryFailure, setBoundaryFailure] = createSignal("");
+  const boundaryFallbackMessage =
+    "Sayumi stopped drawing this page. Retrying rebuilds it from the current state.";
+  const MirrorBoundaryFailure = (props: { message: string }) => {
+    createEffect(
+      () => props.message,
+      (message) => {
+        setBoundaryFailure(message);
+        return undefined;
+      },
+    );
+    // Clearing on teardown is load-bearing: reset() unmounts this without
+    // re-running the effect, so a stale message would otherwise sit in an
+    // assertive region for the rest of the session.
+    onSettled(() => () => setBoundaryFailure(""));
+    return null;
+  };
+
+  // Text for the two pre-mounted regions below. Both boot states mount
+  // together with their copy, which NVDA and JAWS do not announce (WCAG
+  // 4.1.3), so neither arm carries a role and these regions -- in the
+  // accessibility tree from first paint -- speak for them. Progress stays
+  // polite; the blocking failure keeps the assertive severity the card
+  // itself used to carry.
+  const bootProgress = (): string =>
+    session.status === "checking" ? "Checking sign-in status\u2026" : "";
+  const bootFailure = (): string =>
+    boundaryFailure() ||
+    (session.status === "unavailable"
+      ? "Sayumi is unavailable. Your sign-in status is unknown because the server could not be reached."
+      : "");
+
   return (
     <>
       <OfflineBanner />
 
       <main>
+        <p class="sr-only" role="status">
+          {bootProgress()}
+        </p>
+        <p class="sr-only" role="alert">
+          {bootFailure()}
+        </p>
         {/* One boundary around everything routing can render. Without it a
             throw while rendering a route -- or one travelling through the
             reactive graph -- tears down the subtree and leaves an empty
@@ -172,21 +216,21 @@ export default function App() {
         <Errored
           fallback={(err, reset) => (
             <div class="boot boot-unavailable">
+              <MirrorBoundaryFailure
+                message={`Something went wrong. ${getErrorMessage(
+                  err(),
+                  boundaryFallbackMessage,
+                )}`}
+              />
               <section
                 class="boot-card paper"
-                role="alert"
                 aria-labelledby="boot-error-title"
               >
                 <p class="eyebrow">Unexpected error</p>
                 <h1 id="boot-error-title" class="display">
                   Something went wrong
                 </h1>
-                <p>
-                  {getErrorMessage(
-                    err(),
-                    "Sayumi stopped drawing this page. Retrying rebuilds it from the current state.",
-                  )}
-                </p>
+                <p>{getErrorMessage(err(), boundaryFallbackMessage)}</p>
                 <button class="btn press" type="button" onClick={reset}>
                   Try again
                 </button>
@@ -196,15 +240,14 @@ export default function App() {
         >
           <Switch fallback={<Library />}>
             <Match when={session.status === "checking"}>
-              <div class="boot" role="status" aria-busy="true">
-                <span class="sr-only">Checking sign-in status…</span>
-              </div>
+              {/* aria-busy only: the wording lives in the region above, which
+                  existed before this placeholder did. */}
+              <div class="boot" aria-busy="true" />
             </Match>
             <Match when={session.status === "unavailable"}>
               <div class="boot boot-unavailable">
                 <section
                   class="boot-card paper"
-                  role="alert"
                   aria-labelledby="boot-unavailable-title"
                 >
                   <p class="eyebrow">Connection</p>
