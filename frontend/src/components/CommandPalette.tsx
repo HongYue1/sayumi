@@ -59,6 +59,17 @@ function capByGroup(list: Command[]): Command[] {
   return out;
 }
 
+// Equality boundary for the rendered rows. Narrowing a query usually keeps the
+// same matches ("harry p" -> "harry po"), and `commands` only rebuilds when the
+// palette opens or the books/custom themes change -- so the rows it hands back
+// are the same objects. Comparing them by identity stops a fresh-but-identical
+// result set from reconciling every row and re-running the selection clamp.
+function sameCommands(a: Command[], b: Command[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every((c, i) => c === b[i]);
+}
+
 function close(): void {
   ui.closeOverlays();
 }
@@ -177,15 +188,18 @@ export default function CommandPalette() {
     },
   );
 
-  const filtered = createMemo<Command[]>(() => {
-    const words = queryWords();
-    if (words.length === 0) return capByGroup(commands());
-    // Match every typed word somewhere in the label/hint (order-independent),
-    // so "theme sepia" matches "Theme: Sepia".
-    return capByGroup(
-      commands().filter((c) => words.every((w) => c.haystack.includes(w))),
-    );
-  });
+  const filtered = createMemo<Command[]>(
+    () => {
+      const words = queryWords();
+      if (words.length === 0) return capByGroup(commands());
+      // Match every typed word somewhere in the label/hint (order-independent),
+      // so "theme sepia" matches "Theme: Sepia".
+      return capByGroup(
+        commands().filter((c) => words.every((w) => c.haystack.includes(w))),
+      );
+    },
+    { equals: sameCommands },
+  );
 
   // Clamp the raw selection into range as the filtered set shrinks (computed,
   // not stored, so no effect is needed to keep it valid).
