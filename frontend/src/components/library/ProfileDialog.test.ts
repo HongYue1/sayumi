@@ -21,6 +21,11 @@
 //     of delegating it to an unmount that neither deleteCurrent nor the host
 //     promises, and a latch then refuses a second submit so the unblocked
 //     state cannot re-run work that already succeeded.
+//   - The delete confirmation is trimmed before it is compared, and says so
+//     once the entry can no longer become the name. A profile name can never
+//     be whitespace-padded, so a pasted trailing space was the whole
+//     difference between a correct entry and a submit that stayed inert with
+//     nothing on screen explaining why.
 //   - The mount fetch is aborted on dispose, and a PIN-probe failure fails
 //     closed: no PIN field, no enabled delete, a visible retry.
 //   - Capture-phase Escape leaves an active IME composition untouched.
@@ -129,6 +134,8 @@ describe("ProfileDialog", () => {
     container.querySelector<HTMLElement>('p.sr-only[role="alert"]');
   const nameNote = (): HTMLElement | null =>
     container.querySelector<HTMLElement>("#profile-name-error");
+  const confirmNote = (): HTMLElement | null =>
+    container.querySelector<HTMLElement>("#profile-confirm-error");
   const retryButton = (): HTMLButtonElement | null =>
     container.querySelector<HTMLButtonElement>(".pd-retry");
 
@@ -217,6 +224,55 @@ describe("ProfileDialog", () => {
     expect(closes).toBe(1);
     expect(submitButton().getAttribute("aria-disabled")).toBe("false");
     expect(closeButton().getAttribute("aria-disabled")).toBe("false");
+  });
+
+  // A name pasted from the profile menu carries whatever whitespace came with
+  // it. The comparison was raw, so a trailing space refused the delete
+  // forever while the field looked exactly right.
+  it("arms the delete for a confirmation pasted with surrounding whitespace", async () => {
+    await mount("delete");
+
+    type(confirmInput(), "  Alice ");
+    await settle();
+
+    expect(confirmNote()).toBeNull();
+    expect(confirmInput().getAttribute("aria-invalid")).toBe("false");
+    expect(submitButton().getAttribute("aria-disabled")).toBe("false");
+
+    submitButton().click();
+    await settle();
+
+    expect(stubs.deleteCurrent).toHaveBeenCalledTimes(1);
+    expect(closes).toBe(1);
+  });
+
+  // The other half of the same arm: silence while the entry can still grow
+  // into the name, then one message wired to both the field and the live
+  // region once it cannot. Before this, a mismatch was announced nowhere and
+  // the only feedback was a submit that would not fire.
+  it("marks a confirmation that can no longer match, and is silent until then", async () => {
+    await mount("delete");
+
+    type(confirmInput(), "Ali");
+    await settle();
+    expect(confirmNote()).toBeNull();
+    expect(confirmInput().getAttribute("aria-invalid")).toBe("false");
+    expect(confirmInput().hasAttribute("aria-describedby")).toBe(false);
+    expect(liveRegion()!.textContent).toBe("");
+
+    type(confirmInput(), "Alicia");
+    await settle();
+
+    expect(confirmNote()!.textContent).toContain("must match");
+    expect(confirmInput().getAttribute("aria-invalid")).toBe("true");
+    expect(confirmInput().getAttribute("aria-describedby")).toBe(
+      "profile-confirm-error",
+    );
+    expect(liveRegion()!.textContent).toContain("must match");
+    // Refused, but still focusable rather than disabled, per the arm above.
+    expect(submitButton().getAttribute("aria-disabled")).toBe("true");
+    expect(submitButton().hasAttribute("disabled")).toBe(false);
+    expect(stubs.deleteCurrent).not.toHaveBeenCalled();
   });
 
   it("unblocks itself before handing a finished clone to the host", async () => {

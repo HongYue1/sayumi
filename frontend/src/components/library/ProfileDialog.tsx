@@ -146,12 +146,28 @@ export default function ProfileDialog(props: Props) {
       nameError() === null &&
       newPinError() === null,
   );
+  // Trimmed for the same reason the clone arm trims. A name pasted from the
+  // profile menu can arrive with surrounding whitespace, and lib/profileName
+  // requires a letter or digit at both ends, so no profile name is ever
+  // whitespace-padded: trimming can only accept what was meant, and an
+  // invisible trailing space can no longer leave the submit inert forever.
+  // The match itself stays exact and case-sensitive -- deletion is deliberate.
+  const trimmedConfirmName = createMemo(() => confirmName().trim());
+  // Stays silent while the entry can still become the name, so this reads as
+  // advice at the point it becomes true rather than nagging through every
+  // keystroke of a correct name.
+  const confirmError = createMemo(() => {
+    const typed = trimmedConfirmName();
+    if (typed.length === 0 || typed === props.profileName) return null;
+    if (props.profileName.startsWith(typed)) return null;
+    return `This must match “${props.profileName}” exactly.`;
+  });
   // Require an exact name match, plus a PIN when the profile has one. While
   // hasPin is still loading (null) the delete stays disabled.
   const deleteReady = createMemo(
     () =>
       hasPin() !== null &&
-      confirmName() === props.profileName &&
+      trimmedConfirmName() === props.profileName &&
       (!hasPin() || pin().length > 0),
   );
   const canSubmit = createMemo(
@@ -167,7 +183,9 @@ export default function ProfileDialog(props: Props) {
     () =>
       error() ??
       prerequisiteError() ??
-      (props.mode === "clone" ? (nameError() ?? newPinError()) : null),
+      (props.mode === "clone"
+        ? (nameError() ?? newPinError())
+        : confirmError()),
   );
 
   // Progress rather than failure, so it is announced politely from its own
@@ -335,11 +353,22 @@ export default function ProfileDialog(props: Props) {
                     autocomplete="off"
                     autocapitalize="off"
                     spellcheck="false"
+                    aria-invalid={confirmError() !== null ? "true" : "false"}
+                    aria-describedby={
+                      confirmError() ? "profile-confirm-error" : undefined
+                    }
                     readonly={busy()}
                     aria-disabled={busy() ? "true" : "false"}
                     ref={(el) => (confirmNameEl = el)}
                   />
                 </label>
+                <Show when={confirmError()}>
+                  {(message) => (
+                    <p class="pd-note" id="profile-confirm-error">
+                      {message()}
+                    </p>
+                  )}
+                </Show>
                 <Show when={hasPin()}>
                   <label class="pd-frow">
                     <span class="pd-lbl">PIN</span>
