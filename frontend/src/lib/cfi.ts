@@ -37,15 +37,23 @@
 // searchHighlight.ts relies on the same distinction when it unwraps.
 // searchMarks.ts also strips authored copies before a chapter becomes ready.
 //
-import { SEARCH_MARK_SELECTOR } from "~/lib/searchMarks";
+import { SEARCH_MARK_ATTRIBUTE, SEARCH_MARK_VALUE } from "~/lib/searchMarks";
 
 // Paths are rooted at <body>, so they also encode the frame shell skeleton
 // (#paged-clip > #content > #content-inner). Every dynamic body mutation in the
 // frame appends (boundary.ts, pagination.ts), which leaves stored paths valid;
 // inserting a body child before #paged-clip would invalidate all of them.
 
+// Asked about every element sibling at every depth, in both directions below,
+// so it compares the identity itself rather than paying a selector match per
+// candidate. This is SEARCH_MARK_SELECTOR by construction — that selector is
+// composed from these two constants — and searchMarks.test.ts pins the two
+// forms against each other so they cannot drift apart.
 function isSearchMark(el: Element): boolean {
-  return el.matches(SEARCH_MARK_SELECTOR);
+  return (
+    el.localName === "mark" &&
+    el.getAttribute(SEARCH_MARK_ATTRIBUTE) === SEARCH_MARK_VALUE
+  );
 }
 
 /** The index-th element child, counting as if search marks were not there. */
