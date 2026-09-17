@@ -65,6 +65,25 @@ function productionTsxFiles(dir = "src"): string[] {
   return files;
 }
 
+// Local names a file pulls out of the geometry module, aliases included:
+// `Bookmark as BookmarkIcon` reaches the call site as BookmarkIcon.
+function iconsImportedNames(source: string): Set<string> {
+  const names = new Set<string>();
+  for (const block of source.matchAll(
+    /import\s*\{([^}]*)\}\s*from\s*"~\/lib\/icons"/g,
+  )) {
+    for (const entry of block[1].split(",")) {
+      const local =
+        entry
+          .trim()
+          .split(/\s+as\s+/)
+          .pop() ?? "";
+      if (local !== "") names.add(local);
+    }
+  }
+  return names;
+}
+
 afterEach(() => {
   while (disposers.length > 0) {
     const dispose = disposers.pop();
@@ -134,6 +153,19 @@ describe("Icon", () => {
     expect(svg.getAttribute("aria-hidden")).toBe("true");
     expect(svg.getAttribute("role")).toBeNull();
     expect(svg.getAttribute("aria-label")).toBeNull();
+  });
+
+  it("warns instead of silently hiding a blank label", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const svg = svgIn(mount(() => <Icon icon={Search} label="   " />));
+
+    // Still hidden, because an unnamed role="img" is worse than a hidden
+    // glyph, but no longer silent and with no empty aria-label left behind.
+    expect(svg.getAttribute("aria-hidden")).toBe("true");
+    expect(svg.getAttribute("role")).toBeNull();
+    expect(svg.getAttribute("aria-label")).toBeNull();
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0][0]).toContain("non-empty string");
   });
 
   it("forwards class to the svg", () => {
@@ -216,6 +248,36 @@ describe("Icon", () => {
     });
   });
 
+  it("takes every call site's glyph from the geometry module", () => {
+    // markup() concatenates attribute names and values into innerHTML with no
+    // escaping, and icons.test.ts guards only what ~/lib/icons exports. That
+    // guard holds only while nothing else reaches the serialiser, so the
+    // header's "never pass anything user-controlled" rule is checked here
+    // rather than left as prose.
+    const violations: string[] = [];
+    let glyphs = 0;
+
+    for (const file of productionTsxFiles()) {
+      const source = readFileSync(file, "utf8");
+      const imported = iconsImportedNames(source);
+      const where = sourcePath(relative("src", file));
+      for (const match of source.matchAll(/<Icon\b[\s\S]*?\/>/g)) {
+        const expression = /icon=\{([^}]*)\}/.exec(match[0])?.[1] ?? "";
+        const names = [...expression.matchAll(/[A-Za-z_$][\w$]*/g)]
+          .map((identifier) => identifier[0])
+          .filter((identifier) => /^[A-Z]/.test(identifier));
+        if (names.length === 0) violations.push(`${where}: ${expression}`);
+        for (const name of names) {
+          glyphs += 1;
+          if (!imported.has(name)) violations.push(`${where}: ${name}`);
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+    expect(glyphs).toBeGreaterThan(0);
+  });
+
   it("warns when a decorative icon is the whole unnamed control", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     mount(() => (
@@ -277,6 +339,36 @@ describe("Icon", () => {
       <button type="button">
         <Icon icon={Search} decorative />
         Search
+      </button>
+    ));
+
+    await Promise.resolve();
+
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("counts an image caption as the control's exposed name", async () => {
+    // A cover thumbnail names the link, so the icon beside it really is
+    // decoration. Auditing text nodes alone reported this as unnamed.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    mount(() => (
+      <a href="/book/1">
+        <img src="/cover.jpg" alt="Sayumi, chapter one" />
+        <Icon icon={Search} decorative />
+      </a>
+    ));
+
+    await Promise.resolve();
+
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("counts a labelled descendant as the control's exposed name", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    mount(() => (
+      <button type="button">
+        <span aria-label="Remove tag" />
+        <Icon icon={Search} decorative />
       </button>
     ));
 

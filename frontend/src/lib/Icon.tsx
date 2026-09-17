@@ -15,8 +15,11 @@
  * innerHTML is deliberate: icons.ts is a fixed, local, developer-authored
  * allowlist, so serialising it is one string parse per glyph instead of a
  * component per node. markup() does NOT escape: one double quote in a value
- * breaks out of its attribute and injects another one. icons.test.ts is what
- * enforces that. Never pass anything user-controlled through the `icon` prop.
+ * breaks out of its attribute and injects another one. Two suites are the
+ * whole guard: icons.test.ts rejects a breakout character in anything
+ * ~/lib/icons exports, and Icon.test.tsx pins that every call site takes its
+ * glyph from that module -- the first check only covers what the module
+ * itself holds. Never pass anything user-controlled through the `icon` prop.
  */
 import type { IconNode } from "~/lib/icons";
 
@@ -70,11 +73,38 @@ const INTERACTIVE_ANCESTOR = [
   '[role="tab"]',
 ].join(",");
 
-function hasExposedText(node: Node, icon: SVGSVGElement): boolean {
+const BUTTON_INPUT_TYPES = new Set(["submit", "button", "reset"]);
+
+// Text nodes are not the only content that can name a control: an <img alt>,
+// a button-style <input value> and a nested aria-label all feed the parent's
+// accessible name. Counting text alone made a decorative icon next to a
+// captioned cover look like the control's only content, so the audit warned
+// about markup that was already correct.
+function namesItself(node: Element): boolean {
+  if ((node.getAttribute("aria-label") ?? "").trim() !== "") return true;
+  const tag = node.tagName.toLowerCase();
+  const type = (node.getAttribute("type") ?? "").toLowerCase();
+  const imageLike =
+    tag === "img" || tag === "area" || (tag === "input" && type === "image");
+  if (imageLike) return (node.getAttribute("alt") ?? "").trim() !== "";
+  if (tag === "input" && BUTTON_INPUT_TYPES.has(type)) {
+    return (node.getAttribute("value") ?? "").trim() !== "";
+  }
+  return false;
+}
+
+function hasExposedText(
+  node: Node,
+  icon: SVGSVGElement,
+  control = false,
+): boolean {
   if (node === icon) return false;
   if (node.nodeType === 3) return (node.textContent ?? "").trim() !== "";
-  if (node instanceof Element && node.getAttribute("aria-hidden") === "true") {
-    return false;
+  if (node instanceof Element) {
+    if (node.getAttribute("aria-hidden") === "true") return false;
+    // The control's own aria-label is its explicit name, not content inside
+    // it -- that distinction is what the labelFromParent check rests on.
+    if (!control && namesItself(node)) return true;
   }
   return [...node.childNodes].some((child) => hasExposedText(child, icon));
 }
@@ -91,7 +121,7 @@ function auditHiddenIconControl(
 ): void {
   queueMicrotask(() => {
     const control = icon.closest(INTERACTIVE_ANCESTOR);
-    const hasText = control !== null && hasExposedText(control, icon);
+    const hasText = control !== null && hasExposedText(control, icon, true);
     const valid =
       intent === "decorative"
         ? control === null || hasText
@@ -126,6 +156,10 @@ function markup(node: IconNode): string {
 }
 
 export default function Icon(props: Props) {
+  // A blank label is not a label. Deciding role and aria-hidden by truthiness
+  // turned `label=""` into a hidden glyph -- the opposite of what a caller
+  // asking for a name wants -- and neither audit branch covered it.
+  const named = () => (props.label ?? "").trim() !== "";
   return (
     <svg
       ref={
@@ -135,6 +169,11 @@ export default function Icon(props: Props) {
                 auditHiddenIconControl(element, "label-from-parent");
               } else if (props.decorative) {
                 auditHiddenIconControl(element, "decorative");
+              } else if (!named()) {
+                console.warn(
+                  "[Icon] label must be a non-empty string. Use decorative or labelFromParent for a glyph that should stay hidden.",
+                  element,
+                );
               }
             }
           : undefined
@@ -149,9 +188,9 @@ export default function Icon(props: Props) {
       stroke-linecap="round"
       stroke-linejoin="round"
       class={props.class}
-      role={props.label ? "img" : undefined}
-      aria-label={props.label}
-      aria-hidden={props.label ? undefined : "true"}
+      role={named() ? "img" : undefined}
+      aria-label={named() ? props.label : undefined}
+      aria-hidden={named() ? undefined : "true"}
       innerHTML={markup(props.icon)}
     />
   );
