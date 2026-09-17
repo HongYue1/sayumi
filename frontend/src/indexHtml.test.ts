@@ -183,7 +183,9 @@ describe("pre-paint parity with the cache writer", () => {
   }
 
   it("paints exactly the tokens paintTheme paints", () => {
-    expect(tokens(script)).toEqual(tokens(region(themeSource, "function paintTheme")));
+    expect(tokens(script)).toEqual(
+      tokens(region(themeSource, "function paintTheme")),
+    );
   });
 
   it("paints exactly the tokens applyCachedTheme paints", () => {
