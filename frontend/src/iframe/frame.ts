@@ -17,7 +17,7 @@ import {
 import {
   generateCFI,
   resolveCFI,
-  resolveCFIRange,
+  resolveCFIPoint,
   rectForCollapsedRange,
   textNodeAtOffset,
 } from "~/lib/cfi";
@@ -839,15 +839,15 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     if (isPagedMode) {
       const target = loadScrollTarget || "top";
       const pagedRestore = loadRestorePercent;
-      const pagedRestoreElement = loadRestoreCfi
-        ? resolveContentCfi(loadRestoreCfi)
-        : null;
       // Resolve the range (not just the rect) here: the rect must be read
       // inside restorePagedPosition, after scrollLeft is zeroed, or a stale
-      // offset skews the logical-x mapping.
-      const pagedRestoreRange = loadRestoreCfi
-        ? resolveContentRange(loadRestoreCfi)
+      // offset skews the logical-x mapping. Element and range address the same
+      // anchor, so they come from one resolve rather than three path walks.
+      const pagedRestorePoint = loadRestoreCfi
+        ? resolveContentPoint(loadRestoreCfi)
         : null;
+      const pagedRestoreElement = pagedRestorePoint?.element ?? null;
+      const pagedRestoreRange = pagedRestorePoint?.range ?? null;
       loadScrollTarget = null;
       loadRestorePercent = null;
       loadRestoreCfi = null;
@@ -1385,10 +1385,19 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     return el && !SHELL_ELEMENT_IDS.has(el.id) ? el : null;
   }
 
+  // Element and range for one anchor, from a single parse and path walk. The
+  // two are non-null together: once the path resolves to a content element a
+  // range always exists, collapsing to the element's start when the anchor
+  // carries no usable text offset.
+  function resolveContentPoint(
+    cfi: string,
+  ): { element: Element; range: Range } | null {
+    const point = resolveCFIPoint(cfi, document);
+    return point && !SHELL_ELEMENT_IDS.has(point.element.id) ? point : null;
+  }
+
   function resolveContentRange(cfi: string): Range | null {
-    const el = resolveContentCfi(cfi);
-    if (!el) return null;
-    return resolveCFIRange(cfi, document);
+    return resolveContentPoint(cfi)?.range ?? null;
   }
 
   // Collapsed Range at a live spot's text offset, for measuring where the

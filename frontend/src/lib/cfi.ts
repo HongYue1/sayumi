@@ -139,25 +139,28 @@ export function textNodeAtOffset(
   el: Element,
   charOffset: number,
 ): { node: Text; offset: number } | null {
-  const total = elementTextLength(el);
-  if (total <= 0) return null;
-  let remaining = Math.min(total, Math.max(0, Math.floor(charOffset)));
+  // ONE walk, not two. The old pre-pass measured the whole element only to
+  // clamp the offset into range, but an overshoot already lands on `candidate`
+  // below, and keeping only NON-EMPTY nodes as candidates reproduces the
+  // "element with no text yields null" rule the total used to enforce. This
+  // runs on every anchor restore, so the second walk was pure cost.
+  let remaining = Math.max(0, Math.floor(charOffset));
   const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT);
   let candidate: Text | null = null;
   let node = walker.nextNode();
   while (node) {
     const text = node as Text;
     const len = text.nodeValue?.length ?? 0;
-    candidate = text;
-    if (remaining < len || (remaining === len && len > 0)) {
-      return { node: text, offset: remaining };
+    // Zero-length nodes cannot hold a caret: never a candidate, and skipped
+    // without consuming, so an offset of 0 still lands in real text.
+    if (len > 0) {
+      candidate = text;
+      if (remaining <= len) return { node: text, offset: remaining };
+      remaining -= len;
     }
-    // Zero-length nodes cannot hold a caret: skip without consuming, so an
-    // offset of 0 still lands in real text rather than an empty node.
-    if (len > 0) remaining -= len;
     node = walker.nextNode();
   }
-  // Offset ran past the end (clamped above): the end of the last text node.
+  // Offset ran past the end: the end of the last node that holds text.
   if (candidate)
     return { node: candidate, offset: candidate.nodeValue?.length ?? 0 };
   return null;
@@ -185,7 +188,7 @@ function parseSegment(part: string): CfiSegment | null {
 }
 
 /**
- * Element path of a CFI, dropping the trailing `:C` suffix.
+ * Parses a CFI into its element path plus the optional `:C` text offset.
  *
  * Only the last segment may carry an offset: generateCFI appends one to the
  * joined path, and an offset addresses text *inside* the anchor element. A
@@ -193,33 +196,32 @@ function parseSegment(part: string): CfiSegment | null {
  * the surrounding indices anyway would resolve a corrupt or foreign anchor to
  * a real-but-unintended element -- the silent wrong answer the rest of this
  * module refuses. Fail closed instead and let the caller fall back to percent.
+ *
+ * Path and offset are read together because every resolver needs both. Reading
+ * them in separate passes meant the offset reader had to restate the path
+ * reader's strictness, which is exactly how the two could drift apart.
  */
-function parseElementPath(cfi: string): number[] | null {
+function parseCfi(
+  cfi: string,
+): { path: number[]; offset: number | null } | null {
   if (!cfi.startsWith("cfi:")) return null;
   const parts = cfi.slice(4).split("/");
   const lastIndex = parts.length - 1;
   const path: number[] = [];
+  let offset: number | null = null;
   for (let i = 0; i <= lastIndex; i++) {
+    // Strict integer parse: a malformed or foreign segment (e.g. "3x", "",
+    // "1.5") fails to null so callers fall back, rather than parseInt
+    // leniently coercing it to a wrong-but-valid index or offset.
     const segment = parseSegment(parts[i]);
     if (!segment) return null;
-    if (segment.offset !== undefined && i !== lastIndex) return null;
+    if (segment.offset !== undefined) {
+      if (i !== lastIndex) return null;
+      offset = segment.offset;
+    }
     path.push(segment.index);
   }
-  return path;
-}
-
-/** Text offset of a CFI's last segment, if it carries the `:C` suffix. */
-function parseOffsetSuffix(cfi: string): number | null {
-  if (!cfi.startsWith("cfi:")) return null;
-  const parts = cfi.slice(4).split("/");
-  const last = parts[parts.length - 1];
-  // Strict integer parse: a malformed/foreign suffix (e.g. "3x", "", "1.5")
-  // must fail to null so callers fall back, rather than parseInt leniently
-  // coercing it to a wrong-but-valid offset.
-  if (last === undefined) return null;
-  const segment = parseSegment(last);
-  if (!segment) return null;
-  return segment.offset ?? null;
+  return { path, offset };
 }
 
 /**
@@ -252,45 +254,62 @@ export function cfiElementPath(cfi: string): string {
  * same-chapter jumps) keep working on offset-carrying values.
  */
 export function resolveCFI(cfi: string, doc: Document): Element | null {
-  const path = parseElementPath(cfi);
+  const parsed = parseCfi(cfi);
   const body = doc.body;
-  if (!path || !body) return null;
+  if (!parsed || !body) return null;
+  return elementAtPath(parsed.path, body);
+}
 
+/** Walks a parsed element path down from <body>, search marks excluded. */
+function elementAtPath(path: number[], body: Element): Element | null {
   let current: Element = body;
   for (const index of path) {
     const child = nthContentChild(current, index);
     if (!child) return null;
     current = child;
   }
-
   return current;
 }
 
 /**
- * Resolves a CFI string to a collapsed Range at the addressed point within
- * document.body: the `:C` text offset when present and mappable, else the
- * start of the resolved element. Returns null when even the element is gone
- * so the caller falls back to percent.
+ * Collapsed Range at an element's `:C` offset, or at the element's own start
+ * when there is no offset or it maps nowhere (an element with no text).
  */
-export function resolveCFIRange(cfi: string, doc: Document): Range | null {
-  const element = resolveCFI(cfi, doc);
-  if (!element) return null;
+function collapsedPointIn(
+  element: Element,
+  offset: number | null,
+  doc: Document,
+): Range {
   const range = doc.createRange();
-  const offset = parseOffsetSuffix(cfi);
-  if (offset === null) {
-    range.selectNodeContents(element);
-    range.collapse(true);
-    return range;
-  }
-  const point = textNodeAtOffset(element, offset);
-  if (!point) {
-    range.selectNodeContents(element);
-    range.collapse(true);
-    return range;
-  }
-  range.setStart(point.node, point.offset);
+  const point = offset === null ? null : textNodeAtOffset(element, offset);
+  if (point) range.setStart(point.node, point.offset);
+  else range.selectNodeContents(element);
   range.collapse(true);
   return range;
+}
+
+/**
+ * Resolves a CFI to the addressed element together with a collapsed Range at
+ * the point inside it: the `:C` text offset when present and mappable, else
+ * the element's start. Returns null when the element is gone, so the caller
+ * falls back to percent.
+ *
+ * Both come from ONE parse and ONE path walk. The restore paths in
+ * iframe/frame.ts need both for the same anchor -- the range to land the exact
+ * point, the element as the fallback when the range has no measurable rect --
+ * and resolving them separately walked the same path two or three times per
+ * restore, on the one code path a reader notices as a slow chapter open.
+ */
+export function resolveCFIPoint(
+  cfi: string,
+  doc: Document,
+): { element: Element; range: Range } | null {
+  const parsed = parseCfi(cfi);
+  const body = doc.body;
+  if (!parsed || !body) return null;
+  const element = elementAtPath(parsed.path, body);
+  if (!element) return null;
+  return { element, range: collapsedPointIn(element, parsed.offset, doc) };
 }
 
 /**

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   generateCFI,
   resolveCFI,
-  resolveCFIRange,
+  resolveCFIPoint,
   elementTextLength,
   cfiElementPath,
 } from "~/lib/cfi";
@@ -192,11 +192,11 @@ describe("CFI text offsets", () => {
     expect(elementTextLength(document.getElementById("t")!)).toBe(6);
     // A boundary offset sticks to the end of the left run — the same caret
     // point as the start of the right run, deterministically.
-    const edge = resolveCFIRange("cfi:1:4", document)!;
+    const edge = resolveCFIPoint("cfi:1:4", document)!.range;
     expect(edge.collapsed).toBe(true);
     expect(edge.startContainer.textContent).toBe("cd");
     expect(edge.startOffset).toBe(2);
-    const inner = resolveCFIRange("cfi:1:5", document)!;
+    const inner = resolveCFIPoint("cfi:1:5", document)!.range;
     expect(inner.startContainer.textContent).toBe("ef");
     expect(inner.startOffset).toBe(1);
   });
@@ -209,11 +209,11 @@ describe("CFI text offsets", () => {
     const clean = generateCFI(target, document, 4);
     wrapMark(target, 1, 2);
     expect(generateCFI(target, document, 4)).toBe(clean);
-    const range = resolveCFIRange(clean!, document)!;
+    const range = resolveCFIPoint(clean!, document)!.range;
     expect(range.startContainer.textContent).toBe("def");
     expect(range.startOffset).toBe(1);
     clearSearchMarks();
-    const cleared = resolveCFIRange(clean!, document)!;
+    const cleared = resolveCFIPoint(clean!, document)!.range;
     expect(cleared.startContainer.textContent).toBe("abcdef");
     expect(cleared.startOffset).toBe(4);
   });
@@ -221,9 +221,12 @@ describe("CFI text offsets", () => {
   it("resolves an offset-less value to the start of the element", () => {
     setBody(`<div><p id="t">xy</p></div>`);
     const target = document.getElementById("t")!;
-    const range = resolveCFIRange("cfi:1/1", document)!;
-    expect(range.startContainer).toBe(target);
-    expect(range.startOffset).toBe(0);
+    // Element and range come from ONE resolve, so the paged restore that
+    // needs both never walks the same path twice.
+    const point = resolveCFIPoint("cfi:1/1", document)!;
+    expect(point.element).toBe(target);
+    expect(point.range.startContainer).toBe(target);
+    expect(point.range.startOffset).toBe(0);
   });
 
   it("resolveCFI tolerates the suffix for element-only callers", () => {
@@ -234,16 +237,28 @@ describe("CFI text offsets", () => {
 
   it("clamps a resolve past shrunken text to the end instead of failing", () => {
     setBody(`<p id="t">abcdef</p>`);
-    const range = resolveCFIRange("cfi:1:99", document)!;
+    const range = resolveCFIPoint("cfi:1:99", document)!.range;
     expect(range.startContainer.textContent).toBe("abcdef");
     expect(range.startOffset).toBe(6);
   });
 
+  it("falls back to the element's own start when it holds no text", () => {
+    // The offset maps nowhere inside an empty element, but the element itself
+    // did resolve — the caller gets a point to scroll to rather than null.
+    setBody(`<div><p id="t"></p></div>`);
+    const target = document.getElementById("t")!;
+    const point = resolveCFIPoint("cfi:1/1:3", document)!;
+    expect(point.element).toBe(target);
+    expect(point.range.startContainer).toBe(target);
+    expect(point.range.startOffset).toBe(0);
+    expect(point.range.collapsed).toBe(true);
+  });
+
   it("returns null only when the element itself is gone", () => {
     setBody(`<p id="t">abcdef</p>`);
-    expect(resolveCFIRange("cfi:2:1", document)).toBeNull();
-    expect(resolveCFIRange("cfi:1:1x", document)).toBeNull();
-    expect(resolveCFIRange("cfi:1:", document)).toBeNull();
+    expect(resolveCFIPoint("cfi:2:1", document)).toBeNull();
+    expect(resolveCFIPoint("cfi:1:1x", document)).toBeNull();
+    expect(resolveCFIPoint("cfi:1:", document)).toBeNull();
   });
 });
 
