@@ -441,6 +441,13 @@ export function prefersBlackText(color: string, fallback: boolean): boolean {
  * uses (active labels, links, checkmarks) use this. Binary-searches the
  * smallest mix toward black/white so the hue shifts as little as possible; if
  * even the endpoint can't reach 4.5:1 it returns the endpoint (best effort).
+ *
+ * Cost: paintTheme is the only caller and runs this once per paint, which
+ * includes every color-picker event while a custom theme is being edited.
+ * Measured over this catalogue: ~0.5us when the accent already clears AA (19
+ * of 25 built-ins take that exit) and ~14us for the full search. Under a
+ * tenth of a percent of a frame either way, so it stays uncached -- a memo
+ * here would buy nothing and add a second place for a palette to go stale.
  */
 export function readableAccent(accent: string, bg: string): string {
   if (!parseHex(accent) || !parseHex(bg)) return accent;
