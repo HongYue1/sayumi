@@ -22,6 +22,9 @@
 //   - The mount fetch is aborted on dispose, and a PIN-probe failure fails
 //     closed: no PIN field, no enabled delete, a visible retry.
 //   - Capture-phase Escape leaves an active IME composition untouched.
+//   - Two submits in the same tick clone once. canSubmit() reads the busy
+//     signal, whose write neither activation can see yet, so a plain mirror
+//     is what refuses the second one.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@solidjs/web";
 import { flush } from "solid-js";
@@ -357,6 +360,32 @@ describe("ProfileDialog", () => {
     closeButton().click();
     await settle();
     expect(closes).toBe(0);
+
+    releaseClone();
+    await settle();
+    expect(closes).toBe(1);
+  });
+
+  it("clones once when two submits land in the same tick", async () => {
+    let releaseClone!: () => void;
+    stubs.clone.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseClone = () => resolve();
+        }),
+    );
+    await mount("clone");
+    type(nameInput(), "Alina");
+    await settle();
+
+    // Nothing has flushed between the two clicks, so the busy signal the
+    // guard used to read still says idle. Without the mirror the same name
+    // is cloned twice and the loser's failure is what the reader sees.
+    submitButton().click();
+    submitButton().click();
+    await settle();
+
+    expect(stubs.clone).toHaveBeenCalledTimes(1);
 
     releaseClone();
     await settle();

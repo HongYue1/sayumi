@@ -18,6 +18,9 @@
 //     error paragraph is inserted with its text and so carries no role.
 //   - Closing mid-upload aborts the request, and the resulting AbortError is
 //     not surfaced as an error.
+//   - Two activations in the same tick start one upload. busy() cannot
+//     refuse the second one, because a signal read taken inside the flush of
+//     its own write still returns the pre-write value.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@solidjs/web";
 import { flush } from "solid-js";
@@ -216,6 +219,32 @@ describe("ShareDialog", () => {
 
     uploadBtn().click();
     await settle();
+    expect(stubs.uploadToGofile).toHaveBeenCalledTimes(1);
+
+    resolveUpload?.({ downloadPage: "https://gofile.io/d/abc" });
+    await settle();
+    expect(uploadBtn().getAttribute("aria-disabled")).toBe("false");
+  });
+
+  it("refuses a second upload raised in the same tick as the first", async () => {
+    let resolveUpload: ((value: { downloadPage: string }) => void) | undefined;
+    stubs.uploadToGofile.mockImplementation(
+      () =>
+        new Promise<{ downloadPage: string }>((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    await mount();
+
+    // Both clicks land before the busy write is flushed, so busy() still
+    // reads false in the second one. Without the plain mirror the second run
+    // takes over uploadController, and the first one's finally then fails its
+    // identity check and never clears busy -- a sheet stuck on "Uploading"
+    // with a live request behind it.
+    uploadBtn().click();
+    uploadBtn().click();
+    await settle();
+
     expect(stubs.uploadToGofile).toHaveBeenCalledTimes(1);
 
     resolveUpload?.({ downloadPage: "https://gofile.io/d/abc" });

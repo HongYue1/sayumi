@@ -34,9 +34,17 @@ export default function ShareDialog(props: Props) {
   const [copied, setCopied] = createSignal(false);
   let uploadController: AbortController | null = null;
   let copiedResetTimer: ReturnType<typeof setTimeout> | null = null;
+  // busy() is a signal: two activations in the same tick both read the
+  // pre-write value, so it cannot serialise the upload on its own (Login
+  // keeps the same plain mirror beside its own busy signal). Unguarded, the
+  // second run overwrites uploadController, and the first one's finally then
+  // fails its identity check and never clears busy -- a sheet stuck on
+  // "Uploading" with a live request behind it.
+  let uploading = false;
 
   async function upload(): Promise<void> {
-    if (busy()) return;
+    if (uploading) return;
+    uploading = true;
     const controller = new AbortController();
     uploadController = controller;
     setBusy(true);
@@ -51,6 +59,7 @@ export default function ShareDialog(props: Props) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       setError(getErrorMessage(err, "Upload to gofile failed."));
     } finally {
+      uploading = false;
       if (uploadController === controller) {
         uploadController = null;
         setBusy(false);

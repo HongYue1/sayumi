@@ -174,9 +174,17 @@ export default function ProfileDialog(props: Props) {
         : "Checking PIN protection\u2026"
       : "";
 
+  // canSubmit() reads the busy signal, and two activations in the same tick
+  // both see its pre-write value, so the memo cannot serialise a submit on
+  // its own -- a double activation would clone the profile twice. This plain
+  // mirror flips synchronously and is cleared wherever setBusy(false) runs;
+  // the clone path deliberately leaves both set, because it is closing.
+  let submitting = false;
+
   async function submit(e: Event): Promise<void> {
     e.preventDefault();
-    if (!canSubmit()) return;
+    if (submitting || !canSubmit()) return;
+    submitting = true;
     setBusy(true);
     setError(null);
     try {
@@ -200,11 +208,13 @@ export default function ProfileDialog(props: Props) {
         // Closing and unblocking here makes the external unmount an
         // optimisation rather than the contract; without it that path leaves
         // a busy modal whose every exit is dead.
+        submitting = false;
         setBusy(false);
         props.onclose();
       }
     } catch (err) {
       setError(getErrorMessage(err, "Something went wrong."));
+      submitting = false;
       setBusy(false);
     }
   }
