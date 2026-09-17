@@ -142,3 +142,73 @@ describe("index.html pre-paint theme bootstrap", () => {
     expect(root().dataset.theme).toBeUndefined();
   });
 });
+
+describe("pre-paint parity with the cache writer", () => {
+  // The arms above prove the bootstrap BEHAVES; they all hardcode today's
+  // token list, so a seventh token added to paintTheme and the cache would
+  // pass every one of them and simply not pre-paint. The bootstrap cannot
+  // import lib/theme.ts -- it runs one realm and one network round-trip
+  // earlier, which is the entire point of duplicating the list -- so this is
+  // the only place the copy can be held to the original.
+  const themeSource = readFileSync("src/lib/theme.ts", "utf8");
+
+  function region(source: string, from: string): string {
+    const start = source.indexOf(from);
+    expect(start, from).toBeGreaterThan(-1);
+    const end = source.indexOf("\n}\n", start);
+    expect(end, `end of ${from}`).toBeGreaterThan(start);
+    return source.slice(start, end);
+  }
+
+  function tokens(source: string): string[] {
+    return [
+      ...new Set(
+        Array.from(
+          source.matchAll(/setProperty\(\s*"(--[a-z-]+)"/gu),
+          (match) => match[1] ?? "",
+        ),
+      ),
+    ].sort();
+  }
+
+  function required(source: string): string[] {
+    return [
+      ...new Set(
+        Array.from(
+          source.matchAll(/typeof v\.(\w+) !== "string"/gu),
+          (match) => match[1] ?? "",
+        ),
+      ),
+    ].sort();
+  }
+
+  it("paints exactly the tokens paintTheme paints", () => {
+    expect(tokens(script)).toEqual(tokens(region(themeSource, "function paintTheme")));
+  });
+
+  it("paints exactly the tokens applyCachedTheme paints", () => {
+    expect(tokens(script)).toEqual(
+      tokens(region(themeSource, "function applyCachedTheme")),
+    );
+  });
+
+  it("refuses a cache on the same core tokens applyCachedTheme requires", () => {
+    // applyCachedTheme also compares v.id to the id it was asked for; the
+    // bootstrap has no id to compare against, which is why it treats a
+    // non-string id as "paint the palette, skip the attribute" above.
+    expect(required(script)).toEqual(
+      required(region(themeSource, "function applyCachedTheme")),
+    );
+  });
+
+  it("caches every token it pre-paints", () => {
+    const writer = region(themeSource, "JSON.stringify({");
+    for (const token of tokens(script)) {
+      // --accent-fg is cached as accentFg.
+      const key = token
+        .slice(2)
+        .replace(/-(\w)/gu, (_, char: string) => char.toUpperCase());
+      expect(writer, token).toMatch(new RegExp(`^\\s*${key}[,:]`, "mu"));
+    }
+  });
+});
