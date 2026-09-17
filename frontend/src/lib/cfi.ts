@@ -170,9 +170,10 @@ interface CfiSegment {
 }
 
 /**
- * Splits one path segment, accepting the `:C` suffix on any segment but only
- * honoring it on the last (offsets address text inside the anchor element).
- * Malformed segments fail closed to null.
+ * Splits one path segment: the element index plus an optional `:C` suffix.
+ * Whether a suffix is legal on *this* segment is the caller's rule -- see
+ * parseElementPath, which honours it only on the last. Malformed segments
+ * fail closed to null.
  */
 function parseSegment(part: string): CfiSegment | null {
   const match = /^(\d+)(?::(\d+))?$/.exec(part);
@@ -183,14 +184,25 @@ function parseSegment(part: string): CfiSegment | null {
   return { index, offset: parseInt(match[2], 10) };
 }
 
-/** Element path of a CFI, dropping any `:C` suffix. */
+/**
+ * Element path of a CFI, dropping the trailing `:C` suffix.
+ *
+ * Only the last segment may carry an offset: generateCFI appends one to the
+ * joined path, and an offset addresses text *inside* the anchor element. A
+ * mid-path offset is therefore a value this grammar never mints, so honouring
+ * the surrounding indices anyway would resolve a corrupt or foreign anchor to
+ * a real-but-unintended element -- the silent wrong answer the rest of this
+ * module refuses. Fail closed instead and let the caller fall back to percent.
+ */
 function parseElementPath(cfi: string): number[] | null {
   if (!cfi.startsWith("cfi:")) return null;
   const parts = cfi.slice(4).split("/");
+  const lastIndex = parts.length - 1;
   const path: number[] = [];
-  for (const part of parts) {
-    const segment = parseSegment(part);
+  for (let i = 0; i <= lastIndex; i++) {
+    const segment = parseSegment(parts[i]);
     if (!segment) return null;
+    if (segment.offset !== undefined && i !== lastIndex) return null;
     path.push(segment.index);
   }
   return path;

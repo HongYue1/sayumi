@@ -158,6 +158,9 @@ describe("generateCFI / resolveCFI", () => {
     "cfi:abc",
     "cfi:0",
     "cfi:1/0",
+    // Only the last segment may carry `:C`. A mid-path offset is a value the
+    // generator never mints, so it must not resolve to its element path.
+    "cfi:1:1/1",
   ]) {
     it(`rejects the malformed CFI "${bad}"`, () => {
       setBody(`<div><p><span>x</span></p></div>`);
