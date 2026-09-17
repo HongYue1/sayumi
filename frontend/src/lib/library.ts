@@ -554,7 +554,16 @@ export class Library {
     return promise;
   }
 
-  /** Update the search box value instantly but debounce the expensive filter. */
+  /** Update the search box value instantly but debounce the expensive filter.
+   *
+   *  A pending timer is cancelled only by activate(), so leaving the library
+   *  route mid-keystroke still lets the write land. That is deliberate:
+   *  `query` itself survives the route change (activate() no-ops for the
+   *  profile already active), so the search box comes back filled in, and
+   *  cancelling would leave it showing a term the shelf was never filtered
+   *  by. The late write is free - the derived memos are lazy, so with the
+   *  route unmounted nothing recomputes until `visible` is read again.
+   *  Sign-out is a real boundary and does clear both: App activates null. */
   setQuery(value: string): void {
     this.#query[1](value);
     if (this.#queryTimer) clearTimeout(this.#queryTimer);
