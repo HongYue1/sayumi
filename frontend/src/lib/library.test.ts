@@ -1199,4 +1199,19 @@ describe("library.addCustomFlair", () => {
     await expect(store.addCustomFlair("Favourites")).resolves.toEqual(flair);
     expect(store.customFlairs.map((f) => f.id)).toEqual(["cf1"]);
   });
+
+  // The colour is chosen before the await, so two creates in one tick both
+  // read the same pre-insert length: unless the request in flight is counted,
+  // they mint two chips in one colour.
+  it("picks a fresh colour for a concurrent create", async () => {
+    const store = await seed([]);
+    mocks.createFlair.mockImplementation(() => new Promise<never>(() => {}));
+
+    void store.addCustomFlair("One");
+    void store.addCustomFlair("Two");
+
+    const colors = mocks.createFlair.mock.calls.map((c) => c[0].color);
+    expect(colors).toHaveLength(2);
+    expect(new Set(colors).size).toBe(2);
+  });
 });

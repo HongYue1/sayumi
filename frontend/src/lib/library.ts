@@ -130,6 +130,13 @@ export class Library {
   #uploadingPlain = false;
   #rescanningPlain = false;
 
+  /** Custom-flair creates in flight, so a second concurrent create picks the
+   *  palette colour past the first one's instead of repeating it. Bumped and
+   *  released symmetrically around the request, so it settles to zero even
+   *  when a profile switch supersedes the create - which is why activate()
+   *  does not reset it. Plain, non-reactive state: nothing renders from it. */
+  #pendingFlairCreates = 0;
+
   /** Profile whose library state is currently published by this singleton. */
   #profile: string | null = null;
   /** Invalidates async work started under a previous profile. */
@@ -628,7 +635,14 @@ export class Library {
     const generation = this.#generation;
     const trimmed = label.trim();
     if (!trimmed) return null;
-    const color = getNextPaletteColor(this.customFlairs.length);
+    // The colour travels in the create request, so it has to be chosen before
+    // the await. Counting the creates already in flight keeps a same-tick
+    // second create off the first one's colour without the store having to
+    // trust that its caller carries a re-entrancy guard of its own.
+    const color = getNextPaletteColor(
+      this.customFlairs.length + this.#pendingFlairCreates,
+    );
+    this.#pendingFlairCreates += 1;
     try {
       const flair = await createFlair({ label: trimmed, color });
       if (!this.#isCurrent(profile, generation)) return null;
@@ -640,6 +654,8 @@ export class Library {
       if (!this.#isCurrent(profile, generation)) return null;
       toast.show(getErrorMessage(e, "Could not create flair"));
       return null;
+    } finally {
+      this.#pendingFlairCreates -= 1;
     }
   }
 
