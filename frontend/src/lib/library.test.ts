@@ -62,12 +62,27 @@ afterEach(() => {
 });
 
 describe("library.visible (filter + sort)", () => {
+  // Seeded in the server's order: every server-side compare is a codepoint
+  // compare over a folded title, so "Book 10" really does arrive first. The
+  // shelf collates numerically instead, so this also pins that the client
+  // never inherits the payload's ordering.
   it("sorts by title in natural numeric order", async () => {
     const store = await seed([
       book({ id: "b", title: "Book 10" }),
       book({ id: "a", title: "Book 2" }),
     ]);
     expect(store.visible.map((b) => b.title)).toEqual(["Book 2", "Book 10"]);
+  });
+
+  // sensitivity: "base" makes accent- and case-only differences compare equal,
+  // and Array.prototype.sort is stable, so tied titles keep the order the
+  // payload arrived in -- which the server breaks on ID.
+  it("keeps accent-only title ties in payload order", async () => {
+    const store = await seed([
+      book({ id: "2", title: "Élan" }),
+      book({ id: "1", title: "Elan" }),
+    ]);
+    expect(store.visible.map((b) => b.id)).toEqual(["2", "1"]);
   });
 
   it("filters on the debounced query against title + author", async () => {

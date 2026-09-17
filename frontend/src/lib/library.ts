@@ -32,6 +32,18 @@ export const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 // with an options object can construct a fresh collator on each call, which
 // adds up when sorting large libraries; one shared Intl.Collator keeps the same
 // natural collation ("Book 2" < "Book 10") while doing the setup work once.
+//
+// This is the shelf's own ordering, and it deliberately disagrees with the
+// three server-side ones (the list query's COLLATE NOCASE, BookCache's ASCII
+// fold, and api/library.go's lowercase codepoint compare). Those three are
+// codepoint compares, so they read "Book 10" < "Book 2"; numeric collation
+// reads it the other way, which is the order a reader expects. The client
+// always re-sorts the payload, so the server's order only survives as this
+// sort's stable tie-break -- which is why that layer breaks ties on ID, and
+// why base sensitivity (accents and case tie) is safe here. If GET /books is
+// ever asked to sort or paginate (its q/sort/order params are unused today),
+// the two orderings have to be reconciled first: paging a server order while
+// rendering this one would interleave pages.
 const collator = new Intl.Collator(undefined, {
   numeric: true,
   sensitivity: "base",

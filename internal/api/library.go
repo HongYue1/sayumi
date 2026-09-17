@@ -148,6 +148,12 @@ func rescanResponse(result library.ScanResult, scanErr error) (map[string]any, b
 // stable, so equal titles keep the order the cache produced -- which is why
 // that layer breaks ties on ID. Folding here is Unicode where the other two
 // are ASCII; the difference is deliberate, not an oversight.
+//
+// The web client orders the list a fourth time, with a numeric Intl.Collator
+// ("Book 2" before "Book 10"), so it disagrees with all three of these on
+// titles that end in a number. That is harmless while the client fetches the
+// whole list and re-sorts it, but any server-side sorting or pagination the
+// client actually consumes has to settle on one ordering first.
 func filterAndSortBooks(books []BookResponse, q, sortField, order string) []BookResponse {
 	if query := strings.ToLower(strings.TrimSpace(q)); query != "" {
 		filtered := make([]BookResponse, 0, len(books))
