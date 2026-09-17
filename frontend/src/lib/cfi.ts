@@ -15,9 +15,11 @@
 // the element keep working. Percent-based position is always the reliable
 // fallback when CFI resolution fails.
 //
-// The reader frame (src/iframe/frame.ts) is the only runtime consumer. The app
-// side never builds or resolves a path: it stores whatever the frame reports
-// and hands it back opaquely (Read.tsx, ChapterFrame.tsx). The frame is bundled
+// The reader frame (src/iframe/frame.ts) is the only consumer of the DOM
+// directions here. The app side never builds or resolves a path: it stores
+// whatever the frame reports and hands it back opaquely (Read.tsx,
+// ChapterFrame.tsx), and compares two stored anchors by block through the
+// pure cfiElementPath below (lib/progress.ts). The frame is bundled
 // (Bun.build, iife) and imports lib modules at runtime. This module stays under
 // src/lib because vite.config.ts's frame-graph watch list names it there, and
 // it must not import from src/iframe.
@@ -206,6 +208,29 @@ function parseOffsetSuffix(cfi: string): number | null {
   const segment = parseSegment(last);
   if (!segment) return null;
   return segment.offset ?? null;
+}
+
+/**
+ * The element path of a CFI as a string: the same value with a trailing `:C`
+ * text offset removed and nothing else changed. Suffix-less values pass
+ * through untouched, which is why this parses the last segment instead of
+ * trimming a trailing `:N` -- in a body-level anchor ("cfi:3") that number IS
+ * the element index, and trimming it would collapse every top-level block onto
+ * one path. Malformed input is returned as-is so comparisons fail closed
+ * (different strings, no match) instead of agreeing on a fabricated path.
+ *
+ * Bookmark identity compares anchors by block (lib/progress.ts), so the rule
+ * lives with the grammar that mints the suffix rather than being re-derived.
+ */
+export function cfiElementPath(cfi: string): string {
+  if (!cfi.startsWith("cfi:")) return cfi;
+  const parts = cfi.slice(4).split("/");
+  const last = parts[parts.length - 1];
+  if (last === undefined) return cfi;
+  const segment = parseSegment(last);
+  if (!segment || segment.offset === undefined) return cfi;
+  parts[parts.length - 1] = String(segment.index);
+  return `cfi:${parts.join("/")}`;
 }
 
 /**

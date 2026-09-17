@@ -2,6 +2,7 @@
 // can be unit-tested without mounting the reader. Read.tsx imports these;
 // do NOT re-inline copies (single source of truth).
 import type { ProgressData } from "~/api/client";
+import { cfiElementPath } from "~/lib/cfi";
 
 export interface ProgressPosition {
   chapter: number;
@@ -13,7 +14,10 @@ export interface ProgressPosition {
   cfi?: string;
 }
 
-/** Below this percent delta (same chapter) a change isn't worth a server write. */
+/** Below this percent delta (same chapter) a change isn't worth a server write.
+ *  Bookmark matching reuses it as the same-spot bucket for anchored pairs
+ *  (isBookmarkAtPosition), so retuning this also retunes what a bookmark tap
+ *  deletes -- give that path its own constant before loosening this one. */
 export const PROGRESS_EPSILON = 0.001;
 
 /**
@@ -142,13 +146,16 @@ export const BOOKMARK_EPSILON = 0.02;
  * the legacy percent bucket decides. Deletes flow from this predicate, so
  * every doubt resolves to NO match -- a wrong create is recoverable with a
  * second tap; a wrong delete loses the label and note.
+ *
+ * Neither bucket is caller-tunable. The anchored path has to stay tight even
+ * where the legacy one is wide, so a single `eps` argument could only ever
+ * honour one of the two -- it silently applied to the legacy path alone.
  */
 export function isBookmarkAtPosition(
   bookmark: { chapter: number; percent: number; cfi?: string },
   chapter: number,
   percent: number,
   cfi?: string,
-  eps: number = BOOKMARK_EPSILON,
 ): boolean {
   if (bookmark.chapter !== chapter) return false;
   const delta = Math.abs(bookmark.percent - percent);
@@ -158,16 +165,7 @@ export function isBookmarkAtPosition(
       delta < PROGRESS_EPSILON
     );
   }
-  return delta < eps;
-}
-
-/**
- * The element path of a CFI, dropping the text-offset suffix (`:C`) so
- * anchors compare by block, not by measured pixel. Suffix-less (legacy)
- * values pass through unchanged.
- */
-export function cfiElementPath(cfi: string): string {
-  return cfi.replace(/:\d+$/, "");
+  return delta < BOOKMARK_EPSILON;
 }
 
 /**
@@ -179,17 +177,11 @@ export function cfiElementPath(cfi: string): string {
  */
 export function findBookmarkAtPosition<
   T extends { chapter: number; percent: number; cfi?: string },
->(
-  bookmarks: T[],
-  chapter: number,
-  percent: number,
-  cfi?: string,
-  eps: number = BOOKMARK_EPSILON,
-): T | null {
+>(bookmarks: T[], chapter: number, percent: number, cfi?: string): T | null {
   let best: T | null = null;
   let bestDelta = Infinity;
   for (const b of bookmarks) {
-    if (!isBookmarkAtPosition(b, chapter, percent, cfi, eps)) continue;
+    if (!isBookmarkAtPosition(b, chapter, percent, cfi)) continue;
     const delta = Math.abs(b.percent - percent);
     if (delta < bestDelta) {
       best = b;

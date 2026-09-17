@@ -302,6 +302,32 @@ describe("isBookmarkAtPosition anchor paths", () => {
       ),
     ).toBe(true);
   });
+
+  it("matches a body-level anchor against its own offset value", () => {
+    // "cfi:3" is the third child of <body>, not an offset into "cfi": the
+    // same spot reported with an offset still has to toggle the bookmark.
+    expect(
+      isBookmarkAtPosition(
+        { chapter: 1, percent: 0.5, cfi: "cfi:3" },
+        1,
+        0.5,
+        "cfi:3:40",
+      ),
+    ).toBe(true);
+  });
+
+  it("refuses two different body-level blocks at one percent", () => {
+    // Paged layout gives every block on a page the same percent, so the
+    // anchor is all that keeps a tap from deleting the neighbour's bookmark.
+    expect(
+      isBookmarkAtPosition(
+        { chapter: 1, percent: 0.5, cfi: "cfi:3" },
+        1,
+        0.5,
+        "cfi:7",
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("findBookmarkAtPosition", () => {

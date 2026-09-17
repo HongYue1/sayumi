@@ -4,6 +4,7 @@ import {
   resolveCFI,
   resolveCFIRange,
   elementTextLength,
+  cfiElementPath,
 } from "~/lib/cfi";
 import {
   SEARCH_MARK_ATTRIBUTE,
@@ -240,5 +241,40 @@ describe("CFI text offsets", () => {
     expect(resolveCFIRange("cfi:2:1", document)).toBeNull();
     expect(resolveCFIRange("cfi:1:1x", document)).toBeNull();
     expect(resolveCFIRange("cfi:1:", document)).toBeNull();
+  });
+});
+
+describe("cfiElementPath", () => {
+  it("drops a text offset from the last segment", () => {
+    expect(cfiElementPath("cfi:1/2:40")).toBe("cfi:1/2");
+    expect(cfiElementPath("cfi:1/2/3:0")).toBe("cfi:1/2/3");
+  });
+
+  it("keeps a body-level index that only looks like an offset", () => {
+    // "cfi:3" addresses the third child of <body>, so that number IS the
+    // element index. Trimming a trailing ":N" would collapse every top-level
+    // block onto one path and make unrelated anchors compare equal.
+    expect(cfiElementPath("cfi:3")).toBe("cfi:3");
+    expect(cfiElementPath("cfi:7")).toBe("cfi:7");
+    expect(cfiElementPath("cfi:3:40")).toBe("cfi:3");
+  });
+
+  it("passes offset-less and foreign values through untouched", () => {
+    expect(cfiElementPath("cfi:1/2")).toBe("cfi:1/2");
+    expect(cfiElementPath("cfi:1/2:x")).toBe("cfi:1/2:x");
+    expect(cfiElementPath("nonsense")).toBe("nonsense");
+  });
+
+  it("agrees with resolveCFI on which element a value addresses", () => {
+    // A stripped path has to resolve to the same element as the value it came
+    // from, or bookmark identity and navigation would disagree.
+    setBody(`<p id="first">a</p><div><p id="t">b</p></div>`);
+    const nested = document.getElementById("t")!;
+    const withOffset = generateCFI(nested, document, 1)!;
+    expect(resolveCFI(cfiElementPath(withOffset), document)).toBe(nested);
+    const first = document.getElementById("first")!;
+    const bodyLevel = generateCFI(first, document)!;
+    expect(bodyLevel).toBe("cfi:1");
+    expect(resolveCFI(cfiElementPath(bodyLevel), document)).toBe(first);
   });
 });
