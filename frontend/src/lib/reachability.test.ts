@@ -2,9 +2,10 @@
 // truth the OfflineBanner, the session boot retry and the API client all
 // report through, so what it does NOT do matters as much as what it does:
 // these tests pin transition-only notification, unsubscribe silence and the
-// listener-exception contract (a throwing listener escapes into the reporter
-// by design — swallowing it here would hide a listener bug behind a network
-// error). Probe-verified before this suite was written.
+// dispatch-isolation contract (a throwing listener neither replaces the error
+// the API client is about to throw nor starves the listeners behind it, and
+// the listener set is snapshotted so subscribing mid-dispatch cannot backdate
+// a notification). Probe-verified before this suite was written.
 import { describe, expect, it, vi } from "vitest";
 import {
   isReachable,
@@ -54,16 +55,18 @@ describe("reachability", () => {
     expect(isReachable()).toBe(true);
   });
 
-  it("lets a throwing listener escape and starve later listeners", () => {
-    // The write lands before notification, so the flag still flips; the throw
-    // escapes into the reporter and the listeners after the thrower never run.
+  it("isolates a throwing listener from the reporter and its peers", () => {
+    // reportUnreachable() runs inside the API client's fetch catch, one line
+    // before it throws the network_error ApiError the caller is awaiting: an
+    // escaping listener error would replace that ApiError, and the listeners
+    // behind the thrower would never hear the transition.
     const later = vi.fn();
     const stopThrower = subscribeReachability(() => {
       throw new Error("listener boom");
     });
     const stopLater = subscribeReachability(later);
-    expect(() => reportUnreachable()).toThrow("listener boom");
-    expect(later).not.toHaveBeenCalled();
+    expect(() => reportUnreachable()).not.toThrow();
+    expect(later).toHaveBeenCalledWith(false);
     expect(isReachable()).toBe(false);
     stopThrower();
     stopLater();
@@ -85,8 +88,29 @@ describe("reachability", () => {
     reportReachable();
     stopFirst();
     stopSecond();
-    // A Set skips an element deleted before iteration reaches it.
+    // Dispatch re-checks membership, so a listener unsubscribed before its
+    // turn stays silent even though the snapshot still holds it.
     expect(seen).toEqual(["first", "first"]);
+    expect(isReachable()).toBe(true);
+  });
+
+  it("does not notify a listener that subscribes mid-dispatch", () => {
+    const latecomer = vi.fn();
+    let subscribed = false;
+    let stopLatecomer: () => void = () => undefined;
+    const stopFirst = subscribeReachability(() => {
+      if (subscribed) return;
+      subscribed = true;
+      stopLatecomer = subscribeReachability(latecomer);
+    });
+    reportUnreachable();
+    // The newcomer registered after the transition it would have been handed;
+    // iterating a copy is what keeps that stale edge from reaching it.
+    expect(latecomer).not.toHaveBeenCalled();
+    reportReachable();
+    expect(latecomer).toHaveBeenCalledWith(true);
+    stopFirst();
+    stopLatecomer();
     expect(isReachable()).toBe(true);
   });
 });

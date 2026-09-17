@@ -25,13 +25,30 @@ export function isReachable(): boolean {
 
 function set(value: boolean): void {
   if (reachable === value) return;
-  // The write lands before notification, and listener exceptions propagate to
-  // the reporter by design: the API client reports from inside its own catch,
-  // and swallowing a listener bug here would hide it behind a network error
-  // and starve the listeners registered after it. Pinned by
-  // reachability.test.ts.
+  // The write lands before notification, so a listener that re-reads
+  // isReachable() sees the transition it is being told about.
   reachable = value;
-  for (const listener of listeners) listener(value);
+  // Dispatch over a snapshot with every listener isolated - the same shape
+  // sessionGate.reportUnauthenticated uses, for the same reason:
+  // reportUnreachable() runs inside the API client's fetch catch, one line
+  // before it throws the network_error ApiError the caller is awaiting. An
+  // escaping listener error replaced that ApiError, so every `instanceof
+  // ApiError` / `code === "network_error"` branch missed a downed server, and
+  // it cut off the listeners behind the thrower too - the offline banner, the
+  // session boot retry and the font registry all report through here, so the
+  // old claim that propagation protected them had it backwards. The copy also
+  // keeps a listener that subscribes mid-dispatch out of a transition that
+  // predates it, while the membership check keeps one that unsubscribes
+  // mid-dispatch silent. Pinned by reachability.test.ts.
+  for (const listener of [...listeners]) {
+    if (!listeners.has(listener)) continue;
+    try {
+      listener(value);
+    } catch {
+      // A listener's failure is its own. No logger here by design - this
+      // module is imported by the API client.
+    }
+  }
 }
 
 export function reportReachable(): void {
