@@ -34,6 +34,12 @@
 //   - Escape that belongs to an IME composition is not a dismissal.
 //   - A rejected cover pick reports itself without discarding an already
 //     staged valid image.
+//   - A submit failure is retired as soon as the user edits a field: it
+//     described values that are no longer in the form, and it sits above the
+//     field validators in the one region that announces both.
+//   - The clean/dirty baseline is trimmed like the comparison that reads it,
+//     so a stored title with stray whitespace does not open the dialog
+//     already dirty, offering to save a change nobody made.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@solidjs/web";
 import { flush } from "solid-js";
@@ -181,6 +187,32 @@ describe("EditBookDialog", () => {
     expect(closeButton()).not.toBeNull();
     expect(document.activeElement).toBe(titleInput());
     expect(document.activeElement).not.toBe(closeButton());
+  });
+
+  it("retires a failed save once the user edits the field", async () => {
+    stubs.editMetadata.mockRejectedValueOnce(
+      new ApiError("Server said no.", 409, "conflict"),
+    );
+    await mount();
+
+    type(titleInput(), "A Wizard of Earthsea");
+    await settle();
+    saveButton().click();
+    await settle();
+
+    expect(liveRegion()!.textContent).toBe("Server said no.");
+
+    type(titleInput(), "");
+    await settle();
+
+    // The stale failure no longer outranks the validator the user is answering.
+    expect(liveRegion()!.textContent).toContain("Title");
+  });
+
+  it("opens clean when the stored title carries stray whitespace", async () => {
+    await mount({ title: "  The Left Hand of Darkness  " });
+
+    expect(saveButton().getAttribute("aria-disabled")).toBe("true");
   });
 
   it("keeps the title error mounted and empties it once the title is valid", async () => {

@@ -36,8 +36,11 @@ export default function EditBookDialog(props: Props) {
   // Start from the values at open, then advance these baselines after a
   // successful metadata stage. If a following cover upload fails, the dialog
   // retries only that failed stage instead of presenting saved details as dirty.
-  const [savedTitle, setSavedTitle] = createSignal(props.book.title);
-  const [savedAuthor, setSavedAuthor] = createSignal(props.book.author);
+  // Seeded trimmed, because dirty() compares trimmed values: a stored title
+  // carrying stray whitespace otherwise opened the dialog already dirty,
+  // offering to save a change nobody had made.
+  const [savedTitle, setSavedTitle] = createSignal(props.book.title.trim());
+  const [savedAuthor, setSavedAuthor] = createSignal(props.book.author.trim());
 
   const [title, setTitle] = createSignal(props.book.title);
   const [author, setAuthor] = createSignal(props.book.author);
@@ -84,6 +87,13 @@ export default function EditBookDialog(props: Props) {
       titleError() ??
       (authorTooLong() ? AUTHOR_TOO_LONG : null),
   );
+
+  // Editing a field retires the previous submit failure: it described values
+  // that are no longer in the form, and while it sits at the top of
+  // `announcement` it outranks the live validator the user is answering.
+  function retireSubmitError(): void {
+    if (error() !== null) setError(null);
+  }
 
   // Focus the field this dialog exists to edit. A ref cannot do it: refs run
   // while the node is still detached, so ref={(el) => el.focus()}
@@ -331,7 +341,10 @@ export default function EditBookDialog(props: Props) {
               class="field"
               type="text"
               value={title()}
-              onInput={(e) => setTitle(e.currentTarget.value)}
+              onInput={(e) => {
+                setTitle(e.currentTarget.value);
+                retireSubmitError();
+              }}
               maxlength="512"
               autocomplete="off"
               aria-invalid={titleError() !== null ? "true" : "false"}
@@ -360,7 +373,10 @@ export default function EditBookDialog(props: Props) {
               class="field"
               type="text"
               value={author()}
-              onInput={(e) => setAuthor(e.currentTarget.value)}
+              onInput={(e) => {
+                setAuthor(e.currentTarget.value);
+                retireSubmitError();
+              }}
               maxlength="512"
               autocomplete="off"
               aria-invalid={authorTooLong() ? "true" : "false"}
