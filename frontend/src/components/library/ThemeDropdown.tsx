@@ -257,7 +257,12 @@ export default function ThemeDropdown() {
           aria-labelledby="td-trigger"
           onKeyDown={onKeydown}
         >
-          <p class="td-group eyebrow" id="theme-grp-light">
+          {/* A menu owns menu items, groups and separators -- a bare
+              heading is not owned content. Each fieldset (implicit role
+              group) names itself from the heading, and a direct
+              aria-labelledby reference still reads hidden text, so taking
+              the paragraph out of the tree costs nothing. */}
+          <p class="td-group eyebrow" id="theme-grp-light" aria-hidden="true">
             Light
           </p>
           <fieldset class="td-swatches" aria-labelledby="theme-grp-light">
@@ -294,7 +299,7 @@ export default function ThemeDropdown() {
               }}
             </For>
           </fieldset>
-          <p class="td-group eyebrow" id="theme-grp-dark">
+          <p class="td-group eyebrow" id="theme-grp-dark" aria-hidden="true">
             Dark
           </p>
           <fieldset class="td-swatches" aria-labelledby="theme-grp-dark">

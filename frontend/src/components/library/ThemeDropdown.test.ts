@@ -161,6 +161,30 @@ describe("ThemeDropdown", () => {
     expect(document.activeElement).not.toBe(trigger());
   });
 
+  it("owns nothing but the swatch groups", async () => {
+    await mount();
+    await openMenu();
+
+    const list = menu();
+    if (!list) throw new Error("menu missing");
+    // A menu owns menu items, groups and separators. The headings stay out
+    // of the tree, and each fieldset (implicit role group) still takes its
+    // name from the heading it references: a direct aria-labelledby
+    // reference reads hidden text.
+    const heads = [...list.querySelectorAll("p.td-group")];
+    expect(heads.map((h) => h.textContent?.trim())).toEqual(["Light", "Dark"]);
+    for (const head of heads) {
+      expect(head.getAttribute("aria-hidden")).toBe("true");
+    }
+    const owned = [...list.children].filter(
+      (n) => n.getAttribute("aria-hidden") !== "true",
+    );
+    expect(owned.map((n) => n.tagName)).toEqual(["FIELDSET", "FIELDSET"]);
+    expect(owned.map((n) => n.getAttribute("aria-labelledby"))).toEqual(
+      heads.map((h) => h.id),
+    );
+  });
+
   it("falls back to the first light swatch when a custom theme is active", async () => {
     stubs.state.theme = "custom:mine";
     stubs.customGet.mockReturnValue(MINE);
