@@ -6,6 +6,7 @@ import {
   libraryApi as api,
   restoreRealTimersWithoutLeaks,
 } from "~/test/library-harness";
+import { MAX_FLAIR_LABEL_CHARS } from "~/lib/flairs";
 
 // The route's own wiring is what is under test here, so every child component
 // is a null stub and every singleton the route reaches for is a controllable
@@ -549,5 +550,21 @@ describe("Library route: busy controls stay focusable", () => {
 
     release({ id: "cf1", label: "Favourites", color: "#3b82f6" });
     await settle();
+  });
+
+  it("lets a full-length label of astral characters be typed", async () => {
+    api.getBooks.mockResolvedValue([book({ id: "1", title: "Dune" })]);
+    const host = await mount();
+    const name = host.querySelector<HTMLInputElement>(".lib-addflair input");
+    if (!name) throw new Error("add-flair controls did not render");
+
+    // The server caps labels at MAX_FLAIR_LABEL_CHARS runes while maxlength
+    // spends UTF-16 units -- two per emoji. Without the slack the field
+    // truncates a label the server would have accepted whole.
+    const longest = "\u{1f642}".repeat(MAX_FLAIR_LABEL_CHARS);
+    expect(longest.length).toBe(MAX_FLAIR_LABEL_CHARS * 2);
+    expect(Number(name.getAttribute("maxlength"))).toBeGreaterThanOrEqual(
+      longest.length,
+    );
   });
 });

@@ -10,6 +10,18 @@ export const DEFAULT_FLAIRS: FlairDef[] = [
   { id: "plan-to-read", label: "Plan to Read", color: "#a855f7" },
 ];
 
+/**
+ * Longest custom flair label the server accepts, counted in code points.
+ *
+ * KEEP IN SYNC with maxFlairLabelLen in internal/api/flairs.go, which checks
+ * exceedsRuneLimit -- runes, not UTF-16 units. A field spending that same
+ * number as a `maxlength` is therefore stricter than the server outside the
+ * BMP, where one emoji costs two units but one rune, so a legal 40-rune
+ * label could not be typed at all. Inputs cap at twice this for slack and
+ * leave the real check to the server, the shape theme names already use.
+ */
+export const MAX_FLAIR_LABEL_CHARS = 40;
+
 // Cycled when creating new custom flairs: saturated mid-lightness hues that
 // read clearly on both light and dark backgrounds.
 const CUSTOM_PALETTE: readonly string[] = [

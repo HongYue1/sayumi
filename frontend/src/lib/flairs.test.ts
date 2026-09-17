@@ -10,6 +10,7 @@ import {
   findFlair,
   flairTextColor,
   getNextPaletteColor,
+  MAX_FLAIR_LABEL_CHARS,
 } from "~/lib/flairs";
 
 describe("flairTextColor", () => {
@@ -88,5 +89,16 @@ describe("the Go builtinFlairIDs contract", () => {
     const local = new Set(DEFAULT_FLAIRS.map((f) => f.id));
     expect([...local].filter((id) => !remote.has(id))).toEqual([]);
     expect([...remote].filter((id) => !local.has(id))).toEqual([]);
+  });
+
+  it("caps labels at the same rune count as the Go handler", () => {
+    // The server counts runes, so a client cap spent in UTF-16 units is the
+    // stricter of the two and refuses labels the server would take. Pin the
+    // number and the unit, since only the pair makes the slack correct.
+    const go = readFileSync("../internal/api/flairs.go", "utf8");
+    const limit = /maxFlairLabelLen\s*=\s*(\d+)/.exec(go)?.[1];
+    expect(limit).toBeDefined();
+    expect(Number(limit)).toBe(MAX_FLAIR_LABEL_CHARS);
+    expect(go).toContain("exceedsRuneLimit(body.Label, maxFlairLabelLen)");
   });
 });

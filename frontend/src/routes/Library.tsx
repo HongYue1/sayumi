@@ -33,7 +33,7 @@ import {
   RefreshCw,
   X,
 } from "~/lib/icons";
-import { DEFAULT_FLAIRS } from "~/lib/flairs";
+import { DEFAULT_FLAIRS, MAX_FLAIR_LABEL_CHARS } from "~/lib/flairs";
 import { cardSizeCss } from "~/lib/cardSize";
 
 function hasFiles(e: DragEvent): boolean {
@@ -608,7 +608,7 @@ export default function Library() {
             <input
               type="text"
               placeholder="New flair…"
-              maxlength="40"
+              maxlength={String(MAX_FLAIR_LABEL_CHARS * 2)}
               value={newFlair()}
               onInput={(e) => setNewFlair(e.currentTarget.value)}
               onKeyDown={(e) => {
