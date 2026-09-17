@@ -29,7 +29,6 @@ import { trap } from "~/lib/focusTrap";
 type CommandGroup = "action" | "book" | "theme";
 
 interface Command {
-  id: string;
   label: string;
   hint?: string;
   group: CommandGroup;
@@ -104,44 +103,41 @@ export default function CommandPalette() {
     if (!ui.palette) return [];
     const list: Omit<Command, "haystack">[] = [
       {
-        id: "nav-library",
         label: "Go to Library",
         hint: "Navigate",
         group: "action",
         run: () => router.navigate("/"),
       },
       {
-        id: "act-rescan",
         label: "Rescan library folder",
         hint: "Action",
         group: "action",
         run: () => void library.rescan(),
       },
       {
-        id: "act-shortcuts",
         label: "Keyboard shortcuts",
         hint: "Help",
         group: "action",
         run: () => ui.openShortcuts(),
       },
       {
-        id: "act-about",
         label: "About Sayumi",
         hint: "Help",
         group: "action",
         run: () => ui.openAbout(),
       },
       {
-        id: "act-signout",
         label: "Sign out",
         hint: "Account",
         group: "action",
         run: signOutWithFeedback,
       },
     ];
+    // library.books, not library.visible: the palette is the reach-anything
+    // surface, so the shelf's active search and flair filters have no business
+    // deciding what it can open. The per-group caps above bound the rows.
     for (const b of library.books) {
       list.push({
-        id: `book-${b.id}`,
         label: b.title,
         hint: b.author || "Open book",
         group: "book",
@@ -150,7 +146,6 @@ export default function CommandPalette() {
     }
     const pushTheme = (t: (typeof THEMES)[number], custom: boolean): void => {
       list.push({
-        id: `theme-${t.id}`,
         label: `Theme: ${t.label}`,
         hint: `${custom ? "Custom · " : ""}${
           t.group === "dark" ? "Dark" : "Light"
@@ -299,6 +294,9 @@ export default function CommandPalette() {
         >
           <div class="cmd-search">
             <Icon icon={Search} size={18} class="cmd-search-icon" decorative />
+            {/* aria-expanded is static because the listbox is rendered for as
+                long as the palette is open: an empty result set shows a "No
+                matches" row rather than collapsing the popup. */}
             <input
               ref={(el) => (input = el)}
               class="cmd-input"
