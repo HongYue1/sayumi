@@ -12,7 +12,7 @@ import { afterAll, afterEach } from "vitest";
 // snapshots this guard and restores it on vi.unstubAllGlobals.
 const escapedRequests: string[] = [];
 
-globalThis.fetch = ((input: RequestInfo | URL): Promise<Response> => {
+globalThis.fetch = (input: RequestInfo | URL): Promise<Response> => {
   const url =
     typeof input === "string"
       ? input
@@ -21,7 +21,7 @@ globalThis.fetch = ((input: RequestInfo | URL): Promise<Response> => {
         : input.url;
   escapedRequests.push(url);
   return Promise.reject(new TypeError(`Unmocked fetch: ${url}`));
-}) as typeof fetch;
+};
 
 function assertNoEscapedRequests(): void {
   if (escapedRequests.length === 0) return;

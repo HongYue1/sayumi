@@ -118,7 +118,7 @@ function set<K extends keyof UserSettings>(
   key: K,
   value: UserSettings[K],
 ): void {
-  settings.update({ [key]: value } as Partial<UserSettings>);
+  settings.update({ [key]: value });
 }
 
 // Opens the built-in typography specimen in the reader so these settings can

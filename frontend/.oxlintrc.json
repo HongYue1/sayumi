@@ -25,6 +25,7 @@
     "import/no-duplicates": "error",
     "typescript/consistent-type-imports": "error",
     "typescript/no-import-type-side-effects": "error",
+    "typescript/no-unnecessary-type-assertion": "error",
     "unicorn/prefer-node-protocol": "error",
     "jsx-a11y/alt-text": "error",
     "jsx-a11y/aria-props": "error",
@@ -44,7 +45,6 @@
     "unicorn/no-new-array": "off",
     "import/no-unassigned-import": "off",
     "typescript/no-unsafe-type-assertion": "off",
-    "typescript/no-unnecessary-type-assertion": "off",
     "typescript/consistent-return": "off",
     "typescript/no-unnecessary-boolean-literal-compare": "off",
     "jsx-a11y/prefer-tag-over-role": "off",
@@ -63,7 +63,10 @@
         "jsx-a11y",
         "promise",
         "vitest"
-      ]
+      ],
+      "rules": {
+        "typescript/no-unnecessary-type-assertion": "off"
+      }
     },
     {
       "files": ["src/iframe/**", "src/lib/icons.ts"],
