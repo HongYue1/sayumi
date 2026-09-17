@@ -56,6 +56,47 @@ describe("session authentication generation", () => {
     flush();
     expect(session.profile).toBeNull();
   });
+
+  it("keeps the generation when a probe confirms the same profile", async () => {
+    const { session } = await import("~/lib/session");
+    const gate = await import("~/lib/sessionGate");
+    const { flush } = await import("solid-js");
+
+    await session.login("Alice", "", false);
+    const epoch = gate.currentSessionEpoch();
+
+    // A re-probe that confirms the same cookie session is not a new
+    // generation, so a 401 already in flight against it still signs us out.
+    await session.init();
+    expect(gate.currentSessionEpoch()).toBe(epoch);
+
+    gate.reportUnauthenticated(epoch);
+    flush();
+    expect(session.profile).toBeNull();
+  });
+
+  it("advances the generation when a probe finds another profile", async () => {
+    const { session } = await import("~/lib/session");
+    const gate = await import("~/lib/sessionGate");
+    const { flush } = await import("solid-js");
+
+    await session.login("Alice", "", false);
+    const epoch = gate.currentSessionEpoch();
+    api.getAuthStatus.mockResolvedValue({
+      authenticated: true,
+      profile: "Bob",
+    });
+
+    await session.init();
+    flush();
+
+    expect(session.profile).toBe("Bob");
+
+    // A late 401 from the profile that was replaced must not tear this down.
+    gate.reportUnauthenticated(epoch);
+    flush();
+    expect(session.profile).toBe("Bob");
+  });
 });
 
 describe("profile deletion reconciliation", () => {
@@ -200,6 +241,47 @@ describe("boot status probe", () => {
     expect(session.status).toBe("authenticated");
     expect(session.profile).toBe("Alice");
     expect(api.getAuthStatus).not.toHaveBeenCalled();
+  });
+
+  it("probes again for a recovery that lands mid-probe", async () => {
+    const { ApiError } = await import("~/api/client");
+    const reachability = await import("~/lib/reachability");
+    const { session } = await import("~/lib/session");
+    const { flush } = await import("solid-js");
+    api.getAuthStatus.mockRejectedValueOnce(
+      new ApiError("Could not reach the server.", undefined, "network_error"),
+    );
+
+    await session.init();
+    expect(session.status).toBe("unavailable");
+
+    // Hold the recovery probe open, so the next edge is guaranteed to arrive
+    // while it is still running.
+    let failProbe: (error: unknown) => void = () => undefined;
+    api.getAuthStatus.mockReturnValueOnce(
+      new Promise((_, reject) => {
+        failProbe = reject;
+      }),
+    );
+    reachability.reportUnreachable();
+    reachability.reportReachable();
+    await vi.waitFor(() => expect(api.getAuthStatus).toHaveBeenCalledTimes(2));
+
+    // This edge used to be dropped, and nothing would have replaced it:
+    // reachability only notifies on a transition, and the probe failing just
+    // below never reports the server unreachable.
+    reachability.reportUnreachable();
+    reachability.reportReachable();
+    failProbe(
+      new ApiError("Could not reach the server.", undefined, "network_error"),
+    );
+
+    await vi.waitFor(() => {
+      flush();
+      expect(session.status).toBe("authenticated");
+      expect(session.profile).toBe("Alice");
+    });
+    expect(api.getAuthStatus).toHaveBeenCalledTimes(3);
   });
 
   it("publishes signed out on a determinate first boot", async () => {

@@ -48,8 +48,11 @@ class Session {
   /** Plain status mirror for same-tick retry and authentication guards. */
   #statusPlain: SessionStatus = "checking";
 
-  /** Guards re-entrant init(): boot plus any later reachability re-probe. */
+  /** True while a status probe runs; concurrent init() calls coalesce. */
   #initInFlight = false;
+
+  /** Set by a trigger that landed mid-probe; queues one follow-up probe. */
+  #reprobeRequested = false;
 
   /** Unsubscribes the armed reachability re-probe, or null when none is. */
   #bootRetry: (() => void) | null = null;
@@ -108,19 +111,54 @@ class Session {
 
   /**
    * Checks the existing cookie session on app start, and again on a later
-   * reachability recovery when boot could not reach the server. Re-entrant
-   * calls are dropped, so it is safe to call repeatedly.
+   * reachability recovery when boot could not reach the server. Safe to call
+   * repeatedly: a call made while a probe runs coalesces onto it.
+   *
+   * A coalesced trigger is queued rather than dropped, because it may have
+   * seen a recovery the running probe was issued too early to see. It buys
+   * exactly one follow-up probe, and only when the running one ends
+   * indeterminate - a determinate answer is already the news the trigger was
+   * asking for, and each further pass needs a fresh trigger, so this cannot
+   * spin. The boot card's Try again cannot land mid-probe (the card unmounts
+   * as soon as the status turns checking), so the edge armed by
+   * #armBootRetry is the trigger that matters: reachability only notifies on
+   * a transition, and a probe that fails on anything other than a network
+   * error never reports the server unreachable, so a dropped edge left
+   * nothing behind to retry on.
    */
   async init(): Promise<void> {
+    this.#reprobeRequested = true;
     if (this.#initInFlight) return;
     this.#initInFlight = true;
+    try {
+      while (this.#reprobeRequested) {
+        this.#reprobeRequested = false;
+        await this.#probe();
+        if (this.#statusPlain !== "unavailable") break;
+      }
+    } finally {
+      this.#initInFlight = false;
+    }
+  }
+
+  /** One authoritative status probe. Resolves however it ends. */
+  async #probe(): Promise<void> {
     if (this.#statusPlain !== "authenticated") this.#setStatus("checking");
     try {
       const status = await getAuthStatus();
       this.#cancelBootRetry();
       if (status.authenticated) {
-        advanceSessionEpoch();
-        this.#setProfile(status.profile);
+        // Mint a generation only when the identity actually changes. The
+        // epoch binds a 401 to the login that issued the request, so bumping
+        // it for a re-probe that confirms the same profile would make
+        // #handleSessionLost discard a genuine 401 already in flight against
+        // that very session, leaving the app signed in to a session the
+        // server has forgotten. The same name here is the same cookie
+        // session: only login() and teardown start a new one.
+        if (status.profile !== this.#profilePlain) {
+          advanceSessionEpoch();
+          this.#setProfile(status.profile);
+        }
         this.#setStatus("authenticated");
       } else {
         // Route through the shared teardown rather than blanking the name: a
@@ -135,8 +173,6 @@ class Session {
       // out. Keep any known profile and retry automatically on recovery.
       this.#setStatus("unavailable");
       this.#armBootRetry();
-    } finally {
-      this.#initInFlight = false;
     }
   }
 
@@ -144,8 +180,12 @@ class Session {
     if (this.#bootRetry !== null) return;
     this.#bootRetry = subscribeReachability((reachable) => {
       // Only while the status is still unknown - a login or explicit logout
-      // in the meantime owns the session and cancels this subscription.
-      if (!reachable || this.#statusPlain !== "unavailable") return;
+      // in the meantime owns the session and cancels this subscription. That
+      // leaves "unavailable" (no probe running) and "checking" (one is), and
+      // the second is forwarded too: init() folds it into a single follow-up
+      // probe, where dropping it lost the recovery entirely.
+      if (!reachable) return;
+      if (this.#statusPlain !== "unavailable" && !this.#initInFlight) return;
       void this.init();
     });
   }
