@@ -157,6 +157,7 @@ export default function SearchPanel(props: Props) {
   let lastQuery = "";
   let composing = false;
   let activeOptionEl: HTMLElement | null = null;
+  let optionsEl: HTMLElement | undefined;
 
   function isSearchResult(value: unknown): value is SearchResult {
     if (typeof value !== "object" || value === null) return false;
@@ -250,7 +251,14 @@ export default function SearchPanel(props: Props) {
   // every rendered result on each key repeat.
   function syncActiveOption(scroll = false): void {
     const nextId = resultItems()[currentIdx()]?.id;
-    const next = nextId ? document.getElementById(nextId) : null;
+    // Resolve the option inside the listbox that owns it. The ids have to be
+    // document-unique for aria-activedescendant to name them, but our own
+    // lookup should not depend on that: scoped, it cannot mark a node that
+    // isn't one of these results.
+    const next =
+      nextId && optionsEl
+        ? optionsEl.querySelector<HTMLElement>(`#${nextId}`)
+        : null;
     if (activeOptionEl && activeOptionEl !== next) {
       activeOptionEl.setAttribute("aria-selected", "false");
     }
@@ -619,6 +627,9 @@ export default function SearchPanel(props: Props) {
           aria-activedescendant point into it. */}
       <div class="srp-list" onMouseDown={onListMouseDown} onClick={onListClick}>
         <div
+          ref={(el) => {
+            optionsEl = el;
+          }}
           class="srp-options"
           id="search-results"
           role="listbox"

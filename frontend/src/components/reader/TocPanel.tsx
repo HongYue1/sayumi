@@ -252,7 +252,13 @@ export default function TocPanel(props: Props) {
     // flush() applies the window shift synchronously so the row's button is in
     // the DOM before we focus it.
     flush();
-    document.getElementById(rowId(nextIndex))?.focus({ preventScroll: true });
+    // Look the row up inside this panel's own list rather than the document:
+    // the row id only has to be unique within the list it indexes, and it is
+    // the list we just scrolled, so a document-wide lookup could only ever
+    // find the same node or the wrong one.
+    el.querySelector<HTMLElement>(`#${rowId(nextIndex)}`)?.focus({
+      preventScroll: true,
+    });
   }
 
   function onEntryKey(e: KeyboardEvent, index: number): void {
