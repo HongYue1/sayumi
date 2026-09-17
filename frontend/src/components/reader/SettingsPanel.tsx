@@ -373,10 +373,16 @@ export default function SettingsPanel(props: Props) {
     setPresetName("");
   }
 
+  // saving() is a signal: two submits in the same tick both read its
+  // pre-write value, so it cannot serialise the POST on its own (Login keeps
+  // the same plain mirror beside its own busy signal). Unguarded, a repeated
+  // Enter on the name field stores the preset twice under one name.
+  let savingPreset = false;
+
   async function savePreset(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     const name = presetName().trim();
-    if (!name || saving()) return;
+    if (!name || savingPreset || saving()) return;
     // Never capture the compile-time defaults: until the load resolves,
     // settings.value is not the user's state, and the server would happily
     // store those defaults under a user-chosen name (they validate fine).
@@ -384,6 +390,7 @@ export default function SettingsPanel(props: Props) {
       toast.show("Settings aren't loaded yet");
       return;
     }
+    savingPreset = true;
     setSaving(true);
     try {
       // Copy the nested map too: { ...s() } alone would put the live store's
@@ -399,6 +406,7 @@ export default function SettingsPanel(props: Props) {
     } catch {
       toast.show("Couldn't save preset");
     } finally {
+      savingPreset = false;
       setSaving(false);
     }
   }
@@ -501,14 +509,21 @@ export default function SettingsPanel(props: Props) {
       ? "Vertical writing uses Scroll for this chapter. Your paged preference remains active for horizontal chapters."
       : "";
 
+  // rescanning() is a signal and so cannot refuse a second activation raised
+  // in the same tick; this plain mirror can. rescanInert() stays the source
+  // of truth for the button's aria-disabled state.
+  let rescanInFlight = false;
+
   async function rescan(): Promise<void> {
-    if (rescanInert()) return;
+    if (rescanInFlight || rescanInert()) return;
+    rescanInFlight = true;
     setRescanning(true);
     try {
       if (!(await fontRegistry.rescan())) {
         toast.show("Couldn't rescan fonts. Please try again.");
       }
     } finally {
+      rescanInFlight = false;
       setRescanning(false);
     }
   }

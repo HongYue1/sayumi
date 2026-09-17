@@ -617,6 +617,41 @@ describe("reader settings panel", () => {
     expect(rescanFonts).toHaveBeenCalledTimes(1);
   });
 
+  it("saves one preset and scans once when two activations share a tick", async () => {
+    world.setFamilies([family("user:minion")]);
+    world.setSettings({ preserveFonts: false });
+    const scan = deferred<boolean>();
+    rescanFonts.mockReturnValueOnce(scan.promise);
+    mount();
+    await settle();
+
+    // The pins above put a flush between the two activations, which is what
+    // lets a signal-reading guard look correct. Here nothing flushes in
+    // between, so saving()/rescanning() still read their pre-write values
+    // and only the plain mirrors can refuse the second run -- otherwise one
+    // name gets two presets and one click gets two font scans.
+    openNaming("Night");
+    const form = namingForm();
+    form.dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
+    form.dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
+    flush();
+    await settle();
+    expect(api.createPreset).toHaveBeenCalledTimes(1);
+
+    const button = el(".stp-rescan") as HTMLButtonElement;
+    button.click();
+    button.click();
+    flush();
+    expect(rescanFonts).toHaveBeenCalledTimes(1);
+
+    scan.resolve(true);
+    await settle();
+  });
+
   it("keeps an Auto slider focusable and puts a refused drag back", async () => {
     world.setSettings({ lineHeight: null });
     mount();
