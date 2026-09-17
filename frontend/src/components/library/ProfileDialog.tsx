@@ -251,6 +251,11 @@ export default function ProfileDialog(props: Props) {
       setError(getErrorMessage(err, "Something went wrong."));
       submitting = false;
       setBusy(false);
+      // A clone the local check waved through can still be refused because
+      // another window took the name after this dialog opened. That list is
+      // the only local copy of the fact, so refresh it rather than let the
+      // form keep vouching for a name that is gone.
+      if (props.mode === "clone") void loadPrerequisite();
     }
   }
 

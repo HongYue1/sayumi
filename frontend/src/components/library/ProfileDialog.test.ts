@@ -370,6 +370,33 @@ describe("ProfileDialog", () => {
     expect(bubbled).toBe(true);
   });
 
+  // The taken-name list is the only local copy of which names are free, and a
+  // server refusal is the one moment it is known to be wrong: another window
+  // can take a name after this dialog opened. Left stale, the form keeps
+  // vouching for that name through every further attempt.
+  it("refreshes the taken names after the server refuses a clone", async () => {
+    await mount("clone");
+    type(nameInput(), "Carol");
+    await settle();
+    expect(submitButton().getAttribute("aria-disabled")).toBe("false");
+
+    stubs.listProfiles.mockResolvedValue([
+      { name: "Alice", hasPin: true },
+      { name: "Bob", hasPin: false },
+      { name: "Carol", hasPin: false },
+    ]);
+    stubs.clone.mockRejectedValueOnce(
+      new ApiError("Profile already exists", 409, "conflict"),
+    );
+
+    submitButton().click();
+    await settle();
+
+    expect(stubs.listProfiles).toHaveBeenCalledTimes(2);
+    expect(nameNote()!.textContent).toContain("already taken");
+    expect(submitButton().getAttribute("aria-disabled")).toBe("true");
+  });
+
   it("aborts the names fetch when the dialog unmounts mid-flight", async () => {
     stubs.listProfiles.mockImplementation(
       (_signal?: AbortSignal) => new Promise(() => {}),
