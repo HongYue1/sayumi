@@ -787,6 +787,25 @@ describe("library.uploadFiles", () => {
     );
   });
 
+  // Both refusals are true when a batch with no .epub lands mid-import, and
+  // the file-type one is the only actionable message: "still importing"
+  // would invite a retry that can never import anything.
+  it("explains a non-epub batch dropped mid-import", async () => {
+    mocks.getBooks.mockResolvedValue([]);
+    mocks.uploadBook.mockImplementation(() => new Promise<never>(() => {}));
+    const store = new Library();
+    store.activate("p");
+
+    void store.uploadFiles([epub()]);
+    await store.uploadFiles([new File(["x"], "cover.jpg")]);
+    flush();
+
+    const messages = toast.mock.calls.map((c) => c[0]);
+    expect(messages).toContain("Only .epub files can be added");
+    const busy = messages.some((m: string) => m.includes("Still importing"));
+    expect(busy).toBe(false);
+  });
+
   it("toasts the per-file outcome after the refresh", async () => {
     mocks.getBooks.mockResolvedValue([]);
     mocks.uploadBook

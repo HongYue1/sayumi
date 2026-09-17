@@ -730,6 +730,10 @@ export class Library {
         f.name.toLowerCase().endsWith(".epub") ||
         f.type === "application/epub+zip",
     );
+    // Filtering deliberately runs ahead of the re-entrancy guard below. When
+    // a batch carries no .epub at all, both refusals are true, and only this
+    // one is actionable: "still importing" would invite the user to retry a
+    // drop that can never import anything.
     if (epubs.length === 0) {
       toast.show("Only .epub files can be added");
       return;
