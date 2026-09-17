@@ -92,7 +92,10 @@ export default function Login() {
   let returning = false;
 
   // busy() is a signal: two activations in the same tick both read the
-  // pre-write value, so it cannot serialise submits on its own.
+  // pre-write value, so it cannot serialise submits on its own. Every guard
+  // on this screen consults this mirror first; busy() is kept alongside it
+  // because it also covers the states the mirror does not, such as a request
+  // that resolved straight into a navigation and left the screen blocked.
   let inFlight = false;
   // Flipped by the onSettled teardown. App.tsx unmounts this route the moment
   // the session authenticates, which can happen mid-request, so every
@@ -177,7 +180,7 @@ export default function Login() {
   async function pick(p: ProfileInfo): Promise<void> {
     // aria-disabled rows stay clickable; the guard refuses to switch targets
     // (or start a second request) while a sign-in is in flight.
-    if (busy()) return;
+    if (inFlight || busy()) return;
     setError("");
     if (p.hasPin) {
       returning = false;
@@ -191,7 +194,7 @@ export default function Login() {
   function backToList(): void {
     // Guarded like every control here: leaving mid-request would unmount the
     // form whose request is still running.
-    if (busy()) return;
+    if (inFlight || busy()) return;
     // FIRST: the ref callback on the re-created picker heading reads this flag
     // during the render that the writes below trigger, so setting it last
     // leaves focus on <body>.
@@ -206,14 +209,14 @@ export default function Login() {
   }
 
   function openCreate(): void {
-    if (busy()) return;
+    if (inFlight || busy()) return;
     returning = false;
     setMode("create");
     setError("");
   }
 
   function leaveCreate(): void {
-    if (busy()) return;
+    if (inFlight || busy()) return;
     // Same ordering contract as backToList.
     returning = true;
     setMode("pick");
@@ -484,7 +487,7 @@ export default function Login() {
                 class="btn press login-primary"
                 type="button"
                 onClick={() => {
-                  if (busy()) return;
+                  if (inFlight || busy()) return;
                   setError("");
                   void loadProfiles();
                 }}
@@ -611,7 +614,7 @@ export default function Login() {
                 onChange={(e) => {
                   // aria-disabled + guard, not disabled: a busy checkbox would
                   // otherwise drop out of the tab order mid-sign-in.
-                  if (busy()) return;
+                  if (inFlight || busy()) return;
                   setRemember(e.currentTarget.checked);
                 }}
                 aria-disabled={busy() ? "true" : "false"}

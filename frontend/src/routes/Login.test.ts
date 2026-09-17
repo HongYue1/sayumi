@@ -410,6 +410,26 @@ describe("Login route", () => {
     expect(api.login).toHaveBeenCalledTimes(1);
   });
 
+  it("Login route: an exit taken in the sign-in tick is refused too", async () => {
+    api.listProfiles.mockResolvedValue([{ name: "Ann", hasPin: false }]);
+    api.login.mockImplementation(() => new Promise(() => {}));
+    mount();
+
+    await vi.waitFor(() => expect(profileButtons()).toHaveLength(1));
+
+    // Freezing the picker is only half of it: the exits have to consult the
+    // same mirror. Both activations land before busy() commits, so a guard
+    // reading the signal would let this one through and swap the screen out
+    // from under a live sign-in.
+    profileButtons()[0].click();
+    qb("button.login-new")!.click();
+    flush();
+
+    expect(api.login).toHaveBeenCalledTimes(1);
+    expect(qi('input[aria-label="Profile name"]')).toBeNull();
+    expect(profileButtons()).toHaveLength(1);
+  });
+
   it("Login route: create fields are cleared on every exit (T14, L4)", async () => {
     api.listProfiles.mockResolvedValue([{ name: "Ann", hasPin: false }]);
     mount();
