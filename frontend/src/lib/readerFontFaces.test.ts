@@ -82,6 +82,32 @@ describe("buildAllFontFaces", () => {
     );
   });
 
+  it("emits no format hint for an extension it doesn't know", () => {
+    // A format() the browser cannot match makes it skip that source without
+    // downloading it, so guessing woff2 for an unrecognized file would drop
+    // the face; no hint lets it sniff instead. Unreachable while the scanner
+    // admits only woff2/woff/ttf/otf (internal/fonts/scan.go) — pinned so a
+    // format added on one side only degrades to sniffing, not to a dead face.
+    const css = buildAllFontFaces(
+      [
+        fam({
+          files: ["Regular.ttc"],
+          detected: {
+            regular: "Regular.ttc",
+            italic: "",
+            bold: "",
+            boldItalic: "",
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(userFormats(css)).toEqual([""]);
+    // Still one valid declaration: the semicolon follows the url() directly.
+    expect(css).toMatch(/src: url\('[^']+Regular\.ttc\?token=[^']*'\);/);
+  });
+
   it("uses the escaped directory name for the CSS family", () => {
     const family: UserFontFamily = {
       id: "user:O'Brien",

@@ -203,14 +203,17 @@ function buildUserFontFaces(
     weight: string,
     style: string,
     normalize: string,
-  ) =>
-    `@font-face {
+  ) => {
+    const hint = formatHint(url);
+    const source = hint ? `url('${url}') format('${hint}')` : `url('${url}')`;
+    return `@font-face {
   font-family: ${family};
-  src: url('${url}') format('${formatHint(url)}');
+  src: ${source};
   font-weight: ${weight};
   font-style: ${style};
   font-display: block;${normalize ? `\n${normalize}` : ""}
 }`;
+  };
 
   const reference = embeddedMetrics()[REFERENCE_FACE];
   const out: string[] = [];
@@ -272,6 +275,17 @@ function buildUserFontFaces(
   return out.join("\n");
 }
 
+/**
+ * The CSS `format()` keyword for a served font URL, or "" when the extension
+ * is unrecognized — in which case the caller emits no hint at all.
+ *
+ * "" rather than a woff2 guess: a format() the browser cannot match makes it
+ * skip that source WITHOUT downloading it, so a wrong hint drops the face
+ * outright, while no hint lets it sniff the bytes it fetched. The scanner
+ * admits only .woff2/.woff/.ttf/.otf today (internal/fonts/scan.go), so no
+ * unknown extension reaches here — this is the safe landing for the day one
+ * side learns a format the other doesn't.
+ */
 function formatHint(url: string): string {
   const queryStart = url.indexOf("?");
   const path = queryStart === -1 ? url : url.slice(0, queryStart);
@@ -280,7 +294,7 @@ function formatHint(url: string): string {
   if (lower.endsWith(".woff")) return "woff";
   if (lower.endsWith(".otf")) return "opentype";
   if (lower.endsWith(".ttf")) return "truetype";
-  return "woff2";
+  return "";
 }
 
 /**
