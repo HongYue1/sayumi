@@ -886,6 +886,9 @@ export class Library {
    * these handlers (validation, conflict, size), so it skips the round trip.
    * refresh() is deduped and never rejects; on a genuinely dead server its
    * load() defers to the offline banner instead of stacking an inline error.
+   * remove() deliberately does not route through this: the delete handler's
+   * only 4xx is the 404 it answers when the row is already gone, which is
+   * the one 4xx that does mean the shelf needs refetching.
    */
   #reconcileAfterAmbiguousFailure(e: unknown): void {
     if (
@@ -915,6 +918,12 @@ export class Library {
     } catch (e) {
       if (!this.#isCurrent(profile, generation)) return;
       toast.show(getErrorMessage(e, "Could not remove book"));
+      // Refetch on every failure. A 404 means the server no longer has the
+      // book, so the failure itself proves this shelf is stale; anything else
+      // leaves the commit state ambiguous, because only the row delete runs
+      // on the request context - the file cleanup behind it does not, so a
+      // dropped connection can report failure for a book already gone.
+      void this.refresh();
     }
   }
 

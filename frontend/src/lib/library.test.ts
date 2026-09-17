@@ -731,6 +731,44 @@ describe("library.remove", () => {
     flush();
     expect(store.visible).toHaveLength(0);
   });
+
+  // The delete handler answers 404 only when the row is already gone, so the
+  // failure itself proves the shelf is stale. Without the refetch the phantom
+  // row sat there until some other surface happened to reload the library.
+  it("refetches when the delete reports the book is already gone", async () => {
+    const store = await seed([
+      book({ id: "a", title: "Dune" }),
+      book({ id: "b", title: "Other" }),
+    ]);
+    mocks.deleteBook.mockRejectedValue(
+      new ApiError("book not found", 404, "not_found"),
+    );
+    mocks.getBooks.mockResolvedValue([book({ id: "b", title: "Other" })]);
+
+    await store.remove("a");
+    await settleStore();
+    flush();
+
+    expect(mocks.getBooks).toHaveBeenCalledTimes(2);
+    expect(store.books.map((b) => b.id)).toEqual(["b"]);
+    expect(toast).toHaveBeenCalledWith("book not found");
+  });
+
+  it("reconciles from the server when a delete failure may have landed", async () => {
+    const store = await seed([book({ id: "a", title: "Dune" })]);
+    mocks.deleteBook.mockRejectedValue(
+      new ApiError("Could not reach the server.", undefined, "network_error"),
+    );
+    // The deletion committed and only the answer was lost: the refetch is
+    // what clears a book the server no longer lists.
+    mocks.getBooks.mockResolvedValue([]);
+
+    await store.remove("a");
+    await settleStore();
+    flush();
+
+    expect(store.books).toHaveLength(0);
+  });
 });
 
 describe("library.uploadFiles", () => {
