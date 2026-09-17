@@ -165,6 +165,15 @@ export default function ProfileDialog(props: Props) {
       (props.mode === "clone" ? (nameError() ?? newPinError()) : null),
   );
 
+  // Progress rather than failure, so it is announced politely from its own
+  // region instead of interrupting from the assertive one.
+  const progressNote = (): string =>
+    checkingPrerequisite()
+      ? props.mode === "clone"
+        ? "Checking existing profile names\u2026"
+        : "Checking PIN protection\u2026"
+      : "";
+
   async function submit(e: Event): Promise<void> {
     e.preventDefault();
     if (!canSubmit()) return;
@@ -390,11 +399,7 @@ export default function ProfileDialog(props: Props) {
           </Show>
 
           <Show when={checkingPrerequisite()}>
-            <p class="pd-prereq-status" role="status">
-              {props.mode === "clone"
-                ? "Checking existing profile names…"
-                : "Checking PIN protection…"}
-            </p>
+            <p class="pd-prereq-status">{progressNote()}</p>
           </Show>
           <Show when={!checkingPrerequisite() && prerequisiteError()}>
             {(message) => (
@@ -425,6 +430,9 @@ export default function ProfileDialog(props: Props) {
               role="alert". */}
           <p class="sr-only" role="alert">
             {announcement() ?? ""}
+          </p>
+          <p class="sr-only" role="status">
+            {progressNote()}
           </p>
 
           <div class="pd-actions">
