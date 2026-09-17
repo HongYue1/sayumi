@@ -391,6 +391,30 @@ describe("focusTrap", () => {
     dispose();
   });
 
+  it("moves focus in when the only control stops being disabled", async () => {
+    const dialog = document.createElement("div");
+    const only = document.createElement("button");
+    only.setAttribute("disabled", "");
+    markVisible(only);
+    dialog.append(only);
+    document.body.append(dialog);
+
+    const dispose = focusTrap(dialog);
+    await Promise.resolve();
+    // `button:not([disabled])` excludes the one control, so the fallback
+    // parks focus on the container and watches for a real tab stop.
+    expect(document.activeElement).toBe(dialog);
+
+    // The stop arrives without any node arriving. Watching childList alone
+    // left focus on the container for the life of the dialog.
+    only.removeAttribute("disabled");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(document.activeElement).toBe(only);
+    dispose();
+  });
+
   it("does not override a dialog that placed focus itself", async () => {
     const dialog = document.createElement("div");
     document.body.append(dialog);

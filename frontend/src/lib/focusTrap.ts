@@ -61,6 +61,14 @@ export function focusTrap(node: HTMLElement): () => void {
   // counting those put first/last on elements the browser never tabs to, so the
   // wrap either let Tab walk out of the dialog or drove focus onto a row that
   // could not hand it back.
+  //
+  // One call is a querySelectorAll plus a getClientRects() per candidate, so
+  // it forces layout once. That is affordable because it is not a
+  // per-keystroke cost: only Tab reaches it, only in the topmost trap, plus
+  // the brief window where the fallback observer below is armed. Caching the
+  // ring would be the wrong trade -- the virtualized rows this filter exists
+  // for mount and unmount while the panel is open, so a cached ring would
+  // hand Tab a detached row.
   function focusables(): HTMLElement[] {
     return Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
       (el) => isInTabOrder(el) && el.getClientRects().length > 0,
@@ -124,7 +132,18 @@ export function focusTrap(node: HTMLElement): () => void {
       stopWatching();
       first.focus();
     });
-    observer.observe(node, { childList: true, subtree: true });
+    // Attributes too, narrowly: a tab stop can appear with no node arriving
+    // (a roving-tabindex row taking the single stop, a real `disabled`
+    // dropping off). The filter is what keeps this bounded -- only the
+    // attributes that decide tab-order membership wake it, and the observer
+    // still disconnects on the first stop it finds or as soon as focus leaves
+    // the container.
+    observer.observe(node, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["disabled", "tabindex", "contenteditable"],
+    });
   }
 
   function stopWatching(): void {
