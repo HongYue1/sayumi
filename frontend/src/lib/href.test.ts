@@ -39,6 +39,22 @@ describe("resolveHref", () => {
     expect(result).toEqual({ chapterIndex: 1, fragment: "target" });
   });
 
+  it("resolves a fragment-only href to the source chapter", () => {
+    const entries = spine("OPS/text/ch1.xhtml", "OPS/text/ch2.xhtml");
+    // Resolved relatively these normalize to "OPS/text", the chapter's
+    // directory, which matches no spine entry at all.
+    expect(resolveHref("#note-1", entries, 1)).toEqual({
+      chapterIndex: 1,
+      fragment: "note-1",
+    });
+    expect(resolveHref("?view=x#note-1", entries, 0)).toEqual({
+      chapterIndex: 0,
+      fragment: "note-1",
+    });
+    // A TOC href carries no source chapter, so no document owns the fragment.
+    expect(resolveHref("#note-1", entries)).toBeNull();
+  });
+
   it("normalizes parent-directory segments", () => {
     const result = resolveHref(
       "../notes/endnotes.xhtml#note-1",

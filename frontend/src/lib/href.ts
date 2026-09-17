@@ -140,15 +140,29 @@ export function resolveHref(
 ): { chapterIndex: number; fragment: string } | null {
   const parsed = parseHref(href);
   const index = buildSpineIndex(spine);
-  let path = normalizeArchivePath(parsed.path);
-
-  if (
+  const source =
     sourceChapter !== undefined &&
     Number.isSafeInteger(sourceChapter) &&
     sourceChapter >= 0 &&
     sourceChapter < index.paths.length
-  ) {
-    path = resolveRelativePath(parsed.path, index.paths[sourceChapter]);
+      ? sourceChapter
+      : null;
+  let path = normalizeArchivePath(parsed.path);
+
+  // An href with no document component ("#id", "?x#id") addresses a point in
+  // the document that authored it, so with a source chapter it resolves to
+  // that chapter. Resolving it relatively instead normalizes to the chapter's
+  // DIRECTORY, which matches no spine entry and loses the link. frame.ts
+  // answers a literal "#id" click locally and never forwards it, but that is
+  // its own shortcut, not a precondition of this function. Without a source
+  // chapter -- a TOC href -- no document owns the fragment, so it stays
+  // unresolved rather than being pinned to whatever chapter happens to be open.
+  if (path === "" && source !== null) {
+    return { chapterIndex: source, fragment: parsed.fragment };
+  }
+
+  if (source !== null) {
+    path = resolveRelativePath(parsed.path, index.paths[source]);
   }
 
   const chapterIndex = matchSpinePath(path, index);
