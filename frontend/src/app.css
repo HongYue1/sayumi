@@ -103,7 +103,10 @@
   /* Accent as TEXT on the page background. applyTheme overrides this with the
      accent nudged toward black/white until it reads at 4.5:1 — several official
      palettes (ayu light, solarized, rosé pine dawn) tune their accent for fills
-     only. Fills/rings keep --accent; colored labels/links use this. */
+     only. Fills/rings keep --accent; colored labels/links use this.
+     Also the pre-paint stand-in for a cache written before this token: both
+     cache readers leave it to :root, and CSS cannot run the contrast search,
+     so the raw accent holds for that one load. */
   --accent-ink: var(--accent);
 
   /* Danger / error. --danger mixes a red toward the active --fg so error

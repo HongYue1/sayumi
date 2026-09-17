@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getCachedThemeId, onAccentColor } from "~/lib/theme";
+import { applyTheme, getCachedThemeId, onAccentColor } from "~/lib/theme";
 import { DEFAULT_THEME_ID } from "~/lib/themes";
 
 afterEach(() => {
@@ -62,5 +62,63 @@ describe("getCachedThemeId", () => {
     });
 
     expect(getCachedThemeId()).toBe(DEFAULT_THEME_ID);
+  });
+});
+
+describe("applyTheme for a cached custom palette", () => {
+  const CACHE: Record<string, unknown> = {
+    id: "custom-abc",
+    bg: "#101010",
+    fg: "#f0f0f0",
+    accent: "#ff8800",
+    accentFg: "#000000",
+    scheme: "dark",
+  };
+
+  let setItem = vi.fn();
+
+  function stubCache(cache: Record<string, unknown>): void {
+    setItem = vi.fn();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) =>
+        key === "sayumi:theme-vars" ? JSON.stringify(cache) : String(cache.id),
+      setItem,
+    });
+  }
+
+  afterEach(() => {
+    document.documentElement.removeAttribute("style");
+    delete document.documentElement.dataset.theme;
+  });
+
+  it("leaves the derived tokens to :root for a legacy cache", () => {
+    // An id the custom registry has not loaded yet paints from the cache
+    // rather than flashing the fallback theme. A cache written before
+    // --elevated and --accent-ink existed must not derive them here: the
+    // pre-paint bootstrap in index.html leaves both to app.css :root, and one
+    // cache cannot paint two ways one tick apart.
+    stubCache(CACHE);
+
+    applyTheme("custom-abc");
+
+    const style = document.documentElement.style;
+    expect(style.getPropertyValue("--bg")).toBe("#101010");
+    expect(style.getPropertyValue("--accent-fg")).toBe("#000000");
+    expect(style.getPropertyValue("--elevated")).toBe("");
+    expect(style.getPropertyValue("--accent-ink")).toBe("");
+    expect(document.documentElement.dataset.theme).toBe("custom-abc");
+    // Reused, never re-cached: caching the fallback palette here would erase
+    // the real one before the registry arrives.
+    expect(setItem).not.toHaveBeenCalled();
+  });
+
+  it("paints the derived tokens a current cache carries", () => {
+    stubCache({ ...CACHE, elevated: "#1d1d1d", accentInk: "#ffa733" });
+
+    applyTheme("custom-abc");
+
+    const style = document.documentElement.style;
+    expect(style.getPropertyValue("--elevated")).toBe("#1d1d1d");
+    expect(style.getPropertyValue("--accent-ink")).toBe("#ffa733");
   });
 });

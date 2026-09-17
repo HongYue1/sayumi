@@ -212,6 +212,32 @@ describe("the default theme", () => {
     // to agree with the palette's own side.
     expect(/color-scheme:\s*(\w+);/.exec(block)?.[1]).toBe(theme.group);
   });
+
+  it("shares one legacy-cache fallback with app.css", () => {
+    // Two readers restore the pre-paint cache: the inline bootstrap in
+    // index.html and applyCachedTheme (lib/theme.ts). Neither can paint
+    // --elevated or --accent-ink for a cache written before those tokens
+    // existed, so both leave them to :root -- which is only ONE answer while
+    // the stylesheet's wash is the one deriveSurface computes. --accent-ink is
+    // the knowing exception: CSS cannot run the contrast search, so the raw
+    // accent stands in until the settings load paints the corrected value.
+    const css = readFileSync("src/app.css", "utf8");
+    const block = /:root\s*\{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
+    const washRe = /--elevated:\s*color-mix\([^;]*?([\d.]+)%[^;]*\);/;
+    const wash = washRe.exec(block);
+    expect(wash).not.toBeNull();
+    const pct = wash?.[1] ?? "";
+    // Pinned in full so the wash cannot silently swap paper and ink.
+    expect(block).toContain(
+      `--elevated: color-mix(in srgb, var(--fg) ${pct}%, var(--bg));`,
+    );
+    // Recomputed here so the assertion cannot inherit the mixer's own bug.
+    const chan = Math.round(0x10 + (0xf0 - 0x10) * (Number(pct) / 100))
+      .toString(16)
+      .padStart(2, "0");
+    expect(deriveSurface("#101010", "#f0f0f0")).toBe(`#${chan}${chan}${chan}`);
+    expect(/--accent-ink:\s*var\(--accent\);/.test(block)).toBe(true);
+  });
 });
 
 describe("prefersBlackText", () => {

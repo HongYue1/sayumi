@@ -72,8 +72,11 @@
           s.setProperty("--fg", v.fg);
           s.setProperty("--accent", v.accent);
           s.setProperty("--accent-fg", v.accentFg);
-          // Older caches predate these two tokens; the :root fallbacks
-          // cover first paint, and the settings load applies the real values.
+          // Older caches predate these two tokens. app.css :root derives both
+          // from the palette set just above, so leaving them unset is the one
+          // fallback both cache readers share (applyCachedTheme in
+          // lib/theme.ts does the same); the settings load then paints the
+          // exact values and rewrites the cache with them.
           if (v.elevated) s.setProperty("--elevated", v.elevated);
           if (v.accentInk) s.setProperty("--accent-ink", v.accentInk);
           s.colorScheme = v.scheme;

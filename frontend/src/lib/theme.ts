@@ -2,7 +2,6 @@ import {
   DEFAULT_THEME_ID,
   getTheme,
   themeSurface,
-  deriveSurface,
   prefersBlackText,
   readableAccent,
   type ThemeDef,
@@ -64,17 +63,19 @@ function applyCachedTheme(id: string): boolean {
   root.style.setProperty("--fg", v.fg);
   root.style.setProperty("--accent", v.accent);
   root.style.setProperty("--accent-fg", v.accentFg);
-  // Older caches predate the elevated-surface / accent-ink tokens; derive then.
-  root.style.setProperty(
-    "--elevated",
-    typeof v.elevated === "string" ? v.elevated : deriveSurface(v.bg, v.fg),
-  );
-  root.style.setProperty(
-    "--accent-ink",
-    typeof v.accentInk === "string"
-      ? v.accentInk
-      : readableAccent(v.accent, v.bg),
-  );
+  // Older caches predate the elevated-surface and accent-ink tokens. Leave
+  // them unset instead of deriving them here: app.css :root defines both in
+  // terms of --bg / --fg / --accent, which the properties above have just
+  // overridden, so CSS resolves them from this very palette. Deriving would
+  // give one cache two answers, because the pre-paint bootstrap in index.html
+  // cannot run the contrast search and leans on those same :root fallbacks.
+  // Either way the gap lasts one load: the next applyTheme caches all of them.
+  if (typeof v.elevated === "string") {
+    root.style.setProperty("--elevated", v.elevated);
+  }
+  if (typeof v.accentInk === "string") {
+    root.style.setProperty("--accent-ink", v.accentInk);
+  }
   root.style.colorScheme = v.scheme;
   root.dataset.theme = id;
   return true;
