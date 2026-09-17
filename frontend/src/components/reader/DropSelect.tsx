@@ -9,6 +9,10 @@
 //     compute/apply createEffect (ThemeDropdown shape).
 //   - toggle() computes `next` once: reading open() right after setOpen would
 //     still return the pre-write value (batched).
+//   - close() refuses a repeat through the openNow mirror, never open(): that
+//     same batching would hand a second dismissal in one tick the pre-write
+//     value, and the trigger would be re-focused after focus had legitimately
+//     moved on.
 //   - Props are read as accessors (p.value), never destructured.
 //   - Focus moves into the menu one microtask after open: Solid runs element
 //     refs while the node is still detached, so focusing in the ref no-ops.
@@ -62,6 +66,14 @@ export default function DropSelect(p: DropSelectProps) {
   let menuEl: HTMLElement | undefined;
   let typeahead = "";
   let typeaheadTimer: ReturnType<typeof setTimeout> | undefined;
+  // Plain mirror of open() for the dismissal guard: a signal read cannot see
+  // its own write in the same tick, so every write goes through setOpenState
+  // and guards read openNow.
+  let openNow = false;
+  function setOpenState(next: boolean): void {
+    openNow = next;
+    setOpen(next);
+  }
   // Teardown returned from onSettled: 2.0 keeps component teardown paired
   // with setup here and reserves onCleanup for custom-primitive internals.
   onSettled(() => () => clearTimeout(typeaheadTimer));
@@ -76,10 +88,13 @@ export default function DropSelect(p: DropSelectProps) {
 
   function toggle(): void {
     if (p.disabled) return;
-    setOpen(!open());
+    setOpenState(!open());
   }
   function close(restoreFocus = true): void {
-    setOpen(false);
+    // A dismissal that lands after the menu already closed must not pull
+    // focus back off whatever legitimately took it.
+    if (!openNow) return;
+    setOpenState(false);
     clearTimeout(typeaheadTimer);
     typeahead = "";
     if (restoreFocus) trigger?.focus();

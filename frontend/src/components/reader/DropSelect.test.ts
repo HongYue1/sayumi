@@ -140,6 +140,40 @@ describe("DropSelect", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it("refuses a dismissal that lands after the menu closed", async () => {
+    mount();
+    openMenu();
+    await settle();
+
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    // Dispatched without `key`, which flushes: a flush between the two
+    // dismissals would tear the window listener down and hide the repeat.
+    const escape = (): void => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    };
+
+    escape();
+    expect(document.activeElement).toBe(trigger());
+
+    // open() still reads its pre-write value here, which is precisely the
+    // window in which a second dismissal would pull focus back off whatever
+    // had legitimately taken it.
+    outside.focus();
+    escape();
+    expect(document.activeElement).toBe(outside);
+
+    flush();
+    expect(menu()).toBeNull();
+    outside.remove();
+  });
+
   it("selects on click, closes, and refocuses the trigger", async () => {
     mount();
     openMenu();

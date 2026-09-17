@@ -419,10 +419,20 @@ export default function Read(props: Props) {
   // tools into it so the bar never outgrows a phone screen. -----------------
   let moreBtn: HTMLButtonElement | undefined;
   let moreMenuEl: HTMLElement | undefined;
+  // Plain mirror of moreOpen() for the dismissal guard: a signal read cannot
+  // see its own write in the same tick, so every write goes through
+  // setMoreOpenState and the guard reads moreOpenNow.
+  let moreOpenNow = false;
+  function setMoreOpenState(next: boolean): void {
+    moreOpenNow = next;
+    setMoreOpen(next);
+  }
 
   function closeMore(restoreFocus = true): void {
-    if (!moreOpen()) return;
-    setMoreOpen(false);
+    // A dismissal that lands after the menu already closed must not pull
+    // focus back off whatever legitimately took it.
+    if (!moreOpenNow) return;
+    setMoreOpenState(false);
     if (restoreFocus) moreBtn?.focus();
     // Re-arm the chrome auto-hide that toggleMore paused while the menu was up.
     resetChromeTimer();
@@ -457,11 +467,11 @@ export default function Read(props: Props) {
   );
 
   function toggleMore(): void {
-    if (moreOpen()) {
+    if (moreOpenNow) {
       closeMore();
       return;
     }
-    setMoreOpen(true);
+    setMoreOpenState(true);
     // Pin the chrome while the menu is open — the auto-hide timer keeps
     // running otherwise, and the bar vanishing under an open menu strands it.
     showChrome(false);
