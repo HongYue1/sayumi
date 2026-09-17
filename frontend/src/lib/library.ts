@@ -147,7 +147,19 @@ export class Library {
    *  title/author untouched, so this avoids re-lowercasing every title on each
    *  such change; an entry is refreshed only when its title or author actually
    *  changes. (Plain Map, not reactive state: it's a memo cache read inside
-   *  `visible`, never a render dependency.) */
+   *  `visible`, never a render dependency.)
+   *
+   *  #hayFor fills it lazily from inside that memo deliberately. The write is
+   *  idempotent, non-reactive and validated against the book's live
+   *  title/author, so it can neither hand back a stale haystack nor
+   *  invalidate the memo that produced it. Filling it eagerly instead would
+   *  lowercase the whole shelf for sessions that never search, and deriving
+   *  it as a memo would rebuild every entry on each progress tick - the exact
+   *  cost this cache exists to avoid.
+   *
+   *  Keys stay within the books the server still lists: the per-id deletes
+   *  below only run for ids this client itself changed, so load() prunes the
+   *  rest. */
   readonly #hayCache = new Map<
     string,
     { title: string; author: string; hay: string }
@@ -475,6 +487,14 @@ export class Library {
         this.#booksLoaded = true;
         // Server truth replaces local writes: stale rollback guards reset.
         this.#bookWrites.clear();
+        // This response is the whole shelf, so any other haystack key belongs
+        // to a book this profile can no longer see - deleted from another
+        // device, or dropped by a rescan. Nothing else prunes those, and they
+        // would outlive every book on screen for the rest of the session.
+        const live = new Set(books.map((b) => b.id));
+        for (const id of this.#hayCache.keys()) {
+          if (!live.has(id)) this.#hayCache.delete(id);
+        }
       } catch (e) {
         if (!this.#isCurrent(profile, generation)) return;
         // A transport failure means the global offline banner is already on
