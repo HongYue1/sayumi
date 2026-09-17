@@ -19,11 +19,51 @@
 //     ordering deliberately: the opener still holds focus synchronously after
 //     mount, the close button holds it one tick later, and the opener gets it
 //     back on close.
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { render } from "@solidjs/web";
 import { flush } from "solid-js";
 import ShortcutsHelp from "~/components/ShortcutsHelp";
 import { ui } from "~/lib/ui";
+
+// Read.tsx owns the reader keymap; this sheet is a hand-written mirror of it.
+// Read the route as text rather than importing it: the keymap is a closure
+// inside the component, and the switch is the contract.
+const readerSource = readFileSync("src/routes/Read.tsx", "utf8");
+
+// Caps that qualify the cap beside them instead of naming a key of their own.
+const MODIFIER_CAPS = new Set(["Shift", "Ctrl / \u2318"]);
+
+// e.key -> the cap this sheet prints for it. Anything absent prints its own
+// name, except single characters, which differ from their cap only in case
+// ("t" and "T" are one documented row).
+const CAP_FOR_KEY: Record<string, string> = {
+  " ": "Space",
+  Escape: "Esc",
+  ArrowLeft: "\u2190",
+  ArrowRight: "\u2192",
+  ArrowUp: "\u2191",
+  ArrowDown: "\u2193",
+};
+
+function capFor(key: string): string {
+  return CAP_FOR_KEY[key] ?? (key.length === 1 ? key.toUpperCase() : key);
+}
+
+// The e.key values handleKeyAction's switch acts on. Scoped to that switch:
+// the stand-down list above it names the same keys for a different purpose.
+function boundKeys(): string[] {
+  const handler = readerSource.indexOf("function handleKeyAction");
+  const start = readerSource.indexOf("switch (e.key) {", handler);
+  const end = readerSource.indexOf("\n    }", start);
+  expect(handler, "handleKeyAction").toBeGreaterThan(-1);
+  expect(start, "switch (e.key)").toBeGreaterThan(handler);
+  expect(end, "end of switch").toBeGreaterThan(start);
+  return Array.from(
+    readerSource.slice(start, end).matchAll(/case "(.*)":/gu),
+    (match) => match[1] ?? "",
+  );
+}
 
 async function settle(): Promise<void> {
   for (let i = 0; i < 4; i += 1) {
@@ -134,8 +174,27 @@ describe("ShortcutsHelp", () => {
     for (const key of ["Space", "PageDown", "PageUp", "Home", "End", "Shift"]) {
       expect(caps).toContain(key);
     }
-    expect(rows()).toHaveLength(16);
-    expect(caps).toHaveLength(19);
+    expect(rows()).toHaveLength(18);
+    expect(caps).toHaveLength(21);
+  });
+
+  it("documents every key the reader keymap binds", async () => {
+    mount();
+    ui.openShortcuts();
+    await settle();
+
+    // Nothing but this test connects the sheet to the keymap, and the pair had
+    // already drifted: paged mode bound the vertical arrows and the sheet
+    // documented neither. Derived from the switch on purpose -- a second
+    // hardcoded list would drift exactly the same way.
+    const bound = new Set(boundKeys().map(capFor));
+    // Ctrl/Cmd+K is claimed before the switch, so the scan cannot see it.
+    expect(readerSource).toContain('e.key === "k" || e.key === "K"');
+    bound.add("K");
+
+    const documented = keycaps().filter((cap) => !MODIFIER_CAPS.has(cap));
+
+    expect([...new Set(documented)].sort()).toEqual([...bound].sort());
   });
 
   it("consumes Escape before window bubble handlers", async () => {

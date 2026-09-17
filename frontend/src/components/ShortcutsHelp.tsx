@@ -46,9 +46,13 @@ const groups: { title: string; items: { keys: string[]; desc: string }[] }[] = [
     items: [
       { keys: ["←"], desc: "Navigate left" },
       { keys: ["→"], desc: "Navigate right" },
-      // Paged mode binds six more keys in Read.tsx's handleKeyAction, and
+      // Paged mode binds eight more keys in Read.tsx's handleKeyAction, and
       // frame.ts suppresses their native scroll there, so the parent handler
-      // is the only thing that can act on them.
+      // is the only thing that can act on them. This list is a hand-written
+      // mirror of that handler, so ShortcutsHelp.test.ts derives the keymap
+      // from its switch and fails until a new binding is documented here.
+      { keys: ["↓"], desc: "Page forward" },
+      { keys: ["↑"], desc: "Page back" },
       { keys: ["Space"], desc: "Page forward" },
       { keys: ["Shift", "Space"], desc: "Page back" },
       { keys: ["PageDown"], desc: "Page forward" },
