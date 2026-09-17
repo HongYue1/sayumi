@@ -241,6 +241,18 @@ it("uses and reports one effective scroll mode for a vertical paged request", as
         href: "chapter%20two.xhtml#target",
       },
     ]);
+
+    // The listener sits on the document, so a click can arrive with a target
+    // that is not an Element. Reading closest() off it threw and took the
+    // region turn down with the link handling.
+    sent.length = 0;
+    document.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+    const targetlessClicks = sent.filter((m) => m.type === "click");
+    expect(targetlessClicks).toHaveLength(1);
+    expect(targetlessClicks[0]).toMatchObject({ type: "click", seq: 2 });
+
     sent.length = 0;
 
     const editableChord = press(editor, {
