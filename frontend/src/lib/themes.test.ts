@@ -84,6 +84,41 @@ describe("getTheme", () => {
     expect(seen).toEqual(["#ffffff", "#101010", "#202020", "#ffffff"]);
   });
 
+  it("leaves a tracked lookup alone when a reload re-registers the same themes", () => {
+    // A profile refresh or a load retry re-maps fresh ThemeDef objects for
+    // themes that did not change. The registry is the one layer with no equals
+    // option of its own, so an unconditional revision bump would re-run the
+    // chrome resolver and rebuild the reader payload for nothing.
+    let runs = 0;
+    const dispose = createRoot((stop) => {
+      createEffect(
+        () => getTheme(CUSTOM.id),
+        () => {
+          runs += 1;
+          return undefined;
+        },
+      );
+      return stop;
+    });
+
+    flush();
+    expect(runs).toBe(1);
+
+    setCustomThemes([CUSTOM]);
+    flush();
+    expect(runs).toBe(2);
+
+    setCustomThemes([{ ...CUSTOM }]);
+    flush();
+    expect(runs).toBe(2);
+
+    setCustomThemes([{ ...CUSTOM, label: "Renamed" }]);
+    flush();
+    dispose();
+
+    expect(runs).toBe(3);
+  });
+
   it("resolves a built-in id", () => {
     expect(getTheme("dark").id).toBe("dark");
   });

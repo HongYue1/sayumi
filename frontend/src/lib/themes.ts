@@ -281,9 +281,24 @@ const FALLBACK: ThemeDef = THEME_MAP.get("light") ?? THEMES[0];
 const CUSTOM_THEMES = new Map<string, ThemeDef>();
 const CUSTOM_THEME_REVISION = createSignal(0);
 let customThemeRevision = 0;
+// Snapshot of what is registered, kept only to answer "did this really
+// change?". Copied rather than aliased so a caller that reuses its own array
+// cannot make that comparison lie.
+let registeredThemes: ThemeDef[] = [];
 
-/** Replaces the custom-theme registry. Called by the customThemes store. */
+/**
+ * Replaces the custom-theme registry. Called by the customThemes store.
+ *
+ * Compared by content, not by reference: the store re-maps fresh ThemeDef
+ * objects on every load, and a profile refresh or a retry routinely returns
+ * exactly the themes already registered. Bumping the revision for those would
+ * invalidate every tracked getTheme lookup -- the chrome resolver and the
+ * reader payload among them -- with nothing to repaint. This is the registry's
+ * half of the cutoff sameThemeList already gives the swatch memos.
+ */
 export function setCustomThemes(themes: ThemeDef[]): void {
+  if (sameThemeList(registeredThemes, themes)) return;
+  registeredThemes = [...themes];
   CUSTOM_THEMES.clear();
   for (const t of themes) CUSTOM_THEMES.set(t.id, t);
   // The Map remains the synchronous source of truth: code immediately after a

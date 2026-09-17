@@ -228,7 +228,18 @@ export class CustomThemes {
     }
   }
 
-  /** Custom theme by id (does not consult built-ins). */
+  /**
+   * Custom theme by id (does not consult built-ins).
+   *
+   * Reads the reactive list on purpose, unlike the guards above, which read
+   * the plain mirrors. Both call sites are tracked -- the chrome resolver's
+   * dead-id check and the library theme trigger -- and a rename has to reach
+   * them even though the saved theme id never changed. The flip side is the
+   * batching caveat: within the same tick as a create/update/delete this still
+   * answers from the pre-write list, so synchronous code after a write should
+   * use the ThemeDef the mutator returned, or getTheme, which resolves through
+   * the plain registry Map.
+   */
   get(id: string): ThemeDef | undefined {
     return this.list.find((t) => t.id === id);
   }

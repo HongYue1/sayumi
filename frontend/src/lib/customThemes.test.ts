@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createEffect, createRoot, flush } from "solid-js";
 import type { CustomTheme, CustomThemeInput } from "~/api/client";
 import { autoAccent, getTheme, setCustomThemes } from "~/lib/themes";
 
@@ -223,5 +224,36 @@ describe("custom theme profile lifecycle", () => {
     expect(def?.label).toBe("After");
     expect(store.list.map((item) => item.label)).toEqual(["After"]);
     expect(getTheme("t1").label).toBe("After");
+  });
+
+  it("publishes a rename through get() to a tracked reader", async () => {
+    // get() reads the reactive list rather than the plain mirror the load and
+    // write guards use. The chrome resolver's dead-id check and the library's
+    // theme trigger both call it from tracked scopes, and a rename leaves the
+    // saved theme id untouched, so this accessor is their only notice that the
+    // definition moved.
+    getCustomThemes.mockResolvedValueOnce([theme("t1", "Before")]);
+    updateCustomTheme.mockResolvedValueOnce(theme("t1", "After"));
+    const store = new CustomThemes();
+    await store.activate("profile-a");
+
+    const seen: (string | undefined)[] = [];
+    const dispose = createRoot((stop) => {
+      createEffect(
+        () => store.get("t1")?.label,
+        (label) => {
+          seen.push(label);
+          return undefined;
+        },
+      );
+      return stop;
+    });
+    flush();
+
+    await store.update("t1", INPUT);
+    flush();
+    dispose();
+
+    expect(seen).toEqual(["Before", "After"]);
   });
 });
