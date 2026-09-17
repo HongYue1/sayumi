@@ -1,6 +1,16 @@
 const ASCII_LOWER = "abcdefghijklmnopqrstuvwxyz";
 
-/** One-code-point lowercase mapping, matching Go's unicode.ToLower contract. */
+/**
+ * One-code-point-in, one-code-point-out lowercase mapping. The contract is
+ * owned by foldRunes in internal/epub/search.go -- simple per-rune
+ * unicode.ToLower, which is what strings.ToLower applies as well -- because
+ * snippet and cursor offsets are counted in that folded space: a fold that
+ * changed length here would shift every offset the backend reported.
+ * JavaScript's full lowercase can expand one code point into several (İ -> i
+ * plus combining dot); its first code point is the simple mapping for every
+ * expansion Unicode defines today, and searchText.test.ts pins that case so a
+ * future one cannot drift in silently.
+ */
 export function foldSearchCodePoint(char: string): string {
   const code = char.charCodeAt(0);
   if (code < 0x80) {

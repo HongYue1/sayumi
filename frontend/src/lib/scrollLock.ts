@@ -29,6 +29,10 @@ export function lockDocumentScroll(doc: Document): () => void {
   const root = doc.documentElement;
   const body = doc.body;
   const view = doc.defaultView;
+  // lib.dom types documentElement and body as non-null, but a document that is
+  // still parsing -- or an XML document that failed to -- has neither. Locking
+  // one of those is a no-op instead of a crash, so this guard stays even
+  // though TypeScript reads it as dead.
   if (root === null || body === null) return () => {};
 
   const state: ScrollLockState = {
@@ -48,15 +52,14 @@ export function lockDocumentScroll(doc: Document): () => void {
 
   // Keep the viewport width stable when hiding a classic scrollbar. Browsers
   // with overlay scrollbars report a zero gap and need no compensation.
-  const viewportGap =
-    view !== null && root.clientWidth > 0
-      ? Math.max(0, view.innerWidth - root.clientWidth)
-      : 0;
-  if (viewportGap > 0 && view !== null) {
-    const currentPadding = Number.parseFloat(
-      view.getComputedStyle(body).paddingRight,
-    );
-    body.style.paddingRight = `${(Number.isFinite(currentPadding) ? currentPadding : 0) + viewportGap}px`;
+  if (view !== null && root.clientWidth > 0) {
+    const viewportGap = Math.max(0, view.innerWidth - root.clientWidth);
+    if (viewportGap > 0) {
+      const currentPadding = Number.parseFloat(
+        view.getComputedStyle(body).paddingRight,
+      );
+      body.style.paddingRight = `${(Number.isFinite(currentPadding) ? currentPadding : 0) + viewportGap}px`;
+    }
   }
 
   root.style.overflow = "hidden";
