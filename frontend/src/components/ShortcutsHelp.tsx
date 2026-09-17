@@ -23,7 +23,7 @@
 //     focus-on-mount across every dialog here, and it also captures the true
 //     opener, so closing restores focus to whatever opened the sheet. Keep
 //     trap() on this element; the suite pins all of it.
-import { createEffect, For, Show } from "solid-js";
+import { createEffect, Show } from "solid-js";
 import Icon from "~/lib/Icon";
 import { X } from "~/lib/icons";
 import { trap } from "~/lib/focusTrap";
@@ -112,13 +112,15 @@ export default function ShortcutsHelp() {
           role="dialog"
           tabindex="-1"
           aria-modal="true"
-          aria-label="Keyboard shortcuts"
+          aria-labelledby="shortcuts-title"
           ref={trap()}
         >
           <header>
             <div class="shortcuts-head-text">
               <p class="eyebrow">Help</p>
-              <h2 class="display">Keyboard shortcuts</h2>
+              <h2 class="display" id="shortcuts-title">
+                Keyboard shortcuts
+              </h2>
             </div>
             <button
               type="button"
@@ -130,39 +132,38 @@ export default function ShortcutsHelp() {
             </button>
           </header>
           <div class="shortcuts-groups">
-            <For each={groups}>
-              {(g) => (
-                <section>
-                  <h3 class="eyebrow">{g.title}</h3>
-                  <dl>
-                    <For each={g.items}>
-                      {(it) => (
-                        <div class="shortcuts-row">
-                          <dt>
-                            <For each={it.keys}>
-                              {(k) => <kbd class="kbd">{k}</kbd>}
-                            </For>
-                          </dt>
-                          {/* The leader sits inside <dd>: a div row inside a
-                              <dl> may contain only <dt>s followed by <dd>s, so
-                              a bare <span> between them broke the structure
-                              assistive tech reads off the list.
-                              The description is wrapped too, rather than left
-                              as a bare text node: an anonymous flex item
-                              cannot be given min-width: 0, so the longest
-                              description overflowed the row and overlapped its
-                              own keys (see .shortcuts-desc in app.css). */}
-                          <dd>
-                            <span class="shortcuts-leader" aria-hidden="true" />
-                            <span class="shortcuts-desc">{it.desc}</span>
-                          </dd>
-                        </div>
-                      )}
-                    </For>
-                  </dl>
-                </section>
-              )}
-            </For>
+            {/* .map() rather than <For>: these groups are a frozen module
+                constant, so <For> would keep a reconciler alive for rows that
+                never change (the Login skeleton's idiom, for its reason). */}
+            {groups.map((g) => (
+              <section>
+                <h3 class="eyebrow">{g.title}</h3>
+                <dl>
+                  {g.items.map((it) => (
+                    <div class="shortcuts-row">
+                      <dt>
+                        {it.keys.map((k) => (
+                          <kbd class="kbd">{k}</kbd>
+                        ))}
+                      </dt>
+                      {/* The leader sits inside <dd>: a div row inside a <dl>
+                          may contain only <dt>s followed by <dd>s, so a bare
+                          <span> between them broke the structure assistive
+                          tech reads off the list.
+                          The description is wrapped too, rather than left as a
+                          bare text node: an anonymous flex item cannot be
+                          given min-width: 0, so the longest description
+                          overflowed the row and overlapped its own keys (see
+                          .shortcuts-desc in app.css). */}
+                      <dd>
+                        <span class="shortcuts-leader" aria-hidden="true" />
+                        <span class="shortcuts-desc">{it.desc}</span>
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            ))}
           </div>
         </div>
       </div>

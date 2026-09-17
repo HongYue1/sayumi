@@ -94,7 +94,18 @@ describe("AboutDialog", () => {
     expect(el).not.toBeNull();
     expect(el!.getAttribute("role")).toBe("dialog");
     expect(el!.getAttribute("aria-modal")).toBe("true");
-    expect(el!.getAttribute("aria-label")).toBe("About Sayumi");
+    // Named by the visible title, not a duplicated string, so the announced
+    // name cannot drift from what is on screen.
+    expect(el!.hasAttribute("aria-label")).toBe(false);
+    expect(el!.getAttribute("aria-labelledby")).toBe(
+      "about-eyebrow about-title",
+    );
+    expect(el!.querySelector("#about-eyebrow")?.textContent?.trim()).toBe(
+      "About",
+    );
+    expect(el!.querySelector("#about-title .wordmark")?.textContent).toBe(
+      "Sayumi",
+    );
 
     ui.closeOverlays();
     await settle();

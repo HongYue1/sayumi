@@ -89,7 +89,7 @@ export default function AboutDialog() {
           role="dialog"
           tabindex="-1"
           aria-modal="true"
-          aria-label="About Sayumi"
+          aria-labelledby="about-eyebrow about-title"
           ref={trap()}
         >
           <button
@@ -101,8 +101,13 @@ export default function AboutDialog() {
             <Icon icon={X} size={18} labelFromParent />
           </button>
 
-          <p class="eyebrow">About</p>
-          <h2 class="display about-title">
+          {/* The sheet takes its name from these two nodes rather than a
+              duplicated aria-label, so the announced name cannot drift from
+              the rendered title (TocPanel's shape). */}
+          <p class="eyebrow" id="about-eyebrow">
+            About
+          </p>
+          <h2 class="display about-title" id="about-title">
             <span class="wordmark">Sayumi</span>
             <span class="about-mark" aria-hidden="true">
               ❦
