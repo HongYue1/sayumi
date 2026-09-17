@@ -14,6 +14,12 @@
 //     dismissal.
 //   - Auto is aria-disabled rather than disabled, so resetting the size can
 //     never move focus out of the popover the button lives in.
+//   - The trigger names no popup role -- the popover is a role="group" slider
+//     box, not a menu -- and points at it with aria-controls only while it is
+//     open, because <Show> unmounts the popover with the open state.
+//   - While no size is stored the slider is marked inactive: the thumb sits at
+//     the seed so the first drag doesn't jump, but the shelf is fluid then, so
+//     that position is not the shelf's column floor.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@solidjs/web";
 import { flush } from "solid-js";
@@ -147,6 +153,41 @@ describe("CardSizeControl", () => {
     auto().click();
     await settle();
     expect(cardSize.value).toBeNull();
+  });
+
+  it("claims no popup role and points at the popover only while open", async () => {
+    await mount();
+    // aria-haspopup names the popup's ROLE and has no token for a group, so
+    // "true" (an alias for "menu") would promise a menu that never arrives.
+    expect(trigger().hasAttribute("aria-haspopup")).toBe(false);
+    expect(trigger().getAttribute("aria-controls")).toBeNull();
+
+    await openPop();
+    expect(trigger().getAttribute("aria-controls")).toBe("lib-size-pop");
+    expect(pop()?.id).toBe("lib-size-pop");
+
+    // Dropped again on close: the popover unmounts with the open state, so a
+    // permanent aria-controls would point at an id not in the document.
+    esc(outside);
+    await settle();
+    expect(trigger().getAttribute("aria-controls")).toBeNull();
+  });
+
+  it("paints the slider as inactive while the shelf is fluid", async () => {
+    await mount();
+    await openPop();
+    // The thumb sits at the seed so the first drag doesn't jump -- but no size
+    // is stored, so it must not be painted as the value in effect.
+    expect(slider().value).toBe(String(CARD_SIZE_SEED));
+    expect(slider().getAttribute("data-auto")).toBe("true");
+
+    drag(200);
+    await settle();
+    expect(slider().getAttribute("data-auto")).toBe("false");
+
+    auto().click();
+    await settle();
+    expect(slider().getAttribute("data-auto")).toBe("true");
   });
 
   it("closes on Escape raised outside it, restoring the trigger", async () => {

@@ -19,6 +19,19 @@
 //     a self-focusing ref would silently no-op.
 //   - close() refuses a repeat through the openNow mirror, never open(): a
 //     signal read cannot see its own write in the same tick.
+//
+// Two decisions here are this control's own, because its popover is NOT a menu:
+//   - No aria-haspopup. Every token names the popup's ROLE, and none of them
+//     describes the role="group" slider box below; "true" is merely an alias
+//     for "menu", so it promises a menu that never arrives. The disclosure
+//     relationship is carried by aria-expanded plus an aria-controls scoped to
+//     the open state -- BookCard's shape, and scoped for its reason: the
+//     popover only exists while open, so a permanent aria-controls would point
+//     at a missing id.
+//   - While no size is stored the thumb sits at the seed so the first drag
+//     doesn't jump, but the shelf is fluid then, so that position is not the
+//     shelf's column floor. data-auto lets the sheet render the slider as
+//     inactive rather than letting the thumb claim a value nothing is using.
 import { createEffect, createSignal, Show } from "solid-js";
 import {
   cardSize,
@@ -113,8 +126,8 @@ export default function CardSizeControl() {
         ref={(el) => (trigger = el)}
         id="lib-size-trigger"
         class={["icon-btn press lib-size-trigger", { open: open() }]}
-        aria-haspopup="true"
         aria-expanded={open() ? "true" : "false"}
+        aria-controls={open() ? "lib-size-pop" : undefined}
         aria-label={`Card size: ${label()}`}
         title="Card size"
         onClick={() => setOpenState(!openNow)}
@@ -125,6 +138,7 @@ export default function CardSizeControl() {
       <Show when={open()}>
         <div
           ref={(el) => (popEl = el)}
+          id="lib-size-pop"
           class="lib-size-pop paper"
           role="group"
           tabindex="-1"
@@ -138,6 +152,7 @@ export default function CardSizeControl() {
             ref={(el) => (slider = el)}
             class="lib-size-range"
             type="range"
+            data-auto={cardSize.value === null ? "true" : "false"}
             min={CARD_SIZE_MIN}
             max={CARD_SIZE_MAX}
             step="4"

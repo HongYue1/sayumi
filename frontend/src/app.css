@@ -2865,6 +2865,14 @@ main {
   accent-color: var(--accent);
   cursor: ew-resize;
 }
+/* No stored size: the thumb still sits at the seed so the first drag doesn't
+   jump, but the shelf is on its fluid default, so the slider is painted as
+   inactive rather than presenting that position as the column floor. Muted
+   like .lib-size-auto[aria-disabled="true"] beside it, and still operable. */
+.lib-size-range[data-auto="true"] {
+  accent-color: var(--muted);
+  opacity: 0.55;
+}
 .lib-size-foot {
   display: flex;
   align-items: center;
