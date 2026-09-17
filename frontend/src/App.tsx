@@ -39,6 +39,11 @@ import AboutDialog from "~/components/AboutDialog";
 
 // Global shortcuts. Only active once signed in. Composition and controls
 // that own the key stand down through the same contract as Read and frame.ts.
+//
+// Module scope is deliberate: one shell exists per document, so a single
+// stable reference is what makes the attach in onSettled and the detach in
+// its cleanup a matched pair. A per-instance closure would only change
+// behaviour for a second concurrent shell, which is a bug in its own right.
 function onWindowKey(e: KeyboardEvent): void {
   if (
     !session.authenticated ||
@@ -46,6 +51,12 @@ function onWindowKey(e: KeyboardEvent): void {
   ) {
     return;
   }
+  // A held key is not a second request. Auto-repeat delivers one keydown per
+  // repeat, each in its own tick, so the palette chord below would flip open
+  // and shut at the OS repeat rate and settle wherever the key came up. The
+  // batching that masks two toggles raised within a single keydown
+  // (lib/ui.ts) cannot help across ticks.
+  if (e.repeat) return;
   // AltGr arrives as ctrlKey+altKey on Windows and most Linux layouts, where
   // it is an ordinary character modifier: AltGr+K types a character on Polish,
   // Croatian and Vietnamese layouts, and claiming it here would open the
@@ -221,6 +232,21 @@ export default function App() {
     return null;
   };
 
+  // The chrome outside <main> -- the offline banner above it, the overlay
+  // layer below it -- gets boundaries of its own, sharing one sentence.
+  // Neither offers a retry: they hold no content of their own, so a reload is
+  // the recovery.
+  const chromeFallbackMessage =
+    "Sayumi stopped drawing part of the app chrome. Reload the page to bring it back.";
+  // Fallback for the overlay layer: no visible UI, plus a stand-down of the
+  // flags whose overlays are no longer on screen.
+  const OverlayFailure = (props: { message: string }) => {
+    onSettled(() => {
+      ui.closeOverlays();
+    });
+    return <MirrorBoundaryFailure message={props.message} />;
+  };
+
   // Text for the two pre-mounted regions below. Both boot states mount
   // together with their copy, which NVDA and JAWS do not announce (WCAG
   // 4.1.3), so neither arm carries a role and these regions -- in the
@@ -237,7 +263,22 @@ export default function App() {
 
   return (
     <>
-      <OfflineBanner />
+      {/* The banner renders above <main>, which puts it outside <main>'s
+          boundary: a throw here would reach the render root and take the
+          routes down with it. It keeps a boundary of its own because a
+          failing banner says nothing about the overlays, and vice versa. */}
+      <Errored
+        fallback={(err) => (
+          <MirrorBoundaryFailure
+            message={`Something went wrong. ${getErrorMessage(
+              err(),
+              chromeFallbackMessage,
+            )}`}
+          />
+        )}
+      >
+        <OfflineBanner />
+      </Errored>
 
       <main>
         <p class="sr-only" role="status">
@@ -324,10 +365,30 @@ export default function App() {
         </Errored>
       </main>
 
-      <CommandPalette />
-      <ShortcutsHelp />
-      <AboutDialog />
-      <Toaster />
+      {/* The overlay layer renders after </main>, so the routing boundary
+          cannot reach it either -- and these four read the same library,
+          settings and theme data the routes do. Clearing the overlay flags is
+          part of the fallback: nothing is left on screen for Escape to close,
+          and the reader's keyboard stand-down reads anyOverlayOpen. That write
+          also gives a layer whose failure needed an open overlay a chance to
+          rebuild, since a boundary retries when its sources change, while a
+          repeat write of already-false flags notifies nobody (lib/ui.ts) -- so
+          a persistent failure settles instead of looping. */}
+      <Errored
+        fallback={(err) => (
+          <OverlayFailure
+            message={`Something went wrong. ${getErrorMessage(
+              err(),
+              chromeFallbackMessage,
+            )}`}
+          />
+        )}
+      >
+        <CommandPalette />
+        <ShortcutsHelp />
+        <AboutDialog />
+        <Toaster />
+      </Errored>
     </>
   );
 }
