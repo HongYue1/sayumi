@@ -16,7 +16,12 @@ import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry";
 import { toast } from "~/lib/toast";
 import { customThemes } from "~/lib/customThemes";
 import { themePreview } from "~/lib/themePreview";
-import { deriveReaderVars, readerThemeVars, type ThemeDef } from "~/lib/themes";
+import {
+  DEFAULT_THEME_ID,
+  deriveReaderVars,
+  readerThemeVars,
+  type ThemeDef,
+} from "~/lib/themes";
 
 // Shape the reader iframe expects (see iframe/frame.ts apply-settings handler).
 export interface IframeSettings {
@@ -70,7 +75,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   preserveFonts: false,
   justify: true,
   hyphenation: true,
-  theme: "catppuccin",
+  theme: DEFAULT_THEME_ID,
   chapterTitleAlign: "center",
   chapterTitleSize: 48,
   chapterTitleSpacing: 1,

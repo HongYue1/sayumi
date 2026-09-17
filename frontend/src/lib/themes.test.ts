@@ -8,6 +8,7 @@ import { createEffect, createRoot, flush } from "solid-js";
 import { readFileSync } from "node:fs";
 import {
   autoAccent,
+  DEFAULT_THEME_ID,
   deriveSurface,
   getTheme,
   isBuiltInTheme,
@@ -144,6 +145,37 @@ describe("the frame.css contract", () => {
     for (const t of THEMES) {
       expect(readerBg(t.id)).toBe(t.bg.toLowerCase());
     }
+  });
+});
+
+describe("the default theme", () => {
+  it("resolves to a built-in theme", () => {
+    expect(isBuiltInTheme(DEFAULT_THEME_ID)).toBe(true);
+    expect(getTheme(DEFAULT_THEME_ID).id).toBe(DEFAULT_THEME_ID);
+  });
+
+  it("matches app.css's first-paint tokens", () => {
+    // Four sources need a default: this constant, app.css's :root tokens,
+    // getCachedThemeId's fallback, and DEFAULT_USER_SETTINGS.theme. The other
+    // three import the constant; the stylesheet is the one that cannot, so it
+    // is pinned here. A light :root under a dark default painted a fresh
+    // profile white, cached that palette, then repainted dark the moment the
+    // saved settings arrived -- the flash the pre-paint cache exists to stop.
+    const css = readFileSync("src/app.css", "utf8");
+    const root = /:root\s*\{([\s\S]*?)\n\}/.exec(css);
+    expect(root).not.toBeNull();
+    const block = root?.[1] ?? "";
+    const token = (name: string): string | null => {
+      const m = new RegExp(`--${name}:\\s*([^;]+);`).exec(block);
+      return m ? m[1].trim().toLowerCase() : null;
+    };
+    const theme = getTheme(DEFAULT_THEME_ID);
+    expect(token("bg")).toBe(theme.bg.toLowerCase());
+    expect(token("fg")).toBe(theme.fg.toLowerCase());
+    expect(token("accent")).toBe(theme.accent.toLowerCase());
+    // color-scheme drives the light-dark() shadows, veils and grain, so it has
+    // to agree with the palette's own side.
+    expect(/color-scheme:\s*(\w+);/.exec(block)?.[1]).toBe(theme.group);
   });
 });
 

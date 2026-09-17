@@ -19,6 +19,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createComponent, flush } from "solid-js";
 import { render } from "@solidjs/web";
+import { DEFAULT_THEME_ID } from "~/lib/themes";
 import type * as ApiClient from "~/api/client";
 
 const api = vi.hoisted(() => ({
@@ -259,10 +260,14 @@ describe("App shell", () => {
     expect(applyTheme.mock.calls[0]).toEqual(["nord"]);
   });
 
-  it("falls back to light for a visitor with no cached theme", async () => {
+  it("falls back to the shared default with no cached theme", async () => {
     await boot();
 
-    expect(applyTheme.mock.calls[0]).toEqual(["light"]);
+    // applyTheme persists whatever it paints, so a fresh visitor has to be
+    // painted the same id app.css already drew and the saved settings default
+    // to -- otherwise the first paint is cached as a theme the user never
+    // chose and the arriving settings repaint over it.
+    expect(applyTheme.mock.calls[0]).toEqual([DEFAULT_THEME_ID]);
   });
 
   it("starts the session probe exactly once on mount", async () => {

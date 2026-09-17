@@ -251,6 +251,22 @@ export const THEMES: ThemeDef[] = [
 
 const THEME_MAP = new Map(THEMES.map((t) => [t.id, t] as const));
 
+/**
+ * The default theme, and the only place that decision is made.
+ *
+ * Four sources need a default and had drifted apart: app.css's :root
+ * first-paint tokens, getCachedThemeId's fallback (lib/theme.ts), the saved
+ * default (DEFAULT_USER_SETTINGS.theme in lib/settings.ts), and
+ * renderFrameSrcdoc's illegal-id fallback (iframe/frameHtmlTemplate.ts). Three
+ * said light while the saved default said catppuccin, so a fresh profile
+ * painted light, applyTheme CACHED light, and the arriving settings then
+ * repainted dark -- exactly the flash the pre-paint cache exists to prevent.
+ *
+ * Not to be confused with FALLBACK below, which answers a different question:
+ * "this id resolves to nothing". That stays the light theme.
+ */
+export const DEFAULT_THEME_ID = "catppuccin";
+
 // Single source of truth for id -> theme resolution. O(1) Map lookup, falling
 // back to the light theme for an unknown/empty id so every caller is
 // guaranteed a usable ThemeDef. Resolved by id rather than by position so

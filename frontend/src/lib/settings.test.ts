@@ -38,6 +38,10 @@ vi.mock("~/lib/customThemes", () => ({
 }));
 
 vi.mock("~/lib/themes", () => ({
+  // The store takes its default theme from this module, so the mock has to
+  // carry the constant or DEFAULT_USER_SETTINGS.theme would be undefined here.
+  // Same value as the real one, which is what the fixtures below expect.
+  DEFAULT_THEME_ID: "catppuccin",
   readerThemeVars: vi.fn(() => null),
 }));
 

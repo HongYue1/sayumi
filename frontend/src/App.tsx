@@ -74,8 +74,9 @@ export default function App() {
 
   onSettled(() => {
     // Re-apply the cached theme (already set pre-paint by the index.html
-    // bootstrap) so SPA state and data-theme stay in sync; falls back to light
-    // for a fresh visitor. The saved server theme is applied once settings load.
+    // bootstrap) so SPA state and data-theme stay in sync; falls back to the
+    // default theme for a fresh visitor, which is the palette app.css already
+    // painted. The saved server theme is applied once settings load.
     applyTheme(getCachedThemeId());
     void session.init();
     window.addEventListener("keydown", onWindowKey);

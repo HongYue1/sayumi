@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getCachedThemeId, onAccentColor } from "~/lib/theme";
+import { DEFAULT_THEME_ID } from "~/lib/themes";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -42,13 +43,24 @@ describe("getCachedThemeId", () => {
     expect(getCachedThemeId()).toBe("sepia");
   });
 
-  it("falls back when storage access throws", () => {
+  it("falls back to the shared default for a fresh visitor", () => {
+    vi.stubGlobal("localStorage", {
+      getItem: vi.fn(() => null),
+    });
+
+    // Not a local literal: a visitor with no cache has to be painted the same
+    // palette app.css draws and the saved settings default to, or applyTheme
+    // caches one theme and the settings load immediately repaints another.
+    expect(getCachedThemeId()).toBe(DEFAULT_THEME_ID);
+  });
+
+  it("falls back to the shared default when storage access throws", () => {
     vi.stubGlobal("localStorage", {
       getItem: vi.fn(() => {
         throw new DOMException("blocked", "SecurityError");
       }),
     });
 
-    expect(getCachedThemeId()).toBe("light");
+    expect(getCachedThemeId()).toBe(DEFAULT_THEME_ID);
   });
 });

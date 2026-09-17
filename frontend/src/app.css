@@ -69,13 +69,16 @@
 
 :root {
   /* Theme tokens (overridden at runtime by applyTheme); these are the
-     light-theme fallbacks for first paint before a theme is applied. */
-  --bg: #ffffff;
-  --fg: #1c1917;
-  --accent: #2563eb;
+     first-paint fallbacks, and they must stay in step with the default theme
+     (DEFAULT_THEME_ID in lib/themes.ts -- Catppuccin Mocha). Light fallbacks
+     under a dark default painted a fresh profile white, cached that, and then
+     repainted dark once the saved settings arrived. */
+  --bg: #1e1e2e;
+  --fg: #cdd6f4;
+  --accent: #cba6f7;
   /* Foreground for text/icons on --accent; recomputed per theme by applyTheme
      via WCAG luminance so accent buttons stay legible on light accents. */
-  --accent-fg: #ffffff;
+  --accent-fg: #000000;
 
   /* Ink washes — every neutral in the chrome is the theme's own ink (--fg)
      diluted into its paper (--bg), so all 25 themes derive a coherent set. */
@@ -183,7 +186,7 @@
   --lh-normal: 1.5;
   --lh-loose: 1.7;
 
-  color-scheme: light;
+  color-scheme: dark;
   font-family: var(--font-ui);
 }
 

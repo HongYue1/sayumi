@@ -1,4 +1,5 @@
 import {
+  DEFAULT_THEME_ID,
   getTheme,
   themeSurface,
   deriveSurface,
@@ -18,7 +19,7 @@ export function onAccentColor(hex: string): string {
 }
 
 /** Reads the pre-paint theme cache without letting blocked storage break boot. */
-export function getCachedThemeId(fallback = "light"): string {
+export function getCachedThemeId(fallback = DEFAULT_THEME_ID): string {
   try {
     return localStorage.getItem("sayumi:theme") ?? fallback;
   } catch {
@@ -134,7 +135,7 @@ export function applyTheme(id: string, resolved?: ThemeDef): void {
   const { accentFg, elevated, accentInk, scheme } = paintTheme(t);
   // Cache the resolved tokens so the inline <head> bootstrap in index.html can
   // paint the saved theme before first paint, avoiding a flash of the default
-  // light theme on reload (server settings arrive too late to prevent it).
+  // theme on reload (server settings arrive too late to prevent it).
   try {
     localStorage.setItem("sayumi:theme", t.id);
     localStorage.setItem(

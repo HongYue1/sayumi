@@ -18,6 +18,11 @@
 //     resolves by id.
 //   - The html.theme-<id> class, which frame.ts reads back to seed its
 //     activeThemeClass.
+//
+// This module renders in the PARENT document (buildFrameHtml.ts, ChapterFrame)
+// and is never part of the frame bundle, so it can read the shell's theme
+// registry directly rather than keeping a second copy of the default.
+import { DEFAULT_THEME_ID } from "~/lib/themes";
 
 /** Caller-supplied options; the payloads are bound in buildFrameHtml.ts. */
 export interface FrameSrcdocOptions {
@@ -110,8 +115,10 @@ export function renderFrameSrcdoc(input: FrameSrcdocInput): string {
 
   // Validate rather than strip. Stripping turns "Sepia" into "epia", a
   // syntactically fine class that matches no rule, so the frame would render
-  // unstyled instead of falling back to a real theme.
-  const theme = THEME_ID.test(input.theme) ? input.theme : "light";
+  // unstyled instead of falling back to a real theme. The fallback is the
+  // shell's default theme, so an illegal id cannot open the reader in a palette
+  // the rest of the app never paints.
+  const theme = THEME_ID.test(input.theme) ? input.theme : DEFAULT_THEME_ID;
 
   // Same sanitizer as frame.ts's load handler, so the initial lang and the
   // per-chapter one can never disagree about what is legal.

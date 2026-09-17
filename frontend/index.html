@@ -41,8 +41,10 @@
     />
     <!-- Pre-paint theme bootstrap: apply the last-used theme's cached tokens
          before the app (and its server settings) load, so a reload doesn't
-         flash the default light theme. Inline element styles override app.css
-         :root defaults; no-ops safely when storage is empty or blocked, and
+         flash the default theme (app.css :root, kept in step with
+         DEFAULT_THEME_ID in lib/themes.ts) before the saved one lands. Inline
+         element styles override app.css :root defaults; no-ops safely when
+         storage is empty or blocked, and
          a malformed cache is refused whole — the same shape check applyCachedTheme
          runs in lib/theme.ts. This is the app shell, not the sandboxed reader
          iframe — its CSP is untouched. -->

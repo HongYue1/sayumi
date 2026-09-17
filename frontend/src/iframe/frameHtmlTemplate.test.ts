@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createFrameNonce, renderFrameSrcdoc } from "./frameHtmlTemplate";
+import { DEFAULT_THEME_ID } from "~/lib/themes";
 
 const base = {
   nonce: "abc-123",
@@ -15,10 +16,12 @@ describe("renderFrameSrcdoc", () => {
     );
   });
 
-  it("falls back to light for an id that is not a legal theme id", () => {
+  it("falls back to the default theme for an id that is not legal", () => {
     // Stripping would have produced theme-epia: well-formed, matches no rule.
+    // The fallback is the shell's default, so an illegal id cannot open the
+    // reader in a palette the rest of the app never paints.
     const html = renderFrameSrcdoc({ ...base, theme: "Sepia" });
-    expect(html).toContain('class="theme-light"');
+    expect(html).toContain(`class="theme-${DEFAULT_THEME_ID}"`);
     expect(html).not.toContain("theme-epia");
   });
 
