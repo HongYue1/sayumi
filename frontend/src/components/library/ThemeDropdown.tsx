@@ -6,6 +6,10 @@
 //     open, via a compute/apply createEffect.
 //   - toggle() computes `next` once: reading open() right after setOpen would
 //     still return the pre-write value (batched).
+//   - close() refuses a repeat through the openNow mirror, never open(): that
+//     same batching would hand a second dismissal in one tick the pre-write
+//     value, and the trigger would be re-focused after focus had legitimately
+//     moved on.
 //   - No `as` casts: event targets are narrowed with instanceof.
 //   - Class names get a .td- prefix: .trigger/.pick/.caret are shared by
 //     convention across the library subtree and would collide in the one
@@ -21,6 +25,14 @@ export default function ThemeDropdown() {
   const [open, setOpen] = createSignal(false);
   let trigger: HTMLButtonElement | undefined;
   let menuEl: HTMLElement | undefined;
+  // Plain mirror of open() for the dismissal guard: a signal read cannot see
+  // its own write in the same tick (the reason toggle() computes `next`
+  // once), so every write goes through setOpenState and guards read openNow.
+  let openNow = false;
+  function setOpenState(next: boolean): void {
+    openNow = next;
+    setOpen(next);
+  }
 
   // Read through the reactive profile list before the global resolver so a
   // custom-theme load/retry refreshes the trigger even when the saved theme
@@ -74,13 +86,16 @@ export default function ThemeDropdown() {
 
   function toggle(): void {
     const next = !open();
-    setOpen(next);
+    setOpenState(next);
     // App boot normally loads the profile registry. If that non-fatal request
     // failed, opening a theme selector is an explicit, bounded retry point.
     if (next && !customThemes.loaded) void customThemes.load();
   }
   function close(restoreFocus = true): void {
-    setOpen(false);
+    // A dismissal that lands after the menu already closed must not pull
+    // focus back off whatever legitimately took it.
+    if (!openNow) return;
+    setOpenState(false);
     if (restoreFocus) trigger?.focus();
   }
   function choose(id: string): void {

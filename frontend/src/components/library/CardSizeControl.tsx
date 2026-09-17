@@ -17,6 +17,8 @@
 //   - Focus moves into the popover from a queueMicrotask guarded by a
 //     generation counter: Solid runs refs while the node is still detached, so
 //     a self-focusing ref would silently no-op.
+//   - close() refuses a repeat through the openNow mirror, never open(): a
+//     signal read cannot see its own write in the same tick.
 import { createEffect, createSignal, Show } from "solid-js";
 import {
   cardSize,
@@ -32,6 +34,13 @@ export default function CardSizeControl() {
   let trigger: HTMLButtonElement | undefined;
   let popEl: HTMLElement | undefined;
   let slider: HTMLInputElement | undefined;
+  // Plain mirror of open() for the dismissal guard: every write goes through
+  // setOpenState so openNow is readable in the tick that wrote it.
+  let openNow = false;
+  function setOpenState(next: boolean): void {
+    openNow = next;
+    setOpen(next);
+  }
 
   // "Auto" is a real state, not a number: the shelf keeps its fluid default
   // until a size is chosen, so the label has to be able to say so.
@@ -39,8 +48,8 @@ export default function CardSizeControl() {
     cardSize.value === null ? "Auto" : `${cardSize.value}px`;
 
   function close(restoreFocus = true): void {
-    if (!open()) return;
-    setOpen(false);
+    if (!openNow) return;
+    setOpenState(false);
     if (restoreFocus) trigger?.focus();
   }
 
@@ -108,7 +117,7 @@ export default function CardSizeControl() {
         aria-expanded={open() ? "true" : "false"}
         aria-label={`Card size: ${label()}`}
         title="Card size"
-        onClick={() => setOpen(!open())}
+        onClick={() => setOpenState(!openNow)}
       >
         <Icon icon={LayoutGrid} size={17} labelFromParent />
       </button>

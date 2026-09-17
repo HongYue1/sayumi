@@ -107,6 +107,14 @@ export default function Library() {
 
   // ---- custom sort menu (native <select> popups can't be themed) ----------
   const [sortOpen, setSortOpen] = createSignal(false);
+  // Plain mirror of sortOpen() for the dismissal guard: a signal read cannot
+  // see its own write in the same tick, so every write goes through
+  // setSortOpenState and the guard reads sortOpenNow.
+  let sortOpenNow = false;
+  function setSortOpenState(next: boolean): void {
+    sortOpenNow = next;
+    setSortOpen(next);
+  }
   let sortTrigger: HTMLButtonElement | undefined;
   let sortMenuEl: HTMLDivElement | undefined;
   const sortLabel = createMemo(
@@ -114,8 +122,10 @@ export default function Library() {
   );
 
   function closeSort(restoreFocus = true): void {
-    if (!sortOpen()) return;
-    setSortOpen(false);
+    // A dismissal that lands after the menu already closed must not pull
+    // focus back off whatever legitimately took it.
+    if (!sortOpenNow) return;
+    setSortOpenState(false);
     if (restoreFocus) sortTrigger?.focus();
   }
 
@@ -430,7 +440,7 @@ export default function Library() {
             aria-haspopup="menu"
             aria-expanded={sortOpen() ? "true" : "false"}
             aria-label={`Sort by (current: ${sortLabel()})`}
-            onClick={() => setSortOpen(!sortOpen())}
+            onClick={() => setSortOpenState(!sortOpenNow)}
           >
             <Icon icon={ArrowUpDown} size={15} decorative />
             <span class="lib-sort-label">{sortLabel()}</span>

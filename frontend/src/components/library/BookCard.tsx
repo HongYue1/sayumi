@@ -92,6 +92,11 @@ export default function BookCard(props: Props) {
 
   function closeMenu(restoreFocus = true): void {
     // Resolve the trigger before clearing openMenu, which is what selects it.
+    // Resolved before the write, which also self-guards a repeat: with no
+    // menu open triggerFor(null) is undefined, so a dismissal that lands
+    // after the popover closed cannot pull focus off whatever legitimately
+    // took it. That is this component's equivalent of the openNow mirror the
+    // single-popover components carry.
     const trigger = triggerFor(openMenu());
     setOpenMenu(null);
     // Drop the stale node so a queued focus can't land in a closed popover.

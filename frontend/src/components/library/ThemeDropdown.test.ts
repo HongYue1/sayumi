@@ -17,6 +17,9 @@
 //   - An Escape that ends an IME composition is not a dismissal, on either
 //     Escape path.
 //   - Tab leaves the menu rather than wrapping inside it (WCAG 2.1.2 / APG).
+//   - A dismissal that lands after the menu has already closed is refused,
+//     so focus stays where it legitimately went instead of snapping back to
+//     the trigger.
 //   - Focus leaving the dropdown dismisses it, but a null relatedTarget --
 //     the document itself losing focus -- does not.
 //   - The profile's custom themes are offered as swatches next to the
@@ -148,6 +151,26 @@ describe("ThemeDropdown", () => {
       new FocusEvent("focusout", { bubbles: true, relatedTarget: related }),
     );
   }
+
+  it("refuses a dismissal that lands after the menu closed", async () => {
+    await mount();
+    await openMenu();
+
+    // The first Escape closes the menu and restores focus to the trigger.
+    key(window, { key: "Escape" });
+    expect(document.activeElement).toBe(trigger());
+
+    // Nothing is flushed in between, on purpose: the window listener is
+    // still attached and open() still reads its pre-write value, which is
+    // precisely the window in which a second dismissal would pull focus back
+    // off whatever had legitimately taken it.
+    outside.focus();
+    key(window, { key: "Escape" });
+    expect(document.activeElement).toBe(outside);
+
+    await settle();
+    expect(menu()).toBeNull();
+  });
 
   it("opens with focus on the active theme's swatch", async () => {
     await mount();

@@ -7,6 +7,10 @@
 //     event, only observe it.
 //   - No `as` casts (lint errors here): e.target and activeElement are
 //     narrowed with instanceof instead.
+//   - close() refuses a repeat through the openNow mirror, never open(): a
+//     signal read cannot see its own write in the same tick, so `if (!open())`
+//     would wave through the second dismissal of a tick and re-focus the
+//     trigger after focus had legitimately moved on.
 //   - Class names get a .pm- prefix: .trigger/.item/.menu are shared by
 //     convention across the library subtree and would collide in the one
 //     global sheet.
@@ -26,13 +30,20 @@ export default function ProfileMenu(props: Props) {
   const [open, setOpen] = createSignal(false);
   let trigger: HTMLButtonElement | undefined;
   let menuEl: HTMLElement | undefined;
+  // Plain mirror of open() for the dismissal guard: every write goes through
+  // setOpenState so openNow is readable in the tick that wrote it.
+  let openNow = false;
+  function setOpenState(next: boolean): void {
+    openNow = next;
+    setOpen(next);
+  }
 
   function toggle(): void {
-    setOpen(!open());
+    setOpenState(!openNow);
   }
   function close(restoreFocus = true): void {
-    if (!open()) return;
-    setOpen(false);
+    if (!openNow) return;
+    setOpenState(false);
     if (restoreFocus) trigger?.focus();
   }
 
