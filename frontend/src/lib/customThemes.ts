@@ -32,6 +32,13 @@ function toThemeDef(ct: CustomTheme): ThemeDef {
   };
 }
 
+/**
+ * How many GETs one load() may spend converging with local writes. A response
+ * that predates a create/update/delete cannot be published, so the load
+ * refetches; the cap keeps a session that keeps writing from looping forever.
+ */
+const STALE_LOAD_ATTEMPTS = 3;
+
 export class CustomThemes {
   readonly #listSignal = createSignal<ThemeDef[]>([]);
   readonly #loadedSignal = createSignal(false);
@@ -126,20 +133,26 @@ export class CustomThemes {
     if (this.#loadPromise) return this.#loadPromise;
 
     const generation = this.#generation;
-    const mutations = this.#mutations;
     const promise = (async () => {
       try {
-        const themes = (await getCustomThemes()).map(toThemeDef);
-        if (!this.#isCurrent(profile, generation)) return;
-        // A create/update/delete landed while this GET was in flight. The
-        // request was issued before that write, so the response cannot contain
-        // it, and publishing it would erase the local change -- the theme stays
-        // on the server but disappears from the UI, and loaded would flip true
-        // so no retry surface ever corrects it. Drop the stale list instead and
-        // leave loaded false, so the next retry refetches and converges.
-        if (this.#mutations !== mutations) return;
-        this.#apply(themes);
-        this.#setLoaded(true);
+        for (let attempt = 0; attempt < STALE_LOAD_ATTEMPTS; attempt++) {
+          const mutations = this.#mutations;
+          const themes = (await getCustomThemes()).map(toThemeDef);
+          if (!this.#isCurrent(profile, generation)) return;
+          // A create/update/delete landed while this GET was in flight, so
+          // the response predates it: publishing would erase a write the
+          // server already accepted, and the theme would vanish from the UI
+          // while still existing on the server. Refetch instead of dropping
+          // the load -- what we hold is one local write applied to a list
+          // that never arrived, and nothing else converges it. The attempt
+          // cap stops a busy editing session from looping; if it runs out,
+          // loaded stays false and the surfaces that call load() on open
+          // (command palette, settings panel, theme dropdown) recover it.
+          if (this.#mutations !== mutations) continue;
+          this.#apply(themes);
+          this.#setLoaded(true);
+          return;
+        }
       } catch {
         // Built-ins still work; loaded stays false so a later call retries.
       } finally {

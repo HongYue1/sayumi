@@ -125,7 +125,9 @@ describe("custom theme profile lifecycle", () => {
 
   it("keeps a create that landed while the first load was in flight", async () => {
     const pending = deferred<CustomTheme[]>();
-    getCustomThemes.mockReturnValueOnce(pending.promise);
+    getCustomThemes
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValueOnce([theme("made", "Made")]);
     createCustomTheme.mockResolvedValueOnce(theme("made", "Made"));
     const store = new CustomThemes();
 
@@ -135,16 +137,21 @@ describe("custom theme profile lifecycle", () => {
 
     // The GET was issued before the POST, so its list cannot contain the new
     // theme; publishing it would erase a write the server already accepted.
+    // The load refetches instead, so the store still converges on its own.
     pending.resolve([]);
     await load;
 
+    expect(getCustomThemes).toHaveBeenCalledTimes(2);
+    expect(store.loaded).toBe(true);
     expect(store.list.map((item) => item.id)).toEqual(["made"]);
     expect(getTheme("made").label).toBe("Made");
   });
 
   it("keeps a delete that landed while the first load was in flight", async () => {
     const pending = deferred<CustomTheme[]>();
-    getCustomThemes.mockReturnValueOnce(pending.promise);
+    getCustomThemes
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValueOnce([theme("keep", "Keep")]);
     deleteCustomTheme.mockResolvedValueOnce(undefined);
     const store = new CustomThemes();
 
@@ -154,28 +161,46 @@ describe("custom theme profile lifecycle", () => {
     pending.resolve([theme("keep", "Keep"), theme("gone", "Gone")]);
     await load;
 
-    expect(store.list.map((item) => item.id)).toEqual([]);
+    // The local filter ran over an empty list, so only the refetch can bring
+    // back the theme the delete never touched.
+    expect(store.list.map((item) => item.id)).toEqual(["keep"]);
+    expect(store.loaded).toBe(true);
   });
 
-  it("leaves loaded false when a stale load is dropped so a retry refetches", async () => {
+  it("refetches when a write overtakes the load", async () => {
     const pending = deferred<CustomTheme[]>();
     getCustomThemes
       .mockReturnValueOnce(pending.promise)
-      .mockResolvedValueOnce([theme("made", "Made")]);
+      .mockResolvedValueOnce([theme("saved", "Saved"), theme("made", "Made")]);
     createCustomTheme.mockResolvedValueOnce(theme("made", "Made"));
     const store = new CustomThemes();
 
     const load = store.activate("profile-a");
     await store.create(INPUT);
-    pending.resolve([]);
+    // Dropping this response would leave the store holding the new theme and
+    // nothing else: the profile's saved themes were in the list just thrown
+    // away, and only a user reopening a theme surface calls load() again.
+    pending.resolve([theme("saved", "Saved")]);
     await load;
-    expect(store.loaded).toBe(false);
 
-    await store.load();
-
-    expect(store.loaded).toBe(true);
     expect(getCustomThemes).toHaveBeenCalledTimes(2);
-    expect(store.list.map((item) => item.id)).toEqual(["made"]);
+    expect(store.loaded).toBe(true);
+    expect(store.list.map((item) => item.id)).toEqual(["saved", "made"]);
+  });
+
+  it("stops refetching once the attempt cap is spent", async () => {
+    createCustomTheme.mockResolvedValue(theme("made", "Made"));
+    const store = new CustomThemes();
+    // Every response is overtaken by a local write, so none is ever usable.
+    getCustomThemes.mockImplementation(async () => {
+      await store.create(INPUT);
+      return [];
+    });
+
+    await store.activate("profile-a");
+
+    expect(getCustomThemes).toHaveBeenCalledTimes(3);
+    expect(store.loaded).toBe(false);
   });
 
   it("resolves a blank accent through autoAccent", async () => {
