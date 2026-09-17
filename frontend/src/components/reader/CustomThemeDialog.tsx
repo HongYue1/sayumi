@@ -12,7 +12,11 @@
 //     matching CommandPalette and the library dialogs.
 //   - Busy state is aria-disabled + handler-side guards, never a real
 //     disabled attribute: a real disabled blurs the pressed control
-//     mid-request, Enter-in-field included.
+//     mid-request, Enter-in-field included. aria-disabled only announces the
+//     state, so a control the platform cannot hold shut -- the native color
+//     pickers and the auto-accent checkbox, neither of which honours readonly
+//     -- refuses in its handler and restores what the refusal implies. The
+//     text fields take readonly, which is a real interlock.
 //   - The overlay is portaled to document.body. Rendered in place it lands
 //     inside the settings panel, whose backdrop-filter blurs every descendant
 //     AND makes the panel the containing block for position: fixed, so the
@@ -118,6 +122,13 @@ function ColorRow(props: {
           aria-label={`${props.label} color`}
           aria-disabled={props.busy ? "true" : "false"}
           onInput={(e) => {
+            // A color input commits its own value before the handler sees it,
+            // and readonly does nothing to one: refuse the edit and hand the
+            // swatch back the color the dialog still holds.
+            if (props.busy) {
+              e.currentTarget.value = props.value;
+              return;
+            }
             // The picker is authoritative again: drop any stale typed draft.
             setDraft(null);
             props.onchange(e.currentTarget.value);
@@ -289,8 +300,15 @@ export default function CustomThemeDialog(props: Props) {
     };
   });
 
-  function toggleAuto(e: Event): void {
-    const next = (e.currentTarget as HTMLInputElement).checked;
+  function toggleAuto(e: Event & { currentTarget: HTMLInputElement }): void {
+    // A checkbox flips itself before the handler runs, so refusing is only
+    // half the job: the checked binding will not repaint a signal that never
+    // changed, leaving the box contradicting the state it reports.
+    if (busy()) {
+      e.currentTarget.checked = auto();
+      return;
+    }
+    const next = e.currentTarget.checked;
     setAuto(next);
     // Seed the manual picker from the current auto suggestion so turning the
     // override on starts from a sensible color rather than a stale one.

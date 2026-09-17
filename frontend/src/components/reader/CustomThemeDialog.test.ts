@@ -13,7 +13,11 @@
 //     the dialog's window listener is capture-phase (it runs before Read's).
 //   - Busy controls use aria-disabled, never a real disabled attribute: the
 //     pressed control (or the field that submitted with Enter) must not blur
-//     mid-request. save()/remove() guard the busy state handler-side.
+//     mid-request. save()/remove() guard the busy state handler-side. So do
+//     the color picker and the auto-accent checkbox, which additionally put
+//     themselves back: both commit their own value before the handler runs
+//     and neither honours readonly, so an unguarded edit would rewrite the
+//     draft and repaint the live preview mid-save.
 //   - The two-click delete disarms on a 3s timer, mirroring SettingsPanel's
 //     resetArmed -- an indefinitely armed delete is one stray click from
 //     deleting a theme.
@@ -243,6 +247,47 @@ describe("CustomThemeDialog", () => {
     await settle();
     expect(onclose).toHaveBeenCalledTimes(1);
     expect(stubs.settingsUpdate).toHaveBeenCalledWith({ theme: "custom:new" });
+  });
+
+  it("refuses colour and accent edits while a save is in flight", async () => {
+    let releaseCreate: (() => void) | undefined;
+    stubs.create.mockImplementation(
+      () =>
+        new Promise<ThemeDef | null>((resolve) => {
+          releaseCreate = () => resolve(null);
+        }),
+    );
+    await mount();
+    typeInto(nameField(), "Fresh");
+    submitBtn().click();
+    await settle();
+    expect(submitBtn().getAttribute("aria-disabled")).toBe("true");
+
+    // aria-disabled is an announcement: the native picker still commits its
+    // own value, and readonly does not apply to it. The refusal has to hand
+    // the swatch back, or it contradicts the palette it reports.
+    const bgPicker = picker("Background");
+    bgPicker.value = "#123456";
+    bgPicker.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    expect(bgPicker.value).toBe(BASE.bg);
+    expect(themePreview()?.bg).toBe(BASE.bg);
+
+    // The checkbox flips itself before the handler sees it, so a refusal that
+    // only returns early would leave the box out of step with the signal.
+    const check = autoCheck();
+    check.checked = false;
+    check.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    expect(check.checked).toBe(true);
+    expect(accentField()).toBeNull();
+
+    // The failed create re-arms the form, and the controls answer again.
+    releaseCreate!();
+    await settle();
+    typeInto(colorText("Background"), "#101010");
+    await settle();
+    expect(themePreview()?.bg).toBe("#101010");
   });
 
   it("shows the name-cap error live and a blocked submit is never silent", async () => {
