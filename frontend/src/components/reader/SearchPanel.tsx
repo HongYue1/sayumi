@@ -434,8 +434,12 @@ export default function SearchPanel(props: Props) {
   }
 
   function onListClick(e: MouseEvent): void {
-    const target = e.target as Element | null;
-    const button = target?.closest<HTMLButtonElement>("button.srp-result");
+    // Narrow, don't cast: a delegated target need not be an Element -- a
+    // retargeted or synthetic event can hand over a document or nothing --
+    // and closest() would not exist on it.
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest<HTMLButtonElement>("button.srp-result");
     if (!button) return;
     const idx = Number(button.dataset.idx);
     if (!isValidIndex(idx)) return;
@@ -446,24 +450,32 @@ export default function SearchPanel(props: Props) {
   // Keep mousedown on a result from moving focus out of the search input —
   // the combobox pattern keeps focus on the input while the pointer hovers.
   function onListMouseDown(e: MouseEvent): void {
-    const target = e.target as Element | null;
-    if (target?.closest("button.srp-result")) e.preventDefault();
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest("button.srp-result")) e.preventDefault();
   }
 
-  function onTextInput(e: Event): void {
-    const value = (e.currentTarget as HTMLInputElement).value;
-    const isComposing = (e as InputEvent).isComposing === true;
-    onInput(value, isComposing);
+  function onTextInput(
+    e: InputEvent & { currentTarget: HTMLInputElement },
+  ): void {
+    // The binding names the element, so the field type comes from the JSX
+    // rather than an assertion. The flag stays compared against true because
+    // a plain "input" Event -- which is what the suite dispatches -- has none.
+    onInput(e.currentTarget.value, e.isComposing === true);
   }
 
-  function onCompositionStart(e: CompositionEvent): void {
+  function onCompositionStart(
+    e: CompositionEvent & { currentTarget: HTMLInputElement },
+  ): void {
     composing = true;
-    onInput((e.currentTarget as HTMLInputElement).value, true);
+    onInput(e.currentTarget.value, true);
   }
 
-  function onCompositionEnd(e: CompositionEvent): void {
+  function onCompositionEnd(
+    e: CompositionEvent & { currentTarget: HTMLInputElement },
+  ): void {
     composing = false;
-    onInput((e.currentTarget as HTMLInputElement).value);
+    onInput(e.currentTarget.value);
   }
 
   function onKey(e: KeyboardEvent): void {

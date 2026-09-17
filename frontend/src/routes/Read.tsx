@@ -495,7 +495,9 @@ export default function Read(props: Props) {
     if (moreMenuEl?.contains(t) || moreBtn?.contains(t)) return;
     closeMore(false);
   }
-  function onMoreKeydown(e: KeyboardEvent): void {
+  function onMoreKeydown(
+    e: KeyboardEvent & { currentTarget: HTMLDivElement },
+  ): void {
     if (e.isComposing) return;
     if (e.key === "Escape") {
       e.preventDefault();
@@ -518,14 +520,20 @@ export default function Read(props: Props) {
       return;
     }
     // Roving focus, matching the app's other menus.
-    const menu = e.currentTarget as HTMLElement;
+    const menu = e.currentTarget;
     const items = Array.from(
       menu.querySelectorAll<HTMLButtonElement>(".rdp-mrow"),
     );
     if (items.length === 0) return;
     e.preventDefault();
     e.stopPropagation();
-    const cur = items.indexOf(document.activeElement as HTMLButtonElement);
+    // Narrow, don't cast: focus can sit outside this menu, or on something
+    // that is not a button at all, and indexOf would answer -1 through a type
+    // the cast had guaranteed. Library's sort menu reads it the same way.
+    const cur =
+      document.activeElement instanceof HTMLButtonElement
+        ? items.indexOf(document.activeElement)
+        : -1;
     let next: number;
     switch (e.key) {
       case "Home":

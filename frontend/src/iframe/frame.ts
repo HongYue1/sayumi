@@ -502,8 +502,20 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     return null;
   }
 
+  // Non-null on purpose, unlike the two accessors below: every caller writes
+  // textContent straight through, so a missing slot would throw rather than
+  // degrade. The srcdoc shell ships all three, which is exactly what the cast
+  // that used to stand here asserted without checking. Narrow instead, and
+  // re-create a slot that somehow went missing so the write still lands.
   function getStyleEl(id: string): HTMLStyleElement {
-    return (_styleEls[id] ??= document.getElementById(id) as HTMLStyleElement);
+    const cached = _styleEls[id];
+    if (cached) return cached;
+    const found = document.getElementById(id);
+    if (found instanceof HTMLStyleElement) return (_styleEls[id] = found);
+    const created = document.createElement("style");
+    created.id = id;
+    document.head.appendChild(created);
+    return (_styleEls[id] = created);
   }
 
   // Nullable on purpose. Every caller already guards, and searchHighlight's dep
@@ -1738,7 +1750,11 @@ const PAGED_SCROLL_KEYS = new Set<string>([
         : vw > 0 && x > (vw * 2) / 3
           ? "right"
           : "center";
-    const anchor = (e.target as HTMLElement).closest("a");
+    // Narrow, don't cast: the cast promised closest() on whatever the event
+    // handed over, so a non-Element target (a synthetic event, a retargeted
+    // one) threw here and lost the region click as well as the link.
+    const target = e.target;
+    const anchor = target instanceof Element ? target.closest("a") : null;
 
     if (!anchor) {
       sendMessage({ type: "click", seq: activeSeq, region });
