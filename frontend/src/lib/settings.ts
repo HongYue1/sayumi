@@ -208,6 +208,16 @@ class Settings {
   #dirtyDuringLoad: Partial<UserSettings> = {};
   /** Profile whose settings this instance currently represents. */
   #profile: string | null = null;
+  /**
+   * True once activate(null) has run: the app holds no authenticated profile.
+   *
+   * Deliberately distinct from the never-activated state, which keeps the
+   * store usable as a standalone primitive (load()/update() in focused
+   * tests), while making sure a stray edit after sign-out cannot open a
+   * request for a session that is gone -- the response could only be a 401
+   * for the session gate to discard.
+   */
+  #signedOut = false;
   #loadGeneration = 0;
   #loadController: AbortController | undefined;
   #loadPromise: Promise<void> | undefined;
@@ -289,6 +299,7 @@ class Settings {
    * idempotent and doubles as the bounded retry path after a failed load.
    */
   activate(profile: string | null): Promise<void> {
+    this.#signedOut = profile === null;
     if (this.#profile === profile) {
       return profile === null ? Promise.resolve() : this.load();
     }
@@ -303,6 +314,9 @@ class Settings {
    * tests; application boot and routes must enter through activate(profile).
    */
   load(): Promise<void> {
+    // Sign-out has already dropped this profile's state, so there is nothing
+    // to fetch for and no session to fetch with.
+    if (this.#signedOut) return Promise.resolve();
     if (this.#loaded) return Promise.resolve();
     if (this.#loadPromise) return this.#loadPromise;
 
@@ -370,13 +384,27 @@ class Settings {
   }
 
   update(partial: Partial<UserSettings>): void {
+    // Copy the one nested container before it reaches state: assigning the
+    // caller's own map would alias it into the store, so a later mutation of
+    // that same object would change settings with no write to observe. Every
+    // other path here already copies it (freshDefaults, #load, the save
+    // payload, the 4xx rollback).
+    const next: Partial<UserSettings> =
+      partial.fontRoles == null
+        ? partial
+        : { ...partial, fontRoles: { ...partial.fontRoles } };
     // Per-field draft mutation, not a wholesale replace: a replace invalidates
     // *every* settings consumer on every change, so a slider drag would rebuild
     // @font-face CSS and re-derive unrelated values each frame.
     this.#store[1]((s) => {
-      Object.assign(s, partial);
+      Object.assign(s, next);
     });
     this.#revision += 1;
+    // No profile to save to. The local write stands (a paint may already
+    // depend on it), but nothing is requested and nothing is parked as dirty:
+    // the edit belongs to a session that is gone, and the next profile's load
+    // must not merge it.
+    if (this.#signedOut) return;
     if (!this.#loaded) {
       // The server row's state is not in hand (load pending or failed): record
       // the edit so #load's merge cannot clobber it, and defer the save —
@@ -384,7 +412,7 @@ class Settings {
       // load() never rejects, so the chain must re-check: after a FAILED load
       // the edit stays in #dirtyDuringLoad until a retry (activate, route
       // remount, next edit) succeeds and re-applies and saves it.
-      Object.assign(this.#dirtyDuringLoad, partial);
+      Object.assign(this.#dirtyDuringLoad, next);
       void this.load().then(() => {
         if (this.#loaded) this.#scheduleSave();
       });
@@ -420,7 +448,7 @@ class Settings {
    * for logout and drops the loaded flag), this keeps the session live and
    * schedules a save so the server row is overwritten with the defaults. A
    * fresh fontRoles object avoids sharing the module-level default map. If no
-   * load has succeeded yet the PUT defers through update()'s loadOk gate.
+   * load has succeeded yet the PUT defers through update()'s #loaded gate.
    */
   resetToDefaults(): void {
     this.update(freshDefaults());
@@ -439,6 +467,14 @@ class Settings {
    * pagehide flush: fire a pending debounced save immediately, with keepalive
    * so the PUT outlives the page (the same contract beaconProgress uses for
    * reading progress). A save already in flight finishes on its own.
+   *
+   * Only an armed timer is flushable, which deliberately excludes an edit made
+   * before the first successful load: update() parks that edit in
+   * #dirtyDuringLoad with no timer, because the stored row is not in hand yet.
+   * A PUT here would persist compile-time defaults plus that one edit over the
+   * settings the user already has saved -- a far worse loss than the edit. It
+   * is saved instead when the load lands; a tab closed before that drops it on
+   * purpose.
    */
   #flushPendingSave(): void {
     if (!this.#saveTimer) return;
@@ -488,12 +524,14 @@ class Settings {
         // permanently rejected payload would fail again on the next edit,
         // since the full object is PUT every time — roll back to the last
         // accepted settings so one bad field can't block every future save.
-        if (
+        const rejection =
           error instanceof ApiError &&
           error.status != null &&
           error.status >= 400 &&
           error.status < 500
-        ) {
+            ? error
+            : null;
+        if (rejection) {
           const lastSaved = this.#lastSaved;
           this.#store[1]((s) => {
             // Re-copy the nested map: the store must never alias the
@@ -503,8 +541,19 @@ class Settings {
               fontRoles: { ...(lastSaved.fontRoles ?? {}) },
             });
           });
+          // A rollback is itself new state, so it takes a revision like every
+          // other write here. A save queued after it has to compare against
+          // the restored values, not against the payload the server rejected.
+          this.#revision += 1;
         }
-        toast.show("Couldn't save settings");
+        // The 400 body names the offending field (validateSettings, e.g.
+        // "fontSize must be 10-50"), which is the only way the user can tell
+        // what to change. Anything else keeps the generic copy.
+        toast.show(
+          rejection?.message
+            ? `Couldn't save settings: ${rejection.message}`
+            : "Couldn't save settings",
+        );
       })
       .finally(() => {
         if (this.#saveController === controller)

@@ -120,6 +120,34 @@ describe("settings profile lifecycle", () => {
     expect(settings.loaded).toBe(false);
   });
 
+  it("issues no request for a load or an edit after sign-out", async () => {
+    vi.useFakeTimers();
+    api.getSettings
+      .mockResolvedValueOnce(full({ fontSize: 36 }))
+      .mockResolvedValueOnce(full({ fontSize: 36 }));
+    const { settings } = await import("~/lib/settings");
+    const { flush } = await import("solid-js");
+
+    await settings.activate("ada");
+    flush();
+    await settings.activate(null);
+    flush();
+
+    // The session is gone: a GET could only earn a 401 for the session gate
+    // to discard, and a PUT has no row of its own to write.
+    await settings.load();
+    settings.update({ fontSize: 40 });
+    flush();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(api.getSettings).toHaveBeenCalledTimes(1);
+    expect(api.saveSettings).not.toHaveBeenCalled();
+
+    // Nor may that dropped edit reach whoever signs in next.
+    await settings.activate("bo");
+    flush();
+    expect(settings.value.fontSize).toBe(36);
+  });
+
   it("activates, clears, and reloads state by profile identity", async () => {
     api.getSettings
       .mockResolvedValueOnce(full({ fontSize: 36 }))
@@ -492,6 +520,29 @@ describe("settings save pipeline", () => {
     expect(showToast).toHaveBeenCalledTimes(1);
   });
 
+  it("names the rejected field when the server refuses a save", async () => {
+    vi.useFakeTimers();
+    const { ApiError } = await import("~/api/client");
+    const { settings } = await import("~/lib/settings");
+    const { flush } = await import("solid-js");
+    await settings.load();
+    flush();
+
+    api.saveSettings.mockRejectedValueOnce(
+      new ApiError("fontSize must be 10-50", 400, "invalid_settings"),
+    );
+    settings.update({ fontSize: 99 });
+    flush();
+    await vi.advanceTimersByTimeAsync(500);
+    await flushMicrotasks();
+    flush();
+
+    // Generic failure copy leaves the user guessing which field to change.
+    expect(showToast).toHaveBeenCalledWith(
+      "Couldn't save settings: fontSize must be 10-50",
+    );
+  });
+
   it("aborts an in-flight save when the next save fires", async () => {
     vi.useFakeTimers();
     let resolveFirst!: () => void;
@@ -540,6 +591,47 @@ describe("settings save pipeline", () => {
     flush();
     expect(settings.value.fontSize).toBe(34);
     expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it("saves nothing at pagehide when no load has landed yet", async () => {
+    vi.useFakeTimers();
+    api.getSettings.mockReturnValueOnce(new Promise(() => {}));
+    const { settings } = await import("~/lib/settings");
+    const { flush } = await import("solid-js");
+
+    void settings.load();
+    settings.update({ fontSize: 31 });
+    flush();
+
+    window.dispatchEvent(new Event("pagehide"));
+    await flushMicrotasks();
+
+    // Flushing here would PUT compile-time defaults plus this one edit over
+    // the settings the user already has stored.
+    expect(api.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("keeps the caller's fontRoles map out of the store", async () => {
+    vi.useFakeTimers();
+    const { settings } = await import("~/lib/settings");
+    const { flush } = await import("solid-js");
+    await settings.load();
+    flush();
+
+    const roles: ApiClient.UserSettings["fontRoles"] = {
+      "user:minion": { regular: "r.ttf" },
+    };
+    settings.update({ fontRoles: roles });
+    flush();
+
+    // Aliasing the caller's own map would let this mutation change settings
+    // with no write for any consumer to observe.
+    roles["user:minion"] = { regular: "other.ttf" };
+    expect(settings.value.fontRoles?.["user:minion"]?.regular).toBe("r.ttf");
+
+    // Drain the debounced save this edit queued.
+    await vi.advanceTimersByTimeAsync(500);
+    await flushMicrotasks();
   });
 
   it("reset() clears a pending save and restores defaults", async () => {
