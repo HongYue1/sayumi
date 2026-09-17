@@ -107,6 +107,23 @@ describe("index.html pre-paint theme bootstrap", () => {
     expect(root().dataset.theme).toBeUndefined();
   });
 
+  it("refuses a cache carrying an unknown colour scheme", async () => {
+    stubCache(
+      JSON.stringify({
+        id: "nord",
+        bg: "#2e3440",
+        fg: "#d8dee9",
+        accent: "#88c0d0",
+        accentFg: "#000000",
+        scheme: "banana",
+      }),
+    );
+    await runBootstrap();
+    expect(propValue("--bg")).toBe("");
+    expect(root().style.colorScheme).toBe("");
+    expect(root().dataset.theme).toBeUndefined();
+  });
+
   it("tolerates a legacy cache without the newer tokens", async () => {
     stubCache(
       JSON.stringify({
@@ -182,6 +199,17 @@ describe("pre-paint parity with the cache writer", () => {
     ].sort();
   }
 
+  function schemes(source: string): string[] {
+    return [
+      ...new Set(
+        Array.from(
+          source.matchAll(/v\.scheme !== "(\w+)"/gu),
+          (match) => match[1] ?? "",
+        ),
+      ),
+    ].sort();
+  }
+
   it("paints exactly the tokens paintTheme paints", () => {
     expect(tokens(script)).toEqual(
       tokens(region(themeSource, "function paintTheme")),
@@ -201,6 +229,21 @@ describe("pre-paint parity with the cache writer", () => {
     expect(required(script)).toEqual(
       required(region(themeSource, "function applyCachedTheme")),
     );
+  });
+
+  it("accepts the same colour schemes applyCachedTheme accepts", () => {
+    // scheme is checked by value rather than by type in both copies, because
+    // it is the one entry that lands on a real CSS property. Held together
+    // here so neither reader can widen alone.
+    expect(schemes(script)).toEqual(["dark", "light"]);
+    expect(schemes(script)).toEqual(
+      schemes(region(themeSource, "function applyCachedTheme")),
+    );
+    // And the writer can only ever produce those two.
+    const writer = region(themeSource, "function paintTheme");
+    for (const scheme of schemes(script)) {
+      expect(writer, scheme).toContain(`"${scheme}"`);
+    }
   });
 
   it("caches every token it pre-paints", () => {
