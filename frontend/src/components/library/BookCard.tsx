@@ -27,8 +27,9 @@ interface Props {
 }
 
 export default function BookCard(props: Props) {
-  // One-shot entrance stagger: index is read once on mount by design (cards are
-  // keyed by book.id, so each instance keeps its original position), and the
+  // One-shot entrance stagger: index is read once on mount by design (<For>
+  // keys rows by item identity and library.load patches the shelf by id, so an
+  // instance survives refreshes and keeps its original position), and the
   // delay only drives the mount animation. Capped so large libraries don't
   // accumulate long delays.
   const enterDelay = Math.min(props.index ?? 0, 16) * 32;

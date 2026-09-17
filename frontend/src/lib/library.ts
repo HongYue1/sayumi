@@ -46,6 +46,42 @@ function compareIsoDesc(a?: string, b?: string): number {
   return av === bv ? 0 : av < bv ? 1 : -1;
 }
 
+// Applies the server's list onto the store draft in place, matched by id.
+//
+// <For> keys its rows by item identity, so replacing the array wholesale
+// (`set(() => books)`) disposes and rebuilds every card on every refresh: each
+// cover re-enters the DOM and the staggered entrance replays, even when the
+// payload came back unchanged. `reconcile` does not help here -- measured
+// against `mapArray` (the primitive <For> is built on), every form of it still
+// rebuilds all rows, while patching the draft rebuilds only genuinely new ids.
+// Server truth still wins field by field, exactly as the wholesale write did:
+// present keys overwrite the local value and omitted keys are dropped.
+function mergeBooksById(draft: BookMeta[], incoming: BookMeta[]): void {
+  const surviving = new Map<string, BookMeta>();
+  for (const book of draft) surviving.set(book.id, book);
+
+  for (let i = 0; i < incoming.length; i += 1) {
+    const next = incoming[i];
+    const prior = surviving.get(next.id);
+    if (prior === undefined) {
+      draft[i] = next;
+      continue;
+    }
+    // Move the surviving row into its new slot without rebuilding it.
+    if (draft[i]?.id !== next.id) draft[i] = prior;
+    const target = draft[i] as unknown as Record<string, unknown>;
+    const source = next as unknown as Record<string, unknown>;
+    for (const key of Object.keys(source)) {
+      if (target[key] !== source[key]) target[key] = source[key];
+    }
+    for (const key of Object.keys(target)) {
+      if (!(key in source)) delete target[key];
+    }
+  }
+
+  if (draft.length > incoming.length) draft.splice(incoming.length);
+}
+
 export class Library {
   // `books` is a store, not a signal: createReadingProgressPublisher mutates a
   // single book's progress/lastReadAt in place to avoid copying the array on
@@ -404,7 +440,7 @@ export class Library {
       try {
         const books = await getBooks();
         if (!this.#isCurrent(profile, generation)) return;
-        this.#books[1](() => books);
+        this.#books[1]((draft) => mergeBooksById(draft, books));
         this.#booksLoaded = true;
         // Server truth replaces local writes: stale rollback guards reset.
         this.#bookWrites.clear();

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { flush } from "solid-js";
+import { createMemo, createRoot, flush, mapArray } from "solid-js";
 import type { BookMeta } from "~/api/client";
 import {
   libraryApi as mocks,
@@ -841,6 +841,102 @@ describe("library.refresh loading state", () => {
     await load;
     flush();
     expect(store.loading).toBe(false);
+  });
+});
+
+describe("library.refresh row identity", () => {
+  /**
+   * Counts card rebuilds the way the shelf would see them.
+   *
+   * <For> keys its rows by item identity and maps them with `mapArray`, so a
+   * store write that swaps row objects rebuilds every card: covers re-enter
+   * the DOM and the staggered entrance replays. Counting map invocations
+   * counts exactly those rebuilds. The memo is lazy, so every read below
+   * materialises it first - otherwise a stale counter would pass for free.
+   */
+  function watchShelf(store: InstanceType<typeof Library>): {
+    rebuilds: () => number;
+    titles: () => string[];
+    dispose: () => void;
+  } {
+    let built = 0;
+    let dispose = (): void => {};
+    let rows: () => Array<() => string> = () => [];
+    createRoot((d) => {
+      dispose = d;
+      rows = createMemo(
+        mapArray(
+          () => store.books,
+          (entry) => {
+            built += 1;
+            return () => entry.title;
+          },
+        ),
+      );
+    });
+    rows();
+    flush();
+    return {
+      rebuilds: () => {
+        rows();
+        return built;
+      },
+      titles: () => rows().map((read) => read()),
+      dispose,
+    };
+  }
+
+  it("keeps every card mounted when a refresh revalidates the shelf", async () => {
+    const store = await seed([
+      book({ id: "a", title: "Dune" }),
+      book({ id: "b", title: "Hyperion" }),
+    ]);
+    const shelf = watchShelf(store);
+    expect(shelf.rebuilds()).toBe(2);
+
+    mocks.getBooks.mockResolvedValueOnce([
+      book({ id: "a", title: "Dune (2021)" }),
+      book({ id: "b", title: "Hyperion" }),
+    ]);
+    await store.refresh();
+    await settleStore();
+    flush();
+
+    expect(shelf.rebuilds()).toBe(2);
+    expect(shelf.titles()).toEqual(["Dune (2021)", "Hyperion"]);
+    shelf.dispose();
+  });
+
+  it("rebuilds only the rows a refresh actually adds", async () => {
+    const store = await seed([
+      book({ id: "a", title: "A" }),
+      book({ id: "b", title: "B" }),
+    ]);
+    const shelf = watchShelf(store);
+
+    // One row removed, one uploaded, and the survivor moved to the front.
+    mocks.getBooks.mockResolvedValueOnce([
+      book({ id: "b", title: "B" }),
+      book({ id: "c", title: "C" }),
+    ]);
+    await store.refresh();
+    await settleStore();
+    flush();
+
+    expect(shelf.rebuilds()).toBe(3);
+    expect(store.books.map((entry) => entry.id)).toEqual(["b", "c"]);
+    shelf.dispose();
+  });
+
+  it("drops a field the server stopped sending", async () => {
+    const store = await seed([book({ id: "a", title: "A", flairId: "f1" })]);
+    mocks.getBooks.mockResolvedValueOnce([book({ id: "a", title: "A" })]);
+
+    await store.refresh();
+    await settleStore();
+    flush();
+
+    expect(store.books[0].flairId).toBeUndefined();
   });
 });
 
