@@ -136,6 +136,14 @@ export function buildReaderFontFaces(): string {
     return cachedReaderFontFaces;
   }
 
+  // font-display: block, not swap, on every reader face (the app shell in
+  // app.css uses swap — that is the surface a first-paint budget measures).
+  // The frame never paints book text in a fallback face: revealAfterFonts()
+  // holds the reveal until document.fonts.ready, bounded by a 400ms (scroll)
+  // / 550ms (paged) fallback timer, and pagination schedules one more
+  // fonts.ready correction behind it. Swapping would only buy a flash of
+  // wrong metrics that immediately reflows — and in paged mode that reflow
+  // repaginates, which is how a restored spot gets moved.
   const face = (
     family: string,
     file: string,
