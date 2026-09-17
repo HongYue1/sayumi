@@ -310,8 +310,16 @@ export default function DropSelect(p: DropSelectProps) {
           <For each={p.groups}>
             {(group, gi) => (
               <>
+                {/* A listbox owns options and groups only, so this heading
+                    stays out of the accessibility tree. The group below
+                    names itself from it, and a direct aria-labelledby
+                    reference still reads hidden text. */}
                 <Show when={group.label !== ""}>
-                  <p class="ds-group eyebrow" id={groupId(gi())}>
+                  <p
+                    class="ds-group eyebrow"
+                    id={groupId(gi())}
+                    aria-hidden="true"
+                  >
                     {group.label}
                   </p>
                 </Show>

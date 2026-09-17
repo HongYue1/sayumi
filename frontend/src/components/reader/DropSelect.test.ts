@@ -172,6 +172,32 @@ describe("DropSelect", () => {
     expect(picks()).toHaveLength(1);
   });
 
+  it("keeps the listbox owning groups only", async () => {
+    mount();
+    openMenu();
+    await settle();
+    const list = menu();
+    if (!list) throw new Error("menu missing");
+    // A listbox owns options and groups. The headings stay out of the tree,
+    // and each group still carries its label through aria-labelledby, which
+    // reads hidden text when the reference is direct.
+    const heads = [...list.querySelectorAll("p.ds-group")];
+    expect(heads).toHaveLength(2);
+    for (const head of heads) {
+      expect(head.getAttribute("aria-hidden")).toBe("true");
+    }
+    const owned = [...list.children].filter(
+      (n) => n.getAttribute("aria-hidden") !== "true",
+    );
+    expect(owned.map((n) => n.getAttribute("role"))).toEqual([
+      "group",
+      "group",
+    ]);
+    expect(owned.map((n) => n.getAttribute("aria-labelledby"))).toEqual(
+      heads.map((h) => h.id),
+    );
+  });
+
   it("walks options with arrows, Home, and End", async () => {
     mount();
     openMenu();
