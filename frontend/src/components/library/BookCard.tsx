@@ -19,6 +19,7 @@ interface Props {
   flairs: FlairDef[];
   index?: number;
   onopen: (id: string) => void;
+  /** Requests removal. The host confirms; the card never deletes on its own. */
   onremove: (id: string) => void;
   onedit: (id: string) => void;
   onshare: (id: string) => void;
@@ -127,17 +128,20 @@ export default function BookCard(props: Props) {
 
   function chooseDelete(e: MouseEvent): void {
     e.stopPropagation();
+    // Restore the trigger before this focused item is removed, exactly as
+    // chooseEdit does: the confirmation's focus trap snapshots the active
+    // element on mount and hands focus back to it on unmount.
     closeMenu();
-    // Name the actual consequence. The server handler calls
-    // removeManagedLibraryFile on the .epub and its cover sidecar -- a plain
-    // os.Remove, no trash, no undo -- so "Remove from your library" described a
-    // list operation the code does not perform, and read as reversible.
-    if (
-      confirm(
-        `Delete “${props.book.title}” permanently?\n\nThis deletes the .epub file from your Library folder. It cannot be undone.`,
-      )
-    )
-      props.onremove(props.book.id);
+    // The asking happens in the host, which owns the confirm dialog, and it
+    // cannot happen here: `.bc-card` keeps a transform after its entrance
+    // animation, so the card is the containing block for position:fixed
+    // descendants and an overlay mounted inside it gets clipped to the card
+    // box (see the menu dismissal note below). The native confirm() this
+    // replaces named the real consequence -- the server runs
+    // removeManagedLibraryFile on the .epub and its cover sidecar, a plain
+    // os.Remove with no trash and no undo -- and that wording moved into the
+    // dialog copy rather than being dropped.
+    props.onremove(props.book.id);
   }
 
   function pick(e: MouseEvent, id: string): void {

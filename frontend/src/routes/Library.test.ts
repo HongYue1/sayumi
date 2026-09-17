@@ -306,43 +306,77 @@ describe("Library route: live regions (M4)", () => {
   });
 });
 
-describe("Library route: custom flair delete (M1)", () => {
+describe("Library route: custom flair delete", () => {
   const custom: FlairDef = {
     id: "cf1",
     label: "Favourites",
     color: "#3b82f6",
   };
 
-  it("confirms, naming the flair, before removing it", async () => {
-    api.getBooks.mockResolvedValue([book({ id: "1", title: "Dune" })]);
-    api.getFlairs.mockResolvedValue([custom]);
-    const confirmMock = vi.fn((_message?: string) => false);
-    vi.stubGlobal("confirm", confirmMock);
+  // The route renders the real ConfirmDialog while the other dialogs are
+  // stubbed: what is under test is which request the route builds and what it
+  // does with each outcome, and a stub would make both assertions vacuous.
+  function sheet(host: HTMLElement): HTMLElement {
+    const el = host.querySelector<HTMLElement>(".cfm-sheet");
+    if (!el) throw new Error("confirm dialog did not render");
+    return el;
+  }
 
+  function action(host: HTMLElement, label: string): HTMLButtonElement {
+    const found = Array.from(
+      sheet(host).querySelectorAll<HTMLButtonElement>(".cfm-actions button"),
+    ).find((b) => b.textContent?.trim() === label);
+    if (!found) throw new Error(`no ${label} action in the confirm dialog`);
+    return found;
+  }
+
+  async function openPrompt(books: BookMeta[]): Promise<HTMLElement> {
+    api.getBooks.mockResolvedValue(books);
+    api.getFlairs.mockResolvedValue([custom]);
     const host = await mount();
     const del = host.querySelector<HTMLButtonElement>(".lib-chip-del");
     expect(del).not.toBeNull();
-
+    expect(host.querySelector(".cfm-sheet")).toBeNull();
     del?.click();
     flush();
-    expect(confirmMock).toHaveBeenCalledOnce();
-    expect(confirmMock.mock.calls[0]?.[0]).toContain("Favourites");
+    return host;
+  }
+
+  it("asks in a dialog naming the flair and how far the delete reaches", async () => {
+    const host = await openPrompt([
+      book({ id: "1", title: "Dune", flairId: "cf1" }),
+      book({ id: "2", title: "Emma", flairId: "cf1" }),
+    ]);
+
+    expect(sheet(host).getAttribute("aria-label")).toContain("Favourites");
+    // The store strips the flair from every book carrying it, optimistically,
+    // and that reach is invisible from the chip -- so it belongs in the
+    // prompt, tied to the dialog as its description.
+    const describedBy = sheet(host).getAttribute("aria-describedby");
+    const message = describedBy ? document.getElementById(describedBy) : null;
+    expect(message?.textContent).toContain("2 books");
     expect(api.deleteFlair).not.toHaveBeenCalled();
   });
 
-  it("removes the flair once the confirmation is accepted", async () => {
-    api.getBooks.mockResolvedValue([book({ id: "1", title: "Dune" })]);
-    api.getFlairs.mockResolvedValue([custom]);
-    api.deleteFlair.mockResolvedValue(undefined);
-    vi.stubGlobal(
-      "confirm",
-      vi.fn(() => true),
-    );
+  it("keeps the flair when the prompt is dismissed", async () => {
+    const host = await openPrompt([book({ id: "1", title: "Dune" })]);
 
-    const host = await mount();
-    host.querySelector<HTMLButtonElement>(".lib-chip-del")?.click();
+    action(host, "Cancel").click();
+    await settle();
+    expect(host.querySelector(".cfm-sheet")).toBeNull();
+    expect(api.deleteFlair).not.toHaveBeenCalled();
+  });
+
+  it("removes the flair once the prompt is accepted", async () => {
+    api.deleteFlair.mockResolvedValue(undefined);
+    const host = await openPrompt([book({ id: "1", title: "Dune" })]);
+
+    action(host, "Delete flair").click();
     await settle();
     expect(api.deleteFlair).toHaveBeenCalled();
+    // One exit path per outcome: the dialog dismisses itself, and the route
+    // only drops its pending request.
+    expect(host.querySelector(".cfm-sheet")).toBeNull();
   });
 });
 

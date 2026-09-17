@@ -67,10 +67,7 @@ describe("BookCard", () => {
   let edited: string[];
   let shared: string[];
   let flaired: Array<[string, string | null]>;
-  let confirmAnswer: boolean;
-  let confirmMessages: string[];
   let logged: string[];
-  let realConfirm: typeof window.confirm;
   let realError: typeof console.error;
   let realWarn: typeof console.warn;
   let realLog: typeof console.log;
@@ -151,16 +148,7 @@ describe("BookCard", () => {
     edited = [];
     shared = [];
     flaired = [];
-    confirmAnswer = true;
-    confirmMessages = [];
     logged = [];
-    const stub = (message?: string): boolean => {
-      confirmMessages.push(message ?? "");
-      return confirmAnswer;
-    };
-    realConfirm = window.confirm;
-    window.confirm = stub;
-    globalThis.confirm = stub;
     // Solid's dev diagnostics are console warnings, not throws, so they are
     // invisible to ordinary assertions unless captured.
     realError = console.error;
@@ -181,8 +169,6 @@ describe("BookCard", () => {
     console.error = realError;
     console.warn = realWarn;
     console.log = realLog;
-    window.confirm = realConfirm;
-    globalThis.confirm = realConfirm;
     dispose?.();
     dispose = undefined;
     flush();
@@ -481,27 +467,23 @@ describe("BookCard", () => {
     expect(flaired).toEqual([["bk-1", "dropped"]]);
   });
 
-  it("asks before deleting and only removes once confirmed", async () => {
+  it("hands the delete to its host instead of confirming in the card", async () => {
     mount();
     await settle();
 
-    confirmAnswer = false;
     gear().click();
     await settle();
     item("Delete").click();
     await settle();
 
-    expect(confirmMessages).toHaveLength(1);
-    expect(confirmMessages[0]).toContain("cannot be undone");
-    expect(removed).toEqual([]);
-
-    confirmAnswer = true;
-    gear().click();
-    await settle();
-    item("Delete").click();
-    await settle();
-
+    // The card only asks. The confirmation is the host's themed dialog, which
+    // has to render outside the card: `.bc-card` keeps a transform, so it is
+    // the containing block for any fixed overlay mounted inside it.
     expect(removed).toEqual(["bk-1"]);
+    // And the menu closes first, so that dialog's focus trap snapshots the
+    // trigger and can hand focus back to it on unmount.
+    expect(menu()).toBeNull();
+    expect(document.activeElement).toBe(gear());
   });
 
   it("closes and restores focus before handing off to edit or share", async () => {

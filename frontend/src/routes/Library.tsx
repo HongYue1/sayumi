@@ -21,6 +21,9 @@ import ProfileMenu from "~/components/library/ProfileMenu";
 import ProfileDialog from "~/components/library/ProfileDialog";
 import EditBookDialog from "~/components/library/EditBookDialog";
 import ShareDialog from "~/components/library/ShareDialog";
+import ConfirmDialog, {
+  type ConfirmRequest,
+} from "~/components/library/ConfirmDialog";
 import Icon from "~/lib/Icon";
 import {
   ArrowUpDown,
@@ -286,11 +289,39 @@ export default function Library() {
     }
   }
 
+  // Every destructive action on the shelf asks through this one themed dialog,
+  // which replaced two native confirm() calls: a native confirm is unthemed
+  // and unstyleable, and once the browser offers to block further dialogs it
+  // returns false forever, so the delete would quietly stop working with
+  // nothing on screen to say so. It is hosted here rather than inside BookCard
+  // because `.bc-card` keeps a transform after its entrance animation, making
+  // the card the containing block for position:fixed descendants -- an overlay
+  // mounted in the card is clipped to the card box.
+  const [confirmRequest, setConfirmRequest] =
+    createSignal<ConfirmRequest | null>(null);
+
+  function requestBookRemoval(id: string): void {
+    const target = library.books.find((b) => b.id === id);
+    if (!target) return;
+    setConfirmRequest({
+      eyebrow: "Book",
+      title: `Delete “${target.title}”`,
+      // Name the real consequence: the server runs removeManagedLibraryFile on
+      // the .epub and its cover sidecar -- a plain os.Remove, no trash and no
+      // undo -- so wording that reads like a list operation would be a lie.
+      message:
+        "This deletes the .epub file from your Library folder. It cannot be undone.",
+      confirmLabel: "Delete book",
+      onconfirm: () => void library.remove(id),
+    });
+  }
+
   // Deleting a custom flair is destructive and, unlike every other destructive
   // control on this page, was a bare one-click: the store strips the flair from
   // every book carrying it, optimistically, before the server round-trip.
   // BookCard confirms a single-book delete, so an action that can clear dozens
-  // of assignments cannot be quieter than that.
+  // of assignments cannot be quieter than that. The count goes in the prompt
+  // because that reach is invisible from the chip.
   function removeFlair(f: FlairDef): void {
     const n = library.books.filter((b) => b.flairId === f.id).length;
     const scope =
@@ -299,8 +330,13 @@ export default function Library() {
         : n === 1
           ? " It is currently on 1 book."
           : ` It is currently on ${n} books.`;
-    if (confirm(`Delete the flair “${f.label}”?${scope}`))
-      void library.removeCustomFlair(f.id);
+    setConfirmRequest({
+      eyebrow: "Flair",
+      title: `Delete the flair “${f.label}”`,
+      message: `This clears it from every book carrying it.${scope}`,
+      confirmLabel: "Delete flair",
+      onconfirm: () => void library.removeCustomFlair(f.id),
+    });
   }
 
   // Text for the single persistent status live region below.
@@ -665,7 +701,7 @@ export default function Library() {
                 index={i()}
                 flairs={library.allFlairs}
                 onopen={openBook}
-                onremove={(id) => library.remove(id)}
+                onremove={requestBookRemoval}
                 onedit={(id) => setEditingId(id)}
                 onshare={(id) => setSharingId(id)}
                 onsetflair={(id, flairId) => library.setFlair(id, flairId)}
@@ -698,6 +734,19 @@ export default function Library() {
       <Show when={sharingBook()}>
         {(book) => (
           <ShareDialog book={book()} onclose={() => setSharingId(null)} />
+        )}
+      </Show>
+
+      <Show when={confirmRequest()}>
+        {(request) => (
+          <ConfirmDialog
+            eyebrow={request().eyebrow}
+            title={request().title}
+            message={request().message}
+            confirmLabel={request().confirmLabel}
+            onconfirm={() => request().onconfirm()}
+            onclose={() => setConfirmRequest(null)}
+          />
         )}
       </Show>
 
