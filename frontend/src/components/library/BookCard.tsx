@@ -57,6 +57,11 @@ export default function BookCard(props: Props) {
     Math.round(Math.max(0, Math.min(1, props.book.progress)) * 100),
   );
   const flair = createMemo(() => findFlair(props.book.flairId, props.flairs));
+  // One spelling of "no flair", and the same falsy test findFlair uses rather
+  // than a second, stricter one: the API omits flairId when a book has none,
+  // so the two can only diverge if that ever changes -- at which point the
+  // chip and the checkmark would start contradicting each other.
+  const noFlair = createMemo(() => !props.book.flairId);
   // Whether the book's current flair is one of the selectable options, so the
   // menu can open with focus on the checked item. When none is, the "No
   // flair" entry carries the nomination instead.
@@ -216,7 +221,7 @@ export default function BookCard(props: Props) {
   // second toggle.
   function clearFlair(e: MouseEvent): void {
     e.stopPropagation();
-    if (props.book.flairId !== undefined) {
+    if (!noFlair()) {
       props.onsetflair(props.book.id, null);
     }
     closeMenu();
@@ -414,7 +419,7 @@ export default function BookCard(props: Props) {
 
   return (
     <div
-      ref={cardEl}
+      ref={(el) => (cardEl = el)}
       class="bc-card"
       role="listitem"
       onFocusOut={onCardFocusOut}
@@ -424,7 +429,7 @@ export default function BookCard(props: Props) {
 			     so the card no longer nests action buttons inside a role="button". */}
       <button
         type="button"
-        ref={overlayEl}
+        ref={(el) => (overlayEl = el)}
         class="bc-open-overlay"
         aria-label={`Open ${props.book.title}`}
         onClick={() => props.onopen(props.book.id)}
@@ -496,7 +501,7 @@ export default function BookCard(props: Props) {
 			     clicks + :hover. At card level they stay above the overlay (z-index:3). */}
       <button
         type="button"
-        ref={actionsBtn}
+        ref={(el) => (actionsBtn = el)}
         class="bc-chip-btn bc-actions-btn"
         title="Actions"
         aria-label={`Book actions for ${props.book.title}`}
@@ -509,7 +514,7 @@ export default function BookCard(props: Props) {
       </button>
       <button
         type="button"
-        ref={flairBtn}
+        ref={(el) => (flairBtn = el)}
         class="bc-chip-btn bc-flair-btn"
         title="Set flair"
         aria-label={`Set flair for ${props.book.title}`}
@@ -540,7 +545,7 @@ export default function BookCard(props: Props) {
 
       <Show when={openMenu() === "flair"}>
         <div
-          ref={flairMenuEl}
+          ref={(el) => (flairMenuEl = el)}
           id={flairMenuId()}
           class={[
             "bc-flair-menu paper",
@@ -557,18 +562,15 @@ export default function BookCard(props: Props) {
           </p>
           <button
             type="button"
-            class={[
-              "bc-menu-item bc-flair-none",
-              props.book.flairId === undefined ? "active" : "",
-            ]}
+            class={["bc-menu-item bc-flair-none", noFlair() ? "active" : ""]}
             role="menuitemcheckbox"
-            aria-checked={props.book.flairId === undefined ? "true" : "false"}
+            aria-checked={noFlair() ? "true" : "false"}
             tabindex={hasActiveFlair() ? "-1" : "0"}
             onClick={clearFlair}
           >
             <span class="bc-dot bc-dot-none" aria-hidden="true" />
             <span class="bc-menu-label">No flair</span>
-            <Show when={props.book.flairId === undefined}>
+            <Show when={noFlair()}>
               <span class="bc-check" aria-hidden="true">
                 <Icon icon={Check} size={15} decorative />
               </span>
@@ -606,7 +608,7 @@ export default function BookCard(props: Props) {
 
       <Show when={openMenu() === "actions"}>
         <div
-          ref={actionsMenuEl}
+          ref={(el) => (actionsMenuEl = el)}
           id={actionsMenuId()}
           class={[
             "bc-actions-menu paper",
