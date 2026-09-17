@@ -207,9 +207,10 @@ export default function TocPanel(props: Props) {
       if (first) props.onnavigate(first.entry.href);
     } else if (e.key === "Escape") {
       // The reader's global Escape (which closes the panel) never fires while a
-      // panel input is focused — handleWindowKey in Read bails on
-      // INPUT/TEXTAREA so letter shortcuts aren't typed — and this field is
-      // focused on open. So drive both steps locally: a non-empty query clears
+      // panel input is focused — handleWindowKey in Read stands down for any
+      // control that owns the keyboard (isKeyboardConsumer in lib/keyboard.ts)
+      // so letter shortcuts aren't typed — and this field is focused on open.
+      // So drive both steps locally: a non-empty query clears
       // first, an empty query closes the panel. Branch on the RAW query, not
       // the normalized one: the clear button renders on query() too, so a
       // whitespace-only filter puts a visible clear affordance on screen, and

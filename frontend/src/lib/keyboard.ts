@@ -47,6 +47,12 @@ export function isKeyboardConsumer(target: EventTarget | null): boolean {
 function targetOwnsKey(target: EventTarget | null, key: string): boolean {
   const element = firstHTMLElement(target);
   if (element === null) return false;
+  // A consumer owns every key, Escape included, and that is deliberate: this
+  // module is bundled into the sandboxed frame, where an Escape typed in a
+  // book-authored form field would otherwise leave the book. Dismissal belongs
+  // to each surface instead (local handler plus stopPropagation), which is what
+  // keeps it topmost-only, restores focus to the trigger, and lets a panel run
+  // Escape in two steps — clear the filter, then close.
   if (isKeyboardConsumer(element)) return true;
 
   // Keep letters and Escape available as reader shortcuts on buttons, while

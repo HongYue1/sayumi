@@ -544,9 +544,10 @@ export default function SettingsPanel(props: Props) {
   return (
     // Escape is handled here, not by focusTrap (which deliberately ignores
     // Esc): range controls are keyboard consumers (isKeyboardConsumer in
-    // Read.tsx), so the reader's window-level Esc never fires with focus on a
-    // slider. The font dropdowns stop Escape at their own menus for the same
-    // reason. Toc/Search/Bookmarks handle Esc locally too.
+    // lib/keyboard.ts, which Read's handleWindowKey consults), so the reader's
+    // window-level Esc never fires with focus on a slider. The font dropdowns
+    // stop Escape at their own menus for the same reason. Toc/Search/Bookmarks
+    // handle Esc locally too.
     <div
       class="stp"
       onKeyDown={(e) => {

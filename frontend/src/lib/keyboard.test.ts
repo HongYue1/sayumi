@@ -117,4 +117,26 @@ describe("keyboardEventIsOwnedByTarget", () => {
     expect(keyboardEventIsOwnedByTarget(key(button, "s"))).toBe(false);
     expect(keyboardEventIsOwnedByTarget(key(image, "s"))).toBe(false);
   });
+
+  it("leaves Escape with the control that owns the keyboard", () => {
+    // Ownership is key-agnostic on purpose: Escape is NOT carved out. This
+    // module is bundled into the sandboxed frame, so an Escape typed in a
+    // book-authored form field would otherwise exit the book. Every surface
+    // dismisses itself locally instead, which is what makes dismissal
+    // topmost-only and lets a panel run Escape in two steps.
+    const text = document.createElement("input");
+    text.type = "text";
+    const slider = document.createElement("input");
+    slider.type = "range";
+    const editor = document.createElement("div");
+    editor.contentEditable = "true";
+    document.body.append(editor);
+    const button = document.createElement("button");
+
+    expect(keyboardEventIsOwnedByTarget(key(text, "Escape"))).toBe(true);
+    expect(keyboardEventIsOwnedByTarget(key(slider, "Escape"))).toBe(true);
+    expect(keyboardEventIsOwnedByTarget(key(editor, "Escape"))).toBe(true);
+    // A button owns neither Escape nor letters, so the shell still acts there.
+    expect(keyboardEventIsOwnedByTarget(key(button, "Escape"))).toBe(false);
+  });
 });
