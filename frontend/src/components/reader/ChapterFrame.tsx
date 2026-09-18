@@ -19,6 +19,24 @@ import { createFrameMessageQueue } from "./frameMessageQueue";
 // target. frame.ts uses the same target for the same reason.
 const FRAME_TARGET_ORIGIN = "*";
 
+// Page turns mean "one step from what is on screen", so they only make sense
+// against a chapter the reader can actually see. Queueing one aimed at a
+// chapter that has not settled replays it — and the whole held-key burst behind
+// it, up to the queue's cap — the moment `loaded` arrives, throwing the reader
+// far past where a single turn would have landed. Positional commands name an
+// absolute destination instead, so those still wait for the load.
+const RELATIVE_COMMAND_TYPES = new Set<ParentToFrameMessage["type"]>([
+  "next-page",
+  "prev-page",
+]);
+
+// Nothing else notices a frame that never signals ready: a srcdoc frame has no
+// network load to fail, so the element fires no error event, and a script that
+// cannot run (blocked by policy, a broken build) leaves the reader looking at
+// an empty frame with every command parked in the handshake queue. Bound the
+// wait and report it instead.
+const READY_TIMEOUT_MS = 10_000;
+
 // ---- inbound message validation -----------------------------------------
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null;
@@ -85,8 +103,12 @@ function isInbound(v: unknown): v is FrameToParentMessage {
   }
 }
 
+// The sandbox attribute on the iframe below omits allow-same-origin, so the
+// frame document always carries an opaque origin and reports "null"; a
+// window.location.origin arm here could never match. Identity is established by
+// the event.source check in handleMessage — this is only the cheap first pass.
 function acceptedOrigin(origin: string): boolean {
-  return origin === "null" || origin === window.location.origin;
+  return origin === "null";
 }
 
 interface Props {
@@ -137,6 +159,13 @@ export default function ChapterFrame(props: Props) {
   let loadedSeq = -1;
   const messageQueue = createFrameMessageQueue();
   const chapterMessageQueue = createFrameMessageQueue();
+  let readyTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function clearReadyTimer(): void {
+    if (readyTimer === null) return;
+    clearTimeout(readyTimer);
+    readyTimer = null;
+  }
 
   function frameWindow(): Window | null {
     return iframeEl?.contentWindow ?? null;
@@ -167,6 +196,7 @@ export default function ChapterFrame(props: Props) {
     // controller's current load. Reject future as well as stale commands.
     if ("seq" in message && message.seq !== seq) return;
     if (loadedSeq !== seq) {
+      if (RELATIVE_COMMAND_TYPES.has(message.type)) return;
       chapterMessageQueue.enqueue(message);
       return;
     }
@@ -181,8 +211,20 @@ export default function ChapterFrame(props: Props) {
 
     const m = event.data;
     switch (m.type) {
-      case "ready":
+      case "ready": {
+        // frame.ts posts ready exactly once, at the end of its init, so a
+        // second one means a second document: the frame reloaded and is holding
+        // no chapter. Resuming would leave loadedSeq naming a chapter that no
+        // longer exists and send commands into an empty document, leaving the
+        // reader blank with nothing reported. Drop the chapter-scoped state and
+        // surface it; the reader's retry path is what puts a chapter back.
+        const restarted = ready;
         ready = true;
+        clearReadyTimer();
+        if (restarted) {
+          loadedSeq = -1;
+          chapterMessageQueue.clear();
+        }
         // Embedded faces only, as an initial state so the frame can render
         // before any chapter arrives. This is NOT the authoritative source:
         // Read.tsx pushes the full set (embedded + user families) from
@@ -193,7 +235,13 @@ export default function ChapterFrame(props: Props) {
           fontFaces: buildReaderFontFaces(),
         });
         flushQueue();
+        if (restarted)
+          props.onframeerror?.(
+            "frame-reset",
+            "The reader restarted and lost this chapter.",
+          );
         break;
+      }
       case "loaded":
         if (m.seq === seq) {
           loadedSeq = m.seq;
@@ -345,6 +393,14 @@ export default function ChapterFrame(props: Props) {
     // builds, leaking the listeners and the raster timer there. Every sibling
     // settle handler uses this returned shape.
     window.addEventListener("message", handleMessage);
+    readyTimer = setTimeout(() => {
+      readyTimer = null;
+      if (ready) return;
+      props.onframeerror?.(
+        "frame-timeout",
+        "The reader could not start. Retry to load this chapter again.",
+      );
+    }, READY_TIMEOUT_MS);
     const viewport = window.visualViewport;
     if (viewport) {
       lastRefreshedScale = viewport.scale;
@@ -352,6 +408,7 @@ export default function ChapterFrame(props: Props) {
     }
     return () => {
       window.removeEventListener("message", handleMessage);
+      clearReadyTimer();
       if (viewport)
         viewport.removeEventListener("resize", scheduleRasterRefresh);
       if (rasterRefreshTimer !== null) {

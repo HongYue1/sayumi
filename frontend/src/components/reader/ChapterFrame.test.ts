@@ -222,7 +222,6 @@ describe("ChapterFrame", () => {
     api.loadChapter(loadOptions(3));
     api.scrollToFragment("note-4");
     api.highlightSearch(10, 5, "query");
-    api.nextPage();
     api.requestPosition();
 
     expect(posts.map((m) => m.type)).toEqual(["load"]);
@@ -233,9 +232,26 @@ describe("ChapterFrame", () => {
       "load",
       "scroll-to-fragment",
       "highlight-search",
-      "next-page",
       "get-position",
     ]);
+  });
+
+  it("drops page turns aimed at a chapter that has not settled", () => {
+    mount();
+    ready();
+    posts.length = 0;
+    api.loadChapter(loadOptions(3));
+    // A page key held down through a slow load: replaying the burst would
+    // throw the reader pages past the chapter it never saw.
+    api.nextPage();
+    api.nextPage();
+    api.prevPage();
+    expect(posts.map((m) => m.type)).toEqual(["load"]);
+    fireFrameMessage({ type: "loaded", seq: 1 });
+    expect(posts.map((m) => m.type)).toEqual(["load"]);
+    // Turns land normally once the chapter is on screen.
+    api.nextPage();
+    expect(posts.map((m) => m.type)).toEqual(["load", "next-page"]);
   });
 
   it("rejects stale and future explicit command sequences", () => {
@@ -420,6 +436,51 @@ describe("ChapterFrame", () => {
       { type: "scroll-to", seq: 1, percent: 0.25 },
       { type: "next-page", seq: 1 },
     ]);
+  });
+
+  it("treats a second ready as a fresh frame holding no chapter", () => {
+    mount();
+    ready();
+    api.loadChapter(loadOptions(0));
+    fireFrameMessage({ type: "loaded", seq: 1 });
+    posts.length = 0;
+
+    // The frame reloaded: frame.ts signals ready once per document.
+    ready();
+    expect(onframeerror).toHaveBeenCalledWith(
+      "frame-reset",
+      expect.stringContaining("restarted"),
+    );
+    // The settled state cannot stand, so commands wait for a new load instead
+    // of being posted into an empty document.
+    api.scrollTo(0.5);
+    expect(posts.map((m) => m.type)).toEqual(["set-font-faces"]);
+  });
+
+  it("reports a frame that never signals ready", () => {
+    vi.useFakeTimers();
+    try {
+      mount();
+      vi.advanceTimersByTime(10_000);
+      expect(onframeerror).toHaveBeenCalledWith(
+        "frame-timeout",
+        expect.stringContaining("could not start"),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stays quiet about a frame that signals ready in time", () => {
+    vi.useFakeTimers();
+    try {
+      mount();
+      ready();
+      vi.advanceTimersByTime(30_000);
+      expect(onframeerror).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("posts destroy and detaches the window listener on unmount", () => {
