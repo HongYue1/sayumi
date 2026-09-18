@@ -633,10 +633,10 @@ export class Library {
 
   /**
    * Creates a custom flair and returns it, or null when no flair was added:
-   * no active profile, an empty label, a superseded generation, or a failed
-   * request (already surfaced as a toast). Errors stay swallowed here, so this
-   * return value is the only signal a caller gets - Library.tsx needs it to
-   * decide whether to clear the text the user typed.
+   * no active profile, an empty label, a duplicate label, a superseded
+   * generation, or a failed request (already surfaced as a toast). Errors stay
+   * swallowed here, so this return value is the only signal a caller gets -
+   * Library.tsx needs it to decide whether to clear the text the user typed.
    */
   async addCustomFlair(label: string): Promise<FlairDef | null> {
     const profile = this.#profile;
@@ -644,6 +644,17 @@ export class Library {
     const generation = this.#generation;
     const trimmed = label.trim();
     if (!trimmed) return null;
+    // The server mints a fresh id per create with no uniqueness check, so two
+    // flairs can share a label -- and their chips their accessible name. Refuse
+    // against the loaded lists instead, the way presets refuse a taken name.
+    // Colours alone are not deduped: the palette cycles by design.
+    if (
+      this.customFlairs.some((f) => f.label === trimmed) ||
+      DEFAULT_FLAIRS.some((f) => f.label === trimmed)
+    ) {
+      toast.show(`A flair named "${trimmed}" already exists`);
+      return null;
+    }
     // The colour travels in the create request, so it has to be chosen before
     // the await. Counting the creates already in flight keeps a same-tick
     // second create off the first one's colour without the store having to

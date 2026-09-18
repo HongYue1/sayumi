@@ -1200,6 +1200,32 @@ describe("library.addCustomFlair", () => {
     expect(store.customFlairs.map((f) => f.id)).toEqual(["cf1"]);
   });
 
+  it("refuses an exact-duplicate custom label without reaching the transport", async () => {
+    const store = await seed([]);
+    mocks.createFlair.mockResolvedValueOnce({
+      id: "cf1",
+      label: "Favourites",
+      color: "#3b82f6",
+    });
+    await expect(store.addCustomFlair("Favourites")).resolves.not.toBeNull();
+
+    // The server mints a fresh id per create with no uniqueness check, so the
+    // refusal lives here: same spelling after trimming, no second request, and
+    // the typed text stays (a null return keeps the caller's field intact).
+    await expect(store.addCustomFlair("  Favourites ")).resolves.toBeNull();
+    expect(mocks.createFlair).toHaveBeenCalledTimes(1);
+    expect(toast).toHaveBeenCalled();
+    expect(store.customFlairs).toHaveLength(1);
+  });
+
+  it("refuses a label taken by a built-in flair", async () => {
+    const store = await seed([]);
+    await expect(store.addCustomFlair("Reading")).resolves.toBeNull();
+    expect(mocks.createFlair).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalled();
+    expect(store.customFlairs).toHaveLength(0);
+  });
+
   // The colour is chosen before the await, so two creates in one tick both
   // read the same pre-insert length: unless the request in flight is counted,
   // they mint two chips in one colour.
