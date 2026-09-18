@@ -29,14 +29,16 @@ import SettingsPanel from "~/components/reader/SettingsPanel";
 
 const api = vi.hoisted(() => ({
   getPresets: vi.fn<() => Promise<ApiClient.SettingsPreset[]>>(),
-  createPreset:
-    vi.fn<
-      (data: {
+  createPreset: vi.fn<
+    (
+      data: {
         name: string;
         settings: ApiClient.UserSettings;
-      }) => Promise<ApiClient.SettingsPreset>
-    >(),
-  deletePreset: vi.fn<(id: string) => Promise<void>>(),
+      },
+      signal?: AbortSignal,
+    ) => Promise<ApiClient.SettingsPreset>
+  >(),
+  deletePreset: vi.fn<(id: string, signal?: AbortSignal) => Promise<void>>(),
 }));
 const showToast = vi.hoisted(() => vi.fn<(message: string) => void>());
 const navigate = vi.hoisted(() => vi.fn<(path: string) => boolean>());
@@ -809,6 +811,244 @@ describe("reader settings panel", () => {
     expect(onclose).toHaveBeenCalledTimes(1);
     expect(escape.defaultPrevented).toBe(true);
     expect(bubbled).toBe(false);
+  });
+
+  it("shows a retryable error when presets fail to load", async () => {
+    api.getPresets.mockRejectedValueOnce(new Error("500"));
+    mount();
+    await settle();
+    // A failed load must not read as "no presets": the duplicate-name guard
+    // cannot run without a loaded list, so the failure stays visible.
+    expect(names()).toEqual([]);
+    expect(showToast).toHaveBeenCalledWith("Couldn't load presets");
+    const retry = all<HTMLButtonElement>("button").find(
+      (b) => text(b) === "Try again",
+    );
+    if (!retry) throw new Error("preset retry missing");
+
+    api.getPresets.mockResolvedValue([preset("a", "Alpha")]);
+    retry.click();
+    await settle();
+    expect(names()).toEqual(["Alpha"]);
+    expect(all("button").some((b) => text(b) === "Try again")).toBe(false);
+  });
+
+  it("refuses a preset name that is already taken", async () => {
+    // The server mints a fresh id per create with no uniqueness check, so the
+    // panel owns dedup: two chips must never share a name (and their delete
+    // buttons an accessible label).
+    api.getPresets.mockResolvedValue([preset("a", "Alpha")]);
+    mount();
+    await settle();
+    openNaming("Alpha");
+    submitNaming();
+    await settle();
+    expect(api.createPreset).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith(
+      'A preset named "Alpha" already exists',
+    );
+    expect(names()).toEqual(["Alpha"]);
+  });
+
+  it("stands down a preset save that settles after unmount", async () => {
+    const save = deferred<ApiClient.SettingsPreset>();
+    api.createPreset.mockImplementation(() => save.promise);
+    mount();
+    await settle();
+    openNaming("Night");
+    submitNaming();
+    flush();
+    expect(api.createPreset).toHaveBeenCalledOnce();
+    const signal = api.createPreset.mock.calls[0]?.[1] as
+      | AbortSignal
+      | undefined;
+    expect(signal).toBeInstanceOf(AbortSignal);
+
+    unmount();
+    expect(signal?.aborted).toBe(true);
+    save.resolve(preset("created", "Night"));
+    await settle();
+    // Nothing published into a disposed owner, nothing toasted over a closed
+    // panel.
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it("skips the delete rollback when the abort came from unmount", async () => {
+    api.getPresets.mockResolvedValue([preset("a", "Alpha")]);
+    const pending = deferred<void>();
+    api.deletePreset.mockImplementation(() => pending.promise);
+    mount();
+    await settle();
+    del("Alpha").click();
+    flush();
+    unmount();
+    pending.reject(new Error("gone"));
+    await settle();
+    expect(showToast).not.toHaveBeenCalledWith("Couldn't delete preset");
+  });
+
+  it("cancels naming (not the panel) on Escape, and moves focus", async () => {
+    mount();
+    await settle();
+    el(".stp-preset-new").click();
+    flush();
+    await settle();
+    // Opening naming moves focus into the new field...
+    const input = el(".stp-preset-name");
+    expect(document.activeElement).toBe(input);
+
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    flush();
+    await settle();
+    // ...and the first Escape cancels the field, returning focus to its
+    // opener instead of closing the whole panel over the draft.
+    expect(onclose).not.toHaveBeenCalled();
+    expect(container.querySelector(".stp-preset-name")).toBeNull();
+    expect(document.activeElement).toBe(el(".stp-preset-new"));
+  });
+
+  it("names the reset button from its visible text in both arms", async () => {
+    vi.useFakeTimers();
+    try {
+      mount();
+      await settle();
+      // A static aria-label would break Label in Name the moment the text
+      // swaps, so the visible text is the accessible name in both arms.
+      const reset = el(".stp-reset");
+      expect(reset.getAttribute("aria-label")).toBeNull();
+      expect(text(reset)).toBe("Reset to defaults");
+      reset.click();
+      flush();
+      expect(text(reset)).toBe("Click again to reset everything");
+      expect(reset.getAttribute("aria-label")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("announces slider values the way they read visually", async () => {
+    mount();
+    await settle();
+    expect(
+      container
+        .querySelector('input[aria-label="Font size"]')
+        ?.getAttribute("aria-valuetext"),
+    ).toBe("30px");
+    const height = container.querySelector('input[aria-label="Line height"]');
+    // Null is the Auto arm, and that is what the readout shows.
+    expect(height?.getAttribute("aria-valuetext")).toBe("Auto");
+    world.setSettings({ lineHeight: 1.6 });
+    flush();
+    expect(height?.getAttribute("aria-valuetext")).toBe("1.6");
+  });
+
+  it("leaves a mode-disabled slider silent and links its reason", async () => {
+    mount("paged");
+    await settle();
+    const width = container.querySelector('input[aria-label="Content width"]');
+    expect(width?.getAttribute("aria-valuetext")).toBeNull();
+    expect(width?.getAttribute("aria-describedby")).toBe(
+      "stp-content-width-reason",
+    );
+    expect(text(container.querySelector("#stp-content-width-reason"))).toBe(
+      "Scroll mode only",
+    );
+  });
+
+  it("describes the vertical-margin slider with its bottom note", async () => {
+    world.setSettings({ marginTop: 48, marginBottom: 32 });
+    mount();
+    await settle();
+    const slider = container.querySelector(
+      'input[aria-label="Vertical margin"]',
+    );
+    // The note is the only place the divergent bottom value surfaces, and the
+    // slider's aria-label otherwise replaces it.
+    expect(slider?.getAttribute("aria-describedby")).toBe(
+      "stp-vertical-margin-note",
+    );
+    expect(
+      text(container.querySelector("#stp-vertical-margin-note")),
+    ).toContain("bottom 32px");
+  });
+
+  it("models reading mode as a radio group with arrow keys", async () => {
+    mount();
+    await settle();
+    const group = el('[role="radiogroup"][aria-label="Reading mode"]');
+    const radios = (): Element[] => [
+      ...group.querySelectorAll('[role="radio"]'),
+    ];
+    expect(radios().map((r) => text(r))).toEqual([
+      "Scroll",
+      "Single page",
+      "Two pages",
+    ]);
+    // Roving tabindex: only the selected radio tabs in.
+    expect(radios().map((r) => r.getAttribute("tabindex"))).toEqual([
+      "0",
+      "-1",
+      "-1",
+    ]);
+
+    let bubbled = 0;
+    const spy = (): void => {
+      bubbled += 1;
+    };
+    window.addEventListener("keydown", spy);
+    radios()[0].dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "ArrowRight",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    flush();
+    window.removeEventListener("keydown", spy);
+    // Consumed locally (a page turn underneath would be the old toggle
+    // behaviour) with selection following focus.
+    expect(bubbled).toBe(0);
+    expect(world.updates.at(-1)).toEqual({ displayMode: "paged" });
+    expect(document.activeElement?.textContent).toContain("Single page");
+    expect(radios()[1].getAttribute("aria-checked")).toBe("true");
+    expect(radios().map((r) => r.getAttribute("tabindex"))).toEqual([
+      "-1",
+      "0",
+      "-1",
+    ]);
+  });
+
+  it("walks alignment to either end with Home and End", async () => {
+    mount();
+    await settle();
+    const group = el(
+      '[role="radiogroup"][aria-label="Chapter title alignment"]',
+    );
+    // Default alignment is center.
+    group.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "End",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    flush();
+    expect(world.updates.at(-1)).toEqual({ chapterTitleAlign: "right" });
+    group.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Home",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    flush();
+    expect(world.updates.at(-1)).toEqual({ chapterTitleAlign: null });
   });
 
   it("arms the reset button, disarms it after three seconds", async () => {
