@@ -23,6 +23,7 @@
 // and is never part of the frame bundle, so it can read the shell's theme
 // registry directly rather than keeping a second copy of the default.
 import { DEFAULT_THEME_ID } from "~/lib/themes";
+import { normalizeLangTag } from "~/lib/langTag";
 
 /** Caller-supplied options; the payloads are bound in buildFrameHtml.ts. */
 export interface FrameSrcdocOptions {
@@ -120,15 +121,18 @@ export function renderFrameSrcdoc(input: FrameSrcdocInput): string {
   // the rest of the app never paints.
   const theme = THEME_ID.test(input.theme) ? input.theme : DEFAULT_THEME_ID;
 
-  // Same sanitizer as frame.ts's load handler, so the initial lang and the
-  // per-chapter one can never disagree about what is legal.
-  const language = (input.language ?? "")
-    .replace(/[^a-zA-Z0-9-]/g, "")
-    .slice(0, 35);
+  // Shared with frame.ts's load handler (lib/langTag), so the initial lang
+  // and the per-chapter one can never disagree about what is legal.
+  const language = normalizeLangTag(input.language);
   const langAttr = language ? ` lang="${language}"` : "";
 
   const vars = input.themeVars ? escapeRawText(input.themeVars, "style") : "";
-  const initialThemeCSS = vars ? `html { ${vars} }` : "";
+  // Scoped to the resolved class, not a bare html: the fallback class's own
+  // frame.css rule outranks a bare-html selector, so unscoped vars would lose
+  // the first paint to the fallback palette whenever the id is not a built-in
+  // (every custom id). Same specificity, later origin: the initial palette
+  // wins until apply-settings re-classes and override-css takes over.
+  const initialThemeCSS = vars ? `html.theme-${theme} { ${vars} }` : "";
 
   return `<!DOCTYPE html>
 <html${langAttr} class="theme-${theme}">

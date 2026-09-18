@@ -25,14 +25,19 @@ describe("renderFrameSrcdoc", () => {
     expect(html).not.toContain("theme-epia");
   });
 
-  it("inlines a custom palette so the first paint is not the light default", () => {
+  it("scopes a custom palette to the resolved class so it wins first paint", () => {
+    // A real custom id ("theme_<hex>") is not a legal class suffix, so the
+    // shell default stands in -- but a bare-html rule would lose to its
+    // frame.css declarations. Scoped to the resolved class, same specificity
+    // and later origin wins over the fallback palette.
     const html = renderFrameSrcdoc({
       ...base,
-      theme: "ct-9f2",
+      theme: "theme_ab12",
       themeVars: "--bg-primary: #101014; --text-primary: #e6e6e6;",
     });
+    expect(html).toContain(`class="theme-${DEFAULT_THEME_ID}"`);
     expect(html).toContain(
-      '<style id="initial-theme-css">html { --bg-primary: #101014; --text-primary: #e6e6e6; }</style>',
+      `<style id="initial-theme-css">html.theme-${DEFAULT_THEME_ID} { --bg-primary: #101014; --text-primary: #e6e6e6; }</style>`,
     );
   });
 
@@ -108,6 +113,11 @@ describe("renderFrameSrcdoc", () => {
     );
     expect(renderFrameSrcdoc({ ...base, language: 'e"n' })).toContain(
       '<html lang="en"',
+    );
+    // Book metadata tags variants with underscores; BCP 47 spells them with
+    // a hyphen, and stripping alone would fuse a subtag that matches nothing.
+    expect(renderFrameSrcdoc({ ...base, language: "zh_Hant" })).toContain(
+      '<html lang="zh-Hant"',
     );
     expect(renderFrameSrcdoc(base)).toContain('<html class="theme-');
   });

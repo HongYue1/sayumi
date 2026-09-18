@@ -1,5 +1,6 @@
 import { decodeHrefComponent } from "~/lib/href";
 import { keyboardEventIsOwnedByTarget } from "~/lib/keyboard";
+import { normalizeLangTag } from "~/lib/langTag";
 import { reserveSearchMarkAttribute } from "~/lib/searchMarks";
 import type {
   IframeSettings,
@@ -22,7 +23,7 @@ import {
   textNodeAtOffset,
 } from "~/lib/cfi";
 import { createSearchHighlight } from "./searchHighlight";
-import { createBoundary } from "./boundary";
+import { createBoundary, WHEEL_THRESHOLD } from "./boundary";
 import { createPagination } from "./pagination";
 import { prefersReducedMotion } from "./reduceMotion";
 
@@ -84,7 +85,6 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     "UL",
   ]);
 
-  const WHEEL_THRESHOLD = 600;
   const CHAPTER_SWAP_OUT_MS = 110;
   const REVEAL_FALLBACK_SCROLL_MS = 400;
   const REVEAL_FALLBACK_PAGED_MS = 550;
@@ -1898,8 +1898,8 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       );
     }
     if (typeof msg.language === "string" && msg.language) {
-      // Sanitize to BCP-47-ish chars before reflecting into the DOM lang attr.
-      const safeLang = msg.language.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 35);
+      // Shared with renderFrameSrcdoc's initial lang (lib/langTag).
+      const safeLang = normalizeLangTag(msg.language);
       if (safeLang) document.documentElement.lang = safeLang;
     }
 
