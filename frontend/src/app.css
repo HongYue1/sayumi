@@ -148,7 +148,6 @@
   --sp-5: 1.25rem;
   --sp-6: 1.5rem;
   --sp-8: 2rem;
-  --sp-10: 2.5rem;
   --sp-12: 3rem;
   --sp-16: 4rem;
 
@@ -159,7 +158,6 @@
   --text-lg: 1.25rem;
   --text-xl: 1.6rem;
   --text-2xl: 2rem;
-  --text-3xl: 2.6rem;
 
   /* Radius scale: chips/controls → cards → sheets. */
   --radius-sm: 0.45rem;
@@ -171,23 +169,21 @@
      applied via the global :focus-visible rule below. */
   --focus: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
 
-  /* Motion. One family of eases across the chrome: --ease-out for entrances
-     and hovers (long expo tail = "smooth"), --ease-spring for small pops,
-     --ease-in only for exits. Transform/opacity-only animations everywhere. */
+  /* Motion. One family of eases across the chrome: --ease-out for entrances,
+     hovers and loops (long expo tail = "smooth"), --ease-spring for small
+     pops, --ease-in only for exits. Transform/opacity-only animations
+     everywhere. */
   --dur-fast: 110ms;
   --dur: 180ms;
   --dur-slow: 300ms;
   --dur-slower: 480ms;
-  --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.3, 1.4, 0.5, 1);
   --ease-in: cubic-bezier(0.5, 0, 0.75, 0.4);
 
-  /* Line-height scale (tight headings → loose body). */
+  /* Line-height scale (tight headings → snug body). */
   --lh-tight: 1.1;
   --lh-snug: 1.3;
-  --lh-normal: 1.5;
-  --lh-loose: 1.7;
 
   color-scheme: dark;
   font-family: var(--font-ui);
@@ -225,8 +221,10 @@ body {
 
 /* Paper grain — a fixed film of the theme's own ink, masked through SVG
    turbulence so every theme's flat background reads as stock instead of
-   pixels. One static composited layer (no blend modes, no repaint on
-   scroll); top-layer dialogs render above it by design. */
+   pixels. One static composited layer (no blend modes, no repaint on scroll).
+   The film covers everything uniformly, overlays included: nothing here is a
+   top-layer <dialog> (all overlays are div+role by design), so no exemption
+   applies — and with pointer-events: none it can never intercept input. */
 body::before {
   content: "";
   position: fixed;
@@ -256,8 +254,10 @@ select optgroup {
 
 /* Themed scrollbars across the chrome so scroll areas never fall back to a
    bright OS scrollbar against a dark theme. Trackless and quiet: a floating
-   ink thumb that strengthens on hover, derived from the active theme. */
-* {
+   ink thumb that strengthens on hover, derived from the active theme. Set once
+   on the root -- both properties inherit, so a universal selector would match
+   every element for no reason and force a recalc against each of them. */
+:root {
   scrollbar-width: thin;
   scrollbar-color: var(--hairline-strong) transparent;
 }
@@ -354,6 +354,16 @@ select optgroup {
 :focus-visible {
   outline: none;
   box-shadow: var(--focus);
+}
+
+/* Windows High Contrast (and forced-colors users generally): shadows are
+   flattened away, so the ring above disappears with them. A system Highlight
+   outline carries the same shape through. */
+@media (forced-colors: active) {
+  :focus-visible {
+    box-shadow: none;
+    outline: 2px solid Highlight;
+  }
 }
 
 .btn,
@@ -637,7 +647,7 @@ main {
   padding: 0;
   margin: -1px;
   overflow: hidden;
-  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
 }
@@ -1118,8 +1128,11 @@ main {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
-  padding: var(--sp-6);
+  /* Like every other route, make room for the offline banner so it never
+     paints over the form. */
+  min-height: calc(100vh - var(--offline-banner-h, 0px));
+  padding: calc(var(--sp-6) + var(--offline-banner-h, 0px)) var(--sp-6)
+    var(--sp-6);
   overflow: hidden;
 }
 
@@ -1307,7 +1320,7 @@ main {
    prefers-reduced-motion switch (above) already zeroes them. */
 .login-skeleton .sk-initial,
 .login-skeleton .sk-bar {
-  animation: pulse 1.2s var(--ease) infinite;
+  animation: pulse 1.2s var(--ease-out) infinite;
 }
 @keyframes pulse {
   0%,
@@ -1503,9 +1516,6 @@ main {
 .pm-item:focus-visible {
   background: var(--surface-hover);
   outline: none;
-}
-.pm-item.danger {
-  color: var(--fg);
 }
 .pm-item.danger:hover,
 .pm-item.danger:focus-visible {
@@ -2830,8 +2840,8 @@ main {
 
 /* Card size control: trigger plus a one-slider popover. Positioned like
    .lib-sort-menu (absolute inside an inline-flex parent, z-index 21) rather
-   than fixed, because the masthead's backdrop-filter would clip a fixed child
-   to the masthead box. */
+   than fixed, so the popover stays anchored to its trigger in the bar's own
+   stacking context. */
 .lib-size {
   position: relative;
   display: inline-flex;
@@ -3345,7 +3355,7 @@ main {
   text-align: left;
   border: none;
   background: transparent;
-  color: var(--fg);
+  color: var(--muted);
   font: inherit;
   font-size: var(--text-sm);
   padding: 0 var(--sp-2);
@@ -3357,18 +3367,15 @@ main {
   transition:
     background var(--dur-fast) var(--ease-out),
     transform var(--dur-fast) var(--ease-out);
+  position: relative;
+  margin-left: 10px;
+  width: calc(100% - 10px);
+  font-weight: 440;
 }
 /* Hierarchy: top-level entries read as headings (full ink, medium weight),
    nested entries recede (muted) so a Part > Chapter TOC has visible depth.
    Rows sit to the right of the progress rail; read chapters recede to
    faint ink, so the list itself shows how far into the book you are. */
-.tocp-entry {
-  position: relative;
-  margin-left: 10px;
-  width: calc(100% - 10px);
-  color: var(--muted);
-  font-weight: 440;
-}
 .tocp-entry.top {
   color: var(--fg);
   font-weight: 560;
@@ -3873,7 +3880,7 @@ main {
 .ctd-color-row input[type="text"].ctd-color-text {
   flex: 1;
   min-width: 0;
-  font-family: var(--font-mono, ui-monospace, monospace);
+  font-family: ui-monospace, monospace;
   font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -4645,8 +4652,8 @@ main {
   background: var(--hairline-strong);
 }
 .stp-slider input[type="range"]::-moz-range-thumb {
-  width: 10px;
-  height: 10px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
   background: var(--accent);
   border: 2.5px solid var(--bg);
@@ -4853,7 +4860,7 @@ main {
 .rdp-loading-mark {
   font-size: var(--text-xl);
   color: var(--muted);
-  animation: mark-turn 1.6s var(--ease) infinite;
+  animation: mark-turn 1.6s var(--ease-out) infinite;
 }
 @keyframes mark-turn {
   0% {

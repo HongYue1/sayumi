@@ -82,8 +82,8 @@ export default function Library() {
   const dragging = () => dragDepth() > 0;
 
   // Which profile dialog (if any) is open. Rendered at page level — never
-  // inside the command bar, whose backdrop-filter would clip a fixed overlay
-  // to the bar box.
+  // inside the command bar, which would trap a fixed overlay in its own
+  // stacking context.
   const [profileDialog, setProfileDialog] = createSignal<
     "clone" | "delete" | null
   >(null);
@@ -134,9 +134,9 @@ export default function Library() {
     closeSort();
   }
 
-  // Dismiss on outside pointerdown. A fixed scrim can't be used here: the
-  // sticky bar's backdrop-filter establishes a containing block, which would
-  // clip it to the bar box. A window listener is container-proof — and the
+  // Dismiss on outside pointerdown. A fixed scrim can't be used here: it would
+  // be trapped in the sticky bar's own stacking context instead of covering
+  // the page. A window listener is container-proof — and the
   // pass-through doctrine (an outside click closes the menu AND lands on its
   // target) is shared with every menu: ThemeDropdown, ProfileMenu, the
   // reader's more menu, and BookCard (whose only swallow is its own

@@ -507,13 +507,16 @@ th {
    <mark class="search-highlight"> would otherwise paint permanently as the
    active hit. searchHighlight.ts keys every lookup off this same attribute
    (SEARCH_MARK_SELECTOR in lib/searchMarks.ts). Authored copies of the
-   reserved attribute are stripped when chapter HTML is committed. */
+   reserved attribute are stripped when chapter HTML is committed.
+   The paint-critical declarations carry !important: this rule lives in the
+   base slot (before book-css), so a book rule like `#content mark` would
+   otherwise switch the active hit off. */
 mark[data-search-mark="sayumi"] {
-  background: var(--accent);
-  color: var(--bg-primary);
+  background: var(--accent) !important;
+  color: var(--bg-primary) !important;
   border-radius: 2px;
   padding: 0 1px;
-  outline: 2px solid color-mix(in srgb, var(--accent) 60%, var(--text-primary));
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, var(--text-primary)) !important;
   outline-offset: 1px;
 }
 
@@ -754,6 +757,28 @@ html.paged-two table {
   break-inside: avoid;
 }
 
+/* Single-column pages fragment like the spread: keep plates whole where they
+   fit, and never orphan a heading at the bottom of a page. */
+html.paged img,
+html.paged figure,
+html.paged table {
+  break-inside: avoid;
+}
+html.paged h1,
+html.paged h2,
+html.paged h3,
+html.paged h4,
+html.paged h5,
+html.paged h6,
+html.paged-two h1,
+html.paged-two h2,
+html.paged-two h3,
+html.paged-two h4,
+html.paged-two h5,
+html.paged-two h6 {
+  break-after: avoid;
+}
+
 /* Paged modes clip rather than scroll: #content is contain: paint with
    overflow-y: hidden, so media taller than the page box is unreachable rather
    than scrollable -- a full-page plate would simply lose its bottom. Bound the
@@ -805,7 +830,9 @@ html.raster-refresh #content-inner {
   background-image: linear-gradient(transparent, transparent);
 }
 
-* {
+/* Set once on the root: both properties inherit, so a universal selector
+   would match every element for no reason and force a recalc per element. */
+:root {
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }

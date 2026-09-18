@@ -1517,6 +1517,44 @@ describe("Read more menu", () => {
     await settle();
     expect(document.querySelector(".rdp-mrow")).not.toBeNull();
   });
+
+  it("closes the menu when the viewport leaves the narrow range", async () => {
+    // The ⋯ trigger only exists at ≤640px: widening with the menu open would
+    // strand it open-but-invisible with aria-expanded lying.
+    const listeners = new Set<(e: { matches: boolean }) => void>();
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: true,
+      media: query,
+      addEventListener: (
+        _type: string,
+        cb: (e: { matches: boolean }) => void,
+      ) => {
+        listeners.add(cb);
+      },
+      removeEventListener: (
+        _type: string,
+        cb: (e: { matches: boolean }) => void,
+      ) => {
+        listeners.delete(cb);
+      },
+    }));
+    try {
+      await bootReader();
+      const trigger = document.querySelector<HTMLButtonElement>(".rdp-more");
+      if (!trigger) throw new Error("more-tools trigger did not render");
+      trigger.click();
+      await settle();
+      expect(document.querySelector(".rdp-mrow")).not.toBeNull();
+
+      for (const cb of listeners) cb({ matches: false });
+      await settle();
+      expect(document.querySelector(".rdp-mrow")).toBeNull();
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+      expect(document.activeElement).toBe(trigger);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 describe("Read chrome", () => {

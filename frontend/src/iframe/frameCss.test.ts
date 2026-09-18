@@ -43,6 +43,27 @@ describe("paged #content overflow", () => {
   });
 });
 
+describe("search-hit highlight", () => {
+  it("survives a book rule aimed at marks", () => {
+    mountShell();
+    // A book stylesheet loads after the base slot: without !important its
+    // `#content mark` would switch the active hit off.
+    const book = document.createElement("style");
+    book.textContent = "#content mark { background: red; color: red; }";
+    document.head.appendChild(book);
+    const mark = document.createElement("mark");
+    mark.setAttribute("data-search-mark", "sayumi");
+    mark.textContent = "hit";
+    document.getElementById("content-inner")?.appendChild(mark);
+    const style = getComputedStyle(mark);
+    // happy-dom reports the unresolved var, not rgb(): what matters is the
+    // book rule lost. A resolved engine paints the light accent here.
+    expect(style.backgroundColor).not.toBe("rgb(255, 0, 0)");
+    expect(style.color).not.toBe("rgb(255, 0, 0)");
+    expect(style.backgroundColor).toContain("2563eb");
+  });
+});
+
 describe("page indicator clearance", () => {
   it("reserves a paged bottom inset the whole pill fits inside", () => {
     mountShell();

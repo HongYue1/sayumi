@@ -705,6 +705,19 @@ export default function Read(props: Props) {
     window.addEventListener("focusin", handlePointerActivity);
     window.addEventListener("pointermove", handlePointerActivity);
     document.addEventListener("visibilitychange", handleVisibility);
+    // The ⋯ trigger only exists at ≤640px: widening/rotating with the menu
+    // open would strand it open-but-invisible with aria-expanded lying.
+    // Stand the menu down (restoring trigger focus) on leaving narrow.
+    let stopNarrowWatch: (() => void) | undefined;
+    if (typeof window.matchMedia === "function") {
+      const narrow = window.matchMedia("(max-width: 640px)");
+      const onNarrowChange = (e: MediaQueryListEvent): void => {
+        if (!e.matches) closeMore();
+      };
+      narrow.addEventListener("change", onNarrowChange);
+      stopNarrowWatch = () =>
+        narrow.removeEventListener("change", onNarrowChange);
+    }
 
     // onSettled's callback runs in a tracked-effect scope where onCleanup is
     // forbidden (CLEANUP_IN_FORBIDDEN_SCOPE, beta.29 dev) — RETURN the
@@ -714,6 +727,7 @@ export default function Read(props: Props) {
       window.removeEventListener("focusin", handlePointerActivity);
       window.removeEventListener("pointermove", handlePointerActivity);
       document.removeEventListener("visibilitychange", handleVisibility);
+      stopNarrowWatch?.();
       // SPA route changes that don't go through handleBack or a page
       // visibilitychange (command-palette navigation, browser back, or a
       // keyed-bookId remount) unmount the reader without flushing, dropping up
