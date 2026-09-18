@@ -17,11 +17,16 @@
 //     signals from their apply phases, which are untracked scopes, so the
 //     deliberate reads are wrapped in untrack() the way Read.tsx does.
 //   - Opening centers on the current chapter and puts focus in the filter.
+//   - Centering keys on the first KNOWN position, not the mount: a position
+//     that arrives after the panel (async load) still centers, while chapter
+//     turns with the panel open never yank the list.
+//   - PageUp/PageDown step the padded viewport: clientHeight counts the
+//     scroller's padding, so the pads come off before dividing by ROW_H.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@solidjs/web";
-import { flush } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import type { TocEntry } from "~/api/client";
-import TocPanel from "~/components/reader/TocPanel";
+import TocPanel, { pageStep } from "~/components/reader/TocPanel";
 
 async function settle(): Promise<void> {
   for (let i = 0; i < 4; i += 1) {
@@ -261,6 +266,52 @@ describe("TocPanel", () => {
     expect(Array.from(mark?.textContent ?? "")).toHaveLength(2);
     expect(mark?.previousSibling?.textContent).toBe("Lead ");
     expect(mark?.nextSibling?.textContent).toBe(" tail");
+  });
+
+  it("centers when the reading position arrives after the panel", async () => {
+    const toc = book(200);
+    // Getter props, not a re-invoked root: a real parent pushes the arriving
+    // position into the live instance's reactive props.
+    const [active, setActive] = createSignal<TocEntry | null>(null);
+    dispose = render(
+      () =>
+        TocPanel({
+          toc,
+          get activeEntry() {
+            return active();
+          },
+          onnavigate: onnavigate as (href: string) => void,
+          onclose: onclose as () => void,
+        }),
+      container,
+    );
+    await settle();
+
+    // No position yet: the list opens at the top with focus in the filter.
+    expect(document.activeElement).toBe(filterEl());
+    expect(scroller().scrollTop).toBe(0);
+
+    setActive(toc[150]!);
+    await settle();
+
+    // The first known position centers exactly like an open-time one, and the
+    // tab stop follows it into the newly mounted window.
+    expect(scroller().scrollTop).toBeGreaterThan(140 * ROW_H);
+    expect(tabStops()[0]?.id).toBe("toc-entry-150");
+
+    // A later chapter turn with the panel open must not yank the list.
+    const settled = scroller().scrollTop;
+    setActive(toc[10]!);
+    await settle();
+    expect(scroller().scrollTop).toBe(settled);
+  });
+
+  it("pages by the padded viewport, not past it", () => {
+    // 600px viewport with 12px top + 32px bottom padding: 16 rows, where the
+    // old padded division stepped 17.
+    expect(pageStep(600, 12, 32)).toBe(16);
+    expect(pageStep(34, 0, 0)).toBe(1);
+    expect(pageStep(0, 0, 0)).toBe(1);
   });
 
   it("opens and filters without logging an untracked-read diagnostic", async () => {
