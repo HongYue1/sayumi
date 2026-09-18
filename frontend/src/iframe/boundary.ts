@@ -25,6 +25,12 @@ import { prefersReducedMotion } from "./reduceMotion";
 
 /** Touch pull distance, in px, that hands off to the adjacent chapter. */
 export const TOUCH_THRESHOLD = 200;
+/**
+ * Wheel pull distance, in px, that hands off to the adjacent chapter. Owned
+ * here rather than frame.ts so the threshold, the per-gesture callers, and
+ * the suites share one definition instead of re-declaring it.
+ */
+export const WHEEL_THRESHOLD = 600;
 /** A pull with no further movement is abandoned after this long. */
 export const BOUNDARY_RESET_MS = 600;
 /**
@@ -37,7 +43,7 @@ export const BOUNDARY_SENT_HIDE_MS = 300;
  * can't be reused there -- there is no hand-off to earn, and the wheel
  * threshold (600) would leave the end-stop invisible for a whole second.
  */
-const EDGE_FULL_TRAVEL = 120;
+export const EDGE_FULL_TRAVEL = 120;
 /** How long a keyboard/paged end-stop flash stays up (no gesture to track). */
 export const EDGE_FLASH_MS = 700;
 /** Distance the pill slides in from its screen edge. */

@@ -6,12 +6,11 @@ import {
   EDGE_FLASH_MS,
   INDICATOR_SLIDE_PX,
   TOUCH_THRESHOLD,
+  WHEEL_THRESHOLD,
   createBoundary,
   indicatorVisual,
 } from "./boundary";
 
-// frame.ts owns this one and passes it per gesture.
-const WHEEL_THRESHOLD = 600;
 // Comfortably past the touch hand-off threshold.
 const TOUCH_PULL = TOUCH_THRESHOLD + 10;
 
