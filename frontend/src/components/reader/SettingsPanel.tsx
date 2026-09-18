@@ -11,7 +11,10 @@
 //   - The CustomThemeDialog gate is <Show when={editor()}> with a function
 //     child, so the dialog remounts per open and can seed its local state
 //     from props once (documented in that component).
-//   - aria-pressed gets "true"/"false" strings (EnumeratedPseudoBoolean).
+//   - Single-select choice groups are radiogroups with selection following
+//     focus; the theme swatches stay aria-pressed toggles (their grids mix
+//     in edit/create buttons, which a radiogroup cannot own).
+//   - aria-pressed/checked gets "true"/"false" strings (EnumeratedPseudoBoolean).
 import { createMemo, createSignal, For, onSettled, Show } from "solid-js";
 import { settings, DEFAULT_USER_SETTINGS } from "~/lib/settings";
 import {
@@ -152,13 +155,38 @@ function AutoRow(p: AutoRowProps) {
   // One source of truth for the two arms that make the slider inert: Auto
   // owns the value, or the current mode makes the setting meaningless.
   const inert = (): boolean => p.value === null || !!p.disabledReason;
+  // Row-scoped ids (labels are unique across the panel) so the note and the
+  // reason can be describedby targets: neither is part of the slider's
+  // accessible name otherwise, and the vertical-margin note is the only place
+  // a divergent bottom value is surfaced at all.
+  const slug = (): string => p.label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const noteId = (): string => `stp-${slug()}-note`;
+  const reasonId = (): string => `stp-${slug()}-reason`;
+  const describedBy = (): string | undefined => {
+    const ids: string[] = [];
+    if (headNote()) ids.push(noteId());
+    if (p.disabledReason) ids.push(reasonId());
+    return ids.length > 0 ? ids.join(" ") : undefined;
+  };
+  // Mirror of the visual readout: without it a screen reader announces the
+  // raw number ("1.6") with no unit or Auto state. A mode-disabled slider
+  // stays silent (its label plus the described reason carry the meaning).
+  const valueText = (): string | undefined =>
+    p.disabledReason
+      ? undefined
+      : p.value === null
+        ? "Auto"
+        : `${p.value}${p.unit}`;
   return (
     <div class={["stp-row", { "stp-row-disabled": !!p.disabledReason }]}>
       <div class="stp-row-head">
         <span class="stp-label">
           {p.label}
           {headNote() ? (
-            <span class="stp-head-note"> · {headNote()}</span>
+            <span class="stp-head-note" id={noteId()}>
+              {" "}
+              · {headNote()}
+            </span>
           ) : null}
         </span>
         <Show
@@ -177,7 +205,9 @@ function AutoRow(p: AutoRowProps) {
             </label>
           }
         >
-          <span class="stp-hint">{p.disabledReason}</span>
+          <span class="stp-hint" id={reasonId()}>
+            {p.disabledReason}
+          </span>
         </Show>
       </div>
       <div class="stp-slider">
@@ -194,6 +224,8 @@ function AutoRow(p: AutoRowProps) {
           value={p.value ?? p.fallback}
           aria-disabled={inert() ? "true" : "false"}
           aria-label={p.label}
+          aria-valuetext={valueText()}
+          aria-describedby={describedBy()}
           onInput={(e) => {
             if (inert()) {
               e.currentTarget.value = String(p.value ?? p.fallback);
@@ -210,6 +242,86 @@ function AutoRow(p: AutoRowProps) {
               : `${p.value}${p.unit}`}
         </span>
       </div>
+    </div>
+  );
+}
+
+/** Single-select choice group as a radiogroup with selection following focus.
+ * Arrows/Home/End move (and consume) the keys here, so they never reach the
+ * reader shortcuts underneath -- the old aria-pressed toggles owned no keys.
+ * Options are frozen module constants, so .map() rather than <For> (no
+ * reconciler for buttons that never change). */
+function RadioGroup<T extends string | null>(props: {
+  label: string;
+  options: { id: T; label: string }[];
+  value: T;
+  small?: boolean;
+  onChange: (id: T) => void;
+}) {
+  let root: HTMLDivElement | undefined;
+  function radios(): HTMLButtonElement[] {
+    if (!root) return [];
+    return Array.from(
+      root.querySelectorAll<HTMLButtonElement>('[role="radio"]'),
+    );
+  }
+  function selectIndex(index: number): void {
+    const ids = props.options.map((o) => o.id);
+    const id = ids[index];
+    if (id === undefined) return;
+    props.onChange(id);
+    // The buttons persist across selection (only roving tabindex flips), so
+    // focusing by index needs no flush.
+    radios()[index]?.focus();
+  }
+  function onKeyDown(e: KeyboardEvent): void {
+    if (e.isComposing) return;
+    const ids = props.options.map((o) => o.id);
+    const cur = ids.indexOf(props.value);
+    let next: number | null = null;
+    switch (e.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+        next = (cur + 1) % ids.length;
+        break;
+      case "ArrowLeft":
+      case "ArrowUp":
+        next = (cur - 1 + ids.length) % ids.length;
+        break;
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = ids.length - 1;
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    selectIndex(next);
+  }
+  return (
+    <div
+      class={["stp-segmented", { "stp-segmented-small": props.small === true }]}
+      role="radiogroup"
+      aria-label={props.label}
+      tabindex="-1"
+      onKeyDown={onKeyDown}
+      ref={(el) => (root = el)}
+    >
+      {props.options.map((o) => (
+        <button
+          type="button"
+          role="radio"
+          aria-checked={props.value === o.id ? "true" : "false"}
+          tabindex={props.value === o.id ? "0" : "-1"}
+          class={[{ active: props.value === o.id }]}
+          onClick={() => props.onChange(o.id)}
+        >
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -271,6 +383,10 @@ export default function SettingsPanel(props: Props) {
   const [naming, setNaming] = createSignal(false);
   const [presetName, setPresetName] = createSignal("");
   const [saving, setSaving] = createSignal(false);
+  // A failed preset load is shown, not mistaken for "no presets": without a
+  // loaded list a duplicate name check cannot run, so the error must be
+  // visible for the section below to be honest.
+  const [presetsError, setPresetsError] = createSignal(false);
 
   // Custom-theme editor overlay: null = closed. `base` seeds the colors (the
   // active theme for a new one); `edit` is the target when editing an existing
@@ -287,9 +403,18 @@ export default function SettingsPanel(props: Props) {
   // setup on a stray tap.
   const [resetArmed, setResetArmed] = createSignal(false);
   let resetTimer: ReturnType<typeof setTimeout> | undefined;
+  // One AbortController for every preset request the panel issues. There is no
+  // per-operation controller (unlike the theme dialog) because concurrent
+  // preset ops need no save-vs-delete distinction: unmount aborts them all
+  // together, and each continuation stands down on abort instead of writing
+  // into a disposed owner.
+  const presetAbort = new AbortController();
   // Teardown returned from onSettled: 2.0 keeps component teardown in this
   // shape and reserves onCleanup for custom-primitive internals.
-  onSettled(() => () => clearTimeout(resetTimer));
+  onSettled(() => () => {
+    clearTimeout(resetTimer);
+    presetAbort.abort();
+  });
 
   // Built-ins plus the user's custom themes, split by group. Derived so that
   // creating / editing / deleting a custom theme (customThemes.list is a
@@ -358,22 +483,39 @@ export default function SettingsPanel(props: Props) {
   });
 
   async function loadPresets(): Promise<void> {
+    setPresetsError(false);
     try {
-      setPresets(await getPresets());
+      const list = await getPresets(presetAbort.signal);
+      // Unmounted while loading: the owner is disposed, so publish nothing.
+      if (presetAbort.signal.aborted) return;
+      setPresets(list);
     } catch {
-      // Non-fatal: presets are a convenience; leave the list empty on failure.
+      if (presetAbort.signal.aborted) return;
+      // Non-fatal, but shown: an empty list must not read as "no presets",
+      // and the duplicate-name guard below cannot run without a loaded list.
+      setPresetsError(true);
+      toast.show("Couldn't load presets");
     }
   }
 
   function startNaming(): void {
     setNaming(true);
     setPresetName("");
+    // The form mounts on flush; a focusing ref would run while detached (a
+    // silent no-op -- see the theme dialog), so defer past insertion.
+    queueMicrotask(() => nameInput?.focus());
   }
 
   function cancelNaming(): void {
     setNaming(false);
     setPresetName("");
+    // The opener unmounts with the form: land back on the button that opens
+    // it instead of dropping focus to body inside the panel's focus trap.
+    queueMicrotask(() => newPresetBtn?.focus());
   }
+
+  let nameInput: HTMLInputElement | undefined;
+  let newPresetBtn: HTMLButtonElement | undefined;
 
   // saving() is a signal: two submits in the same tick both read its
   // pre-write value, so it cannot serialise the POST on its own (Login keeps
@@ -385,6 +527,13 @@ export default function SettingsPanel(props: Props) {
     event.preventDefault();
     const name = presetName().trim();
     if (!name || savingPreset || saving()) return;
+    // The server mints a fresh id per create with no uniqueness check, so two
+    // presets can share a name -- and their delete buttons their accessible
+    // label. Refuse against the loaded list instead.
+    if (presets().some((p) => p.name === name)) {
+      toast.show(`A preset named "${name}" already exists`);
+      return;
+    }
     // Never capture the compile-time defaults: until the load resolves,
     // settings.value is not the user's state, and the server would happily
     // store those defaults under a user-chosen name (they validate fine).
@@ -397,15 +546,19 @@ export default function SettingsPanel(props: Props) {
     try {
       // Copy the nested map too: { ...s() } alone would put the live store's
       // own fontRoles object in the request body (see #saveNow).
-      const created = await createPreset({
-        name,
-        settings: { ...s(), fontRoles: { ...(s().fontRoles ?? {}) } },
-      });
+      const created = await createPreset(
+        {
+          name,
+          settings: { ...s(), fontRoles: { ...(s().fontRoles ?? {}) } },
+        },
+        presetAbort.signal,
+      );
+      if (presetAbort.signal.aborted) return;
       setPresets([...presets(), created]);
-      setNaming(false);
-      setPresetName("");
+      cancelNaming();
       toast.show(`Saved preset "${created.name}"`);
     } catch {
+      if (presetAbort.signal.aborted) return;
       toast.show("Couldn't save preset");
     } finally {
       savingPreset = false;
@@ -431,8 +584,11 @@ export default function SettingsPanel(props: Props) {
     const index = presets().findIndex((x) => x.id === p.id);
     setPresets(presets().filter((x) => x.id !== p.id));
     try {
-      await deletePreset(p.id);
+      await deletePreset(p.id, presetAbort.signal);
     } catch {
+      // An unmount aborts the request: the owner is disposed, so neither roll
+      // the (dead) list back nor toast over a closed panel.
+      if (presetAbort.signal.aborted) return;
       const list = presets();
       if (!list.some((x) => x.id === p.id)) {
         const restored = [...list];
@@ -558,6 +714,12 @@ export default function SettingsPanel(props: Props) {
         if (e.key !== "Escape" || e.isComposing) return;
         e.preventDefault();
         e.stopPropagation();
+        // Naming owns the first Escape: it cancels the name field (and returns
+        // focus to its opener) instead of closing the whole panel over a draft.
+        if (naming()) {
+          cancelNaming();
+          return;
+        }
         props.onclose();
       }}
     >
@@ -612,12 +774,26 @@ export default function SettingsPanel(props: Props) {
             </div>
           </Show>
 
+          <Show when={presetsError()}>
+            <p class="stp-hint">
+              Couldn't load presets.{" "}
+              <button
+                type="button"
+                class="btn-ghost press"
+                onClick={() => void loadPresets()}
+              >
+                Try again
+              </button>
+            </p>
+          </Show>
+
           <Show
             when={naming()}
             fallback={
               <button
                 type="button"
                 class="stp-preset-new"
+                ref={(el) => (newPresetBtn = el)}
                 onClick={startNaming}
               >
                 + Save current as preset
@@ -632,6 +808,7 @@ export default function SettingsPanel(props: Props) {
                 placeholder="Preset name"
                 maxlength="60"
                 aria-label="Preset name"
+                ref={(el) => (nameInput = el)}
                 onInput={(e) => setPresetName(e.currentTarget.value)}
               />
               <button
@@ -656,21 +833,12 @@ export default function SettingsPanel(props: Props) {
 
         <section class="stp-section">
           <h3>Reading mode</h3>
-          <div class="stp-segmented" role="group" aria-label="Reading mode">
-            {/* .map() rather than <For>: MODES is a frozen module constant, so
-                <For> would keep a reconciler alive for buttons that never
-                change. The attributes inside stay reactive either way. */}
-            {MODES.map((m) => (
-              <button
-                type="button"
-                class={[{ active: s().displayMode === m.id }]}
-                aria-pressed={s().displayMode === m.id ? "true" : "false"}
-                onClick={() => set("displayMode", m.id)}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
+          <RadioGroup
+            label="Reading mode"
+            options={MODES}
+            value={s().displayMode}
+            onChange={(id) => set("displayMode", id)}
+          />
           {/* Deliberately not Show-wrapped: this paragraph is the live
               region, and one inserted together with its text announces
               nothing. It stays put and only the sentence changes. */}
@@ -850,6 +1018,7 @@ export default function SettingsPanel(props: Props) {
                 step="1"
                 value={s().fontSize}
                 aria-label="Font size"
+                aria-valuetext={`${s().fontSize}px`}
                 onInput={(e) => set("fontSize", +e.currentTarget.value)}
               />
               <span class="stp-val">{s().fontSize}px</span>
@@ -1015,24 +1184,13 @@ export default function SettingsPanel(props: Props) {
             <div class="stp-row-head">
               <span class="stp-label">Alignment</span>
             </div>
-            <div
-              class="stp-segmented stp-segmented-small"
-              role="group"
-              aria-label="Chapter title alignment"
-            >
-              {TITLE_ALIGNS.map((a) => (
-                <button
-                  type="button"
-                  class={[{ active: s().chapterTitleAlign === a.id }]}
-                  aria-pressed={
-                    s().chapterTitleAlign === a.id ? "true" : "false"
-                  }
-                  onClick={() => set("chapterTitleAlign", a.id)}
-                >
-                  {a.label}
-                </button>
-              ))}
-            </div>
+            <RadioGroup
+              label="Chapter title alignment"
+              small
+              options={TITLE_ALIGNS}
+              value={s().chapterTitleAlign}
+              onChange={(id) => set("chapterTitleAlign", id)}
+            />
           </div>
 
           <AutoRow
@@ -1134,11 +1292,13 @@ export default function SettingsPanel(props: Props) {
           <Icon icon={Info} size={15} decorative />
           About Sayumi
         </button>
+        {/* No aria-label: the visible text names the button in both arms, and a
+            static label would break WCAG 2.5.3 (Label in Name) the moment the
+            text swaps to the armed wording. */}
         <button
           type="button"
           class={["stp-reset", { armed: resetArmed() }]}
           onClick={resetToDefaults}
-          aria-label="Reset all settings to defaults"
         >
           {resetArmed()
             ? "Click again to reset everything"
