@@ -131,7 +131,9 @@ func frontendToolingFixture(t *testing.T) string {
 		t.Fatal(err)
 	}
 	var config map[string]any
-	if err := json.Unmarshal(data, &config); err != nil {
+	// tsconfig is JSONC: TypeScript accepts comments, encoding/json does not.
+	// Strip them before decoding so documented options don't break the fixture.
+	if err := json.Unmarshal(stripJSONComments(data), &config); err != nil {
 		t.Fatal(err)
 	}
 	// The real compiler supplies standard libraries from its installed package.
@@ -145,6 +147,76 @@ func frontendToolingFixture(t *testing.T) string {
 	writeProvisionFile(t, dir, "tsconfig.json", data)
 	writeProvisionFile(t, dir, "package.json", []byte("{\"type\":\"module\"}\n"))
 	return dir
+}
+
+// stripJSONComments removes // line and /* block */ comments outside string
+// literals so JSONC (tsconfig, oxlint configs) decodes with encoding/json.
+// Minimal by design: it tracks only strings and backslash escapes, which is
+// all a config file needs.
+func stripJSONComments(data []byte) []byte {
+	out := make([]byte, 0, len(data))
+	i := 0
+	for i < len(data) {
+		c := data[i]
+		if c == '"' {
+			out = append(out, c)
+			i++
+			for i < len(data) {
+				c = data[i]
+				out = append(out, c)
+				i++
+				if c == '\\' && i < len(data) {
+					out = append(out, data[i])
+					i++
+				} else if c == '"' {
+					break
+				}
+			}
+			continue
+		}
+		if c == '/' && i+1 < len(data) && (data[i+1] == '/' || data[i+1] == '*') {
+			if data[i+1] == '/' {
+				for i < len(data) && data[i] != '\n' {
+					i++
+				}
+				continue
+			}
+			i += 2
+			for i+1 < len(data) && (data[i] != '*' || data[i+1] != '/') {
+				i++
+			}
+			i += 2
+			continue
+		}
+		out = append(out, c)
+		i++
+	}
+	return out
+}
+
+func TestStripJSONComments(t *testing.T) {
+	for _, tc := range []struct {
+		name, source, want string
+	}{
+		{name: "line", source: "{\"a\": 1 // trailing\n}", want: "{\"a\": 1 \n}"},
+		{name: "block", source: "{\"a\": /* mid */ 1}", want: "{\"a\":  1}"},
+		{
+			name:   "strings",
+			source: "{\"url\": \"https://x.test/*y*\", \"q\": \"a // b\"}",
+			want:   "{\"url\": \"https://x.test/*y*\", \"q\": \"a // b\"}",
+		},
+		{name: "escaped", source: "{\"q\": \"a \\\" // b\"} // c\n", want: "{\"q\": \"a \\\" // b\"} \n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := string(stripJSONComments([]byte(tc.source))); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+			var decoded map[string]any
+			if err := json.Unmarshal(stripJSONComments([]byte(tc.source)), &decoded); err != nil {
+				t.Fatalf("stripped source must decode: %v", err)
+			}
+		})
+	}
 }
 
 func frontendToolBin(t *testing.T, pkg, bin string) string {
