@@ -1082,6 +1082,10 @@ describe("Read progress", () => {
     expect(pill.textContent).toContain("Ch 2/5");
     expect(pill.textContent).toContain("30%");
     expect(pill.getAttribute("aria-label")).toContain("30 percent");
+    // Position reports stream in continuously while reading: a live region
+    // here would interrupt screen readers without pause, so the pill stays a
+    // plain, on-demand-readable cue.
+    expect(pill.getAttribute("role")).toBeNull();
   });
 
   it("forced-flushes the latest position on back and navigates to the library", async () => {
@@ -1503,6 +1507,26 @@ describe("Read more menu", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
+  it("stands the vertical arrows down while the menu is open", async () => {
+    settings.update({ displayMode: "paged" });
+    await bootReader();
+    const trigger = document.querySelector<HTMLButtonElement>(".rdp-more");
+    if (!trigger) throw new Error("more-tools trigger did not render");
+    trigger.click();
+    await settle();
+    expect(document.querySelector(".rdp-more-menu")).not.toBeNull();
+
+    // Focus sits on the trigger after a mouse open, outside the menu's own
+    // keydown handler: without the stand-down the reader paged underneath
+    // the open menu.
+    frameHandler("onkey")(key("ArrowDown"));
+    frameHandler("onkey")(key("ArrowUp"));
+    await settle();
+    expect(frame.api.nextPage).not.toHaveBeenCalled();
+    expect(frame.api.prevPage).not.toHaveBeenCalled();
+    expect(document.querySelector(".rdp-more-menu")).not.toBeNull();
+  });
+
   it("stands down when the outside-pointerdown target is not a Node", async () => {
     await bootReader();
     const trigger = document.querySelector<HTMLButtonElement>(".rdp-more");
@@ -1554,6 +1578,190 @@ describe("Read more menu", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe("Read route hardening", () => {
+  function mount(): void {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    dispose = render(() => createComponent(Read, { bookId: "book1" }), host);
+  }
+
+  function toolbarButton(label: string): HTMLButtonElement {
+    const el = document.querySelector<HTMLButtonElement>(
+      `button[aria-label="${label}"]`,
+    );
+    if (!el) throw new Error(`${label} button did not render`);
+    return el;
+  }
+
+  async function openToc(): Promise<void> {
+    tocPanelLatest = null;
+    toolbarButton("Table of contents").click();
+    await vi.waitFor(() => expect(tocPanelLatest).not.toBeNull());
+    await settle();
+  }
+
+  function chapterFetches(i: number): number {
+    return api.fetchChapter.mock.calls.filter((call) => call[1] === i).length;
+  }
+
+  it("refuses the book-bound panels until the book resolves", async () => {
+    let releaseBook!: (value: ApiClient.BookDetail) => void;
+    api.getBook.mockImplementation(
+      () =>
+        new Promise<ApiClient.BookDetail>((resolve) => {
+          releaseBook = resolve;
+        }),
+    );
+    mount();
+    await settle();
+
+    // Opening TOC or search mounts no dialog this early, yet used to flip
+    // the route inert -- stranding pointer users with no panel and no scrim.
+    toolbarButton("Table of contents").click();
+    await settle();
+    toolbarButton("Search in book").click();
+    await settle();
+    expect(document.querySelector(".rdp-panel")).toBeNull();
+    expect(document.querySelector(".rdp-bar")!.hasAttribute("inert")).toBe(
+      false,
+    );
+    expect(showToast).toHaveBeenCalledWith("The book is still loading.");
+
+    // Resolving opens normally.
+    releaseBook(book());
+    await settle();
+    await settle();
+    toolbarButton("Table of contents").click();
+    await vi.waitFor(() =>
+      expect(document.querySelector(".rdp-panel")).not.toBeNull(),
+    );
+  });
+
+  it("stands boot down when the route unmounts mid-fetch", async () => {
+    let releaseBook!: (value: ApiClient.BookDetail) => void;
+    api.getBook.mockImplementation(
+      () =>
+        new Promise<ApiClient.BookDetail>((resolve) => {
+          releaseBook = resolve;
+        }),
+    );
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    try {
+      mount();
+      await settle();
+      dispose?.();
+      dispose = null;
+      releaseBook(book());
+      await settle();
+      await settle();
+      // The late fetch must not arm the 15s save timer...
+      expect(
+        setTimeoutSpy.mock.calls.filter((call) => call[1] === 15_000),
+      ).toHaveLength(0);
+      // ...nor run the boot tail (bookmark resync).
+      expect(api.getBookmarks).not.toHaveBeenCalled();
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
+  it("fails an empty-spine book without mounting the frame", async () => {
+    api.getBook.mockResolvedValue(book(0));
+    mount();
+    await vi.waitFor(() =>
+      expect(document.querySelector(".rdp-error")).not.toBeNull(),
+    );
+    await settle();
+    expect(frame.latest).toBeNull();
+    expect(document.querySelector(".rdp-book")!.textContent).toContain(
+      "Unavailable",
+    );
+  });
+
+  it("lands at the end of the previous chapter when stepping back", async () => {
+    let now = 10000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    await bootReader();
+    now = 11000; // past the 650ms post-swap grace
+    frameHandler("onboundary")("end");
+    await vi.waitFor(() => expect(loadChapterCalls().length).toBe(2));
+    frameHandler("onkey")(key("ArrowLeft"));
+    await vi.waitFor(() => expect(loadChapterCalls().length).toBe(3));
+    // Backwards is reading order: the end of chapter 1, not its top.
+    expect(loadChapterCalls()[2].scrollTarget).toBe("end");
+    expect(loadChapterCalls()[2].data.chapterIndex).toBe(0);
+  });
+
+  it("keeps a jumped-to chapter cached for the way back", async () => {
+    await bootReader();
+    expect(chapterFetches(4)).toBe(0);
+    // The last chapter prefetches only one neighbour, so the out-and-back
+    // working set stays within the cache: any second fetch is the admission
+    // refusal, not LRU pressure.
+    await openToc();
+    tocPanelLatest!.onnavigate("ch4.xhtml");
+    await vi.waitFor(() => expect(chapterFetches(4)).toBe(1));
+    await settle();
+    await openToc();
+    tocPanelLatest!.onnavigate("ch0.xhtml");
+    await settle();
+    await openToc();
+    const loadsBefore = loadChapterCalls().length;
+    tocPanelLatest!.onnavigate("ch4.xhtml");
+    // The revisit renders...
+    await vi.waitFor(() =>
+      expect(loadChapterCalls().length).toBe(loadsBefore + 1),
+    );
+    await settle();
+    // ...from the cache: still exactly one transport fetch.
+    expect(chapterFetches(4)).toBe(1);
+  });
+
+  it("aborts prefetches when the route unmounts", async () => {
+    api.fetchChapter.mockImplementation((_: string, i: number) =>
+      i === 1
+        ? new Promise<ApiClient.ChapterData>(() => {})
+        : Promise.resolve(chapter(i)),
+    );
+    await bootReader();
+    const prefetch = api.fetchChapter.mock.calls.find((call) => call[1] === 1);
+    if (!prefetch) throw new Error("chapter 1 prefetch did not start");
+    const signal = prefetch[3] as AbortSignal | undefined;
+    expect(signal).toBeDefined();
+    expect(signal!.aborted).toBe(false);
+    dispose?.();
+    dispose = null;
+    expect(signal!.aborted).toBe(true);
+  });
+
+  it("hides the reading stage from AT while a panel is open", async () => {
+    await bootReader();
+    const stage = document.querySelector(".rdp-stage-content");
+    if (!stage) throw new Error("stage did not render");
+    expect(stage.getAttribute("aria-hidden")).toBe("false");
+    toolbarButton("Settings").click();
+    await vi.waitFor(() => expect(settingsPanelLatest).not.toBeNull());
+    await settle();
+    expect(stage.getAttribute("aria-hidden")).toBe("true");
+    frameHandler("onkey")(key("Escape"));
+    await settle();
+    expect(stage.getAttribute("aria-hidden")).toBe("false");
+  });
+
+  it("keeps one accessible name on the bookmark toggle", async () => {
+    api.createBookmark.mockImplementation(async () => bm("b1", 0, 0));
+    await bootReader();
+    // Static name with aria-pressed for state: the toggle already announces
+    // through the toast, so a flipping label announced every toggle twice.
+    expect(document.querySelector('[aria-label="Bookmark"]')).not.toBeNull();
+    frameHandler("onkey")(key("b"));
+    await vi.waitFor(() => expect(api.createBookmark).toHaveBeenCalledTimes(1));
+    await settle();
+    expect(document.querySelector('[aria-label="Bookmark"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="Remove bookmark"]')).toBeNull();
   });
 });
 

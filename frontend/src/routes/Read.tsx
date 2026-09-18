@@ -327,6 +327,9 @@ export default function Read(props: Props) {
   // ---- non-reactive instance state ----------------------------------------
   let api: ChapterFrameAPI | null = null;
   let bookLoaded = false;
+  // Flipped by the onSettled teardown. Leaving mid-boot (or mid-retry) must
+  // not schedule the save timer or write the book state afterwards.
+  let disposed = false;
   let initialLoadRequested = false;
   let saveData: ProgressData = { chapter: 0, percent: 0 };
   const chapterCache = new Map<number, ChapterData>();
@@ -362,6 +365,10 @@ export default function Read(props: Props) {
   let highlightTimer: ReturnType<typeof setTimeout> | undefined;
   let chromeHideTimer: ReturnType<typeof setTimeout> | undefined;
   let fetchAbort: AbortController | null = null;
+  // Route-lifetime abort for chapter prefetches. Navigations deliberately do
+  // NOT share it (adjacent prefetches stay best-effort across navs); only
+  // leaving the route cancels them, so they can't decode past unmount.
+  const prefetchAbort = new AbortController();
   let progressTimer: ReturnType<typeof setTimeout> | undefined;
   let lastFlushTime = 0;
   // Waiter for a position request issued on the way out (handleBack). Resolved
@@ -407,6 +414,14 @@ export default function Read(props: Props) {
   }
   function togglePanel(p: Panel): void {
     const next: Panel = activePanel() === p ? "none" : p;
+    // TOC and search render against the book (gated Shows below): opening
+    // them before it resolves -- or after it fails -- mounts no dialog while
+    // still flipping the route inert, stranding pointer users with no panel
+    // and no scrim. Refuse until the book is present. Closing always runs.
+    if (next !== "none" && (next === "toc" || next === "search") && !book()) {
+      showToast("The book is still loading.");
+      return;
+    }
     setPanel(next);
     // A panel is part of the chrome — keep it visible while open. Branch on
     // the computed value: an accessor read here still returns the pre-write
@@ -443,6 +458,9 @@ export default function Read(props: Props) {
     // focus back off whatever legitimately took it.
     if (!moreOpenNow) return;
     setMoreOpenState(false);
+    // Drop the stale node so a queued focus can't land in a closed popover
+    // (the BookCard parity) -- the trigger binding stays for the restore.
+    moreMenuEl = undefined;
     if (restoreFocus) moreBtn?.focus();
     // Re-arm the chrome auto-hide that toggleMore paused while the menu was up.
     resetChromeTimer();
@@ -723,6 +741,7 @@ export default function Read(props: Props) {
     // forbidden (CLEANUP_IN_FORBIDDEN_SCOPE, beta.29 dev) — RETURN the
     // cleanup instead; it runs once at owner disposal, exactly the teardown.
     return () => {
+      disposed = true;
       window.removeEventListener("keydown", handleWindowKey);
       window.removeEventListener("focusin", handlePointerActivity);
       window.removeEventListener("pointermove", handlePointerActivity);
@@ -751,6 +770,7 @@ export default function Read(props: Props) {
       }
       cancelProgressSave();
       fetchAbort?.abort();
+      prefetchAbort.abort();
       if (highlightTimer) clearTimeout(highlightTimer);
       if (chromeHideTimer) clearTimeout(chromeHideTimer);
       if (pendingPositionTimer) {
@@ -830,6 +850,9 @@ export default function Read(props: Props) {
 
     lastBootProgress = saved;
     await openBook(saved);
+    // Boot may have been disposed while the book fetched: openBook already
+    // stood down, so the toast and the bookmark resync stand down too.
+    if (disposed) return;
 
     // Restoring a position is otherwise silent — say where the book resumed
     // so mid-book openings don't feel arbitrary. Only for a real position.
@@ -861,15 +884,18 @@ export default function Read(props: Props) {
     }
     try {
       const data = await getBook(bookId);
-      setBook(data);
-      bookLoaded = true;
       if (data.chapterCount <= 0) {
         // Empty-spine EPUB: nothing to render — fail at the book level instead
         // of opening a blank reader (Chapter 1/0) whose progress writes 400.
+        // Decided before bookLoaded / setBook: a failed book must neither arm
+        // the save timer nor mount the frame behind the error block.
         setBookLoadFailed(true);
         setError("This book has no readable chapters.");
         return;
       }
+      if (disposed) return;
+      setBook(data);
+      bookLoaded = true;
       const chapter = Math.max(
         0,
         Math.min(saved.chapter, data.chapterCount - 1),
@@ -933,6 +959,12 @@ export default function Read(props: Props) {
   async function fetchChapterWithRetry(
     index: number,
     signal?: AbortSignal,
+    // Direct loads admit unconditionally: at resolve time currentChapter() is
+    // still the pre-swap chapter, so a long jump's own target failed the ±1
+    // test and every jump target re-fetched on the way back. Prefetches keep
+    // the default, which is what stops a stale one from refreshing itself as
+    // most-recently-used over the warm working set.
+    forceAdmit = false,
   ): Promise<ChapterData> {
     if (isSpecimen) return specimenChapter();
     const cached = chapterCache.get(index);
@@ -969,7 +1001,7 @@ export default function Read(props: Props) {
       const data = await request;
       // A prefetch that completes after the user moved on must not refresh
       // itself as most-recently-used and evict the warm working set.
-      if (Math.abs(index - currentChapter()) <= 1) {
+      if (forceAdmit || Math.abs(index - currentChapter()) <= 1) {
         if (chapterCache.size >= MAX_CHAPTER_CACHE) {
           const lru = chapterCache.keys().next().value;
           if (lru !== undefined) chapterCache.delete(lru);
@@ -1024,7 +1056,7 @@ export default function Read(props: Props) {
     const nextCFI = restore?.cfi;
 
     try {
-      const data = await fetchChapterWithRetry(index, signal);
+      const data = await fetchChapterWithRetry(index, signal, true);
       const hasPrev = index > 0;
       const hasNext = index + 1 < b.chapterCount;
 
@@ -1060,8 +1092,14 @@ export default function Read(props: Props) {
       saveData = { chapter: index, percent: nextPercent, cfi: nextCFI };
 
       if (!pendingNav) {
-        if (hasNext) void fetchChapterWithRetry(index + 1).catch(() => {});
-        if (hasPrev) void fetchChapterWithRetry(index - 1).catch(() => {});
+        if (hasNext)
+          void fetchChapterWithRetry(index + 1, prefetchAbort.signal).catch(
+            () => {},
+          );
+        if (hasPrev)
+          void fetchChapterWithRetry(index - 1, prefetchAbort.signal).catch(
+            () => {},
+          );
       }
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
@@ -1326,8 +1364,10 @@ export default function Read(props: Props) {
   // ---- navigation + keyboard ----------------------------------------------
   function goPrev(): void {
     if (isPaged()) api?.prevPage();
+    // Backwards lands at the END of the previous chapter (reading order), the
+    // way the boundary handler lands it -- "top" skipped the chapter silently.
     else if (book() && currentChapter() > 0)
-      void loadChapter(currentChapter() - 1, "top");
+      void loadChapter(currentChapter() - 1, "end");
   }
   function goNext(): void {
     if (isPaged()) api?.nextPage();
@@ -1583,6 +1623,10 @@ export default function Read(props: Props) {
         closeMore();
         return true;
       }
+      // The menu's own handler owns these keys while focus is inside it; out
+      // here (focus on the trigger after a mouse open) the reader must stand
+      // down too, or the menu and the reader both claim the press. Arrows
+      // included: a Down under an open menu paged forward underneath it.
       return [
         "t",
         "T",
@@ -1595,6 +1639,8 @@ export default function Read(props: Props) {
         "?",
         "ArrowLeft",
         "ArrowRight",
+        "ArrowUp",
+        "ArrowDown",
         " ",
         "PageDown",
         "PageUp",
@@ -1800,9 +1846,10 @@ export default function Read(props: Props) {
               type="button"
               class={["rdp-icon", { active: currentBookmarkId() !== null }]}
               onClick={() => void toggleBookmark()}
-              aria-label={
-                currentBookmarkId() ? "Remove bookmark" : "Add bookmark"
-              }
+              // One stable name: the toggle already announces through the
+              // toast ("Bookmark added/removed") and carries aria-pressed, so
+              // a flipping label made every toggle announce twice.
+              aria-label="Bookmark"
               aria-pressed={currentBookmarkId() !== null ? "true" : "false"}
             >
               <Icon
@@ -1942,7 +1989,14 @@ export default function Read(props: Props) {
         <p class="sr-only" role="alert">
           {error()}
         </p>
-        <div class="rdp-stage-content" inert={panelOpen()}>
+        <div
+          class="rdp-stage-content"
+          inert={panelOpen()}
+          // The header pairs its inert with aria-hidden; the stage matches so
+          // background content leaves the accessibility tree on engines where
+          // inert alone does not remove it.
+          aria-hidden={panelOpen() ? "true" : "false"}
+        >
           <Show when={book()}>
             <ChapterFrame
               initialTheme={settings.value.theme}
@@ -2136,13 +2190,14 @@ export default function Read(props: Props) {
           chip takes over as the whereabouts cue once the chrome tucks away.
           The percent is whole-book (same formula as the library tiles), not
           the chapter: the bottom bar already owns chapter progress in scroll
-          mode, and the page pill owns it in paged modes. */}
+          mode, and the page pill owns it in paged modes. Deliberately NOT a
+          live region: position reports stream in continuously while reading,
+          and a role="status" here interrupted screen readers without pause. */}
       {!isSpecimen && (
         <Show when={book()}>
           {(b) => (
             <div
               class={["rdp-pos tnum", { "rdp-hidden": chromeVisible() }]}
-              role="status"
               aria-label={`Chapter ${currentChapter() + 1} of ${b().chapterCount}, ${Math.round(calcBookProgress(currentChapter(), chapterPercent(), b().chapterCount) * 100)} percent`}
             >
               Ch {currentChapter() + 1}/{b().chapterCount} ·{" "}
