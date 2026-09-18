@@ -147,6 +147,229 @@ describe("Login route", () => {
     expect(alert.textContent).toBe("");
   });
 
+  it("Login route: overlapping reloads resolve newest-wins", async () => {
+    api.listProfiles.mockRejectedValueOnce(
+      new ApiError("down", 500, "db_error"),
+    );
+    mount();
+    const retry = await waitForEl<HTMLButtonElement>("button.login-primary");
+
+    // The first retry hangs; the second answers fast and paints the picker.
+    let releaseSlow!: (value: ProfileInfo[]) => void;
+    api.listProfiles.mockImplementationOnce(
+      () =>
+        new Promise<ProfileInfo[]>((resolve) => {
+          releaseSlow = resolve;
+        }),
+    );
+    api.listProfiles.mockResolvedValueOnce([{ name: "Ann", hasPin: false }]);
+    // Same tick, before the re-render unmounts the button into the skeleton:
+    // both retries are in flight together, the slow one started first.
+    retry.click();
+    retry.click();
+    flush();
+    await vi.waitFor(() => expect(profileButtons()).toHaveLength(1));
+    expect(profileButtons()[0].textContent).toContain("Ann");
+
+    // The superseded reply resolving last must not overwrite it.
+    releaseSlow([{ name: "Bea", hasPin: false }]);
+    for (let i = 0; i < 8; i += 1) {
+      await Promise.resolve();
+    }
+    flush();
+    expect(profileButtons()).toHaveLength(1);
+    expect(profileButtons()[0].textContent).toContain("Ann");
+  });
+
+  it("Login route: a second create cannot enter during the failure resync", async () => {
+    api.listProfiles.mockResolvedValueOnce([]);
+    let releaseResync!: (value: ProfileInfo[]) => void;
+    api.listProfiles.mockImplementationOnce(
+      () =>
+        new Promise<ProfileInfo[]>((resolve) => {
+          releaseResync = resolve;
+        }),
+    );
+    api.createProfile.mockRejectedValueOnce(
+      new ApiError("profile already exists", 409, "name_taken"),
+    );
+    mount();
+
+    const name = await waitForEl<HTMLInputElement>(
+      'input[aria-label="Profile name"]',
+    );
+    typeInto(name, "Reader");
+    submitForm();
+    await vi.waitFor(() => expect(api.createProfile).toHaveBeenCalledTimes(1));
+
+    // The 409 recovery resync is still in flight: resubmitting must be
+    // refused instead of posting the same create a second time.
+    submitForm();
+    flush();
+    expect(api.createProfile).toHaveBeenCalledTimes(1);
+
+    releaseResync([{ name: "Reader", hasPin: false }]);
+    await vi.waitFor(() => expect(profileButtons()).toHaveLength(1));
+  });
+
+  it("Login route: a resync that cannot confirm the profile keeps the create form", async () => {
+    api.listProfiles.mockResolvedValueOnce([{ name: "Ann", hasPin: false }]);
+    api.listProfiles.mockResolvedValueOnce([{ name: "Ann", hasPin: false }]);
+    api.createProfile.mockRejectedValueOnce(
+      new ApiError("profile already exists", 409, "name_taken"),
+    );
+    mount();
+
+    await vi.waitFor(() => expect(profileButtons()).toHaveLength(1));
+    qb("button.login-new")!.click();
+    flush();
+    const name = await waitForEl<HTMLInputElement>(
+      'input[aria-label="Profile name"]',
+    );
+    typeInto(name, "Reader");
+    submitForm();
+
+    await vi.waitFor(() => expect(api.listProfiles).toHaveBeenCalledTimes(2));
+    flush();
+    expect(q("p.login-error")!.textContent).toContain("profile already exists");
+    // The resync found no "Reader": stay on the form instead of yanking to a
+    // picker that cannot retry the submit.
+    expect(qi('input[aria-label="Profile name"]')).not.toBeNull();
+    expect(profileButtons()).toHaveLength(0);
+  });
+
+  it("Login route: the remember choice survives a load failure", async () => {
+    api.listProfiles.mockRejectedValueOnce(
+      new ApiError("down", 500, "db_error"),
+    );
+    mount();
+    const retry = await waitForEl<HTMLButtonElement>("button.login-primary");
+
+    // The checkbox stays mounted through the failure instead of unmounting
+    // and silently dropping the choice.
+    expect(qi('input[type="checkbox"]')).not.toBeNull();
+    tickCheckbox();
+
+    api.listProfiles.mockResolvedValueOnce([{ name: "Ann", hasPin: false }]);
+    retry.click();
+    flush();
+    await vi.waitFor(() => expect(profileButtons()).toHaveLength(1));
+    expect(qi('input[type="checkbox"]')!.checked).toBe(true);
+  });
+
+  it("Login route: leaving the create form drops the remember tick", async () => {
+    api.listProfiles.mockResolvedValue([{ name: "Ann", hasPin: false }]);
+    mount();
+
+    await vi.waitFor(() => expect(profileButtons()).toHaveLength(1));
+    qb("button.login-new")!.click();
+    flush();
+    await waitForEl<HTMLInputElement>('input[aria-label="Profile name"]');
+    tickCheckbox();
+    expect(qi('input[type="checkbox"]')!.checked).toBe(true);
+
+    // The picker one click away logs a PIN-less profile in immediately, so a
+    // tick set for the abandoned draft must not travel with it.
+    qb("button.login-back")!.click();
+    flush();
+    await vi.waitFor(() => expect(profileButtons()).toHaveLength(1));
+    expect(qi('input[type="checkbox"]')!.checked).toBe(false);
+  });
+
+  it("Login route: a vanished profile returns focus to the picker", async () => {
+    // The Once queue is consumed first, so boot takes the Once and the resync
+    // the default -- the reverse order boots into the wrong screen.
+    api.listProfiles.mockResolvedValueOnce([{ name: "Bea", hasPin: true }]);
+    api.listProfiles.mockResolvedValue([{ name: "Ann", hasPin: false }]);
+    api.login.mockRejectedValueOnce(new ApiError("gone", 404, "not_found"));
+    mount();
+
+    await vi.waitFor(() => expect(profileButtons()).toHaveLength(1));
+    profileButtons()[0].click();
+    flush();
+    const pin = await waitForEl<HTMLInputElement>('input[aria-label="PIN"]');
+    typeInto(pin, "1234");
+    qb("button.login-primary")!.focus();
+    submitForm();
+
+    await vi.waitFor(() => expect(profileButtons()).toHaveLength(1));
+    expect(q("p.login-error")!.textContent).toContain("no longer available");
+    // The PIN form unmounted with the failure; the re-created picker heading
+    // takes focus instead of dropping it to <body>.
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(q("p.login-muted"));
+    });
+  });
+
+  it("Login route: a malformed PIN is refused before the round trip", async () => {
+    api.listProfiles.mockResolvedValue([{ name: "Bea", hasPin: true }]);
+    mount();
+
+    await vi.waitFor(() => expect(profileButtons()).toHaveLength(1));
+    profileButtons()[0].click();
+    flush();
+    const pin = await waitForEl<HTMLInputElement>('input[aria-label="PIN"]');
+
+    // Too short, too long, and non-numeric all fail the same way: the
+    // message names the rule and nothing is posted. (The dash in the copy is
+    // an en dash, so the assertion sticks to its ASCII half.)
+    for (const bad of ["12", "1234567890123", "abcd"]) {
+      typeInto(pin, bad);
+      submitForm();
+      await vi.waitFor(() => {
+        expect(q("p.login-error")!.textContent).toContain("digits");
+      });
+    }
+    expect(api.login).not.toHaveBeenCalled();
+
+    // A well-formed PIN still posts.
+    api.login.mockRejectedValueOnce(
+      new ApiError("invalid name or PIN", 401, "invalid_credentials"),
+    );
+    typeInto(pin, "1234");
+    submitForm();
+    await vi.waitFor(() => expect(api.login).toHaveBeenCalledTimes(1));
+  });
+
+  it("Login route: a malformed new PIN is refused before the round trip", async () => {
+    api.listProfiles.mockResolvedValue([]);
+    mount();
+
+    const name = await waitForEl<HTMLInputElement>(
+      'input[aria-label="Profile name"]',
+    );
+    typeInto(name, "Reader");
+    typeInto(qi('input[aria-label="PIN (optional)"]')!, "abc");
+    submitForm();
+    await vi.waitFor(() => {
+      expect(q("p.login-error")!.textContent).toContain("digits");
+    });
+    expect(api.createProfile).not.toHaveBeenCalled();
+  });
+
+  it("Login route: an empty-PIN submit mid-flight changes nothing", async () => {
+    api.listProfiles.mockResolvedValue([{ name: "Bea", hasPin: true }]);
+    api.login.mockImplementation(() => new Promise<void>(() => {}));
+    mount();
+
+    await vi.waitFor(() => expect(profileButtons()).toHaveLength(1));
+    profileButtons()[0].click();
+    flush();
+    const pin = await waitForEl<HTMLInputElement>('input[aria-label="PIN"]');
+    typeInto(pin, "1234");
+    submitForm();
+    flush();
+    expect(api.login).toHaveBeenCalledTimes(1);
+
+    // readonly blocks typing, not a programmatic write; submitting the
+    // emptied field mid-flight must not overwrite the attempt's state.
+    typeInto(pin, "");
+    submitForm();
+    flush();
+    expect(api.login).toHaveBeenCalledTimes(1);
+    expect(q("p.login-error")!.textContent).toBe("");
+  });
+
   it("Login route: failed list offers a retry, not an empty picker (H4, T5)", async () => {
     api.listProfiles
       .mockRejectedValueOnce(
@@ -225,6 +448,11 @@ describe("Login route", () => {
       expect(container.textContent).toContain(
         "Profile created, but sign-in failed",
       );
+    });
+    // The create form unmounts with the failure, so focus moves to the
+    // re-created picker heading instead of dropping to <body>.
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(q("p.login-muted"));
     });
     expect(api.createProfile).toHaveBeenCalledOnce();
     expect(api.createProfile.mock.calls[0][0]).toBe("Reader");

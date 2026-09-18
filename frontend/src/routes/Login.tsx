@@ -7,7 +7,10 @@
 //     accessor: a signal read right after a write still returns the pre-write
 //     value (batched). On FIRST run both reads are [] so the bug cannot show
 //     there; the reachable case is a RETURNING user, where the stale [] would
-//     send a profile owner to the create form instead of the picker.
+//     send a profile owner to the create form instead of the picker. The same
+//     doctrine applies to its CALLER: loadProfiles returns the list it loaded,
+//     so the create-failure resync decides off that instead of reading
+//     profiles() after the await.
 //   - A <For> index accessor stays inside JSX. The row factory is untracked,
 //     so reading i() there snapshots the index and emits STRICT_READ_UNTRACKED.
 //   - The PIN form reads the selected profile through a keyed Show so the
@@ -51,6 +54,13 @@ function focusOnMount(el: HTMLElement): void {
     if (el.isConnected) el.focus({ preventScroll: true });
   });
 }
+
+// The server's PIN rule (validatePIN in internal/api/auth.go): empty means a
+// PIN-less profile, anything else must be 4–12 ASCII digits. Posting what the
+// server cannot accept burns a bcrypt compare and a throttle attempt for an
+// invalid_credentials that was knowable here, so both submits check first.
+const PIN_FORMAT = /^[0-9]{4,12}$/;
+const PIN_FORMAT_PROBLEM = "PINs are 4–12 digits.";
 
 // Rendered into a permanently-mounted element and content-toggled, so it lives
 // here instead of inline in the JSX.
@@ -156,24 +166,39 @@ export default function Login() {
     return busyWhat() === "create" ? "Creating profile…" : "Signing in…";
   }
 
+  // Newest load wins: resyncs (retry, not-found, create-failure recovery) can
+  // overlap the boot load or each other, and an earlier slow reply must not
+  // overwrite a later one. The generation also stands in for the AbortSignal
+  // the retry/resync calls do not carry: a superseded load drops its writes,
+  // and disposal drops everything.
+  let loadGen = 0;
+
   // Deliberately does NOT clear error() on entry: callers that want a clean
   // slate clear it themselves, so a resync triggered by a failed sign-in
   // cannot wipe the message that triggered it.
-  async function loadProfiles(signal?: AbortSignal): Promise<void> {
+  async function loadProfiles(
+    signal?: AbortSignal,
+  ): Promise<ProfileInfo[] | null> {
+    const gen = ++loadGen;
     setLoading(true);
     setLoadFailed(false);
     try {
       const list = await listProfiles(signal);
-      if (disposed || signal?.aborted === true) return;
+      if (disposed || gen !== loadGen || signal?.aborted === true) return null;
       setProfiles(list);
-      // First run: no profiles yet -> go straight to the create form.
-      setMode(list.length === 0 ? "create" : "pick");
+      // First run: no profiles yet -> go straight to the create form. Never
+      // yank an existing screen back to the picker: resyncs land mid-flow and
+      // their callers choose the mode explicitly when they need one.
+      if (list.length === 0) setMode("create");
+      return list;
     } catch (e) {
-      if (disposed || signal?.aborted === true) return;
+      if (disposed || gen !== loadGen || signal?.aborted === true) return null;
       setLoadFailed(true);
       setError(getErrorMessage(e, "Failed to load profiles"));
+      return null;
     } finally {
-      if (!disposed && signal?.aborted !== true) setLoading(false);
+      if (!disposed && gen === loadGen && signal?.aborted !== true)
+        setLoading(false);
     }
   }
 
@@ -225,6 +250,10 @@ export default function Login() {
     // half-typed draft never reappears when the form is opened again.
     setNewName("");
     setNewPin("");
+    // And the same stale-tick reset backToList performs: the picker one click
+    // away logs a PIN-less profile in immediately, carrying whatever this
+    // form's box holds.
+    setRemember(false);
   }
 
   // Branch on the code, never on the prose: middleware.go's literals are
@@ -271,6 +300,10 @@ export default function Login() {
       if (code === "not_found") {
         // The picker is a mount-time snapshot and this row is gone. Resync
         // instead of spending throttle attempts on a profile that cannot win.
+        // The PIN form unmounts with the failure, so the re-created picker
+        // heading takes focus -- the same backward-transition doctrine as
+        // backToList, or focus drops to <body>.
+        returning = true;
         setSelected(null);
         void loadProfiles();
       }
@@ -283,12 +316,17 @@ export default function Login() {
 
   async function submitPin(e: SubmitEvent): Promise<void> {
     e.preventDefault();
+    if (inFlight || busy()) return;
     const current = selected();
     if (current === null) return;
     // The button stays focusable (aria-disabled, not disabled), so Enter on an
     // empty field has to say why nothing happened.
     if (pin() === "") {
       setError("Enter the PIN for this profile.");
+      return;
+    }
+    if (!PIN_FORMAT.test(pin())) {
+      setError(PIN_FORMAT_PROBLEM);
       return;
     }
     await doLogin(current.name, pin(), remember());
@@ -301,6 +339,10 @@ export default function Login() {
     const problem = nameProblem();
     if (problem !== null) {
       setError(problem);
+      return;
+    }
+    if (newPin() !== "" && !PIN_FORMAT.test(newPin())) {
+      setError(PIN_FORMAT_PROBLEM);
       return;
     }
     inFlight = true;
@@ -318,8 +360,10 @@ export default function Login() {
     try {
       created = await createProfile(name, pinValue, controller.signal);
     } catch (e2) {
-      inFlight = false;
-      if (disposed || controller !== createController) return;
+      if (disposed || controller !== createController) {
+        inFlight = false;
+        return;
+      }
       createController = null;
       const code = e2 instanceof ApiError ? e2.code : undefined;
       setError(getErrorMessage(e2, "Could not create profile"));
@@ -330,10 +374,16 @@ export default function Login() {
       // into a 409. Resync rather than stranding the user on a form whose Back
       // button is hidden on first run.
       if (code !== "invalid_name" && code !== "invalid_pin") {
-        await loadProfiles();
-        if (disposed) return;
-        if (profiles().some((p) => p.name === name)) setMode("pick");
+        const fresh = await loadProfiles();
+        // inFlight stays held across the recovery await: clearing it first let
+        // a second submit enter while this one was still finishing.
+        if (disposed) {
+          inFlight = false;
+          return;
+        }
+        if (fresh?.some((p) => p.name === name)) setMode("pick");
       }
+      inFlight = false;
       return;
     }
     if (disposed || controller !== createController) {
@@ -361,6 +411,9 @@ export default function Login() {
           ? `Profile created, but sign-in failed: ${e2.message}`
           : "Profile created, but sign-in failed",
       );
+      // The create form unmounts with this failure; without the flag the focus
+      // restore above finds its control gone and focus drops to <body>.
+      returning = true;
       setMode("pick");
       setSelected(null);
       setNewName("");
@@ -427,6 +480,7 @@ export default function Login() {
                   value={newPin()}
                   onInput={(e) => setNewPin(e.currentTarget.value)}
                   placeholder="PIN (optional)"
+                  maxlength={12}
                   readonly={busy()}
                   aria-disabled={busy() ? "true" : "false"}
                 />
@@ -579,6 +633,7 @@ export default function Login() {
                       value={pin()}
                       onInput={(e) => setPin(e.currentTarget.value)}
                       placeholder="PIN"
+                      maxlength={12}
                       readonly={busy()}
                       aria-disabled={busy() ? "true" : "false"}
                     />
@@ -607,8 +662,10 @@ export default function Login() {
           {/* One checkbox for every sign-in path on this screen. Inside the
               PIN form it could never remember a PIN-less profile, while a
               tick left over from a locked one silently applied a 30-day
-              session to whatever was picked next. */}
-          <Show when={!loading() && !loadFailed()}>
+              session to whatever was picked next. Hidden only while loading:
+              a load failure keeps it, so a preference set before a network
+              blip survives the retry instead of being silently dropped. */}
+          <Show when={!loading()}>
             <label class="login-remember">
               <input
                 type="checkbox"
