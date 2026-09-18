@@ -245,12 +245,12 @@ class Settings {
       createMemo(
         () => toIframeSettings(this.value, customThemes.list, themePreview()),
         // The mapping allocates a fresh payload every run while several inputs
-        // change without changing the result: CustomThemeDialog republishes the
-        // preview draft on every keystroke in the name field, and a custom
-        // theme load/create/delete leaves themeVars null while a built-in theme
-        // is selected. Comparing by field puts the cutoff at the memo instead of
-        // postMessaging an identical apply-settings into the reader frame
-        // (Read.tsx's settings effect) -- UNSTABLE_MEMO_OUTPUT otherwise.
+        // change without changing the result: a custom theme load/create/delete
+        // leaves themeVars null while a built-in theme is selected, and the
+        // preview draft is a new object per publish. Comparing by field puts
+        // the cutoff at the memo instead of postMessaging an identical
+        // apply-settings into the reader frame (Read.tsx's settings effect) --
+        // UNSTABLE_MEMO_OUTPUT otherwise.
         //
         // lazy, because every settings.iframe subscriber is route-scoped in
         // Read.tsx. Measured on RC8: a non-lazy memo computes once at
