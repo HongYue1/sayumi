@@ -59,6 +59,20 @@ interface DropSelectProps {
 // Type-ahead reset: a pause longer than this starts a fresh search.
 const TYPEAHEAD_TIMEOUT_MS = 800;
 
+/**
+ * Whether the menu should open upward. Pure so the suites can pin the
+ * trade-off directly: flip only when the menu does not fit below AND fits
+ * better above, so a tall menu in a short panel keeps the downward anchor
+ * instead of clipping both ways.
+ */
+export function shouldDropUp(
+  below: number,
+  above: number,
+  menuHeight: number,
+): boolean {
+  return menuHeight > below && above > below;
+}
+
 export default function DropSelect(p: DropSelectProps) {
   const [open, setOpen] = createSignal(false);
   let trigger: HTMLButtonElement | undefined;
@@ -106,6 +120,21 @@ export default function DropSelect(p: DropSelectProps) {
     close();
   }
 
+  // A disabled flip collapses the menu through the same mirror the toggle
+  // reads. <Show> hides the listbox on disabled while open()/openNow stay
+  // true, which would leave the trigger reporting aria-expanded="true" with
+  // no listbox -- and the first toggle after re-enable would close the
+  // (already hidden) menu instead of opening it. No focus restore: a
+  // programmatic disable must not yank focus, and the menu unmounting drops
+  // it exactly as an outside dismissal does.
+  createEffect(
+    () => p.disabled,
+    (disabled) => {
+      if (disabled) close(false);
+      return undefined;
+    },
+  );
+
   // Dismiss on outside pointerdown. No fixed scrim: containing blocks in the
   // panel subtree would clip it, so a window listener is container-proof
   // (ThemeDropdown/ProfileMenu shape).
@@ -149,6 +178,46 @@ export default function DropSelect(p: DropSelectProps) {
     },
   );
 
+  // Entry focus for the menu: the active option, else the first. Shared by
+  // the open effect's microtask and the trigger's arrow keys.
+  function focusMenuEntry(): void {
+    const el = menuEl;
+    if (!el) return;
+    const items = Array.from(
+      el.querySelectorAll<HTMLButtonElement>(".ds-pick"),
+    );
+    const preferred = items.find((it) => it.getAttribute("tabindex") === "0");
+    (preferred ?? items[0] ?? el).focus();
+  }
+
+  // Upward-open state for triggers near the bottom of the scrolling settings
+  // panel, whose own overflow would clip a downward menu. Measured on open
+  // (in the same microtask as entry focus, when layout is ready): the menu
+  // scrolls with its trigger afterwards, so no re-measure on scroll.
+  const [dropUp, setDropUp] = createSignal(false);
+  function measureDropUp(): boolean {
+    const menu = menuEl;
+    const bar = trigger;
+    if (!menu || !bar) return false;
+    // Nearest scrolling ancestor is what clips the absolutely positioned
+    // menu; without one the viewport is the bound.
+    let node: HTMLElement | null = menu.parentElement;
+    let clip: DOMRect | null = null;
+    while (node !== null) {
+      const overflowY = getComputedStyle(node).overflowY;
+      if (overflowY === "auto" || overflowY === "scroll") {
+        clip = node.getBoundingClientRect();
+        break;
+      }
+      node = node.parentElement;
+    }
+    const menuHeight = menu.getBoundingClientRect().height;
+    const triggerRect = bar.getBoundingClientRect();
+    const below = (clip?.bottom ?? window.innerHeight) - triggerRect.bottom;
+    const above = triggerRect.top - (clip?.top ?? 0);
+    return shouldDropUp(below, above, menuHeight);
+  }
+
   // Move focus into the menu on open, onto the active option (or the first
   // when the value matches nothing). One microtask after open, matching
   // ThemeDropdown/ProfileMenu; the tabindex="0" option is the entry point
@@ -161,15 +230,8 @@ export default function DropSelect(p: DropSelectProps) {
       if (!isOpen) return undefined;
       queueMicrotask(() => {
         if (gen !== menuGen) return;
-        const el = menuEl;
-        if (!el) return;
-        const items = Array.from(
-          el.querySelectorAll<HTMLButtonElement>(".ds-pick"),
-        );
-        const preferred = items.find(
-          (it) => it.getAttribute("tabindex") === "0",
-        );
-        (preferred ?? items[0] ?? el).focus();
+        setDropUp(measureDropUp());
+        focusMenuEntry();
       });
       return undefined;
     },
@@ -274,15 +336,11 @@ export default function DropSelect(p: DropSelectProps) {
       }
       return;
     }
-    // Single printable characters feed type-ahead. Consumed for the same
-    // reason as arrows: letter shortcuts (f/s/t/b) must not fire underneath.
-    if (
-      e.key.length === 1 &&
-      !e.ctrlKey &&
-      !e.metaKey &&
-      !e.altKey &&
-      typeAhead(e.key)
-    ) {
+    // Single printable characters feed type-ahead. Consumed whether or not
+    // one matches: an unmatched letter is still menu-owned, and letting it
+    // bubble would fire a letter shortcut (f/s/t/b) underneath the open menu.
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      typeAhead(e.key);
       e.preventDefault();
       e.stopPropagation();
     }
@@ -291,6 +349,29 @@ export default function DropSelect(p: DropSelectProps) {
   // Group ids must be unique per instance (two font selects share labels):
   // derive from the trigger id the caller passes.
   const groupId = (gi: number): string => `${p.id}-grp-${gi}`;
+
+  // The collapsed trigger owns its navigation keys. A closed trigger is still
+  // a plain button, so the shared keyboard contract leaves arrows to the
+  // reader shortcuts -- ArrowDown on a focused trigger would turn the page
+  // instead of opening the list. Open (entry focus lands through the effect
+  // above) and consume, matching the open menu's ownership. A disabled
+  // trigger refuses like toggle() does, without consuming.
+  function onTriggerKeydown(e: KeyboardEvent): void {
+    if (e.isComposing || p.disabled) return;
+    switch (e.key) {
+      case "ArrowDown":
+      case "ArrowUp":
+      case "Home":
+      case "End":
+        e.preventDefault();
+        e.stopPropagation();
+        if (!openNow) setOpenState(true);
+        else focusMenuEntry();
+        break;
+      default:
+        break;
+    }
+  }
 
   return (
     <div
@@ -310,6 +391,7 @@ export default function DropSelect(p: DropSelectProps) {
         aria-label={p.label}
         aria-disabled={p.disabled ? "true" : "false"}
         onClick={toggle}
+        onKeyDown={onTriggerKeydown}
       >
         <span class="ds-value">{currentLabel()}</span>
         <Icon icon={ChevronDown} size={14} class="ds-caret" decorative />
@@ -318,7 +400,7 @@ export default function DropSelect(p: DropSelectProps) {
       <Show when={open() && !p.disabled}>
         <div
           ref={(el) => (menuEl = el)}
-          class="ds-menu paper"
+          class={["ds-menu paper", { "ds-up": dropUp() }]}
           role="listbox"
           tabindex="-1"
           aria-label={p.label ?? currentLabel()}

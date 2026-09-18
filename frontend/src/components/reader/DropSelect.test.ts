@@ -3,9 +3,10 @@
 // `flush` forces Solid 2.0's batched writes so assertions see committed
 // state, and settled microtasks let the open-focus microtask land.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { flush } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { render } from "@solidjs/web";
 import DropSelect, {
+  shouldDropUp,
   type DropSelectGroup,
 } from "~/components/reader/DropSelect";
 
@@ -352,6 +353,130 @@ describe("DropSelect", () => {
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
     // The refused activation leaves focus exactly where it was.
     expect(document.activeElement).toBe(trigger());
+  });
+
+  it("collapses the menu when disabled flips mid-interaction", async () => {
+    // Getter props, not a re-invoked root: a real parent (SettingsPanel)
+    // pushes new values into the live instance's reactive props, while
+    // re-calling the component would remount it -- the path the disabled
+    // effect guards is the former.
+    const [disabled, setDisabled] = createSignal(false);
+    container = document.createElement("div");
+    document.body.append(container);
+    dispose = render(
+      () =>
+        DropSelect({
+          id: "flip-select",
+          label: "Flip select",
+          value: "literata",
+          groups: GROUPS,
+          get disabled() {
+            return disabled();
+          },
+          onSelect,
+        }),
+      container,
+    );
+    flush();
+    const bar = container.querySelector<HTMLButtonElement>("#flip-select")!;
+    bar.click();
+    flush();
+    await settle();
+    expect(container.querySelector(".ds-menu")).not.toBeNull();
+
+    // The Show hides the listbox on disabled; the open state must follow or
+    // the trigger lies about aria-expanded and the next toggle after
+    // re-enable closes instead of opening.
+    setDisabled(true);
+    flush();
+    await settle();
+    expect(container.querySelector(".ds-menu")).toBeNull();
+    expect(bar.getAttribute("aria-expanded")).toBe("false");
+
+    setDisabled(false);
+    flush();
+    bar.click();
+    flush();
+    await settle();
+    expect(container.querySelector(".ds-menu")).not.toBeNull();
+  });
+
+  it("consumes even unmatched type-ahead so shortcuts never fire", async () => {
+    mount();
+    openMenu();
+    await settle();
+    const list = menu();
+    if (!list) throw new Error("menu missing");
+    let bubbled = 0;
+    const spy = (): void => {
+      bubbled += 1;
+    };
+    window.addEventListener("keydown", spy);
+    // "z" matches nothing: still menu-owned, still consumed.
+    const unmatched = key(list, "z");
+    window.removeEventListener("keydown", spy);
+    expect(unmatched.defaultPrevented).toBe(true);
+    expect(bubbled).toBe(0);
+    expect(menu()).not.toBeNull();
+  });
+
+  it("opens from the collapsed trigger on arrows, Home, and End", async () => {
+    mount();
+    trigger().focus();
+    let bubbled = 0;
+    const spy = (): void => {
+      bubbled += 1;
+    };
+    window.addEventListener("keydown", spy);
+    // A closed trigger is a plain button, so without a local handler these
+    // reach the reader's window shortcuts (page turns) instead of opening.
+    for (const name of ["ArrowDown", "ArrowUp", "Home", "End"]) {
+      const event = key(trigger(), name);
+      await settle();
+      expect(event.defaultPrevented).toBe(true);
+      expect(menu()).not.toBeNull();
+      // Entry focus lands on the active option through the open effect.
+      expect(document.activeElement?.textContent).toContain("Literata");
+      key(menu()!, "Escape");
+      await settle();
+      expect(menu()).toBeNull();
+    }
+    window.removeEventListener("keydown", spy);
+    expect(bubbled).toBe(0);
+    expect(document.activeElement).toBe(trigger());
+  });
+
+  it("pins the upward-flip trade-off", () => {
+    // No room below, room above: flip.
+    expect(shouldDropUp(20, 150, 240)).toBe(true);
+    // Fits below: stay down even with more room above.
+    expect(shouldDropUp(300, 400, 240)).toBe(false);
+    // Exact fit below stays down.
+    expect(shouldDropUp(240, 300, 240)).toBe(false);
+    // Clips both ways: keep the downward anchor instead of clipping above.
+    expect(shouldDropUp(50, 40, 240)).toBe(false);
+  });
+
+  it("opens upward when the panel clips a downward menu", async () => {
+    mount();
+    // The scrolling panel the settings dropdowns live in.
+    container.style.overflowY = "auto";
+    container.getBoundingClientRect = () => new DOMRect(0, 100, 300, 200);
+    trigger().getBoundingClientRect = () => new DOMRect(0, 250, 300, 30);
+    // Instance mocks above survive (trigger and panel never unmount); the
+    // menu remounts per open, so its height comes from the prototype for the
+    // open-time measure below.
+    const menuRect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(0, 10, 300, 240));
+    try {
+      openMenu();
+      await settle();
+      // 240px of menu, 20px of room below, 150px above: flips up.
+      expect(menu()?.classList.contains("ds-up")).toBe(true);
+    } finally {
+      menuRect.mockRestore();
+    }
   });
 
   it("declares icon intents the development audit accepts", async () => {

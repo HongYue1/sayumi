@@ -4440,6 +4440,13 @@ main {
   padding: 0.3rem;
   animation: app-menu-pop-in var(--dur) var(--ease-out) both;
 }
+/* Upward opening for triggers near the bottom of the scrolling settings
+   panel: DropSelect measures on open and sets .ds-up when the menu fits
+   better above than below. */
+.ds-menu.ds-up {
+  top: auto;
+  bottom: calc(100% + 0.3rem);
+}
 .ds-group {
   margin: 0.2rem 0.45rem 0.35rem;
 }
