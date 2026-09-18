@@ -278,13 +278,18 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** Mounts Read for book1 and lets the frame API own pre-ready buffering. */
+/** Mounts Read for book1 and lets the frame API own pre-ready buffering.
+ *  Ends with the frame reporting the first chapter settled, the way the real
+ *  one does: Read gates its live-position round trip on that report, so a
+ *  harness that never sent it would model a reader stuck mid-restore. */
 async function bootReader(): Promise<void> {
   const host = document.createElement("div");
   document.body.appendChild(host);
   dispose = render(() => createComponent(Read, { bookId: "book1" }), host);
   await settle();
   if (!frame.latest) await settle();
+  await settle();
+  frameHandler("onloaded")(1);
   await settle();
 }
 
@@ -1156,6 +1161,25 @@ describe("Read progress", () => {
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith("/"));
     expect(api.saveProgress).toHaveBeenCalledTimes(1);
     expect(navigate).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips the position round trip when no settled chapter can answer", async () => {
+    await bootReader();
+    frameHandler("onposition")(0, 0.3, undefined);
+    await settle();
+    // The frame restarted and lost its chapter, so it cannot answer a position
+    // request. Back must persist what is known and leave instead of holding
+    // navigation open for the request timeout.
+    frameHandler("onframeerror")("frame-reset", "The reader restarted.");
+    await settle();
+    frameHandler("onkey")(key("Escape")); // nothing open -> handleBack
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith("/"));
+    expect(frame.api.requestPosition).not.toHaveBeenCalled();
+    expect(api.saveProgress).toHaveBeenCalledWith("book1", {
+      chapter: 0,
+      percent: 0.3,
+      cfi: undefined,
+    });
   });
 
   it("beacons and writes the crash-guard cache on page hide, without a save", async () => {

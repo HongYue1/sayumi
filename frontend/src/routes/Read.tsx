@@ -334,6 +334,11 @@ export default function Read(props: Props) {
   // the shared request instead of issuing a duplicate fetch + EPUB decode.
   const chapterInflight = new Map<number, Promise<ChapterData>>();
   let chapterLoadInProgress = false;
+  // Whether the frame has reported the chapter it was last handed as settled.
+  // chapterLoadInProgress only covers the fetch: it is released as soon as the
+  // load message goes out, while the frame still has to apply settings, lay the
+  // chapter out and run the initial restore before it can answer anything.
+  let frameChapterSettled = false;
   let pendingNav: {
     index: number;
     scrollTo: "top" | "end";
@@ -1011,6 +1016,9 @@ export default function Read(props: Props) {
 
       // Ensure the iframe has the current font faces before it applies settings.
       pushFontFaces();
+      // The frame is about to hold a chapter that has not settled yet; its
+      // loaded report is what clears this.
+      frameChapterSettled = false;
       api.loadChapter({
         data,
         settings: settings.iframe,
@@ -1137,10 +1145,15 @@ export default function Read(props: Props) {
   // saveData (up to ~200ms stale after a scroll burst — exactly the
   // scroll-then-immediately-Back habit). The frame answers get-position with
   // a fresh read and drops its own pending straggler first, so the first
-  // report back settles this. Skipped while a chapter load is in flight: the
-  // position then is the load target and saveData already holds it.
+  // report back settles this. Skipped unless the frame is showing a settled
+  // chapter: while a load is in flight, and on through the frame's own layout
+  // and restore, position reports are suppressed, so the request would park in
+  // a queue and Back would wait out the whole timeout for an answer that can
+  // only arrive after navigation. The position then is the load target, which
+  // saveData already holds.
   function requestFreshPosition(): Promise<void> {
-    if (!api || chapterLoadInProgress) return Promise.resolve();
+    if (!api || chapterLoadInProgress || !frameChapterSettled)
+      return Promise.resolve();
     if (pendingPositionRequest) return pendingPositionRequest;
     pendingPositionRequest = new Promise((resolve) => {
       pendingPositionResolve = resolve;
@@ -1182,6 +1195,7 @@ export default function Read(props: Props) {
     setFrameMode(state);
   }
   function handleLoaded(seq: number): void {
+    frameChapterSettled = true;
     // Apply a pending search highlight once the new chapter has settled.
     if (!pendingHighlight) return;
     const h = pendingHighlight;
@@ -1253,6 +1267,8 @@ export default function Read(props: Props) {
     // frame yet): do not release the load latch mid-fetch, kill its spinner,
     // or show the stale error over the chapter being loaded.
     if (chapterLoadInProgress) return;
+    // Whatever the frame is showing now, it is not a settled chapter.
+    frameChapterSettled = false;
     // Stop the spinner and show the error UI with Retry instead of silently
     // swallowing it. (The latch is already released by loadChapter's finally
     // by the time a genuine current-chapter load-error can arrive.)
