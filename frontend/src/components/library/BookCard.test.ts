@@ -260,6 +260,33 @@ describe("BookCard", () => {
     expect(focused()).toBe("Edit");
   });
 
+  it("opens the actions menu from the trigger's arrow keys", async () => {
+    mount();
+    await settle();
+
+    // The trigger is a plain button when closed, so without its own key
+    // ownership the arrows never reach the menu -- unlike every other menu.
+    gear().focus();
+    press("ArrowDown");
+    flush();
+    expect(menu()).not.toBeNull();
+
+    await settle();
+    expect(focused()).toBe("Edit");
+  });
+
+  it("opens the flair menu from the trigger's End key", async () => {
+    mount();
+    await settle();
+
+    chip().focus();
+    press("End");
+    await settle();
+
+    expect(labels()[0]).toBe("No flair");
+    expect(focused()).toBe("No flair");
+  });
+
   it("opens the flair menu on the checked entry", async () => {
     mount(book({ flairId: "finished" }));
     await settle();

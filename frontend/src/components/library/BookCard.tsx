@@ -325,6 +325,19 @@ export default function BookCard(props: Props) {
     },
   );
 
+  // The entry an opening focuses: the checked item, else the first entry,
+  // else the menu container so focus is at least inside the popover for
+  // Escape and arrow keys.
+  function focusMenuEntry(menu: MenuKind): void {
+    const el = menuFor(menu);
+    if (!el) return;
+    const items = Array.from(
+      el.querySelectorAll<HTMLButtonElement>(".bc-menu-item"),
+    );
+    const preferred = items.find((it) => it.getAttribute("tabindex") === "0");
+    (preferred ?? items[0] ?? el).focus();
+  }
+
   // Move focus into the popover when it opens. This cannot be done from a ref
   // on the item: refs fire while their node is still detached, so focus() there
   // is a silent no-op — which also left the roving arrow-key handler below
@@ -341,22 +354,35 @@ export default function BookCard(props: Props) {
       if (!menu) return undefined;
       queueMicrotask(() => {
         if (gen !== menuGen) return;
-        const el = menuFor(menu);
-        if (!el) return;
-        const items = Array.from(
-          el.querySelectorAll<HTMLButtonElement>(".bc-menu-item"),
-        );
-        // Open on the item the markup nominates with tabindex 0 (the checked
-        // flair, else the first entry); fall back to the menu container so
-        // focus is at least inside the popover for Escape and arrow keys.
-        const preferred = items.find(
-          (it) => it.getAttribute("tabindex") === "0",
-        );
-        (preferred ?? items[0] ?? el).focus();
+        focusMenuEntry(menu);
       });
       return undefined;
     },
   );
+
+  // The collapsed triggers own their navigation keys. A closed trigger is
+  // still a plain button, so the arrows would otherwise do whatever the page
+  // does with them instead of opening the menu -- unlike every other menu in
+  // the app (DropSelect's onTriggerKeydown). Open and consume; opening moves
+  // focus into the popover through the effect above.
+  function onTriggerKeydown(menu: MenuKind) {
+    return (e: KeyboardEvent): void => {
+      if (e.isComposing) return;
+      switch (e.key) {
+        case "ArrowDown":
+        case "ArrowUp":
+        case "Home":
+        case "End":
+          e.preventDefault();
+          e.stopPropagation();
+          if (openMenu() !== menu) setOpenMenu(menu);
+          else focusMenuEntry(menu);
+          break;
+        default:
+          break;
+      }
+    };
+  }
 
   // Escape closes the popover and returns focus to its trigger.
   function onMenuKeydown(
@@ -509,6 +535,7 @@ export default function BookCard(props: Props) {
         aria-expanded={openMenu() === "actions" ? "true" : "false"}
         aria-controls={openMenu() === "actions" ? actionsMenuId() : undefined}
         onClick={toggleActions}
+        onKeyDown={onTriggerKeydown("actions")}
       >
         <Icon icon={Settings} size={15} labelFromParent />
       </button>
@@ -522,6 +549,7 @@ export default function BookCard(props: Props) {
         aria-expanded={openMenu() === "flair" ? "true" : "false"}
         aria-controls={openMenu() === "flair" ? flairMenuId() : undefined}
         onClick={toggleFlair}
+        onKeyDown={onTriggerKeydown("flair")}
       >
         <Icon icon={Tag} size={15} labelFromParent />
       </button>
