@@ -36,6 +36,9 @@ async function settle(): Promise<void> {
 }
 
 const ROW_H = 34;
+// Production viewport height the window math is tested against (a laptop
+// panel); see the beforeEach shadow below.
+const VIEWPORT_H = 600;
 
 function entry(n: number): TocEntry {
   return { title: `Chapter ${n}`, href: `c${n}.html`, depth: 0 };
@@ -53,6 +56,7 @@ describe("TocPanel", () => {
   let onnavigate: ReturnType<typeof vi.fn>;
   let onclose: ReturnType<typeof vi.fn>;
   let logged: string[];
+  let viewportRestore: PropertyDescriptor | undefined;
   let realError: typeof console.error;
   let realWarn: typeof console.warn;
   let realLog: typeof console.log;
@@ -60,6 +64,19 @@ describe("TocPanel", () => {
   beforeEach(() => {
     container = document.createElement("div");
     document.body.appendChild(container);
+    // Production viewport for the window math. happy-dom reports clientHeight
+    // 0, and render() flushes the mount effect synchronously, so a
+    // post-render stub lands after the measurement: shadow the prototype for
+    // the suite instead. Without this every test exercises the zero-height
+    // fallback path (one row plus overscan) rather than the window production
+    // computes. The row-visibility math reads the same 600, which only turns
+    // its ensure-visible adjustments into no-ops no assertion depends on.
+    const proto = window.HTMLElement.prototype;
+    viewportRestore = Object.getOwnPropertyDescriptor(proto, "clientHeight");
+    Object.defineProperty(proto, "clientHeight", {
+      configurable: true,
+      get: () => VIEWPORT_H,
+    });
     onnavigate = vi.fn();
     onclose = vi.fn();
     // Solid's strict-mode diagnostics are console output, not throws, so they
@@ -87,6 +104,13 @@ describe("TocPanel", () => {
     dispose?.();
     dispose = undefined;
     container.remove();
+    if (viewportRestore)
+      Object.defineProperty(
+        window.HTMLElement.prototype,
+        "clientHeight",
+        viewportRestore,
+      );
+    viewportRestore = undefined;
     vi.restoreAllMocks();
   });
 
@@ -140,9 +164,10 @@ describe("TocPanel", () => {
     const toc = book(200);
     await mount(toc, toc[150]!);
 
-    // Opens centered on chapter 150, so the mounted window is nowhere near the
-    // top of the list: rows 142..157 with one tab stop on the current chapter.
-    expect(rows()[0]!.id).toBe("toc-entry-142");
+    // Opens centered on chapter 150 in a production-sized window: 18 visible
+    // rows plus 8 overscan each side, rows 133..166, one tab stop on 150.
+    expect(rows()).toHaveLength(34);
+    expect(rows()[0]!.id).toBe("toc-entry-133");
     expect(tabStops()).toHaveLength(1);
     expect(tabStops()[0]!.id).toBe("toc-entry-150");
 
@@ -151,13 +176,14 @@ describe("TocPanel", () => {
     flush();
     await settle();
 
-    // The window is now rows 0..15 and focusedIndex (150) sits outside it.
+    // The window is now rows 0..33 and focusedIndex (150) sits outside it.
     // Keyed on focusedIndex alone every row here renders tabindex -1 and the
     // contents leave the tab order entirely; the tab stop has to clamp into
     // the window, landing on the edge nearest the focused row.
     expect(rows()[0]!.id).toBe("toc-entry-0");
+    expect(rows()).toHaveLength(34);
     expect(tabStops()).toHaveLength(1);
-    expect(tabStops()[0]!.id).toBe("toc-entry-15");
+    expect(tabStops()[0]!.id).toBe("toc-entry-33");
   });
 
   it("clears a whitespace-only filter on Escape instead of closing", async () => {

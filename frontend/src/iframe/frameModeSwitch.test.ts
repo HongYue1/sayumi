@@ -156,10 +156,8 @@ it("carries the position across scroll<->paged switches", async () => {
     // Keep the viewport rect honest after pagination changes scrollLeft.
     anchor.getBoundingClientRect = () =>
       rect(1700 - content.scrollLeft, 1900 - content.scrollLeft);
-    const fromPoint = vi
-      .spyOn(document, "elementFromPoint")
-      .mockImplementation(() => anchor);
-    void fromPoint;
+    // The spy's effect is the mock; no handle is kept.
+    vi.spyOn(document, "elementFromPoint").mockImplementation(() => anchor);
     sent.length = 0;
 
     // scroll -> paged: the view must open on the anchor's page, and the
