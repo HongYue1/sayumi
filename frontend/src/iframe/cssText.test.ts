@@ -53,6 +53,13 @@ describe("stripColorsFromCSS", () => {
     expect(out).not.toContain("red");
   });
 
+  it("removes the color from an unexpanded text-emphasis", () => {
+    // Happy-dom keeps this shorthand un-expanded (like text-decoration), so
+    // without its shorthand-map entry the ruby color would survive the strip.
+    const out = stripColorsFromCSS(".d { text-emphasis: filled red; }");
+    expect(out).not.toContain("red");
+  });
+
   it("keeps !important on the declarations it keeps", () => {
     const out = stripColorsFromCSS(
       ".e { margin: 2px !important; color: red; }",
@@ -149,6 +156,14 @@ describe("book font families", () => {
     const names = extractBookFontFamilies(bookFaces);
     expect(names.has("book sans")).toBe(true);
     expect(names.has("serifed")).toBe(true);
+  });
+
+  it("ignores a font-family mention inside a comment", () => {
+    const names = extractBookFontFamilies(
+      `@font-face { /* font-family: "Phantom"; */ font-family: "Real"; src: url(/api/a.woff2); }`,
+    );
+    expect(names.has("phantom")).toBe(false);
+    expect(names.has("real")).toBe(true);
   });
 
   it("drops the reader faces the book overrides, whatever the spacing", () => {

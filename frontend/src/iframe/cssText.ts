@@ -125,6 +125,10 @@ const COLOR_SHORTHAND_LONGHANDS = new Map<string, readonly string[]>([
       "text-decoration-thickness",
     ],
   ],
+  // Ruby/emphasis marks are the feature's CJK target, and happy-dom keeps
+  // this shorthand un-expanded (like text-decoration): without the entry its
+  // color survives the strip.
+  ["text-emphasis", ["text-emphasis-style"]],
   [
     "border-image",
     [
@@ -441,11 +445,14 @@ function normalizeFamilyName(raw: string): string {
 
 export function extractBookFontFamilies(fontFaceCSS: string): Set<string> {
   const names = new Set<string>();
+  // Comments never declare a family, but a commented-out declaration would
+  // otherwise mint a phantom one -- and filter out a reader face of that name.
+  const css = fontFaceCSS.replace(/\/\*[\s\S]*?\*\//g, "");
   // Fresh regex per call: matchAll seeds its internal clone from this regex's
   // lastIndex, so sharing one /g instance would silently skip matches the day
   // anything calls exec() on it.
   const familyRe = new RegExp(FONT_FAMILY_RE.source, FONT_FAMILY_RE.flags);
-  for (const match of fontFaceCSS.matchAll(familyRe)) {
+  for (const match of css.matchAll(familyRe)) {
     names.add(normalizeFamilyName(match[1]));
   }
   return names;
