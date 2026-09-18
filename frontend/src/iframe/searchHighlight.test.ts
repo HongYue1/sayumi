@@ -158,12 +158,28 @@ describe("folded scan", () => {
     expect(foldQuery("   ")).toHaveLength(0);
   });
 
+  it("collapses internal whitespace runs like the chapter index", () => {
+    // The backend extractor (and the Go query normalization) collapse every
+    // run to one space: the needle must count the same code points.
+    expect(foldQuery("hello  world").join("")).toBe("hello world");
+    expect(foldQuery("a b").join("")).toBe("a b");
+    expect(foldQuery("a  b  c").join("")).toBe("a b c");
+  });
+
   it("finds the first occurrence, or -1", () => {
     const haystack = Array.from("alpha beta alpha");
     expect(findFoldedMatch(haystack, Array.from("alpha"))).toBe(0);
     expect(findFoldedMatch(haystack, Array.from("beta"))).toBe(6);
     expect(findFoldedMatch(haystack, Array.from("gamma"))).toBe(-1);
     expect(findFoldedMatch(haystack, [])).toBe(-1);
+  });
+
+  it("starts the fallback scan at the reported offset, wrapping around", () => {
+    const haystack = Array.from("alpha beta alpha");
+    expect(findFoldedMatch(haystack, Array.from("alpha"), 7)).toBe(11);
+    expect(findFoldedMatch(haystack, Array.from("alpha"), 11)).toBe(11);
+    expect(findFoldedMatch(haystack, Array.from("beta"), 11)).toBe(6);
+    expect(findFoldedMatch(haystack, Array.from("gamma"), 7)).toBe(-1);
   });
 
   it("refuses an out-of-bounds compare", () => {
@@ -216,6 +232,17 @@ describe("highlightSearchMatch", () => {
     const h = setup("<p>alpha beta gamma</p>");
     h.highlighter.highlightSearchMatch(0, 4, "beta");
     expect(markTexts(h.content)).toEqual(["beta"]);
+  });
+
+  it("falls back near the reported offset, not the first occurrence", () => {
+    const h = setup("<p>alpha beta alpha</p>");
+    // Offsets disagree with the DOM (20 is past the end), so the scan runs --
+    // and must land on the instance near the report, not the first "alpha".
+    h.highlighter.highlightSearchMatch(20, 5, "alpha");
+    const marks = Array.from(h.content.querySelectorAll(SEARCH_MARK_SELECTOR));
+    expect(marks).toHaveLength(1);
+    expect(marks[0].textContent).toBe("alpha");
+    expect(marks[0].previousSibling?.textContent).toBe("alpha beta ");
   });
 
   it("does nothing when offsets are unusable and there is no query", () => {

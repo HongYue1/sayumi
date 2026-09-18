@@ -57,7 +57,10 @@ func Search(
 
 	// Fold the query exactly like cached chapter text and the reader frame;
 	// offsets rely on one folded code point per original rune (see foldRunes).
-	query = foldRunes(strings.TrimSpace(query))
+	// Whitespace runs collapse to one space first, mirroring the extractor
+	// below and the frame's foldQuery: a double space or NBSP in the query
+	// must find the collapsed text, not miss everything visible.
+	query = foldRunes(collapseSpaceRuns(strings.TrimSpace(query)))
 	if query == "" {
 		return SearchResponse{Results: []SearchResult{}}, nil
 	}
@@ -223,6 +226,28 @@ func chapterPlainText(
 type plainTextExtractor struct {
 	builder      strings.Builder
 	pendingSpace bool
+}
+
+// collapseSpaceRuns reduces every maximal run of unicode whitespace to one
+// ASCII space, the same normalization plainTextExtractor.writeText applies to
+// chapter text (and foldQuery in frontend/src/iframe/searchHighlight.ts to
+// queries), so the two sides count the same code points.
+func collapseSpaceRuns(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	space := false
+	for _, r := range s {
+		if unicode.IsSpace(r) {
+			space = true
+			continue
+		}
+		if space && b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		space = false
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func (e *plainTextExtractor) String() string {

@@ -134,7 +134,11 @@ function isAllSpaceLike(text: string): boolean {
 
 export function foldQuery(query: string): string[] {
   const trimmed = query.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, "");
-  return foldSearchText(trimmed);
+  // Collapse internal runs exactly like the chapter indexes (and the backend
+  // extractor) do: a double space or NBSP in the query must find the single
+  // collapsed space, not miss everything visible.
+  const collapsed = trimmed.replace(/\p{White_Space}+/gu, " ");
+  return foldSearchText(collapsed);
 }
 
 function isTextBoundaryElement(node: Element): boolean {
@@ -332,17 +336,29 @@ export function matchesFoldedAt(
   return true;
 }
 
-export function findFoldedMatch(haystack: string[], needle: string[]): number {
+export function findFoldedMatch(
+  haystack: string[],
+  needle: string[],
+  from = 0,
+): number {
   if (needle.length === 0 || needle.length > haystack.length) return -1;
   const first = needle[0];
   const limit = haystack.length - needle.length;
-  // Screen candidates on the first character before the full compare; this
-  // scans a whole chapter whenever backend offsets and the DOM disagree.
-  for (let start = 0; start <= limit; start += 1) {
-    if (haystack[start] !== first) continue;
-    if (matchesFoldedAt(haystack, start, needle)) return start;
-  }
-  return -1;
+  // Start at the reported offset and wrap around: the offsets disagreed with
+  // the DOM (that is why this scan runs at all), but the true match is
+  // usually near the reported spot rather than at the first occurrence.
+  const startAt = Math.min(Math.max(0, Math.floor(from)), limit);
+  const scan = (lo: number, hi: number): number => {
+    // Screen candidates on the first character before the full compare; this
+    // scans a whole chapter whenever backend offsets and the DOM disagree.
+    for (let start = lo; start <= hi; start += 1) {
+      if (haystack[start] !== first) continue;
+      if (matchesFoldedAt(haystack, start, needle)) return start;
+    }
+    return -1;
+  };
+  const hit = scan(startAt, limit);
+  return hit === -1 && startAt > 0 ? scan(0, startAt - 1) : hit;
 }
 
 export function createSearchHighlight(
@@ -366,13 +382,17 @@ export function createSearchHighlight(
     });
   }
 
-  function fallbackHighlight(query: string, content: HTMLElement): void {
+  function fallbackHighlight(
+    query: string,
+    content: HTMLElement,
+    fromOffset: number,
+  ): void {
     // Always re-index. This path is reached either because the backend offsets
     // did not fit the DOM, or because a failed wrap rolled back and normalized
     // the very Text nodes an earlier index pointed at.
     const index = buildSearchTextIndex(content);
     const foldedQuery = foldQuery(query);
-    const start = findFoldedMatch(index.foldedChars, foldedQuery);
+    const start = findFoldedMatch(index.foldedChars, foldedQuery, fromOffset);
     if (start === -1) return;
 
     const mark = wrapIndexRangeInMarks(
@@ -414,7 +434,7 @@ export function createSearchHighlight(
     // "next match" hits on every keystroke-driven navigation.
     const index = buildSearchTextIndex(content, matchEnd);
     if (index.length < matchEnd) {
-      if (query) fallbackHighlight(query, content);
+      if (query) fallbackHighlight(query, content, charOffset);
       return;
     }
 
@@ -426,13 +446,13 @@ export function createSearchHighlight(
       (foldedQuery.length !== matchLen ||
         !matchesFoldedAt(index.foldedChars, charOffset, foldedQuery))
     ) {
-      fallbackHighlight(query, content);
+      fallbackHighlight(query, content, charOffset);
       return;
     }
 
     const mark = wrapIndexRangeInMarks(index, charOffset, matchEnd);
     if (!mark) {
-      if (query) fallbackHighlight(query, content);
+      if (query) fallbackHighlight(query, content, charOffset);
       return;
     }
 

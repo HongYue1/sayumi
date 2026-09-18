@@ -187,6 +187,38 @@ func TestSearchEmptyQueryAndPagination(t *testing.T) {
 	}
 }
 
+func TestSearchCollapsesQueryWhitespace(t *testing.T) {
+	t.Parallel()
+
+	zipPath := writeTestEPUB(t, map[string]string{
+		"ch0.xhtml": `<html><body><p>alpha beta</p></body></html>`,
+	})
+	store := NewStore(4)
+	t.Cleanup(func() { store.Close() })
+
+	spine := []SpineEntry{
+		{Href: "ch0.xhtml", ID: "c0", Linear: true},
+	}
+	ctx := t.Context()
+
+	// The chapter text collapses whitespace runs, so the query must collapse
+	// the same way (mirroring the frame's foldQuery): a double space, tab or
+	// NBSP finds the single collapsed space instead of missing everything.
+	for _, query := range []string{"alpha  beta", "alpha\tbeta", "alpha beta", "alpha\u00a0beta"} {
+		resp, err := Search(ctx, store, zipPath, spine, query, "", 10)
+		if err != nil {
+			t.Fatalf("query %q: %v", query, err)
+		}
+		if len(resp.Results) != 1 {
+			t.Fatalf("query %q results = %+v, want 1 hit", query, resp.Results)
+		}
+		got := resp.Results[0]
+		if got.CharOffset != 0 || got.MatchLen != 10 {
+			t.Fatalf("query %q hit = %+v, want offset 0 len 10", query, got)
+		}
+	}
+}
+
 func TestSearchSanitizedText(t *testing.T) {
 	t.Parallel()
 
