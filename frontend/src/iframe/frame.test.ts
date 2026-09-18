@@ -306,6 +306,87 @@ it("uses and reports one effective scroll mode for a vertical paged request", as
       "ArrowRight",
       "t",
     ]);
+
+    // Releasing a text selection is not a tap: the region message stays
+    // unsent so finishing a drag in an edge zone cannot turn the page.
+    sent.length = 0;
+    const range = document.createRange();
+    range.selectNodeContents(readerText);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    readerText.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+    expect(sent.filter((m) => m.type === "click")).toHaveLength(0);
+    selection?.removeAllRanges();
+    readerText.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+    expect(sent.filter((m) => m.type === "click")).toHaveLength(1);
+
+    // Middle-click never fires click: without an auxclick guard it would open
+    // the raw chapter URL in a new tab.
+    sent.length = 0;
+    const middle = new MouseEvent("auxclick", {
+      bubbles: true,
+      cancelable: true,
+      button: 1,
+    });
+    bookLink.dispatchEvent(middle);
+    expect(middle.defaultPrevented).toBe(true);
+    expect(open).toHaveBeenCalledTimes(3);
+    expect(sent.filter((m) => m.type === "link-clicked")).toEqual([]);
+
+    // A pushed font list repaints without waiting for a settings change, so a
+    // rescan under the selected family shows up on its own.
+    incoming({ type: "set-font-faces", fontFaces: "@font-face{}" });
+    expect(document.getElementById("font-face-css")?.textContent).toBe(
+      "@font-face{}",
+    );
+
+    // Paged scroll-to routes through the paginator: the scroll math below
+    // cannot move a multicol scroller, so without the branch these jumps
+    // (chapter-open top, CFI-less bookmarks) silently stay put.
+    sent.length = 0;
+    const scrollToSpy = vi
+      .spyOn(window, "scrollTo")
+      .mockImplementation(() => {});
+    incoming({ type: "scroll-to", seq: 2, percent: 1 });
+    expect(scrollToSpy).not.toHaveBeenCalled();
+    expect(sent.filter((m) => m.type === "position")).not.toHaveLength(0);
+    scrollToSpy.mockRestore();
+
+    // Paged wheel travel past the pull threshold turns the page; a dribble
+    // and a zoom gesture do nothing.
+    sent.length = 0;
+    window.dispatchEvent(
+      new WheelEvent("wheel", { bubbles: true, deltaY: 700 }),
+    );
+    expect(sent.filter((m) => m.type === "at-boundary")).toHaveLength(1);
+    window.dispatchEvent(
+      new WheelEvent("wheel", { bubbles: true, deltaY: 100 }),
+    );
+    // A zoom gesture never turns: happy-dom's WheelEvent drops modifier init,
+    // so the ctrlKey rides on a plain event here.
+    const zoom = new Event("wheel", { bubbles: true }) as Event & {
+      deltaY: number;
+      ctrlKey: boolean;
+    };
+    zoom.deltaY = 700;
+    zoom.ctrlKey = true;
+    window.dispatchEvent(zoom);
+    expect(sent.filter((m) => m.type === "at-boundary")).toHaveLength(1);
+
+    // The swap marks the chapter busy until a reveal clears it.
+    incoming({ ...verticalLoad, seq: 3 });
+    expect(document.getElementById("content")?.getAttribute("aria-busy")).toBe(
+      "true",
+    );
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(
+      document.getElementById("content")?.getAttribute("aria-busy"),
+    ).toBeNull();
   } finally {
     incoming({ type: "destroy" });
   }

@@ -74,6 +74,7 @@ export type PaginationController = {
   nextPage: () => void;
   prevPage: () => void;
   goToPage: (page: number, animated: boolean) => void;
+  goToRatio: (ratio: number, animated: boolean) => void;
   getElementPageIndex: (el: Element) => number;
   /**
    * The page holding a viewport rect (Foliate-shaped range restore: the
@@ -515,6 +516,13 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     updatePageIndicator();
   }
 
+  // Percent jump (scroll-to in paged mode): same clamp-and-report as an
+  // explicit page change, so TOC and bookmark jumps land instead of dropping
+  // through the scroll-only handler.
+  function goToRatio(ratio: number, animated: boolean): void {
+    goToPageInternal(pageForRatio(ratio, totalPages), animated);
+  }
+
   function nextPage(): void {
     if (totalPages === 0) return;
     if (currentPage >= totalPages - 1) {
@@ -751,6 +759,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     if (deps.isDestroyed() || deps.getActiveSeq() !== seqAtStart) return;
     document.body.style.opacity = "1";
     document.documentElement.style.overflow = "";
+    deps.getContentEl()?.removeAttribute("aria-busy");
     deps.ensureBoundaryElements();
     deps.updateBoundaryState();
     updatePageIndicator();
@@ -955,6 +964,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     nextPage,
     prevPage,
     goToPage: goToPageInternal,
+    goToRatio,
     getElementPageIndex,
     getRectPageIndex,
     scrollToFragmentPaged,

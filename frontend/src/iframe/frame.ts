@@ -23,7 +23,7 @@ import {
   textNodeAtOffset,
 } from "~/lib/cfi";
 import { createSearchHighlight } from "./searchHighlight";
-import { createBoundary, WHEEL_THRESHOLD } from "./boundary";
+import { createBoundary, WHEEL_THRESHOLD, BOUNDARY_RESET_MS } from "./boundary";
 import { createPagination } from "./pagination";
 import { prefersReducedMotion } from "./reduceMotion";
 
@@ -214,6 +214,13 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   let wheelPullDelta = 0;
   let wheelPullRafHandle: number | null = null;
   let touchPullRafHandle: number | null = null;
+  // Paged-mode wheel accumulation: vertical wheel travel past the pull
+  // threshold turns the page, matching ArrowDown/ArrowUp. A direction change
+  // or 600 ms of idleness restarts the gesture, and zoom gestures (ctrl/meta)
+  // never turn. Deliberately vertical-only: horizontal flicks stay inert
+  // rather than risk a mis-signed turn across scroll-direction conventions.
+  let pagedWheelAccum = 0;
+  let pagedWheelResetTimer: ReturnType<typeof setTimeout> | null = null;
   let pagedRelayoutRafHandle: number | null = null;
   let revealFallbackTimer: ReturnType<typeof setTimeout> | null = null;
   let loadCommitTimer: ReturnType<typeof setTimeout> | null = null;
@@ -239,7 +246,9 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   let lastReportedOffset: number | undefined;
 
   function absolutifyHTML(html: string): string {
-    if (!parentOrigin) return html;
+    // Cheap guard: most chapters carry no /api/ references at all, and both
+    // passes below scan the whole document for them.
+    if (!parentOrigin || !html.includes("/api/")) return html;
     let result = html.replace(
       /((?:src|poster)\s*=\s*["'])(\/api\/)/gi,
       (_, prefix, path) => prefix + parentOrigin + path,
@@ -667,6 +676,8 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     killScrollMomentum();
     document.body.style.opacity = "0";
     document.documentElement.style.overflow = "hidden";
+    // Announce the swap to assistive tech; every reveal path below clears it.
+    getContentEl()?.setAttribute("aria-busy", "true");
     setChapterHidden(true);
     pagination.setPageTurning(false);
   }
@@ -699,6 +710,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   function revealScrollShell(): void {
     document.body.style.opacity = "1";
     document.documentElement.style.overflow = "";
+    getContentEl()?.removeAttribute("aria-busy");
     boundary.ensureElements();
     updateBoundaryState();
     requestAnimationFrame(() => {
@@ -942,6 +954,28 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     sendMessage({ type: "effective-mode", seq: activeSeq, mode, fallback });
   }
 
+  // Whether the last applied settings kept the book's fonts. Stored (not
+  // re-derived) so a bare set-font-faces push -- a rescan landing files under
+  // the already-selected family -- can repaint immediately instead of waiting
+  // for the next settings change.
+  let lastPreserveBookFonts = false;
+
+  function applyFontFaces(): void {
+    let fontFaceContent: string;
+    if (lastPreserveBookFonts && preparedFontFaceCSS) {
+      fontFaceContent =
+        filterReaderFontFaces(readerFontFaces, preparedBookFontFamilies) +
+        "\n" +
+        preparedFontFaceCSS;
+    } else {
+      fontFaceContent = readerFontFaces;
+    }
+    if (fontFaceContent !== _lastFontFaceContent) {
+      getStyleEl("font-face-css").textContent = fontFaceContent;
+      _lastFontFaceContent = fontFaceContent;
+    }
+  }
+
   function applySettings(settings: IframeSettings): void {
     // Resolve the mode once and use it for every side of the layout contract:
     // generated CSS, root classes, JS pagination, and the parent report. A
@@ -975,19 +1009,8 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       if (!Number.isFinite(switchRatio)) switchRatio = 0;
     }
 
-    let fontFaceContent: string;
-    if (settings.preserveBookFonts && preparedFontFaceCSS) {
-      fontFaceContent =
-        filterReaderFontFaces(readerFontFaces, preparedBookFontFamilies) +
-        "\n" +
-        preparedFontFaceCSS;
-    } else {
-      fontFaceContent = readerFontFaces;
-    }
-    if (fontFaceContent !== _lastFontFaceContent) {
-      getStyleEl("font-face-css").textContent = fontFaceContent;
-      _lastFontFaceContent = fontFaceContent;
-    }
+    lastPreserveBookFonts = settings.preserveBookFonts;
+    applyFontFaces();
 
     let bookCSS = "";
     if (settings.preserveBookStyles && settings.preserveBookFonts) {
@@ -1003,6 +1026,17 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     }
 
     const css: string[] = [
+      // Trust zones for everything interpolated below. This slot runs with the
+      // frame's full style authority (!important over book CSS), so every
+      // value is constrained before it gets here:
+      //   - Closed enums, numbers and booleans (margins, sizes, align,
+      //     justify): typed and range-checked by the settings validator
+      //     (internal/api) before they cross the wire.
+      //   - Font families: resolved parent-side to allowlisted stacks
+      //     (resolveFontFamily falls back for unknown ids), never raw ids.
+      //   - Pre-built CSS: themeVars (server-enforced #rgb/#rrggbb) and the
+      //     generated @font-face block (server-issued URLs). Interpolate
+      //     nothing book-authored here.
       "html, body { color: var(--text-primary) !important; background: var(--bg-primary) !important; }",
       "body { margin: 0 !important; }",
     ];
@@ -1460,6 +1494,9 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       }, 200);
     } else if (Date.now() - lastScrollReportTime >= SCROLL_REPORT_MAX_WAIT_MS) {
       lastScrollReportTime = Date.now();
+      // The trailing edge below would repeat this same report: it only exists
+      // for runs that never tripped the max-wait.
+      scrollThrottlePending = false;
       reportPosition();
     } else {
       scrollThrottlePending = true;
@@ -1496,13 +1533,41 @@ const PAGED_SCROLL_KEYS = new Set<string>([
 
   function handleWheel(e: WheelEvent): void {
     if (destroyed || !contentReady || restorePending) return;
-    if (isPagedMode) return;
+    if (isPagedMode) {
+      handlePagedWheel(e);
+      return;
+    }
     // Sum synchronously, read layout and paint the indicator once per frame:
     // updateBoundaryState() reads scrollHeight and boundary.* then writes
     // indicator styles, so running both per event forces a reflow per tick.
     wheelPullDelta += readingAxisWheelDelta(e);
     if (wheelPullRafHandle !== null) return;
     wheelPullRafHandle = requestAnimationFrame(flushWheelPull);
+  }
+
+  function handlePagedWheel(e: WheelEvent): void {
+    // Pinch-zoom, not a turn.
+    if (e.ctrlKey || e.metaKey || e.deltaY === 0) return;
+    if (pagedWheelResetTimer !== null) {
+      clearTimeout(pagedWheelResetTimer);
+      pagedWheelResetTimer = null;
+    }
+    if (
+      pagedWheelAccum !== 0 &&
+      Math.sign(e.deltaY) !== Math.sign(pagedWheelAccum)
+    ) {
+      pagedWheelAccum = 0;
+    }
+    pagedWheelAccum += e.deltaY;
+    pagedWheelResetTimer = setTimeout(() => {
+      pagedWheelResetTimer = null;
+      pagedWheelAccum = 0;
+    }, BOUNDARY_RESET_MS);
+    if (Math.abs(pagedWheelAccum) >= WHEEL_THRESHOLD) {
+      pagedWheelAccum = 0;
+      if (e.deltaY > 0) pagination.nextPage();
+      else pagination.prevPage();
+    }
   }
 
   function flushWheelPull(): void {
@@ -1741,6 +1806,14 @@ const PAGED_SCROLL_KEYS = new Set<string>([
 
   function handleClick(e: MouseEvent): void {
     if (destroyed) return;
+    // Taps are meaningless before the chapter is interactive, and acting on
+    // them would drive the previous chapter's page or chrome.
+    if (!contentReady || restorePending) return;
+    // Releasing a text selection is not a tap: without this, finishing a drag
+    // inside an edge zone turns the page (and drops the selection the user
+    // just made).
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
 
     const vw = Number.isFinite(window.innerWidth) ? window.innerWidth : 0;
     const x = e.clientX;
@@ -1788,6 +1861,14 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     sendMessage({ type: "link-clicked", seq: activeSeq, href });
   }
 
+  // Middle-click never fires click, so handleClick cannot cover it: without
+  // this an auxclick on an internal link opens the raw chapter URL in a new
+  // tab. Swallowed (not turned into a region tap): it has no reader meaning.
+  function handleAuxClick(e: MouseEvent): void {
+    if (destroyed) return;
+    if (e.button === 1) e.preventDefault();
+  }
+
   const searchHl = createSearchHighlight({
     getContentEl,
     isContentReady: () => contentReady,
@@ -1816,6 +1897,13 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       scrollThrottleTimer = null;
     }
     scrollThrottlePending = false;
+    // A paged wheel gesture must not carry its accumulation into the new
+    // chapter and turn it on arrival.
+    if (pagedWheelResetTimer !== null) {
+      clearTimeout(pagedWheelResetTimer);
+      pagedWheelResetTimer = null;
+    }
+    pagedWheelAccum = 0;
     if (scrollRafHandle !== null) {
       cancelAnimationFrame(scrollRafHandle);
       scrollRafHandle = null;
@@ -1844,8 +1932,6 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       clearTimeout(revealFallbackTimer);
       revealFallbackTimer = null;
     }
-
-    beginChapterSwapOut();
 
     const rawContentInnerEl = document.getElementById("content-inner");
     if (!rawContentInnerEl) {
@@ -1953,6 +2039,11 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       cancelAnimationFrame(touchPullRafHandle);
       touchPullRafHandle = null;
     }
+    if (pagedWheelResetTimer !== null) {
+      clearTimeout(pagedWheelResetTimer);
+      pagedWheelResetTimer = null;
+    }
+    pagedWheelAccum = 0;
     wheelPullDelta = 0;
     cancelScheduledPagedRelayout();
     if (rasterRefreshRafHandle !== null) {
@@ -1965,6 +2056,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
 
     window.removeEventListener("message", handleMessage);
     document.removeEventListener("click", handleClick);
+    document.removeEventListener("auxclick", handleAuxClick);
     window.removeEventListener("scroll", handleScroll);
     window.removeEventListener("wheel", handleWheel);
     document.removeEventListener("touchstart", handleTouchStart);
@@ -2038,7 +2130,10 @@ const PAGED_SCROLL_KEYS = new Set<string>([
         break;
 
       case "set-font-faces":
-        if (typeof msg.fontFaces === "string") readerFontFaces = msg.fontFaces;
+        if (typeof msg.fontFaces === "string") {
+          readerFontFaces = msg.fontFaces;
+          applyFontFaces();
+        }
         break;
 
       case "load": {
@@ -2088,6 +2183,16 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       case "scroll-to":
         if (isStaleCommand(msg.seq)) break;
         if (contentReady) {
+          if (isPagedMode) {
+            // The scroll math below cannot move a multicol scroller: route
+            // through the paginator so TOC and bookmark jumps land in paged
+            // mode instead of dropping silently.
+            const pct = Number.isFinite(msg.percent)
+              ? Math.min(1, Math.max(0, msg.percent))
+              : 0;
+            pagination.goToRatio(pct, false);
+            break;
+          }
           const max = getScrollableMax();
           const pct = Number.isFinite(msg.percent)
             ? Math.min(1, Math.max(0, msg.percent))
@@ -2102,6 +2207,10 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       case "scroll-to-end":
         if (isStaleCommand(msg.seq)) break;
         if (contentReady) {
+          if (isPagedMode) {
+            pagination.goToRatio(1, false);
+            break;
+          }
           const max = getScrollableMax();
           // Axis-aware: in vertical-writing scroll mode the flow axis is X.
           axisScrollTo(max);
@@ -2196,6 +2305,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
 
   window.addEventListener("message", handleMessage);
   document.addEventListener("click", handleClick);
+  document.addEventListener("auxclick", handleAuxClick);
   window.addEventListener("scroll", handleScroll, { passive: true });
   window.addEventListener("wheel", handleWheel, { passive: true });
   document.addEventListener("touchstart", handleTouchStart, { passive: true });

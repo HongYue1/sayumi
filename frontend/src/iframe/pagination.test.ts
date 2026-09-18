@@ -307,6 +307,14 @@ describe("enterPagedFromScroll / getCurrentRatio", () => {
     expect(positions()[0]?.percent).toBe(1);
   });
 
+  it("jumps by ratio for paged scroll-to commands", () => {
+    pagination?.enterPagedFromScroll(null, 0);
+    // pageForRatio(0.5, 4) rounds to page 2, reported like any explicit turn.
+    pagination?.goToRatio(0.5, false);
+    expect(content.scrollLeft).toBe(1600);
+    expect(positions().at(-1)?.percent).toBe(2 / 3);
+  });
+
   it("prefers a text-offset range over the anchor element", () => {
     // A long block spans pages; the element maps by its start (page 0 here)
     // while the range rect lands the exact page.
