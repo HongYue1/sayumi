@@ -16,7 +16,10 @@
 //     state, so a control the platform cannot hold shut -- the native color
 //     pickers and the auto-accent checkbox, neither of which honours readonly
 //     -- refuses in its handler and restores what the refusal implies. The
-//     text fields take readonly, which is a real interlock.
+//     text fields take readonly, which is a real interlock. Dismissal (the
+//     close button, the backdrop, Escape, the Cancel button) stands down
+//     while busy instead of aborting: aborting the fetch cannot recall a
+//     write the server already committed.
 //   - The overlay is portaled to document.body. Rendered in place it lands
 //     inside the settings panel, whose backdrop-filter blurs every descendant
 //     AND makes the panel the containing block for position: fixed, so the
@@ -101,6 +104,8 @@ const MAX_THEME_NAME_CHARS = 60;
 // the normalised value, so typing is never fought over by the formatter.
 function ColorRow(props: {
   label: string;
+  /** Stable prefix for the error id; one dialog mounts up to three rows. */
+  id: string;
   value: string;
   busy: boolean;
   onchange: (hex: string) => void;
@@ -111,6 +116,7 @@ function ColorRow(props: {
     const raw = draft();
     return raw !== null && parseColorText(raw) === null;
   };
+  const errorId = (): string => `${props.id}-error`;
 
   return (
     <label class="ctd-field">
@@ -143,6 +149,7 @@ function ColorRow(props: {
           autocomplete="off"
           aria-label={`${props.label} color value, hex or rgb()`}
           aria-invalid={invalid() ? "true" : undefined}
+          aria-describedby={invalid() ? errorId() : undefined}
           readonly={props.busy}
           aria-disabled={props.busy ? "true" : "false"}
           onInput={(e) => {
@@ -154,6 +161,15 @@ function ColorRow(props: {
           onBlur={() => setDraft(null)}
         />
       </div>
+      {/* The invalid flag now names its reason. No live region: a half-typed
+          value is transient keystroke state, and it never blocks save -- it
+          just doesn't commit -- so announcing every intermediate character
+          would be noise. The message is reachable on demand via describedby. */}
+      <Show when={invalid()}>
+        <small id={errorId()} class="ctd-field-error">
+          Enter a complete color, like #123456 or rgb(18, 52, 86).
+        </small>
+      </Show>
     </label>
   );
 }
@@ -187,6 +203,14 @@ export default function CustomThemeDialog(props: Props) {
   // Mirrors SettingsPanel's resetArmed: the armed delete disarms on a timer,
   // so a stale armed state cannot fire on a stray click minutes later.
   let deleteArmTimer: ReturnType<typeof setTimeout> | undefined;
+  // An armed delete confirms the palette on screen. Any edit after arming
+  // disarms: the second click must re-arm against the new values instead of
+  // confirming a theme the user has since changed.
+  function disarmDelete(): void {
+    if (deleteArmTimer !== undefined) clearTimeout(deleteArmTimer);
+    deleteArmTimer = undefined;
+    setDeleteArmed(false);
+  }
   const [nameDirty, setNameDirty] = createSignal(false);
   let operationController: AbortController | null = null;
 
@@ -230,10 +254,15 @@ export default function CustomThemeDialog(props: Props) {
   // The draft id never reaches settings.theme or the server. Clearing it on
   // unmount restores the saved theme and covers cancel, Escape, save and
   // delete alike: every one of those paths ends in props.onclose().
+  //
+  // The label stays a constant on purpose: neither painter reads it (App's
+  // repaint key and deriveReaderVars both take colors only), so tracking the
+  // name here would republish -- and re-run both painters' effects -- on every
+  // keystroke for a change nothing paints.
   createEffect(
     (): ThemeDef => ({
       id: PREVIEW_THEME_ID,
-      label: trimmedName() || "Preview",
+      label: "Preview",
       group: group(),
       bg: bg(),
       fg: fg(),
@@ -261,8 +290,13 @@ export default function CustomThemeDialog(props: Props) {
   }
 
   function close(): void {
-    operationController?.abort();
-    operationController = null;
+    // Dismissal stands down while a save or delete is in flight. Aborting the
+    // fetch cannot recall a write the server already committed, so leaving
+    // mid-request would report a lie ("cancelled") and a stale list. The wait
+    // is bounded by the client's per-attempt timeout, and the outcome is then
+    // always truthful: success closes through the operation path below (which
+    // converges the store), failure toasts and re-arms the form.
+    if (busy()) return;
     props.onclose();
   }
 
@@ -274,6 +308,8 @@ export default function CustomThemeDialog(props: Props) {
     if (e.key === "Escape") {
       e.preventDefault();
       // Consume so the reader / settings window handlers don't also act on it.
+      // close() stands down while busy, but the key must still not fall
+      // through to Read underneath a modal dialog.
       e.stopImmediatePropagation();
       close();
     }
@@ -308,11 +344,22 @@ export default function CustomThemeDialog(props: Props) {
       e.currentTarget.checked = auto();
       return;
     }
+    disarmDelete();
     const next = e.currentTarget.checked;
     setAuto(next);
     // Seed the manual picker from the current auto suggestion so turning the
     // override on starts from a sensible color rather than a stale one.
     if (!next) setAccent(autoAccent(bg(), fg()));
+  }
+
+  // Every draft edit disarms a pending delete confirmation: remove() deletes
+  // by id, but the armed button's label names the draft, so confirming after
+  // an edit would bless values the user never re-checked.
+  function editColor(set: (hex: string) => void): (hex: string) => void {
+    return (hex: string) => {
+      disarmDelete();
+      set(hex);
+    };
   }
 
   async function save(e: Event): Promise<void> {
@@ -409,6 +456,7 @@ export default function CustomThemeDialog(props: Props) {
               type="button"
               class="icon-btn press ctd-close"
               aria-label={closeLabel()}
+              aria-disabled={busy() ? "true" : "false"}
               onClick={close}
             >
               <Icon icon={X} size={18} labelFromParent />
@@ -453,6 +501,7 @@ export default function CustomThemeDialog(props: Props) {
                 onInput={(e) => {
                   setName(e.currentTarget.value);
                   setNameDirty(true);
+                  disarmDelete();
                 }}
                 ref={(el) => (nameEl = el)}
               />
@@ -475,15 +524,17 @@ export default function CustomThemeDialog(props: Props) {
             <div class="ctd-colors">
               <ColorRow
                 label="Background"
+                id="theme-bg"
                 value={bg()}
                 busy={busy()}
-                onchange={setBg}
+                onchange={editColor(setBg)}
               />
               <ColorRow
                 label="Text"
+                id="theme-fg"
                 value={fg()}
                 busy={busy()}
-                onchange={setFg}
+                onchange={editColor(setFg)}
               />
             </div>
 
@@ -501,9 +552,10 @@ export default function CustomThemeDialog(props: Props) {
             <Show when={!auto()}>
               <ColorRow
                 label="Accent"
+                id="theme-accent"
                 value={accent()}
                 busy={busy()}
-                onchange={setAccent}
+                onchange={editColor(setAccent)}
               />
             </Show>
 
@@ -528,7 +580,12 @@ export default function CustomThemeDialog(props: Props) {
                 </button>
               </Show>
               <span class="ctd-spacer" />
-              <button type="button" class="btn-ghost press" onClick={close}>
+              <button
+                type="button"
+                class="btn-ghost press"
+                aria-disabled={busy() ? "true" : "false"}
+                onClick={close}
+              >
                 {pendingAction() === "delete"
                   ? "Cancel delete"
                   : pendingAction() === "save"

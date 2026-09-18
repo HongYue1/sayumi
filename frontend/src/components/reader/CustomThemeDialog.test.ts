@@ -30,7 +30,16 @@
 //     "#12" is neither applied nor rewritten under the caret.
 //   - The picked palette publishes to lib/themePreview (the live preview both
 //     painters follow) and is cleared on unmount -- the one point every
-//     dismissal path (cancel, Escape, save, delete) converges on.
+//     dismissal path (cancel, Escape, save, delete) converges on. The draft
+//     label stays constant: neither painter reads it, so tracking the name
+//     would republish on every keystroke for a change nothing paints.
+//   - An armed delete disarms on any draft edit, not just the timer: the
+//     second click must re-arm against the new values.
+//   - Dismissal stands down while a save is in flight instead of aborting:
+//     aborting the fetch cannot recall a committed write, so leaving would
+//     report "cancelled" over a stale list.
+//   - An incomplete color reports itself invalid AND names its reason
+//     through aria-describedby, clearing both once a complete value commits.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@solidjs/web";
 import { flush } from "solid-js";
@@ -345,6 +354,106 @@ describe("CustomThemeDialog", () => {
     await settle();
     expect(stubs.remove).toHaveBeenCalledTimes(1);
     expect(stubs.remove.mock.calls[0]![0]).toBe("custom:abc");
+  });
+
+  it("does not republish the preview while only the name changes", async () => {
+    await mount();
+    const before = themePreview();
+    expect(before).not.toBeNull();
+    typeInto(nameField(), "Fresh");
+    await settle();
+    // Same object: neither painter reads the label, so a name keystroke must
+    // not re-run their effects for a change nothing paints.
+    expect(themePreview()).toBe(before);
+    expect(themePreview()?.label).toBe("Preview");
+  });
+
+  it("disarms the delete when the draft is edited after arming", async () => {
+    await mount(EDIT);
+    const btn = deleteBtn();
+    btn.click();
+    await settle();
+    expect(btn.textContent).toContain("Click again to delete");
+    // A name edit disarms: the second click must re-arm against the new
+    // values, not confirm the old ones.
+    typeInto(nameField(), "Changed");
+    await settle();
+    expect(btn.textContent).not.toContain("Click again to delete");
+    // Same for a color edit.
+    btn.click();
+    await settle();
+    expect(btn.textContent).toContain("Click again to delete");
+    typeInto(colorText("Background"), "#202020");
+    await settle();
+    expect(btn.textContent).not.toContain("Click again to delete");
+    expect(stubs.remove).not.toHaveBeenCalled();
+  });
+
+  it("stands down dismissal while a save is in flight", async () => {
+    let releaseCreate: (() => void) | undefined;
+    stubs.create.mockImplementation(
+      () =>
+        new Promise<ThemeDef>((resolve) => {
+          releaseCreate = () =>
+            resolve({
+              id: "custom:new",
+              label: "Fresh",
+              group: "light",
+              bg: "#ffffff",
+              fg: "#111111",
+              accent: "#2563eb",
+            });
+        }),
+    );
+    await mount();
+    typeInto(nameField(), "Fresh");
+    submitBtn().click();
+    await settle();
+    // Aborting the fetch cannot recall a write the server already committed,
+    // so leaving now would report "cancelled" over a stale list. Every
+    // dismissal path refuses until the request settles.
+    const cancel = document.querySelector<HTMLButtonElement>(
+      ".ctd-actions .btn-ghost",
+    )!;
+    const closer = document.querySelector<HTMLButtonElement>(".ctd-close")!;
+    expect(cancel.getAttribute("aria-disabled")).toBe("true");
+    expect(closer.getAttribute("aria-disabled")).toBe("true");
+    cancel.click();
+    await settle();
+    closer.click();
+    await settle();
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await settle();
+    expect(onclose).not.toHaveBeenCalled();
+    // The settled write still closes through the operation path, converging
+    // the store instead of abandoning it.
+    releaseCreate!();
+    await settle();
+    await settle();
+    expect(onclose).toHaveBeenCalledTimes(1);
+    expect(stubs.settingsUpdate).toHaveBeenCalledWith({ theme: "custom:new" });
+  });
+
+  it("explains an incomplete color through its error message", async () => {
+    await mount();
+    const field = colorText("Background");
+    typeInto(field, "#12");
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(field.getAttribute("aria-describedby")).toBe("theme-bg-error");
+    expect(document.querySelector("#theme-bg-error")?.textContent).toContain(
+      "#123456",
+    );
+    // A committed value clears both the message and the reference.
+    typeInto(field, "#123456");
+    await settle();
+    expect(document.querySelector("#theme-bg-error")).toBeNull();
+    expect(field.getAttribute("aria-describedby")).toBeNull();
   });
 
   it("falls back to a built-in of the same group when deleting the active theme", async () => {
