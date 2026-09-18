@@ -11,8 +11,10 @@ const COALESCE_TYPES = new Set<ParentToFrameMessage["type"]>([
   "apply-settings",
   "set-font-faces",
 ]);
-// Safety valve: if the frame never signals ready (e.g. its script is blocked),
-// bound the queue instead of letting it grow with every interaction.
+// Safety valve for a far side that goes silent: the handshake queue fills when
+// the frame never signals ready (e.g. its script is blocked), the chapter queue
+// when a load never settles. Bound both instead of letting them grow with every
+// command.
 const MAX_QUEUED = 64;
 
 export interface FrameMessageQueue {
@@ -30,7 +32,11 @@ export function createFrameMessageQueue(
   let queue: ParentToFrameMessage[] = [];
   return {
     enqueue(message: ParentToFrameMessage): void {
-      // Coalesce in place: earliest causal slot, newest payload.
+      // Coalesce in place: earliest causal slot, newest payload. That also
+      // moves the newest payload ahead of anything queued after the slot it
+      // reuses; what keeps it safe is the caller, since ChapterFrame clears the
+      // chapter queue on every new load and only frame-level state shares this
+      // queue.
       if (COALESCE_TYPES.has(message.type)) {
         const at = queue.findIndex((m) => m.type === message.type);
         if (at >= 0) {
@@ -40,10 +46,10 @@ export function createFrameMessageQueue(
         }
       }
       queue.push(message);
-      // Only reachable when the frame never readied. Preserve the bounded
-      // latest-wins state (load/settings/font faces) and evict the oldest stray
-      // non-coalesced interaction first; otherwise a burst of scroll/page input
-      // before ready could drop the only queued chapter load. The shift()
+      // Reached only while the far side is silent (see MAX_QUEUED). Preserve
+      // the bounded latest-wins state (load/settings/font faces) and evict the
+      // oldest stray non-coalesced command first; otherwise a burst of one-off
+      // commands could drop the only queued chapter load. The shift()
       // fallback needs a queue holding nothing but coalesce types, which takes
       // maxQueued below COALESCE_TYPES.size; no caller passes that, so the
       // suite is the only thing that reaches it.
