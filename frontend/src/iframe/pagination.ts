@@ -114,8 +114,15 @@ export type PaginationController = {
   setPageTurning: (turning: boolean) => void;
   isRTL: () => boolean;
   resetForLoad: (rtl: boolean) => void;
-  /** Detach the paged resize observer/listener without touching page-turn state (used when switching to scroll mode). */
+  /** Detach the paged resize observer/listener without touching page-turn state (a mode switch away from paged aborts the turn separately via cancelPageTurn). */
   teardownResizeObserver: () => void;
+  /**
+   * Freeze an in-flight page turn without swapping: stop the fade loop, drop
+   * the promotion, restore full opacity, and leave scrollLeft where it is. A
+   * paged→scroll switch must call this -- otherwise the turn's scrollLeft swap
+   * lands mid-scroll-mode and its report persists a paged percent.
+   */
+  cancelPageTurn: () => void;
   dispose: () => void;
 };
 
@@ -889,6 +896,21 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     document.addEventListener("load", handlePagedContentLoad, true);
   }
 
+  function cancelPageTurn(): void {
+    if (pageScrollRafHandle !== null) {
+      cancelAnimationFrame(pageScrollRafHandle);
+      pageScrollRafHandle = null;
+    }
+    if (pageTurnFinishTimer !== null) {
+      clearTimeout(pageTurnFinishTimer);
+      pageTurnFinishTimer = null;
+    }
+    pageTurnSwapped = false;
+    const content = deps.getContentEl();
+    if (content) content.style.opacity = "";
+    setPageTurning(false);
+  }
+
   function teardownPagedResizeObserver(): void {
     // Invalidate a pending fonts.ready correction when leaving paged mode or
     // replacing/disposing the chapter. A later paged activation schedules its
@@ -965,6 +987,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     prevPage,
     goToPage: goToPageInternal,
     goToRatio,
+    cancelPageTurn,
     getElementPageIndex,
     getRectPageIndex,
     scrollToFragmentPaged,

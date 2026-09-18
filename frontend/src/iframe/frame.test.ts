@@ -378,6 +378,29 @@ it("uses and reports one effective scroll mode for a vertical paged request", as
     window.dispatchEvent(zoom);
     expect(sent.filter((m) => m.type === "at-boundary")).toHaveLength(1);
 
+    // A paged-to-scroll switch freezes an in-flight turn: its scrollLeft swap
+    // would otherwise land mid-scroll-mode and report a paged percent.
+    const pagedContent = document.getElementById("content")!;
+    Object.defineProperty(pagedContent, "clientWidth", {
+      value: 800,
+      configurable: true,
+    });
+    Object.defineProperty(pagedContent, "scrollWidth", {
+      value: 3200,
+      configurable: true,
+    });
+    incoming({ type: "apply-settings", settings: iframeSettings("paged") });
+    await vi.advanceTimersByTimeAsync(500);
+    incoming({ type: "next-page", seq: 2 });
+    expect(document.documentElement.classList.contains("page-turning")).toBe(
+      true,
+    );
+    incoming({ type: "apply-settings", settings: iframeSettings("scroll") });
+    expect(document.documentElement.classList.contains("page-turning")).toBe(
+      false,
+    );
+    expect(pagedContent.scrollLeft).toBe(0);
+
     // The swap marks the chapter busy until a reveal clears it.
     incoming({ ...verticalLoad, seq: 3 });
     expect(document.getElementById("content")?.getAttribute("aria-busy")).toBe(

@@ -1283,6 +1283,10 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       // switch re-establishes it via pagination.relayout().
       cancelScheduledPagedRelayout();
       pagination.teardownResizeObserver();
+      // A turn in flight keeps animating past the switch: its scrollLeft swap
+      // would land mid-scroll-mode and its report would persist a paged
+      // percent, so freeze it here (teardown above leaves turn state alone).
+      if (isModeSwitch) pagination.cancelPageTurn();
       if (isModeSwitch)
         restoreScrollFromSwitch(
           switchSpot?.element ?? null,

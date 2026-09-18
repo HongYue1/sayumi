@@ -365,6 +365,24 @@ describe("enterPagedFromScroll / getCurrentRatio", () => {
     expect(content.style.opacity).toBe("");
   });
 
+  it("freezes a turn without swapping on a paged-to-scroll switch", () => {
+    pagination?.enterPagedFromScroll(null, 0);
+    // Mid-turn to page 2: the swap has not happened yet, so scrollLeft is
+    // still the origin page.
+    pagination?.goToPage(2, true);
+    content.style.opacity = "0.4";
+    expect(content.scrollLeft).toBe(0);
+
+    // The switch must stop the fade where it stands: letting it run would
+    // write the page-2 offset into scroll mode and report a paged percent.
+    pagination?.cancelPageTurn();
+    expect(document.documentElement.classList.contains("page-turning")).toBe(
+      false,
+    );
+    expect(content.style.opacity).toBe("");
+    expect(content.scrollLeft).toBe(0);
+  });
+
   it("hides the decorative page indicator from assistive tech", () => {
     pagination?.enterPagedFromScroll(null, 0);
     // The reader announces page position through its own live region; the
