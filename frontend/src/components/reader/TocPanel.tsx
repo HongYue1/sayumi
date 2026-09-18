@@ -5,9 +5,12 @@
 //     mounts late); padTop/lastQuery/composing/initialised stay plain `let`
 //     because nothing rendered reads them.
 //   - The mount/ResizeObserver effect is one compute/apply createEffect keyed
-//     on scrollEl() with an `initialised` guard for the open-time centering
-//     (the apply phase never tracks, so an arriving TOC can't re-run it); the
-//     query reset is a second pair keyed on normalizedQuery().
+//     on scrollEl() with an `initialised` guard for the one-per-open focus
+//     and tab-stop seeding (the apply phase never tracks, so an arriving TOC
+//     can't re-run it); the query reset is a second pair keyed on
+//     normalizedQuery(), and the open-time centering a third keyed on the
+//     first known reading position -- so a position that arrives after the
+//     nav mounted still centers, without re-centering every chapter turn.
 //   - focusRow flushes before focusing: setter results (and the shifted
 //     virtual window) are only visible after a flush, so apply synchronously
 //     before focusing the row's button.
@@ -60,6 +63,20 @@ function rowId(index: number): string {
   return `toc-entry-${index}`;
 }
 
+/**
+ * Rows per PageUp/PageDown. The viewport height includes the scroller's
+ * padding (clientHeight counts it), so the pads come off first: dividing the
+ * padded height overshoots by the padding's worth of rows. Pure so the suites
+ * can pin the arithmetic directly.
+ */
+export function pageStep(
+  viewportH: number,
+  padTop: number,
+  padBottom: number,
+): number {
+  return Math.max(1, Math.floor((viewportH - padTop - padBottom) / ROW_H));
+}
+
 export default function TocPanel(props: Props) {
   // scrollEl is a signal (not a plain let) so the mount effect below re-runs
   // if the <nav> mounts after first render — e.g. when the TOC arrives async
@@ -76,6 +93,7 @@ export default function TocPanel(props: Props) {
   // the off-by-a-few-pixels in startIndex.) Measured, not hardcoded, so a
   // style tweak can't silently desync it. Not rendered: plain let.
   let padTop = 0;
+  let padBottom = 0;
   let lastQuery = "";
   let composing = false;
   let initialised = false;
@@ -233,7 +251,10 @@ export default function TocPanel(props: Props) {
   function focusRow(index: number): void {
     const el = scrollEl();
     const count = filteredRows().length;
-    if (!el || count === 0) return;
+    // A detached scroller (the filter emptied the list and the nav unmounted)
+    // is a no-op target: the empty count already bails, and the connection
+    // check covers the window where rows exist but the new nav hasn't mounted.
+    if (!el?.isConnected || count === 0) return;
 
     const nextIndex = Math.max(0, Math.min(count - 1, index));
     const rowTop = nextIndex * ROW_H + padTop;
@@ -278,10 +299,10 @@ export default function TocPanel(props: Props) {
         nextIndex = filteredRows().length - 1;
         break;
       case "PageDown":
-        nextIndex = index + Math.max(1, Math.floor(viewportH() / ROW_H));
+        nextIndex = index + pageStep(viewportH(), padTop, padBottom);
         break;
       case "PageUp":
-        nextIndex = index - Math.max(1, Math.floor(viewportH() / ROW_H));
+        nextIndex = index - pageStep(viewportH(), padTop, padBottom);
         break;
       default:
         return;
@@ -292,37 +313,33 @@ export default function TocPanel(props: Props) {
   }
 
   // Mount effect: track the viewport height with a ResizeObserver (the panel
-  // resizes with the window), and on first layout jump straight to the current
-  // chapter (centered) instead of opening at the top of a long book, then put
-  // focus in the filter field so the user can type immediately. Focusing our
-  // own element here is the focus-trap opt-out (preventScroll keeps the
-  // centered position) — without it the trap would grab the first row and
-  // yank the scroll back to the top. The compute phase tracks scrollEl() so
-  // this re-runs if the nav mounts late; the `initialised` guard keeps the
-  // centering once-per-open. The RO teardown rides the effect cleanup.
+  // resizes with the window), then put focus in the filter field so the user
+  // can type immediately. Focusing our own element here is the focus-trap
+  // opt-out (preventScroll keeps the centered position) — without it the trap
+  // would grab the first row and yank the scroll back to the top. The compute
+  // phase tracks scrollEl() so this re-runs if the nav mounts late; the
+  // `initialised` guard keeps the focus and seeding once-per-open. Centering
+  // lives in the pair below, keyed on the position rather than the mount.
+  // The RO teardown rides the effect cleanup.
   createEffect(
     () => scrollEl(),
     (el) => {
       if (!el) return undefined;
       const measure = (): void => {
         setViewportH(el.clientHeight);
-        padTop = parseFloat(getComputedStyle(el).paddingTop) || 0;
+        const style = getComputedStyle(el);
+        padTop = parseFloat(style.paddingTop) || 0;
+        padBottom = parseFloat(style.paddingBottom) || 0;
       };
       measure();
 
       if (!initialised) {
         // activeIndex/filteredRows are read from an effect apply phase, which
         // is an untracked scope. The reads are deliberate one-shots -- the
-        // centering is once-per-open, guarded by `initialised` -- so mark them
+        // seeding is once-per-open, guarded by `initialised` -- so mark them
         // with untrack the way Read.tsx does, rather than trip
-        // STRICT_READ_UNTRACKED four times on every open.
+        // STRICT_READ_UNTRACKED on every open.
         untrack(() => {
-          if (activeIndex() >= 0) {
-            const target =
-              activeIndex() * ROW_H + padTop - (el.clientHeight - ROW_H) / 2;
-            el.scrollTop = Math.max(0, target);
-          }
-          setScrollTop(el.scrollTop);
           setFocusedIndex(
             activeIndex() >= 0
               ? activeIndex()
@@ -341,6 +358,34 @@ export default function TocPanel(props: Props) {
     },
   );
 
+  // Center once on the first known reading position. Keyed on the position,
+  // not the mount: opening the panel before the position arrives (async
+  // load) centers when it lands instead of never. The `centered` flag keeps
+  // it once-per-open, so chapter turns while the panel stays open -- and
+  // filter edits, which move activeIndex too -- never yank the list.
+  let centered = false;
+  createEffect(
+    () => {
+      const el = scrollEl();
+      if (!el || !props.activeEntry) return -1;
+      return activeIndex();
+    },
+    (idx) => {
+      if (centered || idx < 0) return undefined;
+      centered = true;
+      // Apply phase again: deliberate reads, untracked like the pair above.
+      untrack(() => {
+        const el = scrollEl();
+        if (!el?.isConnected) return;
+        const target = idx * ROW_H + padTop - (el.clientHeight - ROW_H) / 2;
+        el.scrollTop = Math.max(0, target);
+        setScrollTop(el.scrollTop);
+        setFocusedIndex(idx);
+      });
+      return undefined;
+    },
+  );
+
   // Whenever the query changes, reset the scroll to the top of the results so
   // a new filter starts at its first match rather than wherever the previous
   // list was scrolled. lastQuery starts at "" so the initial empty-query pass
@@ -354,11 +399,14 @@ export default function TocPanel(props: Props) {
       // STRICT_READ_UNTRACKED on every keystroke that changes the filter.
       untrack(() => {
         const el = scrollEl();
-        if (el) {
+        // The nav unmounts when the filter empties the list, but the signal
+        // still holds the detached node until the next mount: write the live
+        // scroller only, and always publish the reset state itself.
+        if (el?.isConnected) {
           el.scrollTop = 0;
-          setScrollTop(0);
-          setFocusedIndex(filteredRows().length > 0 ? 0 : -1);
         }
+        setScrollTop(0);
+        setFocusedIndex(filteredRows().length > 0 ? 0 : -1);
       });
       return undefined;
     },
