@@ -328,6 +328,46 @@ describe("enterPagedFromScroll / getCurrentRatio", () => {
       },
     ]);
   });
+
+  it("drops the turn promotion and opacity on reset and dispose", () => {
+    pagination?.enterPagedFromScroll(null, 0);
+    // Stage an interrupted turn: the animated path promotes #content, and the
+    // fade loop owns its opacity (staged directly so the test needs no frames).
+    pagination?.goToPage(2, true);
+    expect(document.documentElement.classList.contains("page-turning")).toBe(
+      true,
+    );
+    content.style.opacity = "0.4";
+
+    // A load reset must take the promotion down with the turn, not strand it
+    // (and a mid-fade opacity) on the new chapter.
+    pagination?.resetForLoad(false);
+    expect(document.documentElement.classList.contains("page-turning")).toBe(
+      false,
+    );
+    expect(content.style.opacity).toBe("");
+
+    // Teardown covers the same ground: nothing may linger past dispose.
+    pagination?.goToPage(2, true);
+    content.style.opacity = "0.4";
+    pagination?.dispose();
+    expect(document.documentElement.classList.contains("page-turning")).toBe(
+      false,
+    );
+    expect(content.style.opacity).toBe("");
+  });
+
+  it("hides the decorative page indicator from assistive tech", () => {
+    pagination?.enterPagedFromScroll(null, 0);
+    // The reader announces page position through its own live region; the
+    // pill's "3 / 4" would otherwise double-announce every turn.
+    expect(document.getElementById("page-indicator")?.textContent).toBe(
+      "1 / 4",
+    );
+    expect(
+      document.getElementById("page-indicator")?.getAttribute("aria-hidden"),
+    ).toBe("true");
+  });
 });
 
 describe("getRectPageIndex", () => {

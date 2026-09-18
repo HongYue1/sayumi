@@ -725,8 +725,10 @@ html.paged #content {
 }
 
 html.paged #content-inner {
-  padding: var(--paged-padding-top, 24px) var(--paged-padding-side, 40px)
-    var(--paged-padding-bottom, 24px);
+  /* Sides only: the paged column box carries the vertical frame (see
+     setPagedHeights in pagination.ts), and inner top/bottom padding would
+     double-inset the first/last page in a multicol flow. */
+  padding-inline: var(--paged-padding-side, 40px);
 }
 
 /* ── Two-column book spread ───────────────────────────────────────── */
@@ -742,8 +744,8 @@ html.paged-two #content {
 }
 
 html.paged-two #content-inner {
-  padding: var(--paged-padding-top, 24px) var(--paged-padding-side, 48px)
-    var(--paged-padding-bottom, 24px);
+  /* Sides only, like the single-column rule above. */
+  padding-inline: var(--paged-padding-side, 48px);
 }
 
 html.paged-two img,
@@ -756,11 +758,15 @@ html.paged-two table {
    overflow-y: hidden, so media taller than the page box is unreachable rather
    than scrollable -- a full-page plate would simply lose its bottom. Bound the
    block axis to the page box (the viewport minus the column-box insets);
-   height: auto above keeps the aspect ratio. */
+   height: auto above keeps the aspect ratio. The bottom inset floors at the
+   indicator strip (PAGE_INDICATOR_CLEARANCE in pagination.ts, pinned in
+   frameCss.test.ts): without it the cap overshoots the column box by the
+   clearance at default margins and a full-page image loses its bottom rows. */
 html.paged :is(img, svg, video),
 html.paged-two :is(img, svg, video) {
   max-height: calc(
-    100dvh - var(--paged-padding-top, 24px) - var(--paged-padding-bottom, 24px)
+    100dvh - var(--paged-padding-top, 24px) -
+      max(var(--paged-padding-bottom, 24px), 32px)
   );
 }
 

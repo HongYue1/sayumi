@@ -17,6 +17,13 @@ const PAGE_TURN_FADE_IN_MS = 110;
 // with no fade. Clamping guarantees the fade always spans several frames
 // regardless of frame pacing. 0.2 => at least ~5 frames per phase.
 const MAX_FADE_STEP = 0.2;
+// Settle delay after the fade reaches full opacity before the promotion
+// drops: the compositor needs one presented frame at opacity 1 first, or the
+// layer collapses a frame early and the turn ends in a flicker.
+const PAGE_TURN_SETTLE_MS = 34;
+// Coalescing window for viewport resizes and late media loads: one debounced
+// relayout per burst instead of a full reflow per event.
+const PAGED_RESIZE_DEBOUNCE_MS = 120;
 // Minimum bottom inset for the paged column box so the last line never sits
 // under the fixed #page-indicator pill (bottom: 12px + pill height). The
 // number is a hand-sum of frame.css's #page-indicator box, which is why it is
@@ -233,6 +240,9 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     if (!_pageIndicator) {
       const el = document.createElement("div");
       el.id = "page-indicator";
+      // Decoration: the reader announces page position through its own live
+      // region, so the pill's "3 / 12" must not double-announce.
+      el.setAttribute("aria-hidden", "true");
       document.body.appendChild(el);
       _pageIndicator = el;
     }
@@ -361,7 +371,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
       liveAnchor !== null ? rectForCollapsedRange(anchorRange) : null;
     currentPage =
       rangeRect !== null
-        ? getRectPageIndex(rangeRect)
+        ? rectPageIndexMeasured(rangeRect)
         : liveAnchor !== null
           ? getElementPageIndex(liveAnchor)
           : pageForRatio(ratio, totalPages);
@@ -480,7 +490,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
         const timer = setTimeout(() => {
           if (pageTurnFinishTimer === timer) pageTurnFinishTimer = null;
           if (!deps.isDestroyed()) setPageTurning(false);
-        }, 34);
+        }, PAGE_TURN_SETTLE_MS);
         pageTurnFinishTimer = timer;
         return;
       }
@@ -587,7 +597,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     const content = deps.getContentEl();
     if (!content) return 0;
     // Refresh geometry first. searchHighlight resolves a match to a page at
-    // arbitrary times — inside the 120ms resize debounce, or before the
+    // arbitrary times — inside the resize debounce, or before the
     // double-rAF settings relayout lands — and stale stride/totalPages send the
     // jump to the wrong page, silently clamped by clampPage. Two layout reads,
     // never on a hot path.
@@ -604,6 +614,22 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     if (!content) return 0;
     totalPages = calculateTotalPages();
     if (pageStride <= 0) return 0;
+    return pageIndexForRect(
+      content.getBoundingClientRect(),
+      rect,
+      content.scrollLeft,
+    );
+  }
+
+  // Same mapping for callers that just ran calculateTotalPages (enter, restore
+  // and settings relayout): measuring twice per pass costs two layout reads
+  // for identical numbers.
+  function rectPageIndexMeasured(rect: {
+    left: number;
+    right: number;
+  }): number {
+    const content = deps.getContentEl();
+    if (!content || pageStride <= 0) return 0;
     return pageIndexForRect(
       content.getBoundingClientRect(),
       rect,
@@ -672,7 +698,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     totalPages = calculateTotalPages();
     const rangeRect = rectForCollapsedRange(range);
     currentPage = rangeRect
-      ? getRectPageIndex(rangeRect)
+      ? rectPageIndexMeasured(rangeRect)
       : anchor
         ? getElementPageIndex(anchor)
         : pageForRatio(ratio, totalPages);
@@ -781,7 +807,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
       restoreElement !== null ? rectForCollapsedRange(restoreRange) : null;
     currentPage =
       rangeRect !== null
-        ? getRectPageIndex(rangeRect)
+        ? rectPageIndexMeasured(rangeRect)
         : restoreElement
           ? getElementPageIndex(restoreElement)
           : restorePercent !== null &&
@@ -823,7 +849,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
         return;
       }
       relayoutPagedContentPreservingPosition();
-    }, 120);
+    }, PAGED_RESIZE_DEBOUNCE_MS);
   }
 
   function handlePagedResize(): void {
@@ -878,7 +904,10 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     lastLayoutH = -1;
     pageTurnTarget = 0;
     pageTurnSwapped = false;
-    pageTurningActive = false;
+    // Through the setter, not the flag: a load can interrupt a turn, and the
+    // flag alone would strand the page-turning promotion (and a mid-fade
+    // opacity) on the new chapter.
+    setPageTurning(false);
     pageIndicatorText = "";
     if (_pageIndicator) _pageIndicator.textContent = "";
     pageStride = 1;
@@ -908,6 +937,9 @@ export function createPagination(deps: PaginationDeps): PaginationController {
       clearTimeout(pageTurnFinishTimer);
       pageTurnFinishTimer = null;
     }
+    setPageTurning(false);
+    const content = deps.getContentEl();
+    if (content) content.style.opacity = "";
     teardownPagedResizeObserver();
     // cleanupFrame must leave nothing behind (see iframe/AGENTS.md). The
     // indicator is a body child, not part of #content-inner, so a chapter

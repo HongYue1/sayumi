@@ -72,4 +72,16 @@ describe("page indicator clearance", () => {
 
     expect(PAGE_INDICATOR_CLEARANCE).toBeGreaterThanOrEqual(covered);
   });
+
+  it("caps paged media at the column box, clearing the indicator strip", () => {
+    // The column box floors its bottom inset at the clearance (see
+    // getPagedVerticalInsets); the media cap must floor at the same strip, or
+    // a full-page plate overshoots the box by the clearance at default margins
+    // and loses its bottom rows to the paged clip. Matched against the
+    // whitespace-flattened source so wrapping never breaks the pin.
+    const flat = frameCSS.replace(/\s+/g, " ");
+    expect(flat).toContain(
+      `max(var(--paged-padding-bottom, 24px), ${PAGE_INDICATOR_CLEARANCE}px)`,
+    );
+  });
 });
