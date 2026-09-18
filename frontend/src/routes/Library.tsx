@@ -53,8 +53,10 @@ async function onFilePicked(
 ): Promise<void> {
   const input = e.currentTarget;
   const files = Array.from(input.files ?? []);
-  if (files.length) await library.uploadFiles(files);
+  // Reset before the await: a reset after it meant re-picking the same file
+  // mid-upload fired no change event, so the retry was silently ignored.
   input.value = ""; // allow re-uploading the same file
+  if (files.length) await library.uploadFiles(files);
 }
 
 function onDragOver(e: DragEvent): void {
@@ -229,14 +231,14 @@ export default function Library() {
     // cancelled with Escape -- fires neither dragleave nor drop, so the depth
     // counter never unwinds and the full-viewport dropzone stays up.
     window.addEventListener("dragend", resetDrag);
-    window.addEventListener("drop", resetDrag);
+    window.addEventListener("drop", onWindowDrop);
 
     // onCleanup() is forbidden inside onSettled's callback
     // (CLEANUP_IN_FORBIDDEN_SCOPE); returning the teardown is the sanctioned
     // form, and it is what makes the promise above owned rather than orphaned.
     return () => {
       window.removeEventListener("dragend", resetDrag);
-      window.removeEventListener("drop", resetDrag);
+      window.removeEventListener("drop", onWindowDrop);
     };
   });
 
@@ -257,6 +259,15 @@ export default function Library() {
     if (depth === 0) return;
     depth = 0;
     setDragDepth(0);
+  }
+
+  // Backstop for a drop that lands outside .lib-page: the shelf's own onDrop
+  // cancels the default, but a near-miss would otherwise replace the SPA with
+  // the raw file. Nothing else on this route accepts a drop, so cancelling
+  // unconditionally here refuses nothing legitimate.
+  function onWindowDrop(e: DragEvent): void {
+    e.preventDefault();
+    resetDrag();
   }
 
   async function onDrop(e: DragEvent): Promise<void> {
@@ -544,7 +555,11 @@ export default function Library() {
         />
       </header>
 
-      <Show when={library.books.length > 0}>
+      {/* The bar stays reachable on an empty shelf while custom flairs exist:
+          they are the user's data and the chip row is the only way to manage
+          them. allFlairs would always be non-empty (the presets), so the gate
+          reads customFlairs alone. */}
+      <Show when={library.books.length > 0 || library.customFlairs.length > 0}>
         <div class="lib-flairbar">
           <p class="eyebrow lib-count">
             <span class="tnum">{library.books.length}</span>{" "}
@@ -662,7 +677,17 @@ export default function Library() {
         {statusText()}
       </p>
 
-      {library.loading ? null : library.books.length === 0 ? (
+      {library.loading ? (
+        // Skeleton shelf: a slow GET /books otherwise looks like an empty
+        // library. Eight pulsing placeholders -- the eager-cover window -- kept
+        // out of the accessibility tree; the status live region above already
+        // announces "Loading…".
+        <div class="lib-grid" aria-hidden="true">
+          {Array.from({ length: 8 }).map(() => (
+            <div class="lib-loading-card" />
+          ))}
+        </div>
+      ) : library.books.length === 0 ? (
         <div class="lib-empty">
           <span class="fleuron lib-empty-mark" aria-hidden="true">
             ❦

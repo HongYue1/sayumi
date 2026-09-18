@@ -3172,6 +3172,16 @@ main {
   color: var(--muted);
 }
 
+/* Loading shelf (see Library.tsx): cover-shaped placeholders in the same
+   grid, pulsing on the shared keyframes. The global reduced-motion switch
+   above already stills them. */
+.lib-loading-card {
+  aspect-ratio: 2 / 3;
+  border-radius: 3px 8px 8px 3px;
+  background: var(--surface-hover);
+  animation: pulse 1.2s var(--ease-out) infinite;
+}
+
 .lib-noresults {
   display: flex;
   flex-direction: column;

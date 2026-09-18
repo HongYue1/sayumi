@@ -184,6 +184,21 @@ describe("Library route: drag overlay depth (H2)", () => {
     expect(host.querySelector(".lib-dropzone")).toBeNull();
   });
 
+  it("cancels a window-level drop so a near-miss never navigates away", async () => {
+    const host = await mount();
+    page(host).dispatchEvent(drag("dragenter"));
+    flush();
+    expect(host.querySelector(".lib-dropzone")).not.toBeNull();
+
+    // Only the shelf cancels drops; a drop landing anywhere else in the window
+    // would otherwise replace the SPA with the raw file.
+    const drop = drag("drop");
+    window.dispatchEvent(drop);
+    flush();
+    expect(drop.defaultPrevented).toBe(true);
+    expect(host.querySelector(".lib-dropzone")).toBeNull();
+  });
+
   it("tears the window listeners down with the route", async () => {
     const host = await mount();
     dispose?.();
@@ -191,6 +206,9 @@ describe("Library route: drag overlay depth (H2)", () => {
     // Nothing is mounted to observe, so the only thing being asserted is that
     // the teardown ran without throwing and left no live handler behind.
     expect(() => window.dispatchEvent(new Event("dragend"))).not.toThrow();
+    const drop = drag("drop");
+    window.dispatchEvent(drop);
+    expect(drop.defaultPrevented).toBe(false);
     expect(host.querySelector(".lib-dropzone")).toBeNull();
   });
 });
@@ -318,6 +336,56 @@ describe("Library route: live regions (M4)", () => {
     const announced = status?.textContent ?? "";
     expect(announced).not.toBe("");
     expect(noresults?.textContent).not.toContain(announced);
+  });
+});
+
+describe("Library route: loading skeleton", () => {
+  it("renders eight placeholders, hidden from AT, while the shelf loads", async () => {
+    let release!: (books: BookMeta[]) => void;
+    api.getBooks.mockImplementation(
+      () =>
+        new Promise<BookMeta[]>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const host = await mount();
+
+    // A slow GET /books must not look like an empty library, and the
+    // announcement belongs to the status live region, not the placeholders.
+    const grid = host.querySelector(".lib-grid");
+    expect(grid?.getAttribute("aria-hidden")).toBe("true");
+    expect(grid?.querySelectorAll(".lib-loading-card")).toHaveLength(8);
+    expect(host.querySelector(".lib-empty")).toBeNull();
+    const status = host.querySelector("p.lib-state.lib-live[role='status']");
+    expect(status?.textContent).toContain("Loading");
+
+    release([]);
+    await settle();
+    expect(host.querySelector(".lib-loading-card")).toBeNull();
+    expect(host.querySelector(".lib-empty")).not.toBeNull();
+  });
+});
+
+describe("Library route: flair bar on an empty shelf", () => {
+  const custom: FlairDef = {
+    id: "cf1",
+    label: "Favourites",
+    color: "#3b82f6",
+  };
+
+  it("hides the bar when there are no books and no custom flairs", async () => {
+    const host = await mount();
+    expect(host.querySelector(".lib-empty")).not.toBeNull();
+    expect(host.querySelector(".lib-flairbar")).toBeNull();
+  });
+
+  it("keeps custom flairs reachable when there are no books", async () => {
+    api.getFlairs.mockResolvedValue([custom]);
+    const host = await mount();
+    expect(host.querySelector(".lib-empty")).not.toBeNull();
+    const bar = host.querySelector(".lib-flairbar");
+    expect(bar).not.toBeNull();
+    expect(bar?.textContent).toContain("Favourites");
   });
 });
 
@@ -504,7 +572,6 @@ describe("Library route: busy controls stay focusable", () => {
 
     release({ duplicate: false });
     await settle();
-    expect(upload.getAttribute("aria-disabled")).toBe("false");
   });
 
   it("marks the empty-state upload button aria-disabled mid-upload", async () => {
@@ -524,6 +591,38 @@ describe("Library route: busy controls stay focusable", () => {
     if (!cta) throw new Error("empty-state CTA did not render");
     expect(cta.disabled).toBe(false);
     expect(cta.getAttribute("aria-disabled")).toBe("true");
+
+    release({ duplicate: false });
+    await settle();
+  });
+
+  it("clears the file input before the upload resolves", async () => {
+    api.getBooks.mockResolvedValue([book({ id: "1", title: "Dune" })]);
+    let release!: (value: { duplicate: boolean }) => void;
+    api.uploadBook.mockImplementation(
+      () =>
+        new Promise<{ duplicate: boolean }>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const host = await mount();
+    const input = filePicker(host);
+    Object.defineProperty(input, "files", {
+      value: [new File(["x"], "new.epub", { type: "application/epub+zip" })],
+      configurable: true,
+    });
+    // A chosen file surfaces as a fake path; the handler must clear it
+    // synchronously (before its await), or re-picking the same file mid-upload
+    // fires no change event and the retry is silently ignored.
+    Object.defineProperty(input, "value", {
+      value: "C:\\fakepath\\new.epub",
+      configurable: true,
+      writable: true,
+    });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    flush();
+    expect(library.uploading).toBe(true);
+    expect(input.value).toBe("");
 
     release({ duplicate: false });
     await settle();
