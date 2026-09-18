@@ -1,29 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type * as ApiClient from "~/api/client";
 import { flush } from "solid-js";
 import type { BookMeta } from "~/api/client";
+import {
+  libraryApi,
+  restoreRealTimersWithoutLeaks,
+} from "~/test/library-harness";
 
-const mocks = vi.hoisted(() => ({
-  getBooks: vi.fn(),
-  uploadBook: vi.fn(),
-  updateBookMeta: vi.fn(),
-  uploadCover: vi.fn(),
-  deleteBook: vi.fn(),
-  rescanLibrary: vi.fn(),
-  getFlairs: vi.fn(),
-  createFlair: vi.fn(),
-  deleteFlair: vi.fn(),
-  setBookFlair: vi.fn(),
-  toast: vi.fn(),
-  reachable: vi.fn(),
-}));
-
-vi.mock("~/api/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof ApiClient>();
-  return { ...actual, ...mocks };
-});
-vi.mock("~/lib/toast", () => ({ toast: { show: mocks.toast } }));
-vi.mock("~/lib/reachability", () => ({ isReachable: mocks.reachable }));
+const toast = vi.hoisted(() => vi.fn());
+vi.mock("~/lib/toast", () => ({ toast: { show: toast } }));
 
 const { Library } = await import("~/lib/library");
 
@@ -61,20 +45,17 @@ describe("library profile lifecycle", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.resetAllMocks();
-    mocks.getFlairs.mockResolvedValue([]);
-    mocks.reachable.mockReturnValue(true);
+    libraryApi.getFlairs.mockResolvedValue([]);
   });
 
   afterEach(() => {
-    // A timer that outlives its test would fire into a later test's instance.
-    expect(vi.getTimerCount()).toBe(0);
-    vi.useRealTimers();
+    restoreRealTimersWithoutLeaks();
   });
 
   it("clears old data and drops a stale profile load", async () => {
     const first = deferred<BookMeta[]>();
     const second = deferred<BookMeta[]>();
-    mocks.getBooks
+    libraryApi.getBooks
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise);
     const store = new Library();
@@ -95,24 +76,24 @@ describe("library profile lifecycle", () => {
 
   it("deduplicates concurrent loads for the active profile", async () => {
     const request = deferred<BookMeta[]>();
-    mocks.getBooks.mockReturnValueOnce(request.promise);
+    libraryApi.getBooks.mockReturnValueOnce(request.promise);
     const store = new Library();
     store.activate("profile-a");
 
     const first = store.load();
     const second = store.load();
-    expect(mocks.getBooks).toHaveBeenCalledTimes(1);
+    expect(libraryApi.getBooks).toHaveBeenCalledTimes(1);
 
     request.resolve([]);
     await Promise.all([first, second]);
     await store.load();
-    expect(mocks.getBooks).toHaveBeenCalledTimes(1);
+    expect(libraryApi.getBooks).toHaveBeenCalledTimes(1);
   });
 
   it("chains overlapping refreshes so each gets its own post-mutation read", async () => {
     const first = deferred<BookMeta[]>();
     const second = deferred<BookMeta[]>();
-    mocks.getBooks
+    libraryApi.getBooks
       .mockReturnValueOnce(Promise.resolve([book("a", "A")]))
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise);
@@ -133,14 +114,14 @@ describe("library profile lifecycle", () => {
     await r2;
     flush();
 
-    expect(mocks.getBooks).toHaveBeenCalledTimes(3);
+    expect(libraryApi.getBooks).toHaveBeenCalledTimes(3);
     expect(store.books.map((item) => item.id)).toEqual(["a", "b"]);
   });
 
   it("does not let a stale mutation rollback the new profile", async () => {
     const request = deferred<void>();
-    mocks.setBookFlair.mockReturnValueOnce(request.promise);
-    mocks.getBooks
+    libraryApi.setBookFlair.mockReturnValueOnce(request.promise);
+    libraryApi.getBooks
       .mockResolvedValueOnce([book("a", "Profile A")])
       .mockResolvedValueOnce([book("b", "Profile B")]);
     const store = new Library();
@@ -155,11 +136,11 @@ describe("library profile lifecycle", () => {
     flush();
 
     expect(store.books.map((item) => item.id)).toEqual(["b"]);
-    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalled();
   });
 
   it("publishes reader progress into the active profile immediately", async () => {
-    mocks.getBooks.mockResolvedValueOnce([
+    libraryApi.getBooks.mockResolvedValueOnce([
       { ...book("a", "Book A"), chapterCount: 4 },
     ]);
     const store = new Library();
@@ -177,7 +158,7 @@ describe("library profile lifecycle", () => {
   });
 
   it("drops a reader update while a different profile is active", async () => {
-    mocks.getBooks
+    libraryApi.getBooks
       .mockResolvedValueOnce([{ ...book("a", "Book A"), chapterCount: 4 }])
       // Same book id existing under profile B proves the guard is the
       // profile binding, not a lucky book-id miss.
@@ -201,7 +182,7 @@ describe("library profile lifecycle", () => {
     // internal generation. The publisher is bound to the profile NAME exactly
     // so this ordering still works — a generation captured at creation would
     // be stale on arrival and the publisher dead for the whole session.
-    mocks.getBooks.mockResolvedValueOnce([
+    libraryApi.getBooks.mockResolvedValueOnce([
       { ...book("a", "Book A"), chapterCount: 4 },
     ]);
     const store = new Library();
@@ -225,9 +206,7 @@ describe("library profile lifecycle - timer hygiene", () => {
   });
 
   afterEach(() => {
-    // A timer that outlives its test would fire into a later test's instance.
-    expect(vi.getTimerCount()).toBe(0);
-    vi.useRealTimers();
+    restoreRealTimersWithoutLeaks();
   });
 
   it("clears a pending debounce timer on profile switch", () => {

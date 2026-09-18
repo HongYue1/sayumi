@@ -546,10 +546,10 @@ describe("Library route: busy controls stay focusable", () => {
 
   it("keeps upload buttons focusable and does not re-open the picker mid-upload", async () => {
     api.getBooks.mockResolvedValue([book({ id: "1", title: "Dune" })]);
-    let release!: (value: { duplicate: boolean }) => void;
+    let release!: (value: { book: BookMeta; duplicate: boolean }) => void;
     api.uploadBook.mockImplementation(
       () =>
-        new Promise<{ duplicate: boolean }>((resolve) => {
+        new Promise<{ book: BookMeta; duplicate: boolean }>((resolve) => {
           release = resolve;
         }),
     );
@@ -570,15 +570,15 @@ describe("Library route: busy controls stay focusable", () => {
     flush();
     expect(openSpy).not.toHaveBeenCalled();
 
-    release({ duplicate: false });
+    release({ book: book({ id: "9", title: "New" }), duplicate: false });
     await settle();
   });
 
   it("marks the empty-state upload button aria-disabled mid-upload", async () => {
-    let release!: (value: { duplicate: boolean }) => void;
+    let release!: (value: { book: BookMeta; duplicate: boolean }) => void;
     api.uploadBook.mockImplementation(
       () =>
-        new Promise<{ duplicate: boolean }>((resolve) => {
+        new Promise<{ book: BookMeta; duplicate: boolean }>((resolve) => {
           release = resolve;
         }),
     );
@@ -592,16 +592,16 @@ describe("Library route: busy controls stay focusable", () => {
     expect(cta.disabled).toBe(false);
     expect(cta.getAttribute("aria-disabled")).toBe("true");
 
-    release({ duplicate: false });
+    release({ book: book({ id: "9", title: "New" }), duplicate: false });
     await settle();
   });
 
   it("clears the file input before the upload resolves", async () => {
     api.getBooks.mockResolvedValue([book({ id: "1", title: "Dune" })]);
-    let release!: (value: { duplicate: boolean }) => void;
+    let release!: (value: { book: BookMeta; duplicate: boolean }) => void;
     api.uploadBook.mockImplementation(
       () =>
-        new Promise<{ duplicate: boolean }>((resolve) => {
+        new Promise<{ book: BookMeta; duplicate: boolean }>((resolve) => {
           release = resolve;
         }),
     );
@@ -624,7 +624,7 @@ describe("Library route: busy controls stay focusable", () => {
     expect(library.uploading).toBe(true);
     expect(input.value).toBe("");
 
-    release({ duplicate: false });
+    release({ book: book({ id: "9", title: "New" }), duplicate: false });
     await settle();
   });
 
