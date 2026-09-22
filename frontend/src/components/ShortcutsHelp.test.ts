@@ -307,3 +307,25 @@ describe("ShortcutsHelp", () => {
     expect(sheet()).toBeNull();
   });
 });
+
+// A wrapped description used to swallow the whole line box, leaving the
+// leader as two or three stray dots next to full-width neighbours.
+describe("shortcut row leader", () => {
+  const css = readFileSync("src/app.css", "utf8");
+  const block = (selector: string): string =>
+    new RegExp(selector + "\\s*\\{([^}]*)\\}").exec(css)?.[1] ?? "";
+
+  it("keeps room for the dots when the description wraps", () => {
+    const leader = block("\\.shortcuts-leader");
+    const desc = block("\\.shortcuts-desc");
+    const minWidth = Number.parseFloat(
+      /min-width:\s*([\d.]+)rem/.exec(leader)?.[1] ?? "0",
+    );
+    const maxWidth = Number.parseFloat(
+      /max-width:\s*([\d.]+)%/.exec(desc)?.[1] ?? "100",
+    );
+
+    expect(minWidth).toBeGreaterThanOrEqual(2);
+    expect(maxWidth).toBeLessThan(100);
+  });
+});

@@ -876,7 +876,9 @@ main {
   flex: 1;
   border-bottom: 1px dotted var(--hairline-strong);
   transform: translateY(0.3em);
-  min-width: 1rem;
+  /* Wide enough to still read as a leader once a long description wraps. The
+     description is capped below so this always has room. */
+  min-width: 2rem;
 }
 /* The leader is a child of dd (a div row inside a dl may contain only dt then
    dd), so dd is the flex line that lets it grow. */
@@ -901,6 +903,11 @@ main {
 .shortcuts-desc {
   min-width: 0;
   overflow-wrap: break-word;
+  /* The description takes what it needs up to this share of the row, then
+     wraps. Uncapped, a two-line description ate the whole line box and
+     squeezed the leader down to a couple of dots, so rows with a long label
+     looked broken next to their neighbours. */
+  max-width: 62%;
 }
 
 /* ---- About ------------------------------------------------------------- */
@@ -1451,7 +1458,11 @@ main {
   align-items: center;
   gap: var(--sp-2);
   min-width: 0;
-  max-width: min(14rem, 26vw);
+  /* The icon, caret, gaps and padding eat ~34px of this box before the name
+     gets any, so a pure 26vw cap left a phone showing "Rea…" for a six-letter
+     profile. The floor keeps one short name intact on the narrowest phone;
+     the 26vw arm still hands wide screens the smaller share. */
+  max-width: clamp(8rem, 26vw, 14rem);
   padding: 0.35rem 0.6rem;
   border: none;
   border-radius: var(--radius);
@@ -5066,7 +5077,10 @@ main {
   padding: 0.22rem 0.65rem;
   border-radius: 999px;
   border: 1px solid var(--hairline);
-  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  /* Near-opaque on purpose. The chip floats over live book text in scroll
+     mode, and at 84% the glyphs behind it showed through the blur and read
+     as a smudge under the numbers. */
+  background: color-mix(in srgb, var(--bg) 97%, transparent);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   color: var(--muted);
