@@ -17,8 +17,8 @@ func TestSanitizeFontRequestPath(t *testing.T) {
 	t.Parallel()
 
 	okCases := map[string]string{
-		"/Fraunces-VariableFont.woff2": "Fraunces-VariableFont.woff2",
-		"Fraunces-VariableFont.woff2":  "Fraunces-VariableFont.woff2",
+		"/Fraunces-Italic-VariableFont.woff2": "Fraunces-Italic-VariableFont.woff2",
+		"Fraunces-Italic-VariableFont.woff2":  "Fraunces-Italic-VariableFont.woff2",
 	}
 	for in, want := range okCases {
 		got, ok := sanitizeFontRequestPath(in)
@@ -68,7 +68,7 @@ func TestEtagMatches(t *testing.T) {
 func TestHandlerEmbeddedFont(t *testing.T) {
 	t.Parallel()
 
-	const name = "Fraunces-VariableFont.woff2"
+	const name = "Fraunces-Italic-VariableFont.woff2"
 	data, ok := fontData[name]
 	if !ok || len(data) == 0 {
 		t.Fatalf("embedded font %q missing from fontData", name)
@@ -194,7 +194,7 @@ func TestFontConditionalRequests(t *testing.T) {
 		t.Fatal("user fixture missing")
 	}
 	for _, fixture := range []struct{ name, path, tag string }{
-		{name: "embedded", path: "/Fraunces-VariableFont.woff2", tag: fontETags["Fraunces-VariableFont.woff2"]},
+		{name: "embedded", path: "/Fraunces-Italic-VariableFont.woff2", tag: fontETags["Fraunces-Italic-VariableFont.woff2"]},
 		{name: "user", path: "/user/Family/Regular.woff2", tag: userTag},
 	} {
 		for _, method := range []string{http.MethodGet, http.MethodHead} {

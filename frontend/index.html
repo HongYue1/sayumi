@@ -18,10 +18,12 @@
     />
     <title>sayumi</title>
     <!-- Preload the interface typefaces (served by the Go binary) to cut
-         first-paint FOUT/CLS for the serif wordmark and UI text. -->
+         first-paint FOUT/CLS: Newsreader roman for headings, Fraunces italic
+         for the wordmark, Hanken Grotesk for UI text. Newsreader italic is
+         left to load on demand; nothing above the fold needs it. -->
     <link
       rel="preload"
-      href="/fonts/Fraunces-VariableFont.woff2"
+      href="/fonts/Newsreader-VariableFont.woff2"
       as="font"
       type="font/woff2"
       crossorigin
