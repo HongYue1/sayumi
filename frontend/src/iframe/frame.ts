@@ -109,6 +109,10 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   let loadScrollTarget: "top" | "end" | null = null;
   let pendingFragment: string | null = null;
   let parentOrigin = "";
+  // Throttle for the pointer heartbeat forwarded to the parent chrome.
+  const POINTER_PING_MS = 250;
+  let lastPointerPing = 0;
+
   let destroyed = false;
   let rasterRefreshRafHandle: number | null = null;
 
@@ -1865,6 +1869,23 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     sendMessage({ type: "link-clicked", seq: activeSeq, href });
   }
 
+  // The frame fills the reader viewport, so the parent sees pointermove only
+  // when the cursor crosses the window edge. Forward a heartbeat so the
+  // auto-hidden chrome can come back on movement over the page itself.
+  // Throttled to one message per POINTER_PING_MS: the parent only re-arms a
+  // multi-second timer, and the postMessage hop is not free.
+  //
+  // Touch is excluded on purpose. A tap already emits a "click" message, and
+  // taps also synthesise a pointermove, so forwarding both would reveal the
+  // chrome an instant before the tap asked to toggle it away.
+  function handlePointerMove(e: PointerEvent): void {
+    if (e.pointerType === "touch") return;
+    const now = Date.now();
+    if (now - lastPointerPing < POINTER_PING_MS) return;
+    lastPointerPing = now;
+    sendMessage({ type: "pointer-activity" });
+  }
+
   // Middle-click never fires click, so handleClick cannot cover it: without
   // this an auxclick on an internal link opens the raw chapter URL in a new
   // tab. Swallowed (not turned into a region tap): it has no reader meaning.
@@ -2059,6 +2080,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     document.documentElement.classList.remove("raster-refresh", "chapter-anim");
 
     window.removeEventListener("message", handleMessage);
+    document.removeEventListener("pointermove", handlePointerMove);
     document.removeEventListener("click", handleClick);
     document.removeEventListener("auxclick", handleAuxClick);
     window.removeEventListener("scroll", handleScroll);
@@ -2308,6 +2330,9 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   }
 
   window.addEventListener("message", handleMessage);
+  document.addEventListener("pointermove", handlePointerMove, {
+    passive: true,
+  });
   document.addEventListener("click", handleClick);
   document.addEventListener("auxclick", handleAuxClick);
   window.addEventListener("scroll", handleScroll, { passive: true });

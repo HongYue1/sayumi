@@ -135,4 +135,10 @@ export type FrameToParentMessage =
   | { type: "link-clicked"; seq: number; href: string }
   | FrameKeyMessage
   | { type: "click"; seq: number; region: "left" | "center" | "right" }
+  // The frame covers the whole reader viewport, so the parent's own
+  // pointermove listener only fires when the cursor crosses the window edge —
+  // the auto-hidden chrome would not come back until the mouse left and
+  // re-entered the app. Throttled inside the frame; carries no payload because
+  // the parent only needs to know that a pointer is alive.
+  | { type: "pointer-activity" }
   | { type: "load-error"; seq: number; error: string };

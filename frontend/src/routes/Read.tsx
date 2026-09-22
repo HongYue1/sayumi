@@ -2010,6 +2010,7 @@ export default function Read(props: Props) {
               onlinkclicked={handleLinkClicked}
               onkey={handleFrameKey}
               onclickregion={handleClickRegion}
+              onpointeractivity={handlePointerActivity}
               onframeerror={handleFrameError}
             />
           </Show>

@@ -414,3 +414,61 @@ it("uses and reports one effective scroll mode for a vertical paged request", as
     incoming({ type: "destroy" });
   }
 });
+
+it("forwards throttled mouse movement so the parent chrome can reveal itself", async () => {
+  vi.useFakeTimers();
+  // The suite above already imported the frame IIFE; a fresh registry is what
+  // gives this test its own listeners.
+  vi.resetModules();
+  document.head.innerHTML = `
+    <style id="font-face-css"></style>
+    <style id="book-css"></style>
+    <style id="override-css"></style>`;
+  document.body.innerHTML =
+    '<div id="paged-clip"><div id="content"><div id="content-inner"></div></div></div>';
+  Object.defineProperty(document, "fonts", {
+    configurable: true,
+    value: { ready: Promise.resolve() },
+  });
+
+  const sent: FrameToParentMessage[] = [];
+  vi.spyOn(window, "postMessage").mockImplementation((message) => {
+    sent.push(message as FrameToParentMessage);
+  });
+
+  // happy-dom drops PointerEvent init fields, so pointerType rides on a plain
+  // event here (same trick as the zoom wheel case above).
+  const move = (pointerType: string): void => {
+    const e = new Event("pointermove", { bubbles: true }) as Event & {
+      pointerType: string;
+    };
+    e.pointerType = pointerType;
+    document.dispatchEvent(e);
+  };
+  const pings = (): number =>
+    sent.filter((m) => m.type === "pointer-activity").length;
+
+  await import("./frame");
+  try {
+    move("mouse");
+    expect(pings()).toBe(1);
+
+    // Within the throttle window the parent learns nothing new.
+    move("mouse");
+    await vi.advanceTimersByTimeAsync(100);
+    move("mouse");
+    expect(pings()).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(300);
+    move("mouse");
+    expect(pings()).toBe(2);
+
+    // A tap already sends "click"; forwarding its synthetic move too would
+    // reveal the chrome the instant the tap asked to hide it.
+    await vi.advanceTimersByTimeAsync(300);
+    move("touch");
+    expect(pings()).toBe(2);
+  } finally {
+    incoming({ type: "destroy" });
+  }
+});
