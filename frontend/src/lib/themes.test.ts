@@ -208,7 +208,7 @@ describe("the default theme", () => {
     expect(token("bg")).toBe(theme.bg.toLowerCase());
     expect(token("fg")).toBe(theme.fg.toLowerCase());
     expect(token("accent")).toBe(theme.accent.toLowerCase());
-    // color-scheme drives the light-dark() shadows, veils and grain, so it has
+    // color-scheme drives the light-dark() shadows and veils, so it has
     // to agree with the palette's own side.
     expect(/color-scheme:\s*(\w+);/.exec(block)?.[1]).toBe(theme.group);
   });
