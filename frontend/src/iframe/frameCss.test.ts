@@ -94,6 +94,21 @@ describe("page indicator clearance", () => {
     expect(PAGE_INDICATOR_CLEARANCE).toBeGreaterThanOrEqual(covered);
   });
 
+  it("draws the pill in the UI face, not in the reader's book font", () => {
+    mountShell();
+    document.documentElement.classList.add("paged");
+    const pill = document.createElement("div");
+    pill.id = "page-indicator";
+    document.body.append(pill);
+
+    // The pill is chrome the frame paints over the book. Inheriting body's
+    // serif made it change shape with every reading-font switch.
+    const family = getComputedStyle(pill).fontFamily;
+    expect(family).toContain("Hanken Grotesk");
+    expect(family).not.toContain("Literata");
+    expect(frameCSS).toContain("HankenGrotesk-VariableFont.woff2");
+  });
+
   it("caps paged media at the column box, clearing the indicator strip", () => {
     // The column box floors its bottom inset at the clearance (see
     // getPagedVerticalInsets); the media cap must floor at the same strip, or

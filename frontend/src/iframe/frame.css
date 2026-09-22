@@ -1,3 +1,16 @@
+/* The shell's UI face, pulled in for the chrome this document draws over the
+   book (the page pill). Without it the pill inherits body's reading font and
+   changes shape every time the reader picks another family — chrome should
+   not read as part of the text. Same file the parent uses, so it is already
+   in the HTTP cache; the frame is sandboxed with an opaque origin, which is
+   why the URL must be absolute. */
+@font-face {
+  font-family: "Hanken Grotesk";
+  src: url("/fonts/HankenGrotesk-VariableFont.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 *,
 *::before,
 *::after {
@@ -655,6 +668,7 @@ html.vertical-lr .boundary-top .boundary-label::before {
   position: fixed;
   bottom: 12px;
   right: 16px;
+  font-family: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
   /* Only meaningful in paged modes; hidden in scroll (toggled via the
        html.paged / html.paged-two root classes set by applyRootClasses). */
   display: none;
