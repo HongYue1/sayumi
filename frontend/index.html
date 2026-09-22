@@ -6,21 +6,24 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
-    <!-- Inline SVG favicon (data URI) — no network request, so no /favicon.ico 404. -->
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%237c6f64'/%3E%3Cpath d='M9 8.5h8.5a4 4 0 0 1 4 4V24a3 3 0 0 0-3-3H9z' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linejoin='round'/%3E%3Cpath d='M23 8.5h-2.2a3 3 0 0 0-3 3V21' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linejoin='round' opacity='.55'/%3E%3C/svg%3E"
-    />
+    <!-- Tab/app icons, matching the desktop icon (cmd/sayumi/winres). Files live
+         in frontend/public and are copied into dist, which the Go binary embeds. -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
     <meta
       name="description"
       content="sayumi — a fast, self-hosted EPUB reader with themes, custom fonts, vertical writing, and synced reading progress."
     />
     <title>sayumi</title>
     <!-- Preload the interface typefaces (served by the Go binary) to cut
-         first-paint FOUT/CLS for the serif wordmark and UI text. -->
+         first-paint FOUT/CLS: Newsreader roman for headings, Fraunces italic
+         for the wordmark, Hanken Grotesk for UI text. Newsreader italic is
+         left to load on demand; nothing above the fold needs it. -->
     <link
       rel="preload"
-      href="/fonts/Fraunces-VariableFont.woff2"
+      href="/fonts/Newsreader-VariableFont.woff2"
       as="font"
       type="font/woff2"
       crossorigin

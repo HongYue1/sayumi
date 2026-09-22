@@ -3,23 +3,32 @@
  *
  * Interface typefaces are embedded in the binary (internal/fonts/) and
  * served at /fonts/, so the chrome never depends on the user-writable
- * ./Fonts/ folder. Fraunces is the literary display face (wordmark,
- * titles, headings) — a warm old-style serif with optical sizing and a
- * SOFT axis we lean on at large sizes. Hanken Grotesk is the UI face.
+ * ./Fonts/ folder. Newsreader is the display face (titles, headings) —
+ * a calm transitional serif with a real optical-size axis. Fraunces is
+ * kept for the wordmark alone, whose italic with a full SOFT axis is
+ * the one place that flourish belongs — only its italic is embedded,
+ * since nothing sets Fraunces upright. Hanken Grotesk is the UI face.
  * Literata and Atkinson Hyperlegible Next stay embedded as reading
  * options (see READER_FONTS); the chrome itself never uses them.
  * ------------------------------------------------------------------ */
 @font-face {
   font-family: "Fraunces";
-  src: url("/fonts/Fraunces-VariableFont.woff2") format("woff2");
+  src: url("/fonts/Fraunces-Italic-VariableFont.woff2") format("woff2");
   font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Newsreader";
+  src: url("/fonts/Newsreader-VariableFont.woff2") format("woff2");
+  font-weight: 200 800;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
-  font-family: "Fraunces";
-  src: url("/fonts/Fraunces-Italic-VariableFont.woff2") format("woff2");
-  font-weight: 100 900;
+  font-family: "Newsreader";
+  src: url("/fonts/Newsreader-Italic-VariableFont.woff2") format("woff2");
+  font-weight: 200 800;
   font-style: italic;
   font-display: swap;
 }
@@ -116,12 +125,14 @@
   --danger-surface: #b3261e;
   --danger-surface-fg: #ffffff;
 
-  /* Typefaces. Fraunces carries the literary voice; Hanken Grotesk does the
-     quiet work. --font-display-feel is the house cut of Fraunces: a touch of
-     the SOFT axis so big letters feel letterpress-round, never brittle. */
-  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+  /* Typefaces. Newsreader carries the literary voice; Hanken Grotesk does
+     the quiet work. --font-wordmark is deliberately a different serif: the
+     wordmark is set in Fraunces italic, whose SOFT/WONK axes give it a
+     flourish no heading should have. Both are separate tokens so the two
+     roles can be retuned without dragging the other along. */
+  --font-display: "Newsreader", Georgia, "Times New Roman", serif;
+  --font-wordmark: "Fraunces", Georgia, "Times New Roman", serif;
   --font-ui: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
-  --display-feel: "SOFT" 40, "WONK" 0;
 
   /* Scheme-aware physics. color-scheme is kept current by applyTheme, so
      light-dark() lets shadows and veils tune per side without per-theme CSS.
@@ -277,19 +288,21 @@ select optgroup {
   color: var(--muted);
 }
 
-/* Display voice — apply to any heading set in Fraunces. */
+/* Display voice — apply to any heading set in the display serif. Newsreader
+   has no style axes beyond weight, so optical sizing alone shapes it; there
+   is no font-variation-settings here to override that. */
 .display {
   font-family: var(--font-display);
-  font-variation-settings: var(--display-feel);
   font-optical-sizing: auto;
   letter-spacing: -0.01em;
 }
 
 /* The wordmark cut of Fraunces: fully soft, italic, with the ink shading
    toward the accent at the tail — one quiet flourish, derived from the
-   active theme so it works across all palettes. */
+   active theme so it works across all palettes. This is the only place
+   Fraunces is used; headings run on --font-display (Newsreader). */
 .wordmark {
-  font-family: var(--font-display);
+  font-family: var(--font-wordmark);
   font-style: italic;
   font-weight: 520;
   font-variation-settings:
@@ -306,9 +319,12 @@ select optgroup {
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
-  /* Italic ascenders/descenders overhang their box; keep them unclipped. */
-  padding: 0.05em 0.08em;
-  margin: -0.05em -0.08em;
+  /* background-clip: text paints only inside the padding box, so anything
+     overhanging it (the italic y/g descenders at display sizes, where
+     line-height is tight) would be sliced flat. Pad past the overhang and
+     cancel it with matching negative margins so layout is unchanged. */
+  padding: 0.1em 0.1em 0.26em;
+  margin: -0.1em -0.1em -0.26em;
 }
 
 /* Printer's double rule: a strong line over a hairline, the house divider. */

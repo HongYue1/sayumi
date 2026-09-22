@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="sayumi">
+  <rect width="32" height="32" rx="7" fill="#172434" />
+  <path d="M13.6 18h4.8v9.4l-2.4-2.3-2.4 2.3z" fill="#2d908d" />
+  <path d="M5.6 9.1c3.6-1.4 7.2-1 9.4.9v13.6c-2.2-1.9-5.8-2.3-9.4-.9z" fill="#fbf9ea" />
+  <path d="M26.4 9.1c-3.6-1.4-7.2-1-9.4.9v13.6c2.2-1.9 5.8-2.3 9.4-.9z" fill="#fbf9ea" />
+</svg>
