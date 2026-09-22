@@ -1173,6 +1173,24 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     if (settings.justify) {
       css.push("body { text-align: justify !important; }");
       css.push("h1, h2, h3, h4, h5, h6 { text-align: initial !important; }");
+      if (!settings.hyphenation) {
+        // Below this measure an unhyphenated justified line has no good break
+        // to absorb its slack; phone portrait at the default margins lands
+        // here.
+        const NARROW_MEASURE_PX = 480;
+        // Justification needs somewhere to put the slack. On a phone-width
+        // measure with no hyphenation the only place left is the word spaces,
+        // so lines tear open into rivers. Fall back to ragged right there
+        // instead of asking the reader to notice and fix it.
+        //
+        // Two queries because the measure, not the viewport, is what breaks:
+        // the two-column spread splits the same viewport into halves, so it
+        // reaches a narrow column at roughly twice the width.
+        css.push(
+          `@media (max-width: ${NARROW_MEASURE_PX}px) { body { text-align: start !important; } }`,
+          `@media (max-width: ${NARROW_MEASURE_PX * 2}px) { html.paged-two body { text-align: start !important; } }`,
+        );
+      }
     }
     if (settings.hyphenation) {
       css.push(

@@ -472,3 +472,55 @@ it("forwards throttled mouse movement so the parent chrome can reveal itself", a
     incoming({ type: "destroy" });
   }
 });
+
+it("stops justifying a narrow measure that cannot hyphenate", async () => {
+  vi.useFakeTimers();
+  vi.resetModules();
+  document.head.innerHTML = `
+    <style id="font-face-css"></style>
+    <style id="book-css"></style>
+    <style id="override-css"></style>`;
+  document.body.innerHTML =
+    '<div id="paged-clip"><div id="content"><div id="content-inner"></div></div></div>';
+  Object.defineProperty(document, "fonts", {
+    configurable: true,
+    value: { ready: Promise.resolve() },
+  });
+  vi.spyOn(window, "postMessage").mockImplementation(() => {});
+
+  const overrides = (): string =>
+    document.getElementById("override-css")?.textContent ?? "";
+
+  await import("./frame");
+  try {
+    incoming({
+      type: "apply-settings",
+      settings: { ...iframeSettings("scroll"), justify: true },
+    });
+    expect(overrides()).toContain("text-align: justify");
+    // Rivers open up on a phone-width measure with no break points, so the
+    // narrow arm drops back to ragged right on its own.
+    expect(overrides()).toMatch(
+      /@media \(max-width: 480px\)[^}]*text-align: start/,
+    );
+    // The spread halves the same viewport, so it goes ragged twice as early.
+    expect(overrides()).toMatch(
+      /@media \(max-width: 960px\)[^}]*html\.paged-two body[^}]*text-align: start/,
+    );
+
+    // With hyphenation on there is somewhere to put the slack, so justified
+    // text stays justified at every width.
+    incoming({
+      type: "apply-settings",
+      settings: {
+        ...iframeSettings("scroll"),
+        justify: true,
+        hyphenation: true,
+      },
+    });
+    expect(overrides()).toContain("text-align: justify");
+    expect(overrides()).not.toContain("text-align: start");
+  } finally {
+    incoming({ type: "destroy" });
+  }
+});
