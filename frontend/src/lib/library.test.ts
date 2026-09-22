@@ -55,6 +55,9 @@ async function settleStore(): Promise<void> {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.resetAllMocks();
+  // The sort preference persists to localStorage, so a stale key would
+  // otherwise carry one test's ordering into the next file-local test.
+  localStorage.clear();
   mocks.getFlairs.mockResolvedValue([]);
 });
 afterEach(() => {
@@ -995,6 +998,67 @@ describe("library sort and cache edge cases", () => {
     await store.refresh();
     flush();
     expect(store.visible).toHaveLength(0);
+  });
+});
+
+describe("library sort persistence", () => {
+  it("stores the choice so a later session starts on it", () => {
+    const store = new Library();
+    store.activate("p");
+    store.sort = "progress";
+    flush();
+
+    // A restart is a brand new instance reading the same device storage.
+    const restarted = new Library();
+    restarted.activate("p");
+
+    expect(restarted.sort).toBe("progress");
+  });
+
+  // The sort is a device preference, not profile-owned state, so a switch
+  // must not reseed it - which is also why the key is not profile-scoped.
+  it("restores the choice regardless of which profile signs in", () => {
+    const store = new Library();
+    store.activate("p");
+    store.sort = "added";
+    flush();
+
+    const restarted = new Library();
+    restarted.activate("q");
+
+    expect(restarted.sort).toBe("added");
+  });
+
+  it("falls back to the default when the stored key is unknown", () => {
+    localStorage.setItem("sayumi:library-sort", "publisher");
+
+    expect(new Library().sort).toBe("title");
+  });
+
+  it("keeps working when storage is blocked", () => {
+    const getItem = vi
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(() => {
+        throw new Error("blocked");
+      });
+    const setItem = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("blocked");
+      });
+
+    try {
+      const store = new Library();
+      expect(store.sort).toBe("title");
+      expect(() => {
+        store.sort = "author";
+      }).not.toThrow();
+      flush();
+      expect(store.sort).toBe("author");
+    } finally {
+      getItem.mockRestore();
+      setItem.mockRestore();
+    }
   });
 });
 

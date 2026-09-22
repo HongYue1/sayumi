@@ -28,6 +28,39 @@ export const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: "progress", label: "Progress" },
 ];
 
+export const DEFAULT_SORT: SortKey = "title";
+
+// The shelf's sort is a per-device preference, so it lives in localStorage
+// next to lib/theme.ts's pre-paint cache rather than in the server-side
+// settings record: the same profile is read on a phone and a desktop, and
+// neither has to agree about how the shelf is ordered. Deliberately NOT keyed
+// by profile -- activate() leaves `sort` alone across a profile switch, and a
+// per-profile key would silently reseed it on every switch.
+const SORT_STORAGE_KEY = "sayumi:library-sort";
+
+function readStoredSort(): SortKey {
+  let raw: string | null;
+  try {
+    raw = localStorage.getItem(SORT_STORAGE_KEY);
+  } catch {
+    // Blocked storage (private modes, disabled cookies) is not an error here:
+    // the session just starts on the default order.
+    return DEFAULT_SORT;
+  }
+  // Validated against the live option list, so a key removed in a later
+  // version can never resurrect an ordering #computeSorted no longer handles.
+  const known = SORT_OPTIONS.some((o) => o.key === raw);
+  return known ? (raw as SortKey) : DEFAULT_SORT;
+}
+
+function writeStoredSort(value: SortKey): void {
+  try {
+    localStorage.setItem(SORT_STORAGE_KEY, value);
+  } catch {
+    // See readStoredSort: the signal still drives this session.
+  }
+}
+
 // Reused across every sort comparison. Calling String.prototype.localeCompare
 // with an options object can construct a fresh collator on each call, which
 // adds up when sorting large libraries; one shared Intl.Collator keeps the same
@@ -111,7 +144,8 @@ export class Library {
   readonly #error = createSignal("");
   readonly #query = createSignal("");
   readonly #debouncedQuery = createSignal("");
-  readonly #sort = createSignal<SortKey>("title");
+  // Read once per instance, so a fresh session starts on the stored choice.
+  readonly #sort = createSignal<SortKey>(readStoredSort());
 
   readonly #allFlairs: () => FlairDef[];
   readonly #visible: () => BookMeta[];
@@ -279,8 +313,10 @@ export class Library {
     return this.#sort[0]();
   }
 
+  /** Persisted per device, so the choice survives a reload or a restart. */
   set sort(value: SortKey) {
     this.#sort[1](value);
+    writeStoredSort(value);
   }
 
   /** Built-in plus custom flairs, for pickers and filter chips. */
@@ -391,6 +427,8 @@ export class Library {
     this.#setUploading(false);
     this.#setRescanning(false);
     this.#error[1]("");
+    // `sort` is deliberately absent: it is a device preference, not
+    // profile-owned state, so it survives a switch (and a restart).
     this.#hayCache.clear();
     this.#bookWrites.clear();
   }
