@@ -124,9 +124,9 @@
   --display-feel: "SOFT" 40, "WONK" 0;
 
   /* Scheme-aware physics. color-scheme is kept current by applyTheme, so
-     light-dark() lets shadows, veils and grain tune per side without
-     per-theme CSS. Shadows stay true black (light falls the same way on
-     every paper); dark themes need more of it to register. */
+     light-dark() lets shadows and veils tune per side without per-theme CSS.
+     Shadows stay true black (light falls the same way on every paper); dark
+     themes need more of it to register. */
   --shadow-1: 0 1px 2px light-dark(rgb(0 0 0 / 0.05), rgb(0 0 0 / 0.25));
   --shadow-2:
     0 1px 2px light-dark(rgb(0 0 0 / 0.06), rgb(0 0 0 / 0.3)),
@@ -135,10 +135,6 @@
     0 2px 4px light-dark(rgb(0 0 0 / 0.07), rgb(0 0 0 / 0.35)),
     0 18px 44px -8px light-dark(rgb(0 0 0 / 0.18), rgb(0 0 0 / 0.6));
   --veil: light-dark(rgb(0 0 0 / 0.28), rgb(0 0 0 / 0.5));
-  /* Grain ink: dark flecks on light paper, light flecks on dark paper. The
-     scheme split lives in the color's alpha because light-dark() is a color
-     function — it can't produce a bare <number> for opacity. */
-  --grain-ink: light-dark(rgb(0 0 0 / 0.62), rgb(255 255 255 / 0.85));
 
   /* Spacing scale (4px base). */
   --sp-1: 0.25rem;
@@ -219,23 +215,10 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Paper grain — a fixed film of the theme's own ink, masked through SVG
-   turbulence so every theme's flat background reads as stock instead of
-   pixels. One static composited layer (no blend modes, no repaint on scroll).
-   The film covers everything uniformly, overlays included: nothing here is a
-   top-layer <dialog> (all overlays are div+role by design), so no exemption
-   applies — and with pointer-events: none it can never intercept input. */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 2147483647;
-  pointer-events: none;
-  background: var(--grain-ink);
-  opacity: 0.08;
-  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.35 0.35 0.35 0 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
-  mask-size: 180px 180px;
-}
+/* No paper-grain film: a fixed full-viewport noise layer sat above every
+   surface (max z-index), so it did not read as paper stock — it speckled the
+   backgrounds and, because text painted under it, the glyphs themselves.
+   Backgrounds are the theme's flat --bg/--raised, deliberately. */
 
 /* Text selection carries the accent, like a highlighter through the ink. */
 ::selection {
