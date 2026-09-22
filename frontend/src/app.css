@@ -343,6 +343,17 @@ select optgroup {
   user-select: none;
 }
 
+/* The ornament is drawn geometry, not a glyph (see components/Fleuron.tsx).
+   Sizing it in em keeps every existing font-size rule on the marks in charge,
+   and 1.15em lands it at roughly the optical size the character had. */
+.fleuron-svg {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: -0.2em;
+  fill: currentColor;
+}
+
 /* ------------------------------------------------------------------ *
  * Shared control primitives. Components lay themselves out with scoped
  * styles but draw buttons/fields/menus from these so the whole chrome

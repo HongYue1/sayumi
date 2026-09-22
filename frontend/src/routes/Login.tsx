@@ -33,6 +33,7 @@ import {
 import { getErrorMessage } from "~/lib/errors";
 import { PROFILE_NAME_MAX_LENGTH, profileNameProblem } from "~/lib/profileName";
 import { session } from "~/lib/session";
+import Fleuron from "~/components/Fleuron";
 import Icon from "~/lib/Icon";
 import { ArrowLeft, Lock, Plus, TriangleAlert } from "~/lib/icons";
 
@@ -435,7 +436,7 @@ export default function Login() {
       <div class="login-frontispiece">
         <header class="login-head">
           <span class="fleuron login-mark" aria-hidden="true">
-            ❦
+            <Fleuron />
           </span>
           <h1 class="login-brand wordmark">Sayumi</h1>
         </header>

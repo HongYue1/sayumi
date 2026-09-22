@@ -56,6 +56,7 @@ import {
   type SearchResult,
   type UserFontFamily,
 } from "~/api/client";
+import Fleuron from "~/components/Fleuron";
 import { settings, type IframeSettings } from "~/lib/settings";
 import { library } from "~/lib/library";
 import { session } from "~/lib/session";
@@ -2019,7 +2020,9 @@ export default function Read(props: Props) {
             {/* Purely decorative: the region above says "Loading chapter",
                 so repeating it here would read the same line twice. */}
             <div class="rdp-loading" aria-hidden="true">
-              <span class="rdp-loading-mark">❦</span>
+              <span class="rdp-loading-mark">
+                <Fleuron />
+              </span>
             </div>
           </Show>
 

@@ -14,6 +14,7 @@ import { library, SORT_OPTIONS, type SortKey } from "~/lib/library";
 import { session } from "~/lib/session";
 import { settings } from "~/lib/settings";
 import { router } from "~/lib/router";
+import Fleuron from "~/components/Fleuron";
 import BookCard from "~/components/library/BookCard";
 import CardSizeControl from "~/components/library/CardSizeControl";
 import ThemeDropdown from "~/components/library/ThemeDropdown";
@@ -431,7 +432,7 @@ export default function Library() {
         <h1 class="lib-lockup">
           <span class="wordmark">Sayumi</span>
           <span class="lib-lockup-mark" aria-hidden="true">
-            ❦
+            <Fleuron />
           </span>
         </h1>
 
@@ -690,7 +691,7 @@ export default function Library() {
       ) : library.books.length === 0 ? (
         <div class="lib-empty">
           <span class="fleuron lib-empty-mark" aria-hidden="true">
-            ❦
+            <Fleuron />
           </span>
           <p class="lib-empty-title display">An empty shelf.</p>
           <p class="lib-empty-sub">Every library starts with a single book.</p>
