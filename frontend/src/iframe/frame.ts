@@ -109,9 +109,19 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   let loadScrollTarget: "top" | "end" | null = null;
   let pendingFragment: string | null = null;
   let parentOrigin = "";
-  // Throttle for the pointer heartbeat forwarded to the parent chrome.
+  // Pointer heartbeat forwarded to the parent chrome. A ping means "someone
+  // deliberately moved the mouse", so it takes real travel, not any event:
+  // a wheel scroll under a still cursor re-fires pointermove, and a hand
+  // resting on a mouse jitters a pixel at a time. Travel resets after a pause
+  // so a slow drift never adds up to a reveal.
   const POINTER_PING_MS = 250;
+  const POINTER_INTENT_PX = 64;
+  const POINTER_INTENT_RESET_MS = 1200;
   let lastPointerPing = 0;
+  let lastPointerMove = 0;
+  let pointerX: number | null = null;
+  let pointerY = 0;
+  let pointerTravel = 0;
 
   let destroyed = false;
   let rasterRefreshRafHandle: number | null = null;
@@ -1890,8 +1900,6 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   // The frame fills the reader viewport, so the parent sees pointermove only
   // when the cursor crosses the window edge. Forward a heartbeat so the
   // auto-hidden chrome can come back on movement over the page itself.
-  // Throttled to one message per POINTER_PING_MS: the parent only re-arms a
-  // multi-second timer, and the postMessage hop is not free.
   //
   // Touch is excluded on purpose. A tap already emits a "click" message, and
   // taps also synthesise a pointermove, so forwarding both would reveal the
@@ -1899,6 +1907,28 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   function handlePointerMove(e: PointerEvent): void {
     if (e.pointerType === "touch") return;
     const now = Date.now();
+    const idle = now - lastPointerMove > POINTER_INTENT_RESET_MS;
+    lastPointerMove = now;
+    if (pointerX === null || idle) {
+      pointerX = e.clientX;
+      pointerY = e.clientY;
+      pointerTravel = 0;
+      return;
+    }
+
+    const dx = e.clientX - pointerX;
+    const dy = e.clientY - pointerY;
+    pointerX = e.clientX;
+    pointerY = e.clientY;
+    // Wheel and keyboard scrolling re-fire pointermove under a still cursor:
+    // the page moved, the pointer did not, so this must not read as intent.
+    if (dx === 0 && dy === 0) return;
+
+    pointerTravel += Math.hypot(dx, dy);
+    if (pointerTravel < POINTER_INTENT_PX) return;
+    pointerTravel = 0;
+    // Once travelling, cap the wire traffic: the parent only re-arms a
+    // multi-second timer, and the postMessage hop is not free.
     if (now - lastPointerPing < POINTER_PING_MS) return;
     lastPointerPing = now;
     sendMessage({ type: "pointer-activity" });

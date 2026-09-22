@@ -415,7 +415,7 @@ it("uses and reports one effective scroll mode for a vertical paged request", as
   }
 });
 
-it("forwards throttled mouse movement so the parent chrome can reveal itself", async () => {
+it("forwards deliberate mouse travel so the parent chrome can reveal itself", async () => {
   vi.useFakeTimers();
   // The suite above already imported the frame IIFE; a fresh registry is what
   // gives this test its own listeners.
@@ -436,13 +436,18 @@ it("forwards throttled mouse movement so the parent chrome can reveal itself", a
     sent.push(message as FrameToParentMessage);
   });
 
-  // happy-dom drops PointerEvent init fields, so pointerType rides on a plain
-  // event here (same trick as the zoom wheel case above).
-  const move = (pointerType: string): void => {
+  // happy-dom drops PointerEvent init fields, so the coordinates and the
+  // pointer type ride on a plain event here (same trick as the zoom wheel
+  // case above).
+  const move = (pointerType: string, x: number, y = 0): void => {
     const e = new Event("pointermove", { bubbles: true }) as Event & {
       pointerType: string;
+      clientX: number;
+      clientY: number;
     };
     e.pointerType = pointerType;
+    e.clientX = x;
+    e.clientY = y;
     document.dispatchEvent(e);
   };
   const pings = (): number =>
@@ -450,23 +455,45 @@ it("forwards throttled mouse movement so the parent chrome can reveal itself", a
 
   await import("./frame");
   try {
-    move("mouse");
+    // The first event only establishes where the pointer is.
+    move("mouse", 100, 100);
+    expect(pings()).toBe(0);
+
+    // A hand resting on a mouse jitters a pixel at a time; that is not a
+    // request for the chrome.
+    for (let i = 1; i <= 4; i += 1) move("mouse", 100 + i, 100);
+    expect(pings()).toBe(0);
+
+    // Wheel and keyboard scrolling re-fire pointermove under a still cursor:
+    // same coordinates, no travel, no reveal. This is the one that made the
+    // chrome pop open on every scroll.
+    for (let i = 0; i < 20; i += 1) move("mouse", 104, 100);
+    expect(pings()).toBe(0);
+
+    // Reaching for the controls is a real move.
+    move("mouse", 104, 200);
     expect(pings()).toBe(1);
 
     // Within the throttle window the parent learns nothing new.
-    move("mouse");
-    await vi.advanceTimersByTimeAsync(100);
-    move("mouse");
+    move("mouse", 104, 300);
+    move("mouse", 104, 400);
     expect(pings()).toBe(1);
 
     await vi.advanceTimersByTimeAsync(300);
-    move("mouse");
+    move("mouse", 104, 500);
     expect(pings()).toBe(2);
 
     // A tap already sends "click"; forwarding its synthetic move too would
     // reveal the chrome the instant the tap asked to hide it.
     await vi.advanceTimersByTimeAsync(300);
-    move("touch");
+    move("touch", 400, 400);
+    expect(pings()).toBe(2);
+
+    // Travel accumulated before a pause is forgotten, so a slow drift never
+    // sums its way into a reveal.
+    await vi.advanceTimersByTimeAsync(2_000);
+    move("mouse", 104, 520);
+    move("mouse", 104, 550);
     expect(pings()).toBe(2);
   } finally {
     incoming({ type: "destroy" });
