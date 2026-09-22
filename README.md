@@ -33,7 +33,7 @@ Library view:
 - Independent letter-spacing for body text and headings, and dedicated chapter-title controls (alignment, size, weight, per-heading sizing).
 - An optional "use the book's own fonts" mode that preserves the publisher's styling; code blocks always fall back to monospace.
 - A built-in type specimen page for tuning settings against realistic sample text.
-- 25 light and dark themes drawn from canonical palettes — Solarized, Nord, Dracula, Gruvbox, Catppuccin, Tokyo Night, Rosé Pine, Everforest, Flexoki, Kanagawa, and more — plus custom theme creation.
+- 28 light and dark themes drawn from canonical palettes — Solarized, Nord, Dracula, Gruvbox, Catppuccin, Tokyo Night, Rosé Pine, Everforest, Flexoki, Kanagawa, One Dark, and more — plus custom theme creation.
 
 ### Library
 

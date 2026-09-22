@@ -227,6 +227,36 @@ html.theme-one-dark {
   --border: #3e4451;
 }
 
+html.theme-one-dark-darkened {
+  --bg-primary: #17191d;
+  --bg-secondary: #21252c;
+  --text-primary: #bfc4cd;
+  --text-secondary: #a3a9b4;
+  --text-muted: #5d636f;
+  --accent: #74ade8;
+  --border: #2f323b;
+}
+
+html.theme-modest-dark {
+  --bg-primary: #0f1219;
+  --bg-secondary: #1e242e;
+  --text-primary: #abb2bf;
+  --text-secondary: #949cab;
+  --text-muted: #546178;
+  --accent: #5ab0f6;
+  --border: #2c313a;
+}
+
+html.theme-one-dark-pro {
+  --bg-primary: #23272e;
+  --bg-secondary: #2c313c;
+  --text-primary: #abb2bf;
+  --text-secondary: #9da5b4;
+  --text-muted: #7f838c;
+  --accent: #61afef;
+  --border: #3e4452;
+}
+
 html.theme-kanagawa {
   --bg-primary: #1f1f28;
   --bg-secondary: #2a2a37;
@@ -292,6 +322,9 @@ html.theme-tokyo-night,
 html.theme-tokyo-storm,
 html.theme-everforest-dark,
 html.theme-one-dark,
+html.theme-one-dark-darkened,
+html.theme-modest-dark,
+html.theme-one-dark-pro,
 html.theme-kanagawa,
 html.theme-flexoki-dark,
 html.theme-night-owl {

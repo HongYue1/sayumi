@@ -222,6 +222,39 @@ export const THEMES: ThemeDef[] = [
     surface: "#21252b",
   },
   {
+    // Zed's "One Dark - Darkened": same family as One Dark, but the editor
+    // surface drops to #17191d while the chrome keeps the lighter #21252c.
+    id: "one-dark-darkened",
+    label: "One Dark Darkened",
+    group: "dark",
+    bg: "#17191d",
+    fg: "#bfc4cd",
+    accent: "#74ade8",
+    surface: "#21252c",
+  },
+  {
+    // "Modest Dark" paints every pane #0f1219; its element background is the
+    // only elevated tone the scheme defines.
+    id: "modest-dark",
+    label: "Modest Dark",
+    group: "dark",
+    bg: "#0f1219",
+    fg: "#abb2bf",
+    accent: "#5ab0f6",
+    surface: "#1e242e",
+  },
+  {
+    // "One Dark Pro": #23272e paper, #1e2227 elevated surface, and the
+    // family's function blue as the accent.
+    id: "one-dark-pro",
+    label: "One Dark Pro",
+    group: "dark",
+    bg: "#23272e",
+    fg: "#abb2bf",
+    accent: "#61afef",
+    surface: "#1e2227",
+  },
+  {
     id: "kanagawa",
     label: "Kanagawa",
     group: "dark",
