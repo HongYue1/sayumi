@@ -101,11 +101,18 @@ describe("page indicator clearance", () => {
     pill.id = "page-indicator";
     document.body.append(pill);
 
+    // The reader's own font override is what the pill has to survive: it is
+    // emitted at runtime, after this sheet, and carries !important.
+    const override = document.createElement("style");
+    override.textContent =
+      "body, body * { font-family: 'Petrona', serif !important; }";
+    document.head.append(override);
+
     // The pill is chrome the frame paints over the book. Inheriting body's
     // serif made it change shape with every reading-font switch.
     const family = getComputedStyle(pill).fontFamily;
     expect(family).toContain("Hanken Grotesk");
-    expect(family).not.toContain("Literata");
+    expect(family).not.toContain("Petrona");
     expect(frameCSS).toContain("HankenGrotesk-VariableFont.woff2");
   });
 

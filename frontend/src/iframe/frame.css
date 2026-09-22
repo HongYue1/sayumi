@@ -668,7 +668,11 @@ html.vertical-lr .boundary-top .boundary-label::before {
   position: fixed;
   bottom: 12px;
   right: 16px;
-  font-family: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  /* !important, and an id selector, to outrank the reader's own
+     `body, body * { font-family: ... !important }` override (frame.ts). The
+     pill is chrome painted over the book, not part of the text. */
+  font-family:
+    "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif !important;
   /* Only meaningful in paged modes; hidden in scroll (toggled via the
        html.paged / html.paged-two root classes set by applyRootClasses). */
   display: none;
