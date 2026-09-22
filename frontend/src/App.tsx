@@ -21,7 +21,7 @@ import { getErrorMessage } from "~/lib/errors";
 import { session } from "~/lib/session";
 import { router } from "~/lib/router";
 import { ui } from "~/lib/ui";
-import { keyboardEventIsOwnedByTarget } from "~/lib/keyboard";
+import { isRichTextHost, keyboardEventIsOwnedByTarget } from "~/lib/keyboard";
 import { settings } from "~/lib/settings";
 import { applyTheme, getCachedThemeId, previewTheme } from "~/lib/theme";
 import { getTheme, isBuiltInTheme } from "~/lib/themes";
@@ -45,12 +45,7 @@ import AboutDialog from "~/components/AboutDialog";
 // its cleanup a matched pair. A per-instance closure would only change
 // behaviour for a second concurrent shell, which is a bug in its own right.
 function onWindowKey(e: KeyboardEvent): void {
-  if (
-    !session.authenticated ||
-    keyboardEventIsOwnedByTarget(e, document.activeElement)
-  ) {
-    return;
-  }
+  if (!session.authenticated) return;
   // A held key is not a second request. Auto-repeat delivers one keydown per
   // repeat, each in its own tick, so the palette chord below would flip open
   // and shut at the OS repeat rate and settle wherever the key came up. The
@@ -65,15 +60,25 @@ function onWindowKey(e: KeyboardEvent): void {
   // "?" branch below deliberately does NOT exclude altKey -- AltGr is how "?"
   // is typed on several layouts, so excluding it there would break the
   // shortcut instead of protecting it.
+  //
+  // The chord is checked before the target stand-down below because the help
+  // sheet calls it global and readers expect it to be: typing a filter in the
+  // library search and reaching for ⌘K used to do nothing at all. A plain
+  // input has no native binding for it. Rich-text hosts still keep their veto
+  // — Ctrl/⌘+K is the conventional "insert link" there — as does composition.
   if (
     (e.ctrlKey || e.metaKey) &&
     !e.altKey &&
-    (e.key === "k" || e.key === "K")
+    (e.key === "k" || e.key === "K") &&
+    !e.isComposing &&
+    !isRichTextHost(e.target) &&
+    !isRichTextHost(document.activeElement)
   ) {
     e.preventDefault();
     ui.togglePalette();
     return;
   }
+  if (keyboardEventIsOwnedByTarget(e, document.activeElement)) return;
   if (e.key === "?" && !e.ctrlKey && !e.metaKey) {
     e.preventDefault();
     ui.openShortcuts();
