@@ -1,13 +1,11 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-// The wordmark is gradient text (background-clip: text), which paints only
-// inside the padding box. With a tight line-height at display sizes the
-// italic descender of the "y" hangs below that box and gets sliced flat, so
-// the block needs bottom padding past the overhang -- cancelled by an equal
-// negative margin so surrounding layout does not shift.
+// The wordmark is solid ink plus one accent pen stroke drawn by ::after.
+// The stroke must stay decorative (no generated text, so the accessible name
+// is exactly "Sayumi") and positioned against the wordmark's own box.
 const BLOCK = /\.wordmark\s*\{([^}]*)\}/;
-const MIN_DESCENDER_ROOM_EM = 0.2;
+const STROKE = /\.wordmark::after\s*\{([^}]*)\}/;
 
 function declaration(block: string, property: string): string {
   const declarations = block
@@ -19,30 +17,32 @@ function declaration(block: string, property: string): string {
   return match!.slice(property.length + 1).trim();
 }
 
-function sides(value: string): { top: number; bottom: number } {
-  const parts = value.split(/\s+/).map((part) => Number.parseFloat(part));
-  return { top: parts[0], bottom: parts[2] ?? parts[0] };
-}
-
-describe("wordmark gradient text", () => {
+describe("wordmark ink and pen stroke", () => {
   const css = readFileSync("src/app.css", "utf8");
   const block = BLOCK.exec(css)?.[1];
+  const stroke = STROKE.exec(css)?.[1];
 
-  it("clips the gradient to text", () => {
+  // Gradient-clipped text sliced the italic descenders unless padded, and
+  // turned muddy at bar sizes; the ink is solid now.
+  it("sets the letters in solid ink, not clipped gradient text", () => {
     expect(block).toBeDefined();
-    expect(block).toContain("background-clip: text");
+    expect(declaration(block!, "color")).toBe("var(--fg)");
+    expect(block).not.toContain("background-clip");
   });
 
-  it("pads past the italic descender so it is not sliced", () => {
-    const padding = sides(declaration(block!, "padding"));
-    expect(padding.bottom).toBeGreaterThanOrEqual(MIN_DESCENDER_ROOM_EM);
+  it("anchors the stroke to the wordmark's own box", () => {
+    expect(declaration(block!, "position")).toBe("relative");
+    expect(declaration(block!, "line-height")).toBe("1");
   });
 
-  it("cancels that padding with matching negative margins", () => {
-    const padding = sides(declaration(block!, "padding"));
-    const margin = sides(declaration(block!, "margin"));
-    expect(margin.top).toBeCloseTo(-padding.top);
-    expect(margin.bottom).toBeCloseTo(-padding.bottom);
+  it("draws the stroke as decoration in the theme accent", () => {
+    expect(stroke).toBeDefined();
+    expect(declaration(stroke!, "content")).toBe('""');
+    expect(declaration(stroke!, "position")).toBe("absolute");
+    expect(declaration(stroke!, "background")).toBe("var(--accent-ink)");
+    expect(declaration(stroke!, "pointer-events")).toBe("none");
+    expect(stroke).toMatch(/(^|\s)mask:/);
+    expect(stroke).toContain("-webkit-mask:");
   });
 });
 

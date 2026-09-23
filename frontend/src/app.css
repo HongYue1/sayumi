@@ -297,34 +297,45 @@ select optgroup {
   letter-spacing: -0.01em;
 }
 
-/* The wordmark cut of Fraunces: fully soft, italic, with the ink shading
-   toward the accent at the tail — one quiet flourish, derived from the
-   active theme so it works across all palettes. This is the only place
-   Fraunces is used; headings run on --font-display (Newsreader). */
+/* The wordmark: Fraunces italic in solid ink, fully soft with the WONK
+   forms on for a hand-set lean, and one pen stroke in the theme accent that
+   leaves the "y" descender and sweeps out under "umi", like an exit stroke.
+   Solid ink replaces the old gradient-clipped text, which needed padding
+   hacks so descenders were not sliced and read as a smudge at bar sizes.
+   The stroke is a pseudo-element, so the text stays exactly "Sayumi" for
+   assistive tech and tests. This is the only place Fraunces is used;
+   headings run on --font-display (Newsreader). */
 .wordmark {
+  position: relative;
+  display: inline-block;
   font-family: var(--font-wordmark);
   font-style: italic;
-  font-weight: 520;
+  font-weight: 560;
   font-variation-settings:
     "SOFT" 100,
-    "WONK" 0;
+    "WONK" 1;
   font-optical-sizing: auto;
-  letter-spacing: -0.02em;
-  background: linear-gradient(
-    115deg,
-    var(--fg) 45%,
-    color-mix(in srgb, var(--fg) 55%, var(--accent))
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  /* background-clip: text paints only inside the padding box, so anything
-     overhanging it (the italic y/g descenders at display sizes, where
-     line-height is tight) would be sliced flat. Pad past the overhang and
-     cancel it with matching negative margins so layout is unchanged. */
-  padding: 0.1em 0.1em 0.26em;
-  margin: -0.1em -0.1em -0.26em;
+  letter-spacing: -0.025em;
+  /* Pin the box to the glyphs so the stroke lands on the descender at every
+     size, independent of the surrounding line-height. */
+  line-height: 1;
+  color: var(--fg);
+}
+.wordmark::after {
+  content: "";
+  position: absolute;
+  left: 30%;
+  right: -0.06em;
+  bottom: -0.1em;
+  height: 0.15em;
+  background: var(--accent-ink);
+  /* A tapered stroke: hairline at both ends, heaviest near the "y",
+     rising to the right as a pen lifts off the page. */
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 10' preserveAspectRatio='none'%3E%3Cpath d='M0 6C20 10 60 6 100 0C62 8 24 12 0 6Z'/%3E%3C/svg%3E")
+    center / 100% 100% no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 10' preserveAspectRatio='none'%3E%3Cpath d='M0 6C20 10 60 6 100 0C62 8 24 12 0 6Z'/%3E%3C/svg%3E")
+    center / 100% 100% no-repeat;
+  pointer-events: none;
 }
 
 /* Printer's double rule: a strong line over a hairline, the house divider. */
