@@ -2,6 +2,7 @@
 // shell is installed before a dynamic import and the module is destroyed once
 // this single integration arm has exercised the load/settings wire.
 import { afterEach, expect, it, vi } from "vitest";
+import { CHROME_REVEAL_ZONE_PX } from "~/lib/chromeReveal";
 import type {
   FrameToParentMessage,
   IframeSettings,
@@ -415,7 +416,7 @@ it("uses and reports one effective scroll mode for a vertical paged request", as
   }
 });
 
-it("forwards deliberate mouse travel so the parent chrome can reveal itself", async () => {
+it("pings the parent chrome only when the mouse reaches the top edge", async () => {
   vi.useFakeTimers();
   // The suite above already imported the frame IIFE; a fresh registry is what
   // gives this test its own listeners.
@@ -455,45 +456,40 @@ it("forwards deliberate mouse travel so the parent chrome can reveal itself", as
 
   await import("./frame");
   try {
-    // The first event only establishes where the pointer is.
-    move("mouse", 100, 100);
+    // Ordinary mouse use over the text, however large or fast, is reading.
+    // Both earlier heuristics (any move, then accumulated travel) fired here.
+    for (let i = 0; i < 40; i += 1) move("mouse", 100 + i * 25, 300 + i * 10);
+    await vi.advanceTimersByTimeAsync(300);
+    for (let i = 0; i < 40; i += 1) move("mouse", 900 - i * 20, 700 - i * 12);
     expect(pings()).toBe(0);
 
-    // A hand resting on a mouse jitters a pixel at a time; that is not a
-    // request for the chrome.
-    for (let i = 1; i <= 4; i += 1) move("mouse", 100 + i, 100);
-    expect(pings()).toBe(0);
-
-    // Wheel and keyboard scrolling re-fire pointermove under a still cursor:
-    // same coordinates, no travel, no reveal. This is the one that made the
-    // chrome pop open on every scroll.
-    for (let i = 0; i < 20; i += 1) move("mouse", 104, 100);
-    expect(pings()).toBe(0);
-
-    // Reaching for the controls is a real move.
-    move("mouse", 104, 200);
+    // Reaching for the controls at the top edge is the request.
+    move("mouse", 400, CHROME_REVEAL_ZONE_PX);
     expect(pings()).toBe(1);
 
     // Within the throttle window the parent learns nothing new.
-    move("mouse", 104, 300);
-    move("mouse", 104, 400);
+    move("mouse", 420, 40);
+    move("mouse", 440, 20);
     expect(pings()).toBe(1);
 
+    // Moving along the edge keeps the chrome alive.
     await vi.advanceTimersByTimeAsync(300);
-    move("mouse", 104, 500);
+    move("mouse", 460, 10);
+    expect(pings()).toBe(2);
+
+    // Wheel and keyboard scrolling re-fire pointermove under a still cursor:
+    // same coordinates, no movement, no ping, even inside the zone.
+    await vi.advanceTimersByTimeAsync(300);
+    for (let i = 0; i < 20; i += 1) move("mouse", 460, 10);
+    expect(pings()).toBe(2);
+
+    // One pixel below the zone is still the page.
+    move("mouse", 460, CHROME_REVEAL_ZONE_PX + 1);
     expect(pings()).toBe(2);
 
     // A tap already sends "click"; forwarding its synthetic move too would
     // reveal the chrome the instant the tap asked to hide it.
-    await vi.advanceTimersByTimeAsync(300);
-    move("touch", 400, 400);
-    expect(pings()).toBe(2);
-
-    // Travel accumulated before a pause is forgotten, so a slow drift never
-    // sums its way into a reveal.
-    await vi.advanceTimersByTimeAsync(2_000);
-    move("mouse", 104, 520);
-    move("mouse", 104, 550);
+    move("touch", 400, 10);
     expect(pings()).toBe(2);
   } finally {
     incoming({ type: "destroy" });

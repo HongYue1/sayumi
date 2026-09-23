@@ -1,3 +1,4 @@
+import { inChromeRevealZone } from "~/lib/chromeReveal";
 import { decodeHrefComponent } from "~/lib/href";
 import { keyboardEventIsOwnedByTarget } from "~/lib/keyboard";
 import { normalizeLangTag } from "~/lib/langTag";
@@ -109,19 +110,11 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   let loadScrollTarget: "top" | "end" | null = null;
   let pendingFragment: string | null = null;
   let parentOrigin = "";
-  // Pointer heartbeat forwarded to the parent chrome. A ping means "someone
-  // deliberately moved the mouse", so it takes real travel, not any event:
-  // a wheel scroll under a still cursor re-fires pointermove, and a hand
-  // resting on a mouse jitters a pixel at a time. Travel resets after a pause
-  // so a slow drift never adds up to a reveal.
+  // Pointer pings forwarded to the parent chrome; see handlePointerMove.
   const POINTER_PING_MS = 250;
-  const POINTER_INTENT_PX = 64;
-  const POINTER_INTENT_RESET_MS = 1200;
   let lastPointerPing = 0;
-  let lastPointerMove = 0;
   let pointerX: number | null = null;
   let pointerY = 0;
-  let pointerTravel = 0;
 
   let destroyed = false;
   let rasterRefreshRafHandle: number | null = null;
@@ -1898,37 +1891,25 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   }
 
   // The frame fills the reader viewport, so the parent sees pointermove only
-  // when the cursor crosses the window edge. Forward a heartbeat so the
-  // auto-hidden chrome can come back on movement over the page itself.
+  // over its own elements. Forward a ping when the mouse is moved into the
+  // top edge where the bar lives (lib/chromeReveal.ts owns that rule), so the
+  // auto-hidden chrome comes back when the reader reaches for it, and never
+  // for movement over the text itself.
   //
   // Touch is excluded on purpose. A tap already emits a "click" message, and
   // taps also synthesise a pointermove, so forwarding both would reveal the
   // chrome an instant before the tap asked to toggle it away.
   function handlePointerMove(e: PointerEvent): void {
     if (e.pointerType === "touch") return;
-    const now = Date.now();
-    const idle = now - lastPointerMove > POINTER_INTENT_RESET_MS;
-    lastPointerMove = now;
-    if (pointerX === null || idle) {
-      pointerX = e.clientX;
-      pointerY = e.clientY;
-      pointerTravel = 0;
-      return;
-    }
-
-    const dx = e.clientX - pointerX;
-    const dy = e.clientY - pointerY;
-    pointerX = e.clientX;
-    pointerY = e.clientY;
     // Wheel and keyboard scrolling re-fire pointermove under a still cursor:
     // the page moved, the pointer did not, so this must not read as intent.
-    if (dx === 0 && dy === 0) return;
-
-    pointerTravel += Math.hypot(dx, dy);
-    if (pointerTravel < POINTER_INTENT_PX) return;
-    pointerTravel = 0;
-    // Once travelling, cap the wire traffic: the parent only re-arms a
+    const moved = e.clientX !== pointerX || e.clientY !== pointerY;
+    pointerX = e.clientX;
+    pointerY = e.clientY;
+    if (!moved || !inChromeRevealZone(e.clientY)) return;
+    // Inside the zone, cap the wire traffic: the parent only re-arms a
     // multi-second timer, and the postMessage hop is not free.
+    const now = Date.now();
     if (now - lastPointerPing < POINTER_PING_MS) return;
     lastPointerPing = now;
     sendMessage({ type: "pointer-activity" });

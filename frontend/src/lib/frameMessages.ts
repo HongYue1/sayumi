@@ -136,9 +136,9 @@ export type FrameToParentMessage =
   | FrameKeyMessage
   | { type: "click"; seq: number; region: "left" | "center" | "right" }
   // The frame covers the whole reader viewport, so the parent's own
-  // pointermove listener only fires when the cursor crosses the window edge —
-  // the auto-hidden chrome would not come back until the mouse left and
-  // re-entered the app. Throttled inside the frame; carries no payload because
-  // the parent only needs to know that a pointer is alive.
+  // pointermove listener never sees the cursor over the page. The frame sends
+  // this only when the mouse is moved into the top reveal zone
+  // (lib/chromeReveal.ts), throttled; movement over the text is reading and
+  // never sent. No payload: the zone decision is already made.
   | { type: "pointer-activity" }
   | { type: "load-error"; seq: number; error: string };
