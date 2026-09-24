@@ -431,9 +431,6 @@ export default function Library() {
       <header class="lib-bar">
         <h1 class="lib-lockup">
           <span class="wordmark">Sayumi</span>
-          <span class="lib-lockup-mark" aria-hidden="true">
-            <Fleuron />
-          </span>
         </h1>
 
         <input

@@ -1,11 +1,11 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-// The wordmark is solid ink plus one accent pen stroke drawn by ::after.
-// The stroke must stay decorative (no generated text, so the accessible name
-// is exactly "Sayumi") and positioned against the wordmark's own box.
+// The wordmark is Cinzel in solid ink, tracked out and set as caps. Cinzel
+// ships no lowercase, so the uppercase transform is load-bearing — dropping
+// it paints glyph fallbacks, not the name. The transform leaves the DOM text
+// exactly "Sayumi", which is what assistive tech and tests read.
 const BLOCK = /\.wordmark\s*\{([^}]*)\}/;
-const STROKE = /\.wordmark::after\s*\{([^}]*)\}/;
 
 function declaration(block: string, property: string): string {
   const declarations = block
@@ -17,39 +17,34 @@ function declaration(block: string, property: string): string {
   return match!.slice(property.length + 1).trim();
 }
 
-describe("wordmark ink and pen stroke", () => {
+describe("wordmark ink and imprint proportions", () => {
   const css = readFileSync("src/app.css", "utf8");
   const block = BLOCK.exec(css)?.[1];
-  const stroke = STROKE.exec(css)?.[1];
 
-  // Gradient-clipped text sliced the italic descenders unless padded, and
-  // turned muddy at bar sizes; the ink is solid now.
+  // No decoration: the name itself is the identity. A stroke, underline, or
+  // clipped-gradient fill would each need its own guard, so the absence of
+  // the pseudo-element is asserted outright.
+  it("draws the name with no ornament at all", () => {
+    expect(css).not.toMatch(/\.wordmark::(after|before)/);
+  });
+
   it("sets the letters in solid ink, not clipped gradient text", () => {
     expect(block).toBeDefined();
     expect(declaration(block!, "color")).toBe("var(--fg)");
     expect(block).not.toContain("background-clip");
   });
 
-  it("anchors the stroke to the wordmark's own box", () => {
-    expect(declaration(block!, "position")).toBe("relative");
-    expect(declaration(block!, "line-height")).toBe("1");
-  });
-
-  it("draws the stroke as decoration in the theme accent", () => {
-    expect(stroke).toBeDefined();
-    expect(declaration(stroke!, "content")).toBe('""');
-    expect(declaration(stroke!, "position")).toBe("absolute");
-    expect(declaration(stroke!, "background")).toBe("var(--accent-ink)");
-    expect(declaration(stroke!, "pointer-events")).toBe("none");
-    expect(stroke).toMatch(/(^|\s)mask:/);
-    expect(stroke).toContain("-webkit-mask:");
+  it("carries no ornament on the lockup itself", () => {
+    // The login/library/about locks show the name alone; the press mark
+    // (Fleuron) is reserved for empty states and cover placeholders.
+    const sheet = readFileSync("src/app.css", "utf8");
+    for (const dead of [".login-mark", ".lib-lockup-mark", ".about-mark"]) {
+      expect(sheet).not.toContain(dead);
+    }
   });
 });
 
-// Two serifs on purpose: headings are Newsreader, the wordmark stays
-// Fraunces italic. Collapsing them onto one token is the easy mistake, so
-// the split is asserted rather than left to a comment.
-describe("display and wordmark serifs are separate", () => {
+describe("wordmark is set as an imprint", () => {
   const css = readFileSync("src/app.css", "utf8");
   const block = BLOCK.exec(css)?.[1];
 
@@ -59,28 +54,41 @@ describe("display and wordmark serifs are separate", () => {
     return match![1].trim();
   }
 
-  it("sets the wordmark from its own token", () => {
-    expect(declaration(block!, "font-family")).toBe("var(--font-wordmark)");
-    expect(declaration(block!, "font-style")).toBe("italic");
+  it("uppercases the name and tracks it out", () => {
+    expect(declaration(block!, "text-transform")).toBe("uppercase");
+    expect(declaration(block!, "letter-spacing")).toBe("0.2em");
+    // The trailing letter-space is cancelled so centered contexts center the
+    // ink rather than the tracking slot after the last letter.
+    expect(declaration(block!, "margin-right")).toBe("-0.2em");
+    // Cinzel is all-caps, so the box can hug the glyphs at any size.
+    expect(declaration(block!, "line-height")).toBe("1");
   });
 
-  it("keeps Fraunces for the wordmark and Newsreader for headings", () => {
-    expect(token("font-wordmark")).toMatch(/^"Fraunces"/);
+  it("sets the wordmark from its own token", () => {
+    expect(declaration(block!, "font-family")).toBe("var(--font-wordmark)");
+    expect(token("font-wordmark")).toMatch(/^"Cinzel"/);
+  });
+
+  // Two serifs on purpose: headings are Newsreader, the wordmark stays
+  // Cinzel. Collapsing them onto one token is the easy mistake, so the split
+  // is asserted rather than left to a comment.
+  it("keeps Cinzel for the wordmark and Newsreader for headings", () => {
     expect(token("font-display")).toMatch(/^"Newsreader"/);
   });
 
-  // Newsreader ships both styles; Fraunces ships italic only, because the
-  // wordmark is the sole user of the family and it is always italic. The
-  // upright cut is not embedded, so declaring it would only invite a rule
-  // that silently falls back to Georgia.
+  // Cinzel ships only the shapes the wordmark paints: one variable face,
+  // roman, 400..900. An italic face would be dead weight in the binary, and
+  // the shell no longer embeds Fraunces at all.
   it("embeds exactly the shell serif faces that are used", () => {
+    expect(css).toContain(`url("/fonts/Cinzel-VariableFont.woff2")`);
+    expect(css).not.toContain("Fraunces");
     for (const file of [
-      "Fraunces-Italic-VariableFont.woff2",
       "Newsreader-VariableFont.woff2",
       "Newsreader-Italic-VariableFont.woff2",
+      "HankenGrotesk-VariableFont.woff2",
+      "HankenGrotesk-Italic-VariableFont.woff2",
     ]) {
       expect(css).toContain(`url("/fonts/${file}")`);
     }
-    expect(css).not.toContain("Fraunces-VariableFont.woff2");
   });
 });

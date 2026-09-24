@@ -4,18 +4,19 @@
  * Interface typefaces are embedded in the binary (internal/fonts/) and
  * served at /fonts/, so the chrome never depends on the user-writable
  * ./Fonts/ folder. Newsreader is the display face (titles, headings) —
- * a calm transitional serif with a real optical-size axis. Fraunces is
- * kept for the wordmark alone, whose italic with a full SOFT axis is
- * the one place that flourish belongs — only its italic is embedded,
- * since nothing sets Fraunces upright. Hanken Grotesk is the UI face.
+ * a calm transitional serif with a real optical-size axis. Cinzel is
+ * kept for the wordmark alone: an inscriptional all-caps face that
+ * reads as an imprint on the spine rather than a signature, so
+ * text-transform is what actually produces "SAYUMI" — Cinzel ships
+ * no lowercase. Hanken Grotesk is the UI face.
  * Literata and Atkinson Hyperlegible Next stay embedded as reading
  * options (see READER_FONTS); the chrome itself never uses them.
  * ------------------------------------------------------------------ */
 @font-face {
-  font-family: "Fraunces";
-  src: url("/fonts/Fraunces-Italic-VariableFont.woff2") format("woff2");
-  font-weight: 100 900;
-  font-style: italic;
+  font-family: "Cinzel";
+  src: url("/fonts/Cinzel-VariableFont.woff2") format("woff2");
+  font-weight: 400 900;
+  font-style: normal;
   font-display: swap;
 }
 @font-face {
@@ -127,11 +128,11 @@
 
   /* Typefaces. Newsreader carries the literary voice; Hanken Grotesk does
      the quiet work. --font-wordmark is deliberately a different serif: the
-     wordmark is set in Fraunces italic, whose SOFT/WONK axes give it a
-     flourish no heading should have. Both are separate tokens so the two
-     roles can be retuned without dragging the other along. */
+     wordmark is set in Cinzel, an inscriptional all-caps face whose flared
+     serifs give it the authority of a book's spine imprint. Both are separate
+     tokens so the two roles can be retuned without dragging the other along. */
   --font-display: "Newsreader", Georgia, "Times New Roman", serif;
-  --font-wordmark: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-wordmark: "Cinzel", Georgia, "Times New Roman", serif;
   --font-ui: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
 
   /* Scheme-aware physics. color-scheme is kept current by applyTheme, so
@@ -297,45 +298,26 @@ select optgroup {
   letter-spacing: -0.01em;
 }
 
-/* The wordmark: Fraunces italic in solid ink, fully soft with the WONK
-   forms on for a hand-set lean, and one pen stroke in the theme accent that
-   leaves the "y" descender and sweeps out under "umi", like an exit stroke.
-   Solid ink replaces the old gradient-clipped text, which needed padding
-   hacks so descenders were not sliced and read as a smudge at bar sizes.
-   The stroke is a pseudo-element, so the text stays exactly "Sayumi" for
-   assistive tech and tests. This is the only place Fraunces is used;
-   headings run on --font-display (Newsreader). */
+/* The wordmark: Cinzel in solid ink, tracked out and set as caps. The name
+   lives in the DOM as "Sayumi"; text-transform is what paints it as
+   "SAYUMI", because Cinzel ships no lowercase — a rule that dropped the
+   transform would paint glyph fallbacks, not the name. The trailing
+   letter-space is cancelled by a negative margin so optically-centered
+   contexts (the login masthead) center the ink, not the tracking. There is
+   no decoration: the imprint is the whole identity. This is the only place
+   Cinzel is used; headings run on --font-display (Newsreader). */
 .wordmark {
-  position: relative;
   display: inline-block;
   font-family: var(--font-wordmark);
-  font-style: italic;
-  font-weight: 560;
-  font-variation-settings:
-    "SOFT" 100,
-    "WONK" 1;
-  font-optical-sizing: auto;
-  letter-spacing: -0.025em;
-  /* Pin the box to the glyphs so the stroke lands on the descender at every
-     size, independent of the surrounding line-height. */
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  /* Cancel the letter-space the last letter carries, so centered and
+     right-aligned contexts see the glyphs, not the tracking slot. */
+  margin-right: -0.2em;
+  /* Cinzel has no descenders, so the box can hug the caps at every size. */
   line-height: 1;
   color: var(--fg);
-}
-.wordmark::after {
-  content: "";
-  position: absolute;
-  left: 30%;
-  right: -0.06em;
-  bottom: -0.1em;
-  height: 0.15em;
-  background: var(--accent-ink);
-  /* A tapered stroke: hairline at both ends, heaviest near the "y",
-     rising to the right as a pen lifts off the page. */
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 10' preserveAspectRatio='none'%3E%3Cpath d='M0 6C20 10 60 6 100 0C62 8 24 12 0 6Z'/%3E%3C/svg%3E")
-    center / 100% 100% no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 10' preserveAspectRatio='none'%3E%3Cpath d='M0 6C20 10 60 6 100 0C62 8 24 12 0 6Z'/%3E%3C/svg%3E")
-    center / 100% 100% no-repeat;
-  pointer-events: none;
 }
 
 /* Printer's double rule: a strong line over a hairline, the house divider. */
@@ -962,10 +944,6 @@ main {
   font-weight: 540;
   line-height: var(--lh-tight);
 }
-.about-mark {
-  color: var(--accent-ink);
-  font-size: 0.8em;
-}
 .about-tagline {
   margin: var(--sp-2) 0 0;
   color: var(--muted);
@@ -1164,14 +1142,14 @@ main {
   overflow: hidden;
 }
 
-/* Giant embossed initial behind everything -- pure atmosphere. */
+/* Giant embossed initial behind everything -- pure atmosphere, cut in the
+   wordmark's own face so the backdrop and the imprint share one voice. */
 .login-watermark {
   position: absolute;
   right: -4rem;
   bottom: -14rem;
   font-size: 44rem;
-  font-style: italic;
-  font-weight: 500;
+  font-family: var(--font-wordmark);
   line-height: 1;
   color: var(--fg);
   opacity: 0.035;
@@ -1209,15 +1187,12 @@ main {
   animation: app-rise-in var(--dur-slower) var(--ease-out) 90ms both;
 }
 
-.login-mark {
-  display: block;
-  font-size: var(--text-sm);
-  margin-bottom: var(--sp-3);
-}
-
 .login-brand {
   margin: 0;
-  font-size: clamp(3.4rem, 9vw, 4.6rem);
+  /* Cinzel's caps run wide: SAYUMI with the 0.2em tracking is ~4.9em of ink,
+     which at 4.6rem would leave no air in the 23.5rem frontispiece. 4.2rem
+     keeps ~3rem of margin (measured from the face's hmtx, not guessed). */
+  font-size: clamp(3rem, 9vw, 4.2rem);
   line-height: var(--lh-tight);
 }
 
@@ -2792,14 +2767,7 @@ main {
   margin: 0 var(--sp-2) 0 0;
   font-size: 1.5rem;
   line-height: 1;
-  font-weight: 520;
   white-space: nowrap;
-}
-.lib-lockup-mark {
-  font-size: 0.6em;
-  color: var(--accent);
-  opacity: 0.8;
-  align-self: center;
 }
 
 .lib-search {

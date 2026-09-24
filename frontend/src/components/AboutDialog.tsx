@@ -21,7 +21,6 @@
 // which build they are actually talking to.
 import { createEffect, createSignal, Show } from "solid-js";
 import { getVersion, type VersionInfo } from "~/api/client";
-import Fleuron from "~/components/Fleuron";
 import Icon from "~/lib/Icon";
 import { X } from "~/lib/icons";
 import { trap } from "~/lib/focusTrap";
@@ -110,9 +109,6 @@ export default function AboutDialog() {
           </p>
           <h2 class="display about-title" id="about-title">
             <span class="wordmark">Sayumi</span>
-            <span class="about-mark" aria-hidden="true">
-              <Fleuron />
-            </span>
           </h2>
           <p class="about-tagline">
             A self-hosted EPUB library, and a reader built for long sessions.
