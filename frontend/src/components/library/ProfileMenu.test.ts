@@ -25,6 +25,7 @@
 //   - Every item goes through pick(), About included: the overlay it opens is
 //     focus-trapped and snapshots activeElement on mount, so the trigger has
 //     to be restored before the action runs.
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@solidjs/web";
 import { flush } from "solid-js";
@@ -351,5 +352,20 @@ describe("ProfileMenu", () => {
     expect(menu()!.getAttribute("aria-labelledby")).toBe("pm-trigger");
     expect(menu()!.getAttribute("aria-label")).toBeNull();
     expect(trigger().getAttribute("aria-label")).toBe("Profile: Alice");
+  });
+});
+
+// The trigger box holds an icon, a caret, two gaps and its padding before the
+// name gets a pixel, so a share-of-viewport cap alone truncated a six-letter
+// profile to "Rea..." on a phone.
+describe("profile trigger width", () => {
+  it("floors the trigger wide enough to name a profile on a phone", () => {
+    const css = readFileSync("src/app.css", "utf8");
+    const block = /\.pm-trigger\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    const floorRem = Number.parseFloat(
+      /max-width:\s*clamp\(\s*([\d.]+)rem/.exec(block)?.[1] ?? "0",
+    );
+
+    expect(floorRem).toBeGreaterThanOrEqual(8);
   });
 });

@@ -539,6 +539,26 @@ describe("App shell", () => {
     expect(closed.defaultPrevented).toBe(true);
   });
 
+  it("opens the palette from inside a text field", async () => {
+    const shell = await signedIn();
+
+    // The library search box is where this bit: the help sheet lists the
+    // chord under GLOBAL, so a focused filter field must not eat it.
+    for (const tag of ["input", "textarea"] as const) {
+      const field = document.createElement(tag);
+      document.body.appendChild(field);
+      field.focus();
+
+      const e = press({ key: "k", ctrlKey: true });
+      expect(shell.ui.palette).toBe(true);
+      expect(e.defaultPrevented).toBe(true);
+
+      press({ key: "k", ctrlKey: true });
+      expect(shell.ui.palette).toBe(false);
+      field.remove();
+    }
+  });
+
   it("accepts the meta chord and its shifted key name", async () => {
     const shell = await signedIn();
 

@@ -44,6 +44,18 @@ export function isKeyboardConsumer(target: EventTarget | null): boolean {
   return !BUTTON_INPUT_TYPES.has((element as HTMLInputElement).type);
 }
 
+/**
+ * True when the target is a rich-text host.
+ *
+ * Narrower than isKeyboardConsumer on purpose: a plain input or textarea has
+ * no native meaning for Ctrl/⌘ chords, while an editable region conventionally
+ * binds them (Ctrl+K inserts a link in most editors), so the shell's global
+ * chords stand down only for the latter.
+ */
+export function isRichTextHost(target: EventTarget | null): boolean {
+  return firstHTMLElement(target)?.isContentEditable === true;
+}
+
 function targetOwnsKey(target: EventTarget | null, key: string): boolean {
   const element = firstHTMLElement(target);
   if (element === null) return false;

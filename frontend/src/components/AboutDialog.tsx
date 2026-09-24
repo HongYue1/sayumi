@@ -109,9 +109,6 @@ export default function AboutDialog() {
           </p>
           <h2 class="display about-title" id="about-title">
             <span class="wordmark">Sayumi</span>
-            <span class="about-mark" aria-hidden="true">
-              ❦
-            </span>
           </h2>
           <p class="about-tagline">
             A self-hosted EPUB library, and a reader built for long sessions.

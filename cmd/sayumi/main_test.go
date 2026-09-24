@@ -422,3 +422,22 @@ func BenchmarkInstrumentMiddlewarePanicAfterWrite(b *testing.B) {
 		runMiddlewareBenchmark(b, slog.LevelError+1, recoveryMiddleware, workload)
 	})
 }
+
+func TestStaticContentTypeOverride(t *testing.T) {
+	cases := map[string]string{
+		// Neither Go's table nor the Windows registry knows this extension, so
+		// the manifest would otherwise ship as text/plain and be rejected by
+		// the nosniff header we set on every static response.
+		"/site.webmanifest":       "application/manifest+json",
+		"/nested/app.webmanifest": "application/manifest+json",
+		"/favicon.svg":            "",
+		"/assets/app.js":          "",
+		"/":                       "",
+	}
+
+	for urlPath, want := range cases {
+		if got := staticContentTypeOverride(urlPath); got != want {
+			t.Errorf("staticContentTypeOverride(%q) = %q, want %q", urlPath, got, want)
+		}
+	}
+}

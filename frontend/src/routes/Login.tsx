@@ -427,16 +427,15 @@ export default function Login() {
 
   return (
     <div class="login-screen">
-      {/* Embossed press mark behind the composition. */}
-      <span class="login-watermark display" aria-hidden="true">
+      {/* Embossed initial behind the composition, cut in the wordmark's
+          face (see .login-watermark) so the backdrop shares the imprint's
+          voice. */}
+      <span class="login-watermark" aria-hidden="true">
         S
       </span>
 
       <div class="login-frontispiece">
         <header class="login-head">
-          <span class="fleuron login-mark" aria-hidden="true">
-            ❦
-          </span>
           <h1 class="login-brand wordmark">Sayumi</h1>
         </header>
 

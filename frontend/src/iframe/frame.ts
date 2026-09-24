@@ -1,3 +1,4 @@
+import { inChromeRevealZone } from "~/lib/chromeReveal";
 import { decodeHrefComponent } from "~/lib/href";
 import { keyboardEventIsOwnedByTarget } from "~/lib/keyboard";
 import { normalizeLangTag } from "~/lib/langTag";
@@ -109,6 +110,12 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   let loadScrollTarget: "top" | "end" | null = null;
   let pendingFragment: string | null = null;
   let parentOrigin = "";
+  // Pointer pings forwarded to the parent chrome; see handlePointerMove.
+  const POINTER_PING_MS = 250;
+  let lastPointerPing = 0;
+  let pointerX: number | null = null;
+  let pointerY = 0;
+
   let destroyed = false;
   let rasterRefreshRafHandle: number | null = null;
 
@@ -1169,6 +1176,24 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     if (settings.justify) {
       css.push("body { text-align: justify !important; }");
       css.push("h1, h2, h3, h4, h5, h6 { text-align: initial !important; }");
+      if (!settings.hyphenation) {
+        // Below this measure an unhyphenated justified line has no good break
+        // to absorb its slack; phone portrait at the default margins lands
+        // here.
+        const NARROW_MEASURE_PX = 480;
+        // Justification needs somewhere to put the slack. On a phone-width
+        // measure with no hyphenation the only place left is the word spaces,
+        // so lines tear open into rivers. Fall back to ragged right there
+        // instead of asking the reader to notice and fix it.
+        //
+        // Two queries because the measure, not the viewport, is what breaks:
+        // the two-column spread splits the same viewport into halves, so it
+        // reaches a narrow column at roughly twice the width.
+        css.push(
+          `@media (max-width: ${NARROW_MEASURE_PX}px) { body { text-align: start !important; } }`,
+          `@media (max-width: ${NARROW_MEASURE_PX * 2}px) { html.paged-two body { text-align: start !important; } }`,
+        );
+      }
     }
     if (settings.hyphenation) {
       css.push(
@@ -1865,6 +1890,31 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     sendMessage({ type: "link-clicked", seq: activeSeq, href });
   }
 
+  // The frame fills the reader viewport, so the parent sees pointermove only
+  // over its own elements. Forward a ping when the mouse is moved into the
+  // top edge where the bar lives (lib/chromeReveal.ts owns that rule), so the
+  // auto-hidden chrome comes back when the reader reaches for it, and never
+  // for movement over the text itself.
+  //
+  // Touch is excluded on purpose. A tap already emits a "click" message, and
+  // taps also synthesise a pointermove, so forwarding both would reveal the
+  // chrome an instant before the tap asked to toggle it away.
+  function handlePointerMove(e: PointerEvent): void {
+    if (e.pointerType === "touch") return;
+    // Wheel and keyboard scrolling re-fire pointermove under a still cursor:
+    // the page moved, the pointer did not, so this must not read as intent.
+    const moved = e.clientX !== pointerX || e.clientY !== pointerY;
+    pointerX = e.clientX;
+    pointerY = e.clientY;
+    if (!moved || !inChromeRevealZone(e.clientY)) return;
+    // Inside the zone, cap the wire traffic: the parent only re-arms a
+    // multi-second timer, and the postMessage hop is not free.
+    const now = Date.now();
+    if (now - lastPointerPing < POINTER_PING_MS) return;
+    lastPointerPing = now;
+    sendMessage({ type: "pointer-activity" });
+  }
+
   // Middle-click never fires click, so handleClick cannot cover it: without
   // this an auxclick on an internal link opens the raw chapter URL in a new
   // tab. Swallowed (not turned into a region tap): it has no reader meaning.
@@ -2059,6 +2109,7 @@ const PAGED_SCROLL_KEYS = new Set<string>([
     document.documentElement.classList.remove("raster-refresh", "chapter-anim");
 
     window.removeEventListener("message", handleMessage);
+    document.removeEventListener("pointermove", handlePointerMove);
     document.removeEventListener("click", handleClick);
     document.removeEventListener("auxclick", handleAuxClick);
     window.removeEventListener("scroll", handleScroll);
@@ -2308,6 +2359,9 @@ const PAGED_SCROLL_KEYS = new Set<string>([
   }
 
   window.addEventListener("message", handleMessage);
+  document.addEventListener("pointermove", handlePointerMove, {
+    passive: true,
+  });
   document.addEventListener("click", handleClick);
   document.addEventListener("auxclick", handleAuxClick);
   window.addEventListener("scroll", handleScroll, { passive: true });

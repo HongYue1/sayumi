@@ -2,6 +2,7 @@
 // shell is installed before a dynamic import and the module is destroyed once
 // this single integration arm has exercised the load/settings wire.
 import { afterEach, expect, it, vi } from "vitest";
+import { CHROME_REVEAL_ZONE_PX } from "~/lib/chromeReveal";
 import type {
   FrameToParentMessage,
   IframeSettings,
@@ -410,6 +411,138 @@ it("uses and reports one effective scroll mode for a vertical paged request", as
     expect(
       document.getElementById("content")?.getAttribute("aria-busy"),
     ).toBeNull();
+  } finally {
+    incoming({ type: "destroy" });
+  }
+});
+
+it("pings the parent chrome only when the mouse reaches the top edge", async () => {
+  vi.useFakeTimers();
+  // The suite above already imported the frame IIFE; a fresh registry is what
+  // gives this test its own listeners.
+  vi.resetModules();
+  document.head.innerHTML = `
+    <style id="font-face-css"></style>
+    <style id="book-css"></style>
+    <style id="override-css"></style>`;
+  document.body.innerHTML =
+    '<div id="paged-clip"><div id="content"><div id="content-inner"></div></div></div>';
+  Object.defineProperty(document, "fonts", {
+    configurable: true,
+    value: { ready: Promise.resolve() },
+  });
+
+  const sent: FrameToParentMessage[] = [];
+  vi.spyOn(window, "postMessage").mockImplementation((message) => {
+    sent.push(message as FrameToParentMessage);
+  });
+
+  // happy-dom drops PointerEvent init fields, so the coordinates and the
+  // pointer type ride on a plain event here (same trick as the zoom wheel
+  // case above).
+  const move = (pointerType: string, x: number, y = 0): void => {
+    const e = new Event("pointermove", { bubbles: true }) as Event & {
+      pointerType: string;
+      clientX: number;
+      clientY: number;
+    };
+    e.pointerType = pointerType;
+    e.clientX = x;
+    e.clientY = y;
+    document.dispatchEvent(e);
+  };
+  const pings = (): number =>
+    sent.filter((m) => m.type === "pointer-activity").length;
+
+  await import("./frame");
+  try {
+    // Ordinary mouse use over the text, however large or fast, is reading.
+    // Both earlier heuristics (any move, then accumulated travel) fired here.
+    for (let i = 0; i < 40; i += 1) move("mouse", 100 + i * 25, 300 + i * 10);
+    await vi.advanceTimersByTimeAsync(300);
+    for (let i = 0; i < 40; i += 1) move("mouse", 900 - i * 20, 700 - i * 12);
+    expect(pings()).toBe(0);
+
+    // Reaching for the controls at the top edge is the request.
+    move("mouse", 400, CHROME_REVEAL_ZONE_PX);
+    expect(pings()).toBe(1);
+
+    // Within the throttle window the parent learns nothing new.
+    move("mouse", 420, 40);
+    move("mouse", 440, 20);
+    expect(pings()).toBe(1);
+
+    // Moving along the edge keeps the chrome alive.
+    await vi.advanceTimersByTimeAsync(300);
+    move("mouse", 460, 10);
+    expect(pings()).toBe(2);
+
+    // Wheel and keyboard scrolling re-fire pointermove under a still cursor:
+    // same coordinates, no movement, no ping, even inside the zone.
+    await vi.advanceTimersByTimeAsync(300);
+    for (let i = 0; i < 20; i += 1) move("mouse", 460, 10);
+    expect(pings()).toBe(2);
+
+    // One pixel below the zone is still the page.
+    move("mouse", 460, CHROME_REVEAL_ZONE_PX + 1);
+    expect(pings()).toBe(2);
+
+    // A tap already sends "click"; forwarding its synthetic move too would
+    // reveal the chrome the instant the tap asked to hide it.
+    move("touch", 400, 10);
+    expect(pings()).toBe(2);
+  } finally {
+    incoming({ type: "destroy" });
+  }
+});
+
+it("stops justifying a narrow measure that cannot hyphenate", async () => {
+  vi.useFakeTimers();
+  vi.resetModules();
+  document.head.innerHTML = `
+    <style id="font-face-css"></style>
+    <style id="book-css"></style>
+    <style id="override-css"></style>`;
+  document.body.innerHTML =
+    '<div id="paged-clip"><div id="content"><div id="content-inner"></div></div></div>';
+  Object.defineProperty(document, "fonts", {
+    configurable: true,
+    value: { ready: Promise.resolve() },
+  });
+  vi.spyOn(window, "postMessage").mockImplementation(() => {});
+
+  const overrides = (): string =>
+    document.getElementById("override-css")?.textContent ?? "";
+
+  await import("./frame");
+  try {
+    incoming({
+      type: "apply-settings",
+      settings: { ...iframeSettings("scroll"), justify: true },
+    });
+    expect(overrides()).toContain("text-align: justify");
+    // Rivers open up on a phone-width measure with no break points, so the
+    // narrow arm drops back to ragged right on its own.
+    expect(overrides()).toMatch(
+      /@media \(max-width: 480px\)[^}]*text-align: start/,
+    );
+    // The spread halves the same viewport, so it goes ragged twice as early.
+    expect(overrides()).toMatch(
+      /@media \(max-width: 960px\)[^}]*html\.paged-two body[^}]*text-align: start/,
+    );
+
+    // With hyphenation on there is somewhere to put the slack, so justified
+    // text stays justified at every width.
+    incoming({
+      type: "apply-settings",
+      settings: {
+        ...iframeSettings("scroll"),
+        justify: true,
+        hyphenation: true,
+      },
+    });
+    expect(overrides()).toContain("text-align: justify");
+    expect(overrides()).not.toContain("text-align: start");
   } finally {
     incoming({ type: "destroy" });
   }

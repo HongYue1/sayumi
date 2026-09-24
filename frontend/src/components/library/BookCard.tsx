@@ -9,6 +9,7 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { getCoverUrl, type BookMeta, type FlairDef } from "~/api/client";
 import { findFlair, flairTextColor } from "~/lib/flairs";
+import Fleuron from "~/components/Fleuron";
 import Icon from "~/lib/Icon";
 import { Check, Pencil, Settings, Share2, Tag, Trash2 } from "~/lib/icons";
 
@@ -471,7 +472,7 @@ export default function BookCard(props: Props) {
               <div class="bc-placeholder">
                 <span class="bc-ph-frame" aria-hidden="true" />
                 <span class="bc-ph-fleuron" aria-hidden="true">
-                  ❦
+                  <Fleuron />
                 </span>
                 <span class="bc-ph-title display">{props.book.title}</span>
               </div>

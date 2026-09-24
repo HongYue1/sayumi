@@ -56,6 +56,7 @@ import {
   type SearchResult,
   type UserFontFamily,
 } from "~/api/client";
+import Fleuron from "~/components/Fleuron";
 import { settings, type IframeSettings } from "~/lib/settings";
 import { library } from "~/lib/library";
 import { session } from "~/lib/session";
@@ -82,6 +83,7 @@ import type {
 import type { FrameModeState } from "~/lib/frameMessages";
 import Icon from "~/lib/Icon";
 import { trap } from "~/lib/focusTrap";
+import { inChromeRevealZone } from "~/lib/chromeReveal";
 import {
   ArrowLeft,
   Bookmark as BookmarkIcon,
@@ -629,6 +631,20 @@ export default function Read(props: Props) {
     lastChromePoke = now;
     resetChromeTimer();
   }
+  // The shell only sees the pointer over its own elements (the bar, the
+  // position chip, panels); over the page the frame decides and pings us. The
+  // same reveal-zone rule applies here, so hovering the bottom chip or nudging
+  // the mouse over a gutter no longer pops the whole chrome open.
+  let lastWindowPointerX: number | null = null;
+  let lastWindowPointerY = 0;
+  function handleWindowPointerMove(e: PointerEvent): void {
+    const moved =
+      e.clientX !== lastWindowPointerX || e.clientY !== lastWindowPointerY;
+    lastWindowPointerX = e.clientX;
+    lastWindowPointerY = e.clientY;
+    if (!moved || !inChromeRevealZone(e.clientY)) return;
+    handlePointerActivity();
+  }
 
   // Pushes the current @font-face CSS into the iframe. The frame only stores
   // it; a following applySettings() (or chapter load) re-injects it into the
@@ -721,7 +737,7 @@ export default function Read(props: Props) {
 
     window.addEventListener("keydown", handleWindowKey);
     window.addEventListener("focusin", handlePointerActivity);
-    window.addEventListener("pointermove", handlePointerActivity);
+    window.addEventListener("pointermove", handleWindowPointerMove);
     document.addEventListener("visibilitychange", handleVisibility);
     // The ⋯ trigger only exists at ≤640px: widening/rotating with the menu
     // open would strand it open-but-invisible with aria-expanded lying.
@@ -744,7 +760,7 @@ export default function Read(props: Props) {
       disposed = true;
       window.removeEventListener("keydown", handleWindowKey);
       window.removeEventListener("focusin", handlePointerActivity);
-      window.removeEventListener("pointermove", handlePointerActivity);
+      window.removeEventListener("pointermove", handleWindowPointerMove);
       document.removeEventListener("visibilitychange", handleVisibility);
       stopNarrowWatch?.();
       // SPA route changes that don't go through handleBack or a page
@@ -2010,6 +2026,7 @@ export default function Read(props: Props) {
               onlinkclicked={handleLinkClicked}
               onkey={handleFrameKey}
               onclickregion={handleClickRegion}
+              onpointeractivity={handlePointerActivity}
               onframeerror={handleFrameError}
             />
           </Show>
@@ -2018,7 +2035,9 @@ export default function Read(props: Props) {
             {/* Purely decorative: the region above says "Loading chapter",
                 so repeating it here would read the same line twice. */}
             <div class="rdp-loading" aria-hidden="true">
-              <span class="rdp-loading-mark">❦</span>
+              <span class="rdp-loading-mark">
+                <Fleuron />
+              </span>
             </div>
           </Show>
 

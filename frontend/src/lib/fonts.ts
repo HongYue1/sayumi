@@ -10,7 +10,7 @@ export interface ReaderFont {
 }
 
 // Only the two READER fonts embedded in the binary are listed here. Three
-// more families (Newsreader, Fraunces, Hanken Grotesk) are embedded for the
+// more families (Newsreader, Cinzel, Hanken Grotesk) are embedded for the
 // shell UI and never enter this catalogue; the rest ships as drop-in families
 // in ./Fonts/ (see fonts-bundle/) and is surfaced dynamically through the
 // user-font registry.

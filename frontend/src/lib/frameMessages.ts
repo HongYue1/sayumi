@@ -135,4 +135,10 @@ export type FrameToParentMessage =
   | { type: "link-clicked"; seq: number; href: string }
   | FrameKeyMessage
   | { type: "click"; seq: number; region: "left" | "center" | "right" }
+  // The frame covers the whole reader viewport, so the parent's own
+  // pointermove listener never sees the cursor over the page. The frame sends
+  // this only when the mouse is moved into the top reveal zone
+  // (lib/chromeReveal.ts), throttled; movement over the text is reading and
+  // never sent. No payload: the zone decision is already made.
+  | { type: "pointer-activity" }
   | { type: "load-error"; seq: number; error: string };

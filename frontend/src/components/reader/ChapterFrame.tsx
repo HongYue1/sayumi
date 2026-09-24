@@ -96,6 +96,8 @@ function isInbound(v: unknown): v is FrameToParentMessage {
       );
     case "click":
       return isNum(v.seq) && isRegion(v.region);
+    case "pointer-activity":
+      return true;
     case "load-error":
       return isNum(v.seq) && isStr(v.error);
     default:
@@ -129,6 +131,8 @@ interface Props {
   onlinkclicked?: (href: string) => void;
   onkey?: (e: KeyEvent) => void;
   onclickregion?: (region: "left" | "center" | "right") => void;
+  /** Throttled pointer movement inside the frame; no seq, so never gated. */
+  onpointeractivity?: () => void;
   onframeerror?: (code: string, message: string) => void;
 }
 
@@ -276,6 +280,12 @@ export default function ChapterFrame(props: Props) {
         break;
       case "click":
         if (m.seq === seq) props.onclickregion?.(m.region);
+        break;
+      // Deliberately not seq-gated: pointer movement belongs to the window,
+      // not to a chapter load, and dropping it during a swap would leave the
+      // chrome hidden exactly when the reader is looking for it.
+      case "pointer-activity":
+        props.onpointeractivity?.();
         break;
       case "load-error":
         // A failed current load can never settle, so discard commands waiting

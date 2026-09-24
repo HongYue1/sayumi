@@ -426,6 +426,12 @@ func buildHandler(deps *api.Dependencies) (http.Handler, error) {
 			w.Header().Set("Cache-Control", "no-cache")
 		}
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		if ctype := staticContentTypeOverride(urlPath); ctype != "" {
+			// http.ServeContent keeps a Content-Type we set here, which is how we
+			// cover extensions the Go/OS MIME tables miss. Without this the
+			// manifest goes out as text/plain and nosniff makes browsers drop it.
+			w.Header().Set("Content-Type", ctype)
+		}
 
 		fileServer.ServeHTTP(w, r)
 	})
@@ -471,6 +477,17 @@ func staticPathExists(staticFS fs.FS, urlPath string) (bool, error) {
 		return false, nil
 	}
 	return false, err
+}
+
+// staticContentTypeOverride returns the Content-Type to force for urlPath, or
+// "" to let http.FileServer sniff the extension itself.
+func staticContentTypeOverride(urlPath string) string {
+	switch path.Ext(urlPath) {
+	case ".webmanifest":
+		return "application/manifest+json"
+	default:
+		return ""
+	}
 }
 
 func shouldServeAppShell(urlPath string) bool {
