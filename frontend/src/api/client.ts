@@ -711,6 +711,15 @@ export interface ProgressData {
    * which of the two is actually newer -- see lib/progress.ts.
    */
   updatedAt?: string;
+  /**
+   * The book FILE the position was measured against, as reported by the
+   * server on every read. A chapter index only means a place within one
+   * spine, so the reader sends the generation back with each save: after the
+   * book file is replaced (and the stored positions remapped into the new
+   * numbering), a tab still holding the old numbering is refused with 409
+   * `stale_generation` instead of writing its stale chapter over the remap.
+   */
+  generation?: string;
 }
 
 export function getBooks(signal?: AbortSignal): Promise<BookMeta[]> {

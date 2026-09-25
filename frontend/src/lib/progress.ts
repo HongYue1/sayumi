@@ -99,6 +99,14 @@ export interface CachedProgress extends ProgressData {
  * field existed, or a book the server holds no position for -- leaves the
  * crash-guard copy in charge, exactly as before.
  *
+ * A cache written against a different book FILE is discarded outright, ahead
+ * of the timestamp comparison: its chapter index belongs to the previous
+ * spine, and the server's position has already been remapped into the new one
+ * (internal/storage/bookreplace.go). Timestamps cannot settle that -- the
+ * cache can legitimately be the newer write and still name the wrong chapter.
+ * Only a generation on BOTH sides decides; a cache from before the field
+ * existed falls through to the timestamp rule as it always did.
+ *
  * The residual imprecision is deliberate: a staged position is re-stamped with
  * the server's clock when it reaches the WAL, so the server can look newer
  * than the instant this tab was told about by up to one flush interval. What
@@ -115,6 +123,13 @@ export function chooseBootProgress(
     percent: cached.percent,
     cfi: cached.cfi,
   };
+  if (
+    cached.generation &&
+    server.generation &&
+    cached.generation !== server.generation
+  ) {
+    return server;
+  }
   if (!cached.serverUpdatedAt || !server.updatedAt) return position;
   return server.updatedAt > cached.serverUpdatedAt ? server : position;
 }

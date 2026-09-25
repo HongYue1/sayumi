@@ -174,6 +174,40 @@ describe("chooseBootProgress", () => {
       ),
     ).toMatchObject({ chapter: 3, percent: 0.8 });
   });
+  it("discards a cache measured against a replaced book file", () => {
+    // The tab cached chapter 3 of the old file; the server has since remapped
+    // that position into the new spine. The cache is the newer WRITE and
+    // still the wrong chapter, so the generation decides, not the clock.
+    expect(
+      chooseBootProgress(
+        {
+          ...serverAt(p(4, 0.8, "cfi:server"), "2026-02-03 04:05:06"),
+          generation: "gen-2",
+        },
+        {
+          ...cachedAt(p(3, 0.8, "cfi:cached"), "2026-02-03 09:00:00"),
+          generation: "gen-1",
+        },
+      ),
+    ).toMatchObject({ chapter: 4, percent: 0.8, cfi: "cfi:server" });
+  });
+  it("keeps the cache when the generations agree", () => {
+    expect(
+      chooseBootProgress(
+        { ...serverAt(p(4, 0.8), "2026-02-03 04:05:06"), generation: "gen-1" },
+        { ...cachedAt(p(3, 0.8), "2026-02-03 09:00:00"), generation: "gen-1" },
+      ),
+    ).toMatchObject({ chapter: 3, percent: 0.8 });
+  });
+  it("falls back to the timestamp rule for a cache with no generation", () => {
+    // Written before the field existed: it cannot prove staleness either way.
+    expect(
+      chooseBootProgress(
+        { ...serverAt(p(4, 0.8), "2026-02-03 04:05:06"), generation: "gen-2" },
+        cachedAt(p(3, 0.8), "2026-02-03 09:00:00"),
+      ),
+    ).toMatchObject({ chapter: 3, percent: 0.8 });
+  });
   it("keeps the cache when either side has no timestamp", () => {
     // A cache written before the baseline existed, and a book the server
     // holds no position for: neither pair can be ordered, so the crash-guard

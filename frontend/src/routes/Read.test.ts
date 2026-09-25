@@ -14,7 +14,7 @@ import Read from "~/routes/Read";
 import { settings } from "~/lib/settings";
 import { fontRegistry } from "~/lib/fontRegistry";
 import * as fontMeasure from "~/lib/fontMeasure";
-import { embeddedMetrics } from "~/api/client";
+import { ApiError, embeddedMetrics } from "~/api/client";
 import { ui } from "~/lib/ui";
 
 type FrameProps = Parameters<typeof ChapterFrameReal>[0];
@@ -1206,6 +1206,39 @@ describe("Read progress", () => {
       percent: 0.3,
       cfi: undefined,
     });
+  });
+
+  it("stands down when the server refuses a position from a replaced file", async () => {
+    // The book file was replaced while this tab stayed open. Its chapter
+    // indexes belong to the old spine and the server has already remapped the
+    // stored position, so the refused save must not be retried or beaconed.
+    api.getProgress.mockResolvedValue({
+      chapter: 0,
+      percent: 0,
+      generation: "gen-1",
+    });
+    await bootReader();
+    api.saveProgress.mockRejectedValueOnce(
+      new ApiError("replaced", 409, "stale_generation"),
+    );
+    frameHandler("onposition")(0, 0.3, undefined);
+    await settle();
+    frameHandler("onkey")(key("Escape")); // nothing open -> handleBack
+    await vi.waitFor(() => expect(api.saveProgress).toHaveBeenCalledTimes(1));
+    // The save carried the generation this tab booted with.
+    expect(api.saveProgress).toHaveBeenCalledWith("book1", {
+      chapter: 0,
+      percent: 0.3,
+      cfi: undefined,
+      generation: "gen-1",
+    });
+    await vi.waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("reopen")),
+    );
+    // Leaving normally beacons the last position; a stale tab must not.
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith("/"));
+    expect(api.beaconProgress).not.toHaveBeenCalled();
+    expect(api.saveProgress).toHaveBeenCalledTimes(1);
   });
 
   it("beacons and writes the crash-guard cache on page hide, without a save", async () => {

@@ -40,6 +40,7 @@ import {
 } from "~/lib/progress";
 import type { CachedProgress } from "~/lib/progress";
 import {
+  ApiError,
   getBook,
   getProgress,
   saveProgress,
@@ -771,7 +772,7 @@ export default function Read(props: Props) {
       // unchanged position: leaving the reader is itself a last-read event,
       // and the backend coalescer collapses duplicate positions before the
       // WAL write.
-      if (bookLoaded && !isSpecimen) {
+      if (bookLoaded && !isSpecimen && !progressGenerationStale) {
         // Mirror the page-hide path: the cache is the crash-guard copy when
         // the beacon never lands. A successful save is what removes it (see
         // flushProgress), so it is the newest position THIS tab knows —
@@ -782,7 +783,7 @@ export default function Read(props: Props) {
           // ignore
         }
         publishLibraryProgress(saveData.chapter, saveData.percent);
-        beaconProgress(bookId, { ...saveData });
+        beaconProgress(bookId, savePayload());
       }
       cancelProgressSave();
       fetchAbort?.abort();
@@ -827,6 +828,7 @@ export default function Read(props: Props) {
     try {
       saved = await getProgress(bookId);
       serverProgressUpdatedAt = saved.updatedAt;
+      bookGeneration = saved.generation;
       lastPersistedChapter = saved.chapter;
       lastPersistedPercent = saved.percent;
       lastPersistedCfi = saved.cfi;
@@ -857,7 +859,9 @@ export default function Read(props: Props) {
           cached.percent <= 1 &&
           (cached.cfi === undefined || typeof cached.cfi === "string") &&
           (cached.serverUpdatedAt === undefined ||
-            typeof cached.serverUpdatedAt === "string");
+            typeof cached.serverUpdatedAt === "string") &&
+          (cached.generation === undefined ||
+            typeof cached.generation === "string");
         if (cacheOk) saved = chooseBootProgress(saved, cached);
       }
     } catch {
@@ -1142,15 +1146,37 @@ export default function Read(props: Props) {
   // moved on after that cache was written (lib/progress.chooseBootProgress).
   let serverProgressUpdatedAt: string | undefined;
 
+  // The book FILE this tab's chapter indexes belong to, from the boot GET.
+  // Every save carries it so the server can refuse a position measured
+  // against a file that has since been replaced (internal/api/progress.go).
+  let bookGeneration: string | undefined;
+
+  // Set once the server has refused this tab's writes as stale: the book file
+  // was replaced while the tab stayed open, so every position it can still
+  // produce names a chapter in the old numbering. Saving is over for this
+  // mount -- reopening the book is what re-syncs it.
+  let progressGenerationStale = false;
+
   // The crash-guard copy of the current position, tagged with that baseline.
   // The page-hide and unmount paths write it and beacon WITHOUT saving; a
   // successful save is what removes it.
   function cacheEntry(): CachedProgress {
-    return { ...saveData, serverUpdatedAt: serverProgressUpdatedAt };
+    return {
+      ...saveData,
+      serverUpdatedAt: serverProgressUpdatedAt,
+      generation: bookGeneration,
+    };
+  }
+
+  // The position as sent to the server: stamped with the generation it was
+  // measured against.
+  function savePayload(): ProgressData {
+    return { ...saveData, generation: bookGeneration };
   }
 
   function flushProgress(force = false): Promise<void> {
-    if (!bookLoaded || isSpecimen) return Promise.resolve();
+    if (!bookLoaded || isSpecimen || progressGenerationStale)
+      return Promise.resolve();
     const now = Date.now();
     if (!force && now - lastFlushTime < PROGRESS_FLUSH_THROTTLE_MS)
       return Promise.resolve();
@@ -1171,7 +1197,7 @@ export default function Read(props: Props) {
     }
 
     lastFlushTime = now;
-    const payload = { ...saveData };
+    const payload = savePayload();
     return saveProgress(bookId, payload)
       .then((stored) => {
         publishLibraryProgress(payload.chapter, payload.percent);
@@ -1187,13 +1213,29 @@ export default function Read(props: Props) {
           // ignore
         }
       })
-      .catch(() => {
+      .catch((err: unknown) => {
+        // A refused generation is the one failure that must not be retried:
+        // the file under this tab was replaced, the server already holds the
+        // remapped position, and every later attempt would carry the same
+        // stale chapter. Stand down and say so once.
+        if (err instanceof ApiError && err.code === "stale_generation") {
+          progressGenerationStale = true;
+          cancelProgressSave();
+          try {
+            localStorage.removeItem(progressCacheKey);
+          } catch {
+            // ignore
+          }
+          showToast("This book was updated — reopen it to resume saving");
+          return;
+        }
         // best-effort; interval or beacon will retry
       });
   }
 
   function scheduleProgressSave(): void {
-    if (!bookLoaded || isSpecimen || progressTimer) return;
+    if (!bookLoaded || isSpecimen || progressTimer || progressGenerationStale)
+      return;
     progressTimer = setTimeout(() => {
       progressTimer = undefined;
       void flushProgress();
@@ -1237,7 +1279,7 @@ export default function Read(props: Props) {
   }
 
   function handleVisibility(): void {
-    if (!bookLoaded || isSpecimen) return;
+    if (!bookLoaded || isSpecimen || progressGenerationStale) return;
     if (document.visibilityState === "hidden") {
       cancelProgressSave();
       try {
@@ -1246,7 +1288,7 @@ export default function Read(props: Props) {
         // ignore
       }
       publishLibraryProgress(saveData.chapter, saveData.percent);
-      beaconProgress(bookId, { ...saveData });
+      beaconProgress(bookId, savePayload());
     } else {
       scheduleProgressSave();
     }

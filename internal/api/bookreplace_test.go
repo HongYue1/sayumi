@@ -241,6 +241,84 @@ func TestReplaceBookRemapsStagedProgress(t *testing.T) {
 	}
 }
 
+// A reader tab open across a replace still holds the old chapter numbering.
+// Its next save must be refused rather than applied over the remapped row.
+func TestReplaceBookRefusesProgressFromTheReplacedFile(t *testing.T) {
+	t.Parallel()
+	pd, _ := replaceTestProfile(t)
+
+	readGeneration := func() string {
+		t.Helper()
+		w := httptest.NewRecorder()
+		getProgressHandler(nil)(w, progressRequest(pd, http.MethodGet, ""))
+		var got progressBody
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Generation == "" {
+			t.Fatal("read did not report a generation")
+		}
+		return got.Generation
+	}
+	storedChapter := func() int {
+		t.Helper()
+		if staged, ok := pd.Progress.get(enrichBookID, "default"); ok {
+			return staged.Chapter
+		}
+		prog, err := pd.DB.GetProgressContext(t.Context(), enrichBookID, "default")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return prog.Chapter
+	}
+
+	before := readGeneration()
+
+	w := httptest.NewRecorder()
+	replaceBookHandler(nil)(w, replaceRequest(t, pd, replaceTestEPUB(t, "Enriched", "front.xhtml", "c1.xhtml", "c2.xhtml", "c3.xhtml")))
+	if w.Code != http.StatusOK {
+		t.Fatalf("replace status = %d, body %s", w.Code, w.Body.String())
+	}
+	// The stale tab's chapter 2 is where the remap has just moved it from.
+	if got := storedChapter(); got != 3 {
+		t.Fatalf("remapped chapter = %d, want 3", got)
+	}
+	stale := `{"chapter":2,"percent":0.5,"generation":"` + before + `"}`
+
+	w = httptest.NewRecorder()
+	putProgressHandler(nil)(w, progressRequest(pd, http.MethodPut, stale))
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "stale_generation") {
+		t.Fatalf("stale PUT = %d %s, want 409 stale_generation", w.Code, w.Body.String())
+	}
+	if got := storedChapter(); got != 3 {
+		t.Fatalf("stale PUT moved the position to %d", got)
+	}
+
+	w = httptest.NewRecorder()
+	beaconProgressHandler(nil)(w, progressRequest(pd, http.MethodPost, stale))
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("stale beacon = %d, want 204", w.Code)
+	}
+	if got := storedChapter(); got != 3 {
+		t.Fatalf("stale beacon moved the position to %d", got)
+	}
+
+	// A tab that reopened the book reads the new generation and saves again.
+	after := readGeneration()
+	if after == before {
+		t.Fatal("generation did not change with the file")
+	}
+	w = httptest.NewRecorder()
+	putProgressHandler(nil)(w, progressRequest(pd, http.MethodPut,
+		`{"chapter":1,"percent":0.25,"generation":"`+after+`"}`))
+	if w.Code != http.StatusOK {
+		t.Fatalf("fresh PUT = %d %s, want 200", w.Code, w.Body.String())
+	}
+	if got := storedChapter(); got != 1 {
+		t.Fatalf("fresh PUT stored chapter %d, want 1", got)
+	}
+}
+
 func TestReplaceBookRejectsInvalidUploadUnchanged(t *testing.T) {
 	t.Parallel()
 	pd, before := replaceTestProfile(t)

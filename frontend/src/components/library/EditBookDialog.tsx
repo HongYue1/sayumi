@@ -450,7 +450,7 @@ export default function EditBookDialog(props: Props) {
               <input
                 class="eb-file-input"
                 type="file"
-                accept=".epub,application/epub+zip"
+                accept=".epub"
                 aria-label={epubFile() ? "Change EPUB file" : "Update EPUB"}
                 aria-invalid={epubPickError() !== null ? "true" : "false"}
                 aria-describedby={

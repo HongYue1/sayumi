@@ -33,6 +33,14 @@ func decodeProgress(t *testing.T, w *httptest.ResponseRecorder) progressBody {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode progress response: %v", err)
 	}
+	// Every answered position carries the file generation it belongs to. It is
+	// a digest of the book's file hash, so it cannot be spelled out in a want
+	// literal: require it here and blank it before the position is compared.
+	// TestReplaceBookRefusesProgressFromTheReplacedFile pins what it is for.
+	if got.Generation == "" {
+		t.Errorf("response carries no generation: %s", w.Body.String())
+	}
+	got.Generation = ""
 	return got
 }
 

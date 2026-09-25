@@ -535,10 +535,14 @@ export default function Library() {
             {library.uploading ? "Uploading…" : "Add book"}
           </span>
         </button>
+        {/* accept is the extension only: Chromium expands
+            application/epub+zip back to .epub, and the picker then offers
+            "Custom Files (*.epub;*.epub)". The server validates the archive
+            itself, so the extension is all the filter has to do. */}
         <input
           ref={fileInput}
           type="file"
-          accept=".epub,application/epub+zip"
+          accept=".epub"
           multiple
           hidden
           onChange={onFilePicked}
