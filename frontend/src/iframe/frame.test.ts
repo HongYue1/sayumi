@@ -378,6 +378,18 @@ it("uses and reports one effective scroll mode for a vertical paged request", as
     zoom.ctrlKey = true;
     window.dispatchEvent(zoom);
     expect(sent.filter((m) => m.type === "at-boundary")).toHaveLength(1);
+    // Wheel travel can carry momentum, so its hand-off stays subject to the
+    // parent's post-swap grace; a parent-issued turn (key, tap, button) is
+    // deliberate and must not be swallowed by it.
+    expect(sent.find((m) => m.type === "at-boundary")).toMatchObject({
+      boundary: "end",
+      deliberate: false,
+    });
+    sent.length = 0;
+    incoming({ type: "next-page", seq: 2 });
+    expect(sent.filter((m) => m.type === "at-boundary")).toEqual([
+      { type: "at-boundary", seq: 2, boundary: "end", deliberate: true },
+    ]);
 
     // A paged-to-scroll switch freezes an in-flight turn: its scrollLeft swap
     // would otherwise land mid-scroll-mode and report a paged percent.

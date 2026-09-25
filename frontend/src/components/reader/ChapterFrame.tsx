@@ -81,7 +81,11 @@ function isInbound(v: unknown): v is FrameToParentMessage {
         (v.cfi === undefined || v.cfi === null || isStr(v.cfi))
       );
     case "at-boundary":
-      return isNum(v.seq) && isBoundary(v.boundary);
+      return (
+        isNum(v.seq) &&
+        isBoundary(v.boundary) &&
+        (v.deliberate === undefined || isBool(v.deliberate))
+      );
     case "link-clicked":
       return isNum(v.seq) && isStr(v.href);
     case "key":
@@ -127,7 +131,7 @@ interface Props {
   onloaded?: (seq: number) => void;
   onmodechange?: (state: FrameModeState) => void;
   onposition?: (chapterIndex: number, percent: number, cfi?: string) => void;
-  onboundary?: (boundary: "start" | "end") => void;
+  onboundary?: (boundary: "start" | "end", deliberate?: boolean) => void;
   onlinkclicked?: (href: string) => void;
   onkey?: (e: KeyEvent) => void;
   onclickregion?: (region: "left" | "center" | "right") => void;
@@ -262,7 +266,8 @@ export default function ChapterFrame(props: Props) {
           props.onposition?.(m.chapterIndex, m.percent, m.cfi ?? undefined);
         break;
       case "at-boundary":
-        if (m.seq === seq) props.onboundary?.(m.boundary);
+        if (m.seq === seq)
+          props.onboundary?.(m.boundary, m.deliberate === true);
         break;
       case "link-clicked":
         if (m.seq === seq) props.onlinkclicked?.(m.href);

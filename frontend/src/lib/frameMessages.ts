@@ -131,7 +131,14 @@ export type FrameToParentMessage =
       percent: number;
       cfi?: string | null;
     }
-  | { type: "at-boundary"; seq: number; boundary: "start" | "end" }
+  | {
+      type: "at-boundary";
+      seq: number;
+      boundary: "start" | "end";
+      // True for a discrete paged turn (key, tap, button, swipe). The parent
+      // exempts it from the wheel-momentum cooldown and post-swap grace.
+      deliberate?: boolean;
+    }
   | { type: "link-clicked"; seq: number; href: string }
   | FrameKeyMessage
   | { type: "click"; seq: number; region: "left" | "center" | "right" }

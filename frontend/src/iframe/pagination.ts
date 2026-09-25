@@ -71,8 +71,16 @@ export type PaginationDeps = {
 };
 
 export type PaginationController = {
-  nextPage: () => void;
-  prevPage: () => void;
+  /**
+   * Turn one page forward; at the last page, hand off to the next chapter.
+   * `deliberate` marks a discrete turn (a key, tap, button, or swipe) rather
+   * than accumulated wheel travel. The parent's post-swap boundary grace
+   * exists to stop wheel momentum from chain-skipping chapters; applied to a
+   * deliberate turn it silently swallowed the press, so the reader had to
+   * press twice to leave a short chapter or a chapter just entered backwards.
+   */
+  nextPage: (deliberate?: boolean) => void;
+  prevPage: (deliberate?: boolean) => void;
   goToPage: (page: number, animated: boolean) => void;
   goToRatio: (ratio: number, animated: boolean) => void;
   getElementPageIndex: (el: Element) => number;
@@ -530,7 +538,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     goToPageInternal(pageForRatio(ratio, totalPages), animated);
   }
 
-  function nextPage(): void {
+  function nextPage(deliberate = false): void {
     if (totalPages === 0) return;
     if (currentPage >= totalPages - 1) {
       if (deps.hasNextChapter()) {
@@ -538,6 +546,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
           type: "at-boundary",
           seq: deps.getActiveSeq(),
           boundary: "end",
+          deliberate,
         });
       } else {
         deps.flashBoundaryEdge("end");
@@ -547,7 +556,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
     goToPageInternal(currentPage + 1, true);
   }
 
-  function prevPage(): void {
+  function prevPage(deliberate = false): void {
     if (totalPages === 0) return;
     if (currentPage <= 0) {
       if (deps.hasPrevChapter()) {
@@ -555,6 +564,7 @@ export function createPagination(deps: PaginationDeps): PaginationController {
           type: "at-boundary",
           seq: deps.getActiveSeq(),
           boundary: "start",
+          deliberate,
         });
       } else {
         deps.flashBoundaryEdge("start");

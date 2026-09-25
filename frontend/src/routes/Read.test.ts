@@ -723,6 +723,28 @@ describe("Read navigation", () => {
     expect(loadChapterCalls()[2].data.chapterIndex).toBe(2);
   });
 
+  it("lets a deliberate paged turn cross a boundary inside the grace windows", async () => {
+    let now = 10000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    await bootReader();
+    now = 11000;
+    // Back from the first page of chapter 1 lands on the last page of 0...
+    frameHandler("onboundary")("end");
+    await vi.waitFor(() => expect(loadChapterCalls().length).toBe(2));
+    frameHandler("onboundary")("start", true);
+    await vi.waitFor(() => expect(loadChapterCalls().length).toBe(3));
+    expect(loadChapterCalls()[2].data.chapterIndex).toBe(0);
+    // ...and one Next press, well inside both windows, goes forward again.
+    now = 11100;
+    frameHandler("onboundary")("end", true);
+    await vi.waitFor(() => expect(loadChapterCalls().length).toBe(4));
+    expect(loadChapterCalls()[3].data.chapterIndex).toBe(1);
+    // Wheel momentum at the same instant is still absorbed.
+    frameHandler("onboundary")("end", false);
+    await settle();
+    expect(loadChapterCalls().length).toBe(4);
+  });
+
   it("aborts a superseded navigation and loads only the pending chapter", async () => {
     // Chapter 1 fetches hang until aborted (prefetch joins the same request).
     api.fetchChapter.mockImplementation(

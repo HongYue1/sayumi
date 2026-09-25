@@ -1316,11 +1316,19 @@ export default function Read(props: Props) {
       resolve();
     }
   }
-  function handleBoundary(boundary: "start" | "end"): void {
+  function handleBoundary(boundary: "start" | "end", deliberate = false): void {
     const now = Date.now();
-    if (now - lastBoundaryTime < BOUNDARY_COOLDOWN_MS || chapterLoadInProgress)
-      return;
-    if (now - lastChapterSwapAt < POST_SWAP_BOUNDARY_GRACE_MS) return;
+    if (chapterLoadInProgress) return;
+    // The cooldown and post-swap grace absorb wheel momentum and pull
+    // gestures. A deliberate paged turn (key, tap, button, swipe) is one press
+    // the reader meant: swallowing it made them press Next twice to leave a
+    // short chapter, or a chapter they had just entered backwards. Rapid
+    // presses stay safe — the in-flight load latch above drops them, and once
+    // the swap commits ChapterFrame buffers them as turns in the new chapter.
+    if (!deliberate) {
+      if (now - lastBoundaryTime < BOUNDARY_COOLDOWN_MS) return;
+      if (now - lastChapterSwapAt < POST_SWAP_BOUNDARY_GRACE_MS) return;
+    }
     lastBoundaryTime = now;
     const b = book();
     if (!b) return;

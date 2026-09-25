@@ -1701,10 +1701,16 @@ const PAGED_SCROLL_KEYS = new Set<string>([
       const dx = touchStartX - touchLastX;
       const dy = Math.abs(touchStartY - touchLastY);
       if (Math.abs(dx) >= 50 && Math.abs(dx) > dy * 0.7) {
+        // A swipe is one discrete turn, like a key or tap, so a boundary it
+        // reaches is deliberate (see PaginationController.nextPage).
         if (dx > 0) {
-          pagination.isRTL() ? pagination.prevPage() : pagination.nextPage();
+          pagination.isRTL()
+            ? pagination.prevPage(true)
+            : pagination.nextPage(true);
         } else {
-          pagination.isRTL() ? pagination.nextPage() : pagination.prevPage();
+          pagination.isRTL()
+            ? pagination.nextPage(true)
+            : pagination.prevPage(true);
         }
       }
       return;
@@ -2276,12 +2282,13 @@ const PAGED_SCROLL_KEYS = new Set<string>([
 
       case "next-page":
         if (isStaleCommand(msg.seq)) break;
-        if (isPagedMode) pagination.nextPage();
+        // Parent-issued turns come from keys, taps, and buttons: deliberate.
+        if (isPagedMode) pagination.nextPage(true);
         break;
 
       case "prev-page":
         if (isStaleCommand(msg.seq)) break;
-        if (isPagedMode) pagination.prevPage();
+        if (isPagedMode) pagination.prevPage(true);
         break;
 
       case "scroll-to-fragment":
