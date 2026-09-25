@@ -20,6 +20,7 @@ export const libraryApi = {
   uploadBook: vi.fn<typeof ApiClient.uploadBook>(),
   updateBookMeta: vi.fn<typeof ApiClient.updateBookMeta>(),
   uploadCover: vi.fn<typeof ApiClient.uploadCover>(),
+  replaceBookFile: vi.fn<typeof ApiClient.replaceBookFile>(),
   deleteBook: vi.fn<typeof ApiClient.deleteBook>(),
   rescanLibrary: vi.fn<typeof ApiClient.rescanLibrary>(),
 };

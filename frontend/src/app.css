@@ -2000,6 +2000,14 @@ main {
   flex-direction: column;
   gap: var(--sp-1);
 }
+/* Not an .eb-frow: that class sizes every descendant input as a text field,
+   and this row's input is the transparent overlay of a file button. */
+.eb-file-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
 .eb-lbl {
   font-size: var(--text-xs);
   font-weight: 640;

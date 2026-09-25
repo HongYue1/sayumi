@@ -1,4 +1,4 @@
-// Edit-book dialog: staged metadata + cover save.
+// Edit-book dialog: staged metadata + book file + cover save.
 //
 //   - Signals initialize from props once; the saved* baselines advance only
 //     after a successful stage.
@@ -20,10 +20,12 @@ import { library } from "~/lib/library";
 import { toast } from "~/lib/toast";
 import { trap } from "~/lib/focusTrap";
 import Icon from "~/lib/Icon";
-import { ImageUp, X } from "~/lib/icons";
+import { ImageUp, UploadCloud, X } from "~/lib/icons";
 
 const MAX_META_BYTES = 512;
 const MAX_COVER_BYTES = 20 * 1024 * 1024;
+// Mirrors the server's maxUploadSize (internal/api/upload.go).
+const MAX_EPUB_BYTES = 100 * 1024 * 1024;
 const AUTHOR_TOO_LONG = "Author is too long (512-byte limit).";
 const textEncoder = new TextEncoder();
 
@@ -47,10 +49,12 @@ export default function EditBookDialog(props: Props) {
 
   const [coverFile, setCoverFile] = createSignal<File | null>(null);
   const [coverPreview, setCoverPreview] = createSignal<string | null>(null);
+  const [epubFile, setEpubFile] = createSignal<File | null>(null);
 
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [coverPickError, setCoverPickError] = createSignal<string | null>(null);
+  const [epubPickError, setEpubPickError] = createSignal<string | null>(null);
 
   const trimmedTitle = createMemo(() => title().trim());
   const trimmedAuthor = createMemo(() => author().trim());
@@ -71,6 +75,7 @@ export default function EditBookDialog(props: Props) {
     () =>
       trimmedTitle() !== savedTitle() ||
       trimmedAuthor() !== savedAuthor() ||
+      epubFile() !== null ||
       coverFile() !== null,
   );
   const canSubmit = createMemo(
@@ -83,6 +88,7 @@ export default function EditBookDialog(props: Props) {
   const announcement = createMemo(
     () =>
       error() ??
+      epubPickError() ??
       coverPickError() ??
       titleError() ??
       (authorTooLong() ? AUTHOR_TOO_LONG : null),
@@ -147,6 +153,32 @@ export default function EditBookDialog(props: Props) {
     setCoverPreview(URL.createObjectURL(file));
   }
 
+  // Same shape as onCoverPick. The extension is the check that matters: many
+  // platforms report an empty or generic MIME type for .epub, and the server
+  // validates the archive itself anyway.
+  function onEpubPick(e: Event & { currentTarget: HTMLInputElement }): void {
+    const input = e.currentTarget;
+    if (busy()) {
+      input.value = "";
+      return;
+    }
+    const file = input.files?.[0] ?? null;
+    if (!file) return;
+    setError(null);
+    if (!/\.epub$/i.test(file.name)) {
+      setEpubPickError("Choose an .epub file.");
+      input.value = "";
+      return;
+    }
+    if (file.size > MAX_EPUB_BYTES) {
+      setEpubPickError("Choose a file no larger than 100 MB.");
+      input.value = "";
+      return;
+    }
+    setEpubPickError(null);
+    setEpubFile(file);
+  }
+
   const currentCover = createMemo(
     () =>
       coverPreview() ??
@@ -179,32 +211,49 @@ export default function EditBookDialog(props: Props) {
     // changing which values an already-running save commits.
     const submittedTitle = trimmedTitle();
     const submittedAuthor = trimmedAuthor();
+    const submittedEpub = epubFile();
     const submittedCover = coverFile();
-    let savedDetailsThisAttempt = false;
+    // Stages that landed this attempt, so a later failure can say what did
+    // save. Each landed stage also clears its own dirty state, and a retry
+    // resends only what failed (never a whole book twice).
+    const landed: string[] = [];
 
     setBusy(true);
     setError(null);
     setCoverPickError(null);
+    setEpubPickError(null);
+    let failedStage = "";
     try {
       const patch: { title?: string; author?: string } = {};
       if (submittedTitle !== savedTitle()) patch.title = submittedTitle;
       if (submittedAuthor !== savedAuthor()) patch.author = submittedAuthor;
       if (patch.title !== undefined || patch.author !== undefined) {
+        failedStage = "the details could not be saved";
         await library.editMetadata(props.book.id, patch);
         setSavedTitle(submittedTitle);
         setSavedAuthor(submittedAuthor);
-        savedDetailsThisAttempt = true;
+        landed.push("book details were saved");
+      }
+      // After the details, so the server carries the just-saved title and
+      // author into the new file; before the cover, which a replacement keeps.
+      if (submittedEpub) {
+        failedStage = "the book file could not be updated";
+        await library.replaceFile(props.book.id, submittedEpub);
+        setEpubFile(null);
+        landed.push("the book file was updated");
       }
       if (submittedCover) {
+        failedStage = "the cover could not be replaced";
         await library.replaceCover(props.book.id, submittedCover);
       }
-      toast.show("Saved changes");
+      toast.show(submittedEpub ? "Updated book file" : "Saved changes");
       finish();
     } catch (err) {
       const message = getErrorMessage(err, "Something went wrong.");
+      const done = landed.join(" and ");
       setError(
-        savedDetailsThisAttempt && submittedCover
-          ? `Book details were saved, but the cover could not be replaced: ${message}`
+        done
+          ? `${done[0].toUpperCase()}${done.slice(1)}, but ${failedStage}: ${message}`
           : message,
       );
       submitting = false;
@@ -390,6 +439,46 @@ export default function EditBookDialog(props: Props) {
           <p class="eb-note" id="book-author-error" hidden={!authorTooLong()}>
             {AUTHOR_TOO_LONG}
           </p>
+
+          <div class="eb-file-row">
+            <span class="eb-lbl">Book file</span>
+            <label
+              class={["btn-ghost press eb-file-btn", { disabled: busy() }]}
+            >
+              <Icon icon={UploadCloud} size={16} decorative />
+              {epubFile() ? "Change file" : "Update EPUB"}
+              <input
+                class="eb-file-input"
+                type="file"
+                accept=".epub,application/epub+zip"
+                aria-label={epubFile() ? "Change EPUB file" : "Update EPUB"}
+                aria-invalid={epubPickError() !== null ? "true" : "false"}
+                aria-describedby={
+                  epubPickError() ? "epub-hint epub-pick-error" : "epub-hint"
+                }
+                aria-disabled={busy() ? "true" : "false"}
+                onChange={onEpubPick}
+              />
+            </label>
+            <Show when={epubFile()}>
+              {(f) => (
+                <p class="eb-cover-name" title={f().name}>
+                  {f().name}
+                </p>
+              )}
+            </Show>
+            <p class="eb-hint" id="epub-hint">
+              Swap in a newer .epub of this book, e.g. one with more chapters.
+              Reading progress and bookmarks carry over.
+            </p>
+            <Show when={epubPickError()}>
+              {(message) => (
+                <p class="eb-error" id="epub-pick-error">
+                  {message()}
+                </p>
+              )}
+            </Show>
+          </div>
 
           <Show when={error()}>
             {(message) => <p class="eb-error">{message()}</p>}

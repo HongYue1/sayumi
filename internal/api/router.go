@@ -129,6 +129,7 @@ func RegisterRoutes(mux *http.ServeMux, deps *Dependencies) {
 	mux.Handle("PATCH /api/books/{id}", applyAuth(deps, updateBookHandler(deps)))
 	mux.Handle("DELETE /api/books/{id}", applyAuth(deps, deleteBookHandler(deps)))
 	mux.Handle("PUT /api/books/{id}/cover", applyAuth(deps, uploadCoverHandler(deps)))
+	mux.Handle("POST /api/books/{id}/replace", applyAuth(deps, replaceBookHandler(deps)))
 	mux.Handle("POST /api/books/{id}/gofile", applyAuth(deps, uploadGofileHandler(deps)))
 	mux.Handle("GET /api/books/{id}/file", applyAuth(deps, downloadBookHandler(deps)))
 	mux.Handle("GET /api/books/{id}/toc", applyAuth(deps, getTocHandler(deps)))

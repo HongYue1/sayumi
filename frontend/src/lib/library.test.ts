@@ -717,6 +717,63 @@ describe("library.replaceCover", () => {
   });
 });
 
+describe("library.replaceFile", () => {
+  it("takes the server's remapped record, keeping identity and flair", async () => {
+    const store = await seed([
+      book({ id: "a", title: "A", progress: 0.8, flairId: "reading" }),
+    ]);
+    mocks.replaceBookFile.mockResolvedValue({
+      ...book({ id: "a", title: "A", progress: 0.4, flairId: "reading" }),
+      updatedAt: "2024-06-02 00:00:00",
+    });
+
+    await store.replaceFile("a", new File(["x"], "novel.epub"));
+    flush();
+
+    expect(mocks.replaceBookFile).toHaveBeenCalledWith("a", expect.any(File));
+    expect(store.books[0]).toMatchObject({
+      title: "A",
+      progress: 0.4,
+      flairId: "reading",
+      updatedAt: "2024-06-02 00:00:00",
+    });
+  });
+
+  it("rejects without refetching on a 4xx", async () => {
+    const store = await seed([book({ id: "a", title: "A" })]);
+    mocks.replaceBookFile.mockRejectedValue(
+      new ApiError("file is not a valid EPUB", 400, "invalid"),
+    );
+
+    await expect(
+      store.replaceFile("a", new File(["x"], "novel.epub")),
+    ).rejects.toThrow("file is not a valid EPUB");
+    await settleStore();
+    flush();
+
+    expect(mocks.getBooks).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconciles from the server when the replacement may have landed", async () => {
+    const store = await seed([book({ id: "a", title: "A" })]);
+    mocks.replaceBookFile.mockRejectedValue(
+      new ApiError("Could not reach the server.", undefined, "network_error"),
+    );
+    mocks.getBooks.mockResolvedValue([
+      book({ id: "a", title: "A", updatedAt: "2024-06-03 00:00:00" }),
+    ]);
+
+    await expect(
+      store.replaceFile("a", new File(["x"], "novel.epub")),
+    ).rejects.toThrow("Could not reach the server.");
+    await settleStore();
+    flush();
+
+    expect(mocks.getBooks).toHaveBeenCalledTimes(2);
+    expect(store.books[0].updatedAt).toBe("2024-06-03 00:00:00");
+  });
+});
+
 describe("library.remove", () => {
   it("splices the book and drops its search haystack", async () => {
     const store = await seed([

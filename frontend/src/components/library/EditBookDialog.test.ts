@@ -48,6 +48,7 @@ import { ApiError, type BookMeta } from "~/api/client";
 const stubs = vi.hoisted(() => ({
   editMetadata: vi.fn(),
   replaceCover: vi.fn(),
+  replaceFile: vi.fn(),
   toasts: [] as string[],
 }));
 
@@ -55,6 +56,7 @@ vi.mock("~/lib/library", () => ({
   library: {
     editMetadata: stubs.editMetadata,
     replaceCover: stubs.replaceCover,
+    replaceFile: stubs.replaceFile,
   },
 }));
 
@@ -110,6 +112,8 @@ describe("EditBookDialog", () => {
     stubs.replaceCover.mockReset();
     stubs.editMetadata.mockResolvedValue(undefined);
     stubs.replaceCover.mockResolvedValue(undefined);
+    stubs.replaceFile.mockReset();
+    stubs.replaceFile.mockResolvedValue(undefined);
     stubs.toasts.length = 0;
     // Spies rather than assignment: saving URL.createObjectURL by reference is
     // an unbound method read, and restoreAllMocks puts both statics back.
@@ -175,11 +179,78 @@ describe("EditBookDialog", () => {
     input.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
-  function pick(files: File[]): void {
-    const input = fileInput();
+  function pick(files: File[], input: HTMLInputElement = fileInput()): void {
     Object.defineProperty(input, "files", { value: files, configurable: true });
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }
+
+  const epubInput = (): HTMLInputElement =>
+    container.querySelector<HTMLInputElement>(
+      '.eb-file-row input[type="file"]',
+    )!;
+  const epub = (name = "novel.epub"): File =>
+    new File(["PK"], name, { type: "application/epub+zip" });
+
+  it("updates the book file after the details and before the cover", async () => {
+    const order: string[] = [];
+    stubs.editMetadata.mockImplementation(async () => {
+      order.push("details");
+    });
+    stubs.replaceFile.mockImplementation(async () => {
+      order.push("file");
+    });
+    stubs.replaceCover.mockImplementation(async () => {
+      order.push("cover");
+    });
+    await mount();
+    type(titleInput(), "Tehanu");
+    pick([epub()], epubInput());
+    pick([new File(["png"], "cover.png", { type: "image/png" })]);
+    await settle();
+    expect(container.textContent).toContain("novel.epub");
+
+    saveButton().click();
+    await settle();
+
+    expect(order).toEqual(["details", "file", "cover"]);
+    expect(stubs.replaceFile).toHaveBeenCalledWith("bk-1", expect.any(File));
+    expect(stubs.toasts).toEqual(["Updated book file"]);
+    expect(closes).toBe(1);
+  });
+
+  it("rejects a non-EPUB pick without staging it", async () => {
+    await mount();
+    pick([new File(["x"], "notes.txt", { type: "text/plain" })], epubInput());
+    await settle();
+
+    expect(container.querySelector("#epub-pick-error")?.textContent).toContain(
+      ".epub",
+    );
+    expect(saveButton().getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("does not resend an updated book file when only the cover failed", async () => {
+    await mount();
+    pick([epub()], epubInput());
+    pick([new File(["png"], "cover.png", { type: "image/png" })]);
+    await settle();
+    stubs.replaceCover.mockRejectedValueOnce(
+      new ApiError("cover exploded", 500, "db_error"),
+    );
+
+    saveButton().click();
+    await settle();
+    expect(container.textContent).toContain(
+      "The book file was updated, but the cover could not be replaced",
+    );
+    expect(closes).toBe(0);
+
+    saveButton().click();
+    await settle();
+    expect(stubs.replaceFile).toHaveBeenCalledTimes(1);
+    expect(stubs.replaceCover).toHaveBeenCalledTimes(2);
+    expect(closes).toBe(1);
+  });
 
   it("opens with focus in the title field, not on the close button", async () => {
     await mount();

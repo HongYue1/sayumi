@@ -4,6 +4,7 @@ import {
   uploadBook,
   updateBookMeta,
   uploadCover,
+  replaceBookFile,
   deleteBook,
   rescanLibrary,
   getFlairs,
@@ -967,6 +968,34 @@ export class Library {
     // Same enriched response shape as editMetadata: it already carries the
     // reader-owned fields alongside the new updatedAt (which busts the cover
     // cache), so it replaces the record whole.
+    this.#books[1]((s) => {
+      const index = s.findIndex((b) => b.id === id);
+      if (index === -1) return;
+      s[index] = updated;
+    });
+    this.#bookWrites.delete(id);
+  }
+
+  /** Installs a newer .epub under the same book ID (more chapters of the same
+   *  novel). The server remaps progress and bookmarks into the new chapter
+   *  numbering; the returned record already carries the remapped progress,
+   *  chapter count and bumped updatedAt, so it replaces the shelf entry whole.
+   *  Same failure handling as replaceCover: nothing optimistic to roll back,
+   *  and an ambiguous failure reconciles from the server. */
+  async replaceFile(id: string, file: File): Promise<void> {
+    const profile = this.#profile;
+    if (profile === null) return;
+    const generation = this.#generation;
+    let updated: BookMeta;
+    try {
+      updated = await replaceBookFile(id, file);
+    } catch (e) {
+      if (this.#isCurrent(profile, generation)) {
+        this.#reconcileAfterAmbiguousFailure(e);
+      }
+      throw e;
+    }
+    if (!this.#isCurrent(profile, generation)) return;
     this.#books[1]((s) => {
       const index = s.findIndex((b) => b.id === id);
       if (index === -1) return;

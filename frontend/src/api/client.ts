@@ -827,6 +827,28 @@ export function uploadCover(
   );
 }
 
+// replaceBookFile installs a newer .epub (e.g. a serial re-exported with more
+// chapters) under the same book ID. The server keeps title, author, cover and
+// flair, and moves every stored progress row and bookmark into the new
+// chapter numbering; it returns the refreshed BookMeta. POST, like uploadBook:
+// never retried, so a slow link cannot resend the whole file after a commit.
+export function replaceBookFile(
+  id: string,
+  file: File,
+  signal?: AbortSignal,
+): Promise<BookMeta> {
+  const form = new FormData();
+  form.append("epub", file);
+  return request<BookMeta>(
+    "POST",
+    `/books/${pathSegment(id)}/replace`,
+    form,
+    signal,
+    // Same bound as uploadBook: a whole book plus the server-side parse.
+    10 * 60 * 1000,
+  );
+}
+
 // uploadToGofile uploads the book's .epub to gofile.io (anonymous) and returns
 // the public download page URL. This is the app's only outbound network call.
 export function uploadToGofile(

@@ -222,3 +222,34 @@ func (c *progressCoalescer) dropBook(bookID string) {
 		}
 	}
 }
+
+// remapBook moves buffered progress for a book whose file was replaced into the
+// new chapter numbering, as ReplaceBookFileContext did for the persisted rows.
+// Each moved entry gets a fresh version: a save of the pre-remap record already
+// in flight must not acknowledge (and so discard) the remapped one, which then
+// lands on the next flush and supersedes whatever the stale save wrote.
+// A moved entry is also re-stamped past its old updated_at, which read-through
+// GETs report: the reader's boot compares it against its page-hide cache.
+func (c *progressCoalescer) remapBook(bookID string, remap storage.ChapterRemap) {
+	now := time.Now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key, entry := range c.pending {
+		if key.bookID != bookID {
+			continue
+		}
+		prev := storage.Position{
+			Chapter: entry.record.Chapter,
+			Percent: entry.record.Percent,
+			CFI:     entry.record.CFI,
+		}
+		pos := remap.Apply(prev)
+		if pos != prev {
+			entry.record.UpdatedAt = storage.StampAfter(entry.record.UpdatedAt, now)
+		}
+		entry.record.Chapter, entry.record.Percent, entry.record.CFI = pos.Chapter, pos.Percent, pos.CFI
+		c.nextVersion++
+		entry.version = c.nextVersion
+		c.pending[key] = entry
+	}
+}
