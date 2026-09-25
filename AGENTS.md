@@ -47,8 +47,9 @@ These contracts span files. Inspect both sides before changing either.
 
 - `internal/api/flairs.go` ↔ `frontend/src/lib/flairs.ts` (the Go side carries a
   `KEEP IN SYNC` marker).
-- `frontend/src/lib/themes.ts` ↔ `frontend/src/iframe/frame.css` — each theme's chrome
-  background must equal that theme's reader `--bg-primary`.
+- `frontend/src/lib/themes.ts` ↔ `frontend/src/iframe/frame.css` — each theme's shell
+  background must equal that theme's reader `--bg-primary`, and its `themeChrome()` must
+  equal the reader's `--bg-chrome` (the tone both position pills sit on).
 - **Library title ordering is one contract in three places:**
   `ORDER BY title COLLATE NOCASE ASC, id ASC` (`storage/books.go`), `BookCache`'s ASCII
   fold plus `id` tie-break (`storage/bookcache.go`), and `filterAndSortBooks`' lowercased

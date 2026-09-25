@@ -14,8 +14,8 @@ export interface ThemeDef {
    * ecosystem uses for bars, sidebars, panels) — e.g. Rosé Pine `surface`,
    * Catppuccin `mantle`, Nord `nord1`, Solarized `base02`/`base2`, Tokyo
    * Night `bg_dark`, Atom One Dark's sidebar. Omitted where the scheme is
-   * officially flat (Night Owl paints every pane #011627); those fall back
-   * to a derived wash via themeSurface().
+   * officially flat (Night Owl paints every pane #011627). themeChrome()
+   * uses it only when it sits below the paper, else derives a darker step.
    */
   surface?: string;
 }
@@ -386,7 +386,7 @@ export function sameThemeList(a: ThemeDef[], b: ThemeDef[]): boolean {
 // themes.ts imports nothing from the app, which makes it the right home for
 // the shared hex helpers: theme.ts and flairs.ts both import from here, so the
 // arrow only ever points one way. Parsing and mixing stay private; the
-// decisions callers need (prefersBlackText, readableAccent, themeSurface) are
+// decisions callers need (prefersBlackText, readableAccent, themeChrome) are
 // exported.
 
 function parseHex(hex: string): [number, number, number] | null {
@@ -506,20 +506,45 @@ export function readableAccent(accent: string, bg: string): string {
   return mixHex(accent, toward, hi);
 }
 
-/** Derived elevated surface for themes without an official one (custom themes,
- *  officially-flat schemes): a 6% wash of the ink into the paper. */
-export function deriveSurface(bg: string, fg: string): string {
-  return mixHex(bg, fg, 0.06);
-}
+/**
+ * How far the chrome sinks below the paper, as a mix toward black. Taken from
+ * Kanagawa, whose official bar tone (sumiInk0 #16161d under sumiInk1 #1f1f28)
+ * is the paper at 71%: that is the dark step. Light papers need far less to
+ * read as a separate band -- the same 29% would turn white into mid grey -- so
+ * they take the ~5% step Light, Sepia and Latte use officially.
+ */
+const CHROME_DARKEN_DARK = 0.29;
+const CHROME_DARKEN_LIGHT = 0.05;
 
-/** A theme's elevated surface: the official color when the scheme defines
- *  one, else the derived wash. Always a concrete hex. */
-export function themeSurface(t: ThemeDef): string {
-  return t.surface ?? deriveSurface(t.bg, t.fg);
+/**
+ * Chrome tone derived from the paper alone: the same hue, one step darker.
+ * Used for custom themes (the user picks a background, the bars follow it) and
+ * for built-ins whose scheme has no darker official surface. Derived from the
+ * paper rather than washed with the ink so the chrome recedes instead of
+ * lifting toward the text color -- a minimal, flat band, never a glass one.
+ */
+export function deriveChrome(bg: string): string {
+  const amount = luminance(bg) > 0.4 ? CHROME_DARKEN_LIGHT : CHROME_DARKEN_DARK;
+  return mixHex(bg, "#000000", amount);
 }
 
 /**
- * Reader-iframe CSS variable declarations for a theme. The frame paints from 7
+ * A theme's chrome: the opaque tone behind the library command bar, the
+ * reader bar, the reader panels and both reader position pills. The scheme's
+ * official surface when that surface sits BELOW the paper (Catppuccin mantle,
+ * Kanagawa sumiInk0, Tokyo Night bg_dark, Solarized Light base2, ...);
+ * otherwise the derived darker step, because several official surfaces
+ * (Nord nord1, Rosé Pine surface, Gruvbox bg1) are raised tones meant for
+ * cards, and a chrome lighter than the page reads as a floating sheet rather
+ * than a frame. Always a concrete hex.
+ */
+export function themeChrome(t: ThemeDef): string {
+  if (t.surface && luminance(t.surface) < luminance(t.bg)) return t.surface;
+  return deriveChrome(t.bg);
+}
+
+/**
+ * Reader-iframe CSS variable declarations for a theme. The frame paints from 8
  * tokens; built-ins define them via static html.theme-<id> rules in frame.css,
  * but a custom id has no class, so its palette is sent to the frame and set on
  * <html> (see frame.ts). Secondary tones use color-mix, already used in app.css.
@@ -535,6 +560,7 @@ export function deriveReaderVars(t: ThemeDef): string {
     `--text-secondary: color-mix(in srgb, ${t.fg} 72%, ${t.bg});`,
     `--text-muted: color-mix(in srgb, ${t.fg} 52%, ${t.bg});`,
     `--accent: ${accent};`,
+    `--bg-chrome: ${themeChrome(t)};`,
     `--border: color-mix(in srgb, ${t.fg} 18%, ${t.bg});`,
   ].join(" ");
 }

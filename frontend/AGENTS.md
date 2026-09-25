@@ -49,8 +49,12 @@ never install/switch runtimes; Vitest remains Node-hosted.
 ## Invariants
 
 - **`lib/flairs.ts` mirrors `internal/api/flairs.go`.** Both sides or neither.
-- **`lib/themes.ts` mirrors `iframe/frame.css`** — chrome background must equal that
-  theme's reader `--bg-primary`.
+- **`lib/themes.ts` mirrors `iframe/frame.css`** — the shell background must equal that
+  theme's reader `--bg-primary`, and `themeChrome()` must equal its `--bg-chrome`.
+- **Chrome is one opaque tone.** Bars, reader panels and both position pills paint
+  `--elevated` (`themeChrome()`: the official surface when it sits below the paper,
+  else the paper one step darker). No glass: no `backdrop-filter`, no translucent
+  chrome backgrounds.
 - **The reader is a separate document.** `src/iframe/` runs inside a `srcdoc` iframe with
   its own CSP; shell CSS and shell state cannot reach it. Communicate by message only.
 - **Reduced motion is handled once, globally, in `app.css`** — it zeroes duration _and_

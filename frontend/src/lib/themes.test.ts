@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import {
   autoAccent,
   DEFAULT_THEME_ID,
-  deriveSurface,
+  deriveChrome,
   getTheme,
   isBuiltInTheme,
   prefersBlackText,
@@ -20,7 +20,7 @@ import {
   THEMES,
   type ThemeDef,
   themeGroupFor,
-  themeSurface,
+  themeChrome,
 } from "~/lib/themes";
 
 /** WCAG contrast ratio between two hex colors, computed independently. */
@@ -181,6 +181,22 @@ describe("the frame.css contract", () => {
       expect(readerBg(t.id)).toBe(t.bg.toLowerCase());
     }
   });
+
+  it("matches every built-in theme chrome to its reader --bg-chrome", () => {
+    // The page pill inside the frame and the shell's book-position pill are
+    // one design on one tone: the shell paints --elevated from themeChrome(),
+    // the frame paints #page-indicator from --bg-chrome. A drift puts the two
+    // pills on different colors in the same reader.
+    const css = readFileSync("src/iframe/frame.css", "utf8");
+    const readerChrome = (id: string): string | null => {
+      const rule = new RegExp(`html\\.theme-${id}\\s*\\{([^}]*)\\}`).exec(css);
+      const bg = rule && /--bg-chrome:\s*([^;]+);/.exec(rule[1]);
+      return bg ? bg[1].trim().toLowerCase() : null;
+    };
+    for (const t of THEMES) {
+      expect(readerChrome(t.id)).toBe(themeChrome(t).toLowerCase());
+    }
+  });
 });
 
 describe("the default theme", () => {
@@ -218,24 +234,29 @@ describe("the default theme", () => {
     // index.html and applyCachedTheme (lib/theme.ts). Neither can paint
     // --elevated or --accent-ink for a cache written before those tokens
     // existed, so both leave them to :root -- which is only ONE answer while
-    // the stylesheet's wash is the one deriveSurface computes. --accent-ink is
+    // the stylesheet's step is the one deriveChrome computes. --accent-ink is
     // the knowing exception: CSS cannot run the contrast search, so the raw
     // accent stands in until the settings load paints the corrected value.
     const css = readFileSync("src/app.css", "utf8");
     const block = /:root\s*\{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
-    const washRe = /--elevated:\s*color-mix\([^;]*?([\d.]+)%[^;]*\);/;
-    const wash = washRe.exec(block);
-    expect(wash).not.toBeNull();
-    const pct = wash?.[1] ?? "";
-    // Pinned in full so the wash cannot silently swap paper and ink.
-    expect(block).toContain(
-      `--elevated: color-mix(in srgb, var(--fg) ${pct}%, var(--bg));`,
-    );
-    // Recomputed here so the assertion cannot inherit the mixer's own bug.
-    const chan = Math.round(0x10 + (0xf0 - 0x10) * (Number(pct) / 100))
-      .toString(16)
-      .padStart(2, "0");
-    expect(deriveSurface("#101010", "#f0f0f0")).toBe(`#${chan}${chan}${chan}`);
+    const stepRe =
+      /--elevated:\s*light-dark\(\s*color-mix\(in srgb, var\(--bg\) ([\d.]+)%, #000000\),\s*color-mix\(in srgb, var\(--bg\) ([\d.]+)%, #000000\)\s*\);/;
+    const step = stepRe.exec(block);
+    expect(step).not.toBeNull();
+    // Recomputed here so the assertion cannot inherit the mixer's own bug:
+    // the percentage is how much PAPER survives the mix toward black.
+    const keep = (hex: string, pct: string): string =>
+      `#${[1, 3, 5]
+        .map((i) =>
+          Math.round(
+            Number.parseInt(hex.slice(i, i + 2), 16) * (Number(pct) / 100),
+          )
+            .toString(16)
+            .padStart(2, "0"),
+        )
+        .join("")}`;
+    expect(deriveChrome("#f0f0f0")).toBe(keep("#f0f0f0", step?.[1] ?? ""));
+    expect(deriveChrome("#202020")).toBe(keep("#202020", step?.[2] ?? ""));
     expect(/--accent-ink:\s*var\(--accent\);/.test(block)).toBe(true);
   });
 });
@@ -290,17 +311,54 @@ describe("readableAccent", () => {
   });
 });
 
-describe("themeSurface", () => {
-  it("prefers the scheme's official surface", () => {
-    const dark = getTheme("dark");
-    expect(dark.surface).toBeDefined();
-    expect(themeSurface(dark)).toBe(dark.surface);
+describe("themeChrome", () => {
+  it("uses the scheme's official surface when it sits below the paper", () => {
+    const kanagawa = getTheme("kanagawa");
+    expect(themeChrome(kanagawa)).toBe("#16161d");
+    expect(themeChrome(getTheme("catppuccin"))).toBe("#181825");
   });
 
-  it("derives a wash for an officially flat scheme", () => {
+  it("derives a darker step when the official surface is raised", () => {
+    // nord1 is a raised card tone; chrome lighter than the page would float.
+    const nord = getTheme("nord");
+    expect(themeChrome(nord)).not.toBe(nord.surface);
+    expect(themeChrome(nord)).toBe(deriveChrome(nord.bg));
+  });
+
+  it("derives a darker step for an officially flat scheme", () => {
     const flat = getTheme("night-owl");
     expect(flat.surface).toBeUndefined();
-    expect(themeSurface(flat)).toBe(deriveSurface(flat.bg, flat.fg));
+    expect(themeChrome(flat)).toBe(deriveChrome(flat.bg));
+  });
+
+  it("is never lighter than the paper for any built-in", () => {
+    const lum = (hex: string): number =>
+      [1, 3, 5].reduce(
+        (s, i) => s + Number.parseInt(hex.slice(i, i + 2), 16),
+        0,
+      );
+    for (const t of THEMES) {
+      expect(lum(themeChrome(t))).toBeLessThan(lum(t.bg));
+    }
+  });
+});
+
+describe("deriveChrome", () => {
+  it("reproduces Kanagawa's official bar step from its paper", () => {
+    // sumiInk1 rgb(31 31 40) -> sumiInk0 rgb(22 22 29): the reference pair.
+    expect(deriveChrome("#1f1f28")).toBe("#16161c");
+  });
+
+  it("takes a gentle step on light paper", () => {
+    expect(deriveChrome("#ffffff")).toBe("#f2f2f2");
+  });
+
+  it("keeps the paper's hue", () => {
+    const [r, g, b] = [1, 3, 5].map((i) =>
+      Number.parseInt(deriveChrome("#284060").slice(i, i + 2), 16),
+    );
+    expect(r).toBeLessThan(g);
+    expect(g).toBeLessThan(b);
   });
 });
 
@@ -315,6 +373,7 @@ describe("readerThemeVars", () => {
     expect(vars).toContain("--bg-primary: #101010;");
     expect(vars).toContain("--text-primary: #f0f0f0;");
     expect(vars).toContain("--accent: #ff8800;");
+    expect(vars).toContain(`--bg-chrome: ${deriveChrome("#101010")};`);
   });
 
   it("falls back to the registry when no list is passed", () => {

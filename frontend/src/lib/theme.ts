@@ -1,7 +1,7 @@
 import {
   DEFAULT_THEME_ID,
   getTheme,
-  themeSurface,
+  themeChrome,
   prefersBlackText,
   readableAccent,
   type ThemeDef,
@@ -98,7 +98,7 @@ function paintTheme(t: ThemeDef): {
 } {
   const accentFg = onAccentColor(t.accent);
   const scheme = t.group === "dark" ? "dark" : "light";
-  const elevated = themeSurface(t);
+  const elevated = themeChrome(t);
   // Text-safe accent: several official palettes (ayu light, solarized light,
   // rosé pine dawn) tune their accent for fills, not 4.5:1 text on paper.
   const accentInk = readableAccent(t.accent, t.bg);

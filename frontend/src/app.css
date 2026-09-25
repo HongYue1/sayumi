@@ -101,11 +101,17 @@
   /* Opaque raised paper for popovers/dialogs — a breath lighter than the page
      in dark themes, a breath warmer in light ones. */
   --raised: color-mix(in srgb, var(--fg) 3%, var(--bg));
-  /* Elevated surface (library command bar). applyTheme overrides this with
-     each scheme's OFFICIAL bar/panel color (Rosé Pine surface, Catppuccin
-     mantle, Nord nord1, Tokyo Night bg_dark, …); this is only the first-paint
-     fallback and the derived wash for custom/flat themes. */
-  --elevated: color-mix(in srgb, var(--fg) 6%, var(--bg));
+  /* Chrome tone: library command bar, reader bar, reader panels and both
+     reader position pills. applyTheme overrides this with themeChrome() --
+     the scheme's official surface when it sits below the paper (Catppuccin
+     mantle, Kanagawa sumiInk0, Tokyo Night bg_dark, …), else the paper one
+     step darker. This is only the first-paint fallback for a cache written
+     before the token, and it is that same derived step (deriveChrome in
+     lib/themes.ts): 5% toward black on light paper, 29% on dark. */
+  --elevated: light-dark(
+    color-mix(in srgb, var(--bg) 95%, #000000),
+    color-mix(in srgb, var(--bg) 71%, #000000)
+  );
   /* Accent washes for selected states and tints. */
   --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
   --accent-soft-strong: color-mix(in srgb, var(--accent) 22%, transparent);
@@ -793,9 +799,9 @@ main {
   margin: 0;
   padding: 0;
   border: 0;
+  /* A flat dimming veil; no backdrop blur (minimal chrome, and a blur buffer
+     behind every open dialog). */
   background: var(--veil);
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
   cursor: default;
   animation: app-overlay-in var(--dur) var(--ease-out);
 }
@@ -2441,8 +2447,9 @@ main {
   border-radius: 0 2px 2px 0;
 }
 
-/* Shared style for the two corner actions (gear + flair): small ink-glass
-   squares that fade in on hover. */
+/* Shared style for the two corner actions (gear + flair): small opaque
+   chrome-tone squares that fade in on hover. Flat, no glass: over cover art a
+   translucent blur read as a smudge, and the rest of the chrome is opaque. */
 .bc-chip-btn {
   position: absolute;
   top: var(--sp-2);
@@ -2453,10 +2460,8 @@ main {
   height: 1.75rem;
   border: none;
   border-radius: var(--radius-sm);
-  background: rgb(0 0 0 / 0.5);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
-  color: #fff;
+  background: var(--elevated);
+  color: var(--fg);
   cursor: pointer;
   opacity: 0;
   transition:
@@ -2475,7 +2480,7 @@ main {
   }
 }
 .bc-chip-btn:hover {
-  background: rgb(0 0 0 / 0.72);
+  background: color-mix(in srgb, var(--fg) 12%, var(--elevated));
 }
 .bc-chip-btn:active {
   transform: scale(0.94);
@@ -2696,9 +2701,9 @@ main {
   display: grid;
   place-items: center;
   padding: var(--sp-6);
-  background: color-mix(in srgb, var(--bg) 72%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  /* Opaque paper, no glass: the drop target replaces the shelf while a file
+     is held over it. */
+  background: var(--bg);
   animation: app-overlay-in var(--dur-fast) var(--ease-out);
 }
 .lib-dropzone-inner {
@@ -3730,7 +3735,7 @@ main {
   max-height: calc(100vh - var(--sp-12));
   max-height: calc(100dvh - var(--sp-12));
   overflow-y: auto;
-  background: var(--raised);
+  background: var(--elevated);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-3);
@@ -3745,7 +3750,7 @@ main {
   border-bottom: 1px solid var(--hairline);
   position: sticky;
   top: 0;
-  background: var(--raised);
+  background: var(--elevated);
   z-index: 1;
 }
 .ctd-head-text {
@@ -4749,7 +4754,8 @@ main {
 }
 /* The chrome (bar + progress) overlays a full-bleed stage so toggling its
    visibility never resizes the iframe (which would force re-pagination).
-   The bar floats as an inset glass slip rather than a full-width strip. */
+   The bar floats as an inset slip in the opaque chrome tone (--elevated, the
+   same band as the library command bar) -- no glass, blur or translucency. */
 .rdp-bar {
   position: absolute;
   top: var(--sp-3);
@@ -4760,9 +4766,7 @@ main {
   align-items: center;
   gap: var(--sp-3);
   padding: 0.4rem 0.6rem;
-  background: color-mix(in srgb, var(--bg) 86%, transparent);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  background: var(--elevated);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-2);
@@ -4967,7 +4971,8 @@ main {
   top: var(--sp-3);
   bottom: var(--sp-3);
   width: min(21rem, 86vw);
-  background: var(--raised);
+  /* The chrome tone, like the bar: panels are reader chrome, not paper. */
+  background: var(--elevated);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-3);
@@ -5047,25 +5052,28 @@ main {
    right: both paged modes pin the book's own page pill (#page-indicator, in
    iframe/frame.css) to the bottom-right corner of the frame, and the two chips
    overlapped there in single- and two-page mode. Scroll mode has no page pill,
-   so the move costs it nothing. */
+   so the move costs it nothing.
+
+   One design with #page-indicator: same face, 12px/16px at 600, 2px 8px
+   padding, full round, no border -- mirrored across the frame (16px in from
+   its side, 12px up). Both sit on the chrome tone (--elevated here, the
+   frame's --bg-chrome there), not on the reader's paper, and both are fully
+   opaque: the chip floats over live book text in scroll mode, and anything
+   translucent let the glyphs behind it read as a smudge under the numbers. */
 .rdp-pos {
   position: absolute;
-  left: var(--sp-3);
-  bottom: calc(4px + var(--sp-2));
+  left: 16px;
+  bottom: 12px;
   z-index: 5;
-  padding: 0.22rem 0.65rem;
+  padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid var(--hairline);
-  /* Near-opaque on purpose. The chip floats over live book text in scroll
-     mode, and at 84% the glyphs behind it showed through the blur and read
-     as a smudge under the numbers. */
-  background: color-mix(in srgb, var(--bg) 97%, transparent);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  color: var(--muted);
-  font-size: 0.68rem;
-  font-weight: 620;
-  letter-spacing: 0.06em;
+  background: var(--elevated);
+  color: color-mix(in srgb, var(--fg) 70%, var(--elevated));
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
   pointer-events: none;
   transition:
     opacity var(--dur) var(--ease-out),

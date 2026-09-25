@@ -32,6 +32,7 @@ html.theme-light {
      this document at all, so they are classified here and below. */
   color-scheme: light;
   --bg-primary: #ffffff;
+  --bg-chrome: #f5f5f4;
   --bg-secondary: #f5f5f4;
   --text-primary: #1c1917;
   --text-secondary: #57534e;
@@ -46,6 +47,7 @@ html.theme-light {
 
 html.theme-dark {
   --bg-primary: #1c1917;
+  --bg-chrome: #141210;
   --bg-secondary: #292524;
   --text-primary: #fafaf9;
   --text-secondary: #a8a29e;
@@ -56,6 +58,7 @@ html.theme-dark {
 
 html.theme-sepia {
   --bg-primary: #faf6ef;
+  --bg-chrome: #ede8df;
   --bg-secondary: #ede8df;
   --text-primary: #3d2e1e;
   --text-secondary: #6b5744;
@@ -66,6 +69,7 @@ html.theme-sepia {
 
 html.theme-rose-pine {
   --bg-primary: #191724;
+  --bg-chrome: #12101a;
   --bg-secondary: #1f1d2e;
   --text-primary: #e0def4;
   --text-secondary: #908caa;
@@ -76,6 +80,7 @@ html.theme-rose-pine {
 
 html.theme-rose-pine-dawn {
   --bg-primary: #faf4ed;
+  --bg-chrome: #eee8e1;
   --bg-secondary: #fffaf3;
   --text-primary: #575279;
   --text-secondary: #797593;
@@ -86,6 +91,7 @@ html.theme-rose-pine-dawn {
 
 html.theme-nord {
   --bg-primary: #2e3440;
+  --bg-chrome: #21252d;
   --bg-secondary: #3b4252;
   --text-primary: #d8dee9;
   --text-secondary: #aeb8cd;
@@ -96,6 +102,7 @@ html.theme-nord {
 
 html.theme-dracula {
   --bg-primary: #282a36;
+  --bg-chrome: #21222c;
   --bg-secondary: #343746;
   --text-primary: #f8f8f2;
   --text-secondary: #ccc8dc;
@@ -106,6 +113,7 @@ html.theme-dracula {
 
 html.theme-catppuccin {
   --bg-primary: #1e1e2e;
+  --bg-chrome: #181825;
   --bg-secondary: #313244;
   --text-primary: #cdd6f4;
   --text-secondary: #bac2de;
@@ -116,6 +124,7 @@ html.theme-catppuccin {
 
 html.theme-catppuccin-latte {
   --bg-primary: #eff1f5;
+  --bg-chrome: #e6e9ef;
   --bg-secondary: #e6e9ef;
   --text-primary: #4c4f69;
   --text-secondary: #5c5f77;
@@ -126,6 +135,7 @@ html.theme-catppuccin-latte {
 
 html.theme-gruvbox {
   --bg-primary: #282828;
+  --bg-chrome: #1c1c1c;
   --bg-secondary: #3c3836;
   --text-primary: #ebdbb2;
   --text-secondary: #d5c4a1;
@@ -136,6 +146,7 @@ html.theme-gruvbox {
 
 html.theme-gruvbox-light {
   --bg-primary: #fbf1c7;
+  --bg-chrome: #f2e5bc;
   --bg-secondary: #f2e5bc;
   --text-primary: #3c3836;
   --text-secondary: #504945;
@@ -146,6 +157,7 @@ html.theme-gruvbox-light {
 
 html.theme-ayu-dark {
   --bg-primary: #0b0e14;
+  --bg-chrome: #080a0e;
   --bg-secondary: #131721;
   --text-primary: #bfbdb6;
   --text-secondary: #9b9689;
@@ -156,6 +168,7 @@ html.theme-ayu-dark {
 
 html.theme-ayu-light {
   --bg-primary: #fcfcfc;
+  --bg-chrome: #f3f4f5;
   --bg-secondary: #f3f4f5;
   --text-primary: #5c6166;
   --text-secondary: #787b80;
@@ -166,6 +179,7 @@ html.theme-ayu-light {
 
 html.theme-solarized-dark {
   --bg-primary: #002b36;
+  --bg-chrome: #001f26;
   --bg-secondary: #073642;
   --text-primary: #839496;
   --text-secondary: #657b83;
@@ -179,6 +193,7 @@ html.theme-solarized-dark {
 
 html.theme-solarized-light {
   --bg-primary: #fdf6e3;
+  --bg-chrome: #eee8d5;
   --bg-secondary: #eee8d5;
   --text-primary: #657b83;
   --text-secondary: #586e75;
@@ -192,6 +207,7 @@ html.theme-solarized-light {
 
 html.theme-tokyo-night {
   --bg-primary: #1a1b26;
+  --bg-chrome: #16161e;
   --bg-secondary: #292e42;
   --text-primary: #c0caf5;
   --text-secondary: #a9b1d6;
@@ -202,6 +218,7 @@ html.theme-tokyo-night {
 
 html.theme-tokyo-storm {
   --bg-primary: #24283b;
+  --bg-chrome: #1f2335;
   --bg-secondary: #292e42;
   --text-primary: #c0caf5;
   --text-secondary: #a9b1d6;
@@ -212,6 +229,7 @@ html.theme-tokyo-storm {
 
 html.theme-everforest-dark {
   --bg-primary: #2d353b;
+  --bg-chrome: #20262a;
   --bg-secondary: #343f44;
   --text-primary: #d3c6aa;
   --text-secondary: #9da9a0;
@@ -222,6 +240,7 @@ html.theme-everforest-dark {
 
 html.theme-everforest-light {
   --bg-primary: #fdf6e3;
+  --bg-chrome: #f4f0d9;
   --bg-secondary: #f4f0d9;
   --text-primary: #5c6a72;
   --text-secondary: #829181;
@@ -232,6 +251,7 @@ html.theme-everforest-light {
 
 html.theme-one-dark {
   --bg-primary: #282c34;
+  --bg-chrome: #21252b;
   --bg-secondary: #2c313a;
   --text-primary: #abb2bf;
   --text-secondary: #9da5b4;
@@ -242,6 +262,7 @@ html.theme-one-dark {
 
 html.theme-one-dark-darkened {
   --bg-primary: #17191d;
+  --bg-chrome: #101215;
   --bg-secondary: #21252c;
   --text-primary: #bfc4cd;
   --text-secondary: #a3a9b4;
@@ -252,6 +273,7 @@ html.theme-one-dark-darkened {
 
 html.theme-modest-dark {
   --bg-primary: #0f1219;
+  --bg-chrome: #0b0d12;
   --bg-secondary: #1e242e;
   --text-primary: #abb2bf;
   --text-secondary: #949cab;
@@ -262,6 +284,7 @@ html.theme-modest-dark {
 
 html.theme-one-dark-pro {
   --bg-primary: #23272e;
+  --bg-chrome: #1e2227;
   --bg-secondary: #2c313c;
   --text-primary: #abb2bf;
   --text-secondary: #9da5b4;
@@ -272,6 +295,7 @@ html.theme-one-dark-pro {
 
 html.theme-kanagawa {
   --bg-primary: #1f1f28;
+  --bg-chrome: #16161d;
   --bg-secondary: #2a2a37;
   --text-primary: #dcd7ba;
   --text-secondary: #c8c093;
@@ -282,6 +306,7 @@ html.theme-kanagawa {
 
 html.theme-flexoki-dark {
   --bg-primary: #100f0f;
+  --bg-chrome: #0b0b0b;
   --bg-secondary: #1c1b1a;
   --text-primary: #cecdc3;
   --text-secondary: #b7b5ac;
@@ -292,6 +317,7 @@ html.theme-flexoki-dark {
 
 html.theme-flexoki-light {
   --bg-primary: #fffcf0;
+  --bg-chrome: #f2f0e5;
   --bg-secondary: #e6e4d9;
   --text-primary: #100f0f;
   --text-secondary: #343331;
@@ -302,6 +328,7 @@ html.theme-flexoki-light {
 
 html.theme-night-owl-light {
   --bg-primary: #fbfbfb;
+  --bg-chrome: #eeeeee;
   --bg-secondary: #f0f0f0;
   --text-primary: #403f53;
   --text-secondary: #5c6773;
@@ -312,6 +339,7 @@ html.theme-night-owl-light {
 
 html.theme-night-owl {
   --bg-primary: #011627;
+  --bg-chrome: #01101c;
   --bg-secondary: #0e2a3f;
   --text-primary: #d6deeb;
   --text-secondary: #8badc1;
@@ -676,10 +704,20 @@ html.vertical-lr .boundary-top .boundary-label::before {
   /* Only meaningful in paged modes; hidden in scroll (toggled via the
        html.paged / html.paged-two root classes set by applyRootClasses). */
   display: none;
+  /* One design with the shell's book-position pill (.rdp-pos in app.css):
+     same face, size, weight, padding and shape, and both sit on the chrome
+     tone (--bg-chrome, the shell's --elevated) rather than on the page, so
+     the two read as reader chrome, not as a patch of paper. Opaque and flat:
+     no border, blur or translucency. The ink is the same 70% wash of the
+     text into that chrome that .rdp-pos uses. */
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
+  /* Pinned, not inherited from body: the reader's line-height setting used to
+     stretch the pill past the strip PAGE_INDICATOR_CLEARANCE reserves (12px
+     offset + 16px line + 4px padding = 32px). */
+  line-height: 16px;
+  color: color-mix(in srgb, var(--text-primary) 70%, var(--bg-chrome));
+  background: var(--bg-chrome);
   padding: 2px 8px;
   border-radius: 999px;
   font-variant-numeric: tabular-nums;
