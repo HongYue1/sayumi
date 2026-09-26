@@ -29,7 +29,7 @@ import {
   formatRemaining,
   playAlarmChime,
 } from "~/lib/clock";
-import { toast } from "~/lib/toast";
+import AlarmDialog from "~/components/reader/AlarmDialog";
 
 interface Props {
   /** True in single-page and two-page modes (where the page pill exists). */
@@ -37,15 +37,13 @@ interface Props {
 }
 
 const TICK_MS = 1000;
-/** How long the pill stays flagged after the alarm comes due. The toast is the
- *  announcement; this is the trace left on screen for a reader who looked away
- *  while it faded. */
-const FLASH_MS = 8000;
 
 export default function ClockPill(props: Props) {
   const [nowMs, setNowMs] = createSignal(Date.now());
-  const [rang, setRang] = createSignal(false);
-  let flashTimer: ReturnType<typeof setTimeout> | undefined;
+  // The instant a due alarm was set for, while its sheet is up. A toast used
+  // to carry this and faded on its own timer, which is exactly the failure an
+  // alarm must not have; the sheet blocks the screen until it is turned off.
+  const [ringingAt, setRingingAt] = createSignal<number | null>(null);
 
   // An armed alarm has to be watched even with the pill switched off: the
   // alarm is a separate promise from the clock, and turning the clock off is
@@ -56,11 +54,10 @@ export default function ClockPill(props: Props) {
     // Cleared first: a one-shot alarm, and clearing before the toast means a
     // slow toast render cannot let the next tick ring it twice.
     clock.setAlarm(null);
-    setRang(true);
-    toast.show(`Alarm \u2014 ${formatClock(new Date(at), clock.hour24)}`);
+    setRingingAt(at);
+    // The first note is played here, on the tick it came due; the sheet owns
+    // the repeats for as long as it is up.
     playAlarmChime();
-    clearTimeout(flashTimer);
-    flashTimer = setTimeout(() => setRang(false), FLASH_MS);
   }
 
   createEffect(
@@ -75,10 +72,7 @@ export default function ClockPill(props: Props) {
         // long past, and a due alarm must still ring on the first tick after.
         if (at !== null && now >= at) ring(at);
       }, TICK_MS);
-      return () => {
-        clearInterval(id);
-        clearTimeout(flashTimer);
-      };
+      return () => clearInterval(id);
     },
   );
 
@@ -100,27 +94,31 @@ export default function ClockPill(props: Props) {
   });
 
   return (
-    <Show when={clock.show}>
-      <div
-        class={[
-          "rdp-clock tnum",
-          { "rdp-clock-mid": props.paged, "rdp-clock-rang": rang() },
-        ]}
-        aria-label={label()}
-      >
-        <span>{timeText()}</span>
-        <Show when={alarmText()}>
-          {(text) => (
-            <>
-              <span class="rdp-clock-sep" aria-hidden="true" />
-              <span class="rdp-clock-alarm">
-                <Icon icon={AlarmClock} size={12} stroke={2} decorative />
-                {text()}
-              </span>
-            </>
-          )}
-        </Show>
-      </div>
-    </Show>
+    <>
+      {/* Not gated on clock.show: an armed alarm is a promise of its own, and
+          switching the clock display off was never "cancel my alarm". */}
+      <Show when={ringingAt()}>
+        {(at) => <AlarmDialog at={at()} ondismiss={() => setRingingAt(null)} />}
+      </Show>
+      <Show when={clock.show}>
+        <div
+          class={["rdp-clock tnum", { "rdp-clock-mid": props.paged }]}
+          aria-label={label()}
+        >
+          <span>{timeText()}</span>
+          <Show when={alarmText()}>
+            {(text) => (
+              <>
+                <span class="rdp-clock-sep" aria-hidden="true" />
+                <span class="rdp-clock-alarm">
+                  <Icon icon={AlarmClock} size={12} stroke={2} decorative />
+                  {text()}
+                </span>
+              </>
+            )}
+          </Show>
+        </div>
+      </Show>
+    </>
   );
 }

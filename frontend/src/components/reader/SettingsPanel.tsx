@@ -63,6 +63,10 @@ const CLOCK_FORMATS: { id: "12" | "24"; label: string }[] = [
   { id: "24", label: "24-hour" },
 ];
 
+/** The "alarm set" confirmation holds a time the reader has to read back, so
+ *  it outlasts the 2s default toast. */
+const ALARM_TOAST_MS = 4500;
+
 const MODES: { id: UserSettings["displayMode"]; label: string }[] = [
   { id: "scroll", label: "Scroll" },
   { id: "paged", label: "Single page" },
@@ -430,8 +434,14 @@ export default function SettingsPanel(props: Props) {
     }
     clock.setAlarm(at);
     // The target, not the typed text: a time already past today arms for
-    // tomorrow, and the reader should be told which one they got.
-    toast.show(`Alarm set for ${formatClock(new Date(at), clock.hour24)}`);
+    // tomorrow, and the reader should be told which one they got. Held longer
+    // than the default 2s because it carries a value to check rather than a
+    // "done" -- reading a time and comparing it to the one you meant does not
+    // fit in a glance.
+    toast.show(
+      `Alarm set for ${formatClock(new Date(at), clock.hour24)}`,
+      ALARM_TOAST_MS,
+    );
   }
   function clearAlarm(): void {
     clock.setAlarm(null);
@@ -778,99 +788,17 @@ export default function SettingsPanel(props: Props) {
         </button>
       </header>
 
+      {/* Order is by what a reader reaches for, grouped so the panel can be
+          scanned: how the book moves (Reading), how it is set (Typography),
+          how it looks (Appearance), then the things that are not about the
+          page at all (Extras: the clock, and presets over the whole lot).
+          Sections had accumulated in the order features were built --
+          Presets first, the clock between Reading mode and Theme -- which
+          put the least-used group at the top and split typography in half.
+          The group labels are siblings rather than wrappers so each section
+          keeps its own heading level and its own hairline. */}
       <div class="stp-body">
-        <section class="stp-section">
-          <h3>Presets</h3>
-          <p class="stp-hint">
-            Save your current settings as a preset, then tap one to apply it
-            later.
-          </p>
-
-          <Show when={presets().length > 0}>
-            <div class="stp-presets" role="group" aria-label="Saved presets">
-              <For each={presets()}>
-                {(p) => (
-                  <div class="stp-preset-chip">
-                    <button
-                      type="button"
-                      class="stp-preset-apply"
-                      onClick={() => applyPreset(p)}
-                      title={`Apply ${p.name}`}
-                    >
-                      {p.name}
-                    </button>
-                    <button
-                      type="button"
-                      class="stp-preset-del"
-                      onClick={() => void removePreset(p)}
-                      aria-label={`Delete preset ${p.name}`}
-                      title="Delete preset"
-                    >
-                      <Icon icon={X} size={13} labelFromParent />
-                    </button>
-                  </div>
-                )}
-              </For>
-            </div>
-          </Show>
-
-          <Show when={presetsError()}>
-            <p class="stp-hint">
-              Couldn't load presets.{" "}
-              <button
-                type="button"
-                class="btn-ghost press"
-                onClick={() => void loadPresets()}
-              >
-                Try again
-              </button>
-            </p>
-          </Show>
-
-          <Show
-            when={naming()}
-            fallback={
-              <button
-                type="button"
-                class="stp-preset-new"
-                ref={(el) => (newPresetBtn = el)}
-                onClick={startNaming}
-              >
-                + Save current as preset
-              </button>
-            }
-          >
-            <form class="stp-preset-save" onSubmit={(e) => void savePreset(e)}>
-              <input
-                class="stp-preset-name"
-                type="text"
-                value={presetName()}
-                placeholder="Preset name"
-                maxlength="60"
-                aria-label="Preset name"
-                ref={(el) => (nameInput = el)}
-                onInput={(e) => setPresetName(e.currentTarget.value)}
-              />
-              <button
-                class="stp-preset-confirm"
-                type="submit"
-                aria-disabled={
-                  !presetName().trim() || saving() ? "true" : "false"
-                }
-              >
-                Save
-              </button>
-              <button
-                class="stp-preset-cancel"
-                type="button"
-                onClick={cancelNaming}
-              >
-                Cancel
-              </button>
-            </form>
-          </Show>
-        </section>
-
+        <p class="stp-group-head">Reading</p>
         <section class="stp-section">
           <h3>Reading mode</h3>
           <RadioGroup
@@ -888,119 +816,52 @@ export default function SettingsPanel(props: Props) {
         </section>
 
         <section class="stp-section">
-          <h3>Clock</h3>
-          <p class="stp-hint">
-            Shown in the reader: centred at the bottom in the paged modes,
-            bottom-right while scrolling.
-          </p>
-          <label class="stp-toggle">
-            <input
-              type="checkbox"
-              checked={clock.show}
-              onChange={(e) => clock.setShow(e.currentTarget.checked)}
-            />
-            Show the clock
-          </label>
-          <RadioGroup
-            label="Clock format"
-            options={CLOCK_FORMATS}
-            small
-            value={clock.hour24 ? "24" : "12"}
-            onChange={(id) => clock.setHour24(id === "24")}
+          <h3>Layout</h3>
+          <AutoRow
+            label="Side margin"
+            value={s().marginSide}
+            min={0}
+            max={160}
+            step={4}
+            fallback={48}
+            unit="px"
+            apply={(v) => set("marginSide", v)}
           />
-          <div class="stp-alarm">
-            <label class="stp-alarm-field">
-              Alarm
-              <input
-                type="time"
-                value={alarmDraft()}
-                onInput={(e) => setAlarmDraft(e.currentTarget.value)}
-              />
-            </label>
-            <button type="button" class="btn-quiet press" onClick={armAlarm}>
-              {clock.alarmAt === null ? "Set" : "Update"}
-            </button>
-            <Show when={clock.alarmAt !== null}>
-              <button
-                type="button"
-                class="btn-quiet press"
-                onClick={clearAlarm}
-              >
-                Clear
-              </button>
-            </Show>
-          </div>
-          {/* Live state for the armed alarm, so the panel says what the pill
-              says. role="status" is safe here (unlike on the pill itself):
-              this text changes only when the alarm is armed or cleared. */}
-          <p class="stp-hint" role="status">
-            {clock.alarmAt === null
-              ? "No alarm set."
-              : `Alarm at ${formatClock(
-                  new Date(clock.alarmAt),
-                  clock.hour24,
-                )} \u00b7 in ${formatRemaining(clock.alarmAt - Date.now())}.`}
-          </p>
-          <label class="stp-toggle">
-            <input
-              type="checkbox"
-              checked={clock.showRemaining}
-              onChange={(e) => clock.setShowRemaining(e.currentTarget.checked)}
-            />
-            Show time remaining instead of the alarm time
-          </label>
+          {/* Top and bottom are independent server-side fields that this one
+              row writes together. A preset or a hand-edited save can diverge
+              them, so surface the bottom value instead of showing top as if it
+              spoke for both. */}
+          <AutoRow
+            label="Vertical margin"
+            value={s().marginTop}
+            min={0}
+            max={160}
+            step={4}
+            fallback={48}
+            unit="px"
+            apply={(v) => settings.update({ marginTop: v, marginBottom: v })}
+            headNote={(v) => {
+              const b = s().marginBottom;
+              if (b === v) return "";
+              return b === null ? "bottom auto" : `bottom ${b}px`;
+            }}
+          />
+          <AutoRow
+            label="Content width"
+            value={s().contentWidth}
+            min={40}
+            max={100}
+            step={5}
+            fallback={70}
+            unit="%"
+            apply={(v) => set("contentWidth", v)}
+            disabledReason={
+              props.effectiveMode === "scroll" ? null : "Scroll mode only"
+            }
+          />
         </section>
 
-        <section class="stp-section">
-          <h3>Theme</h3>
-
-          <p class="stp-group-label">Light</p>
-          <div class="stp-swatches" role="group" aria-label="Light themes">
-            <For each={lightThemes()}>
-              {(t) => (
-                <Swatch
-                  t={t}
-                  active={s().theme === t.id}
-                  onSelect={() => set("theme", t.id)}
-                  onEdit={() => openEdit(t)}
-                />
-              )}
-            </For>
-            <button
-              type="button"
-              class="stp-swatch stp-add"
-              title="Create light theme"
-              aria-label="Create light theme"
-              onClick={() => openCreate("light")}
-            >
-              <Icon icon={Plus} size={16} labelFromParent />
-            </button>
-          </div>
-
-          <p class="stp-group-label">Dark</p>
-          <div class="stp-swatches" role="group" aria-label="Dark themes">
-            <For each={darkThemes()}>
-              {(t) => (
-                <Swatch
-                  t={t}
-                  active={s().theme === t.id}
-                  onSelect={() => set("theme", t.id)}
-                  onEdit={() => openEdit(t)}
-                />
-              )}
-            </For>
-            <button
-              type="button"
-              class="stp-swatch stp-add"
-              title="Create dark theme"
-              aria-label="Create dark theme"
-              onClick={() => openCreate("dark")}
-            >
-              <Icon icon={Plus} size={16} labelFromParent />
-            </button>
-          </div>
-        </section>
-
+        <p class="stp-group-head">Typography</p>
         <section class="stp-section">
           <h3>Font</h3>
           <button
@@ -1201,52 +1062,6 @@ export default function SettingsPanel(props: Props) {
         </section>
 
         <section class="stp-section">
-          <h3>Layout</h3>
-          <AutoRow
-            label="Side margin"
-            value={s().marginSide}
-            min={0}
-            max={160}
-            step={4}
-            fallback={48}
-            unit="px"
-            apply={(v) => set("marginSide", v)}
-          />
-          {/* Top and bottom are independent server-side fields that this one
-              row writes together. A preset or a hand-edited save can diverge
-              them, so surface the bottom value instead of showing top as if it
-              spoke for both. */}
-          <AutoRow
-            label="Vertical margin"
-            value={s().marginTop}
-            min={0}
-            max={160}
-            step={4}
-            fallback={48}
-            unit="px"
-            apply={(v) => settings.update({ marginTop: v, marginBottom: v })}
-            headNote={(v) => {
-              const b = s().marginBottom;
-              if (b === v) return "";
-              return b === null ? "bottom auto" : `bottom ${b}px`;
-            }}
-          />
-          <AutoRow
-            label="Content width"
-            value={s().contentWidth}
-            min={40}
-            max={100}
-            step={5}
-            fallback={70}
-            unit="%"
-            apply={(v) => set("contentWidth", v)}
-            disabledReason={
-              props.effectiveMode === "scroll" ? null : "Scroll mode only"
-            }
-          />
-        </section>
-
-        <section class="stp-section">
           <h3>Chapter titles</h3>
           <p class="stp-group-label">Title font</p>
           {/* Overrides the font for headings only. Like the body font it
@@ -1374,6 +1189,57 @@ export default function SettingsPanel(props: Props) {
           />
         </section>
 
+        <p class="stp-group-head">Appearance</p>
+        <section class="stp-section">
+          <h3>Theme</h3>
+
+          <p class="stp-group-label">Light</p>
+          <div class="stp-swatches" role="group" aria-label="Light themes">
+            <For each={lightThemes()}>
+              {(t) => (
+                <Swatch
+                  t={t}
+                  active={s().theme === t.id}
+                  onSelect={() => set("theme", t.id)}
+                  onEdit={() => openEdit(t)}
+                />
+              )}
+            </For>
+            <button
+              type="button"
+              class="stp-swatch stp-add"
+              title="Create light theme"
+              aria-label="Create light theme"
+              onClick={() => openCreate("light")}
+            >
+              <Icon icon={Plus} size={16} labelFromParent />
+            </button>
+          </div>
+
+          <p class="stp-group-label">Dark</p>
+          <div class="stp-swatches" role="group" aria-label="Dark themes">
+            <For each={darkThemes()}>
+              {(t) => (
+                <Swatch
+                  t={t}
+                  active={s().theme === t.id}
+                  onSelect={() => set("theme", t.id)}
+                  onEdit={() => openEdit(t)}
+                />
+              )}
+            </For>
+            <button
+              type="button"
+              class="stp-swatch stp-add"
+              title="Create dark theme"
+              aria-label="Create dark theme"
+              onClick={() => openCreate("dark")}
+            >
+              <Icon icon={Plus} size={16} labelFromParent />
+            </button>
+          </div>
+        </section>
+
         <section class="stp-section">
           <h3>Book styling</h3>
           <label class="stp-toggle">
@@ -1384,6 +1250,163 @@ export default function SettingsPanel(props: Props) {
             />
             Keep the book's own CSS
           </label>
+        </section>
+
+        <p class="stp-group-head">Extras</p>
+        <section class="stp-section">
+          <h3>Clock</h3>
+          <p class="stp-hint">
+            Shown in the reader: centred at the bottom in the paged modes,
+            bottom-right while scrolling.
+          </p>
+          <label class="stp-toggle">
+            <input
+              type="checkbox"
+              checked={clock.show}
+              onChange={(e) => clock.setShow(e.currentTarget.checked)}
+            />
+            Show the clock
+          </label>
+          <RadioGroup
+            label="Clock format"
+            options={CLOCK_FORMATS}
+            small
+            value={clock.hour24 ? "24" : "12"}
+            onChange={(id) => clock.setHour24(id === "24")}
+          />
+          <div class="stp-alarm">
+            <label class="stp-alarm-field">
+              Alarm
+              <input
+                type="time"
+                value={alarmDraft()}
+                onInput={(e) => setAlarmDraft(e.currentTarget.value)}
+              />
+            </label>
+            <button type="button" class="btn-quiet press" onClick={armAlarm}>
+              {clock.alarmAt === null ? "Set" : "Update"}
+            </button>
+            <Show when={clock.alarmAt !== null}>
+              <button
+                type="button"
+                class="btn-quiet press"
+                onClick={clearAlarm}
+              >
+                Clear
+              </button>
+            </Show>
+          </div>
+          {/* Live state for the armed alarm, so the panel says what the pill
+              says. role="status" is safe here (unlike on the pill itself):
+              this text changes only when the alarm is armed or cleared. */}
+          <p class="stp-hint" role="status">
+            {clock.alarmAt === null
+              ? "No alarm set."
+              : `Alarm at ${formatClock(
+                  new Date(clock.alarmAt),
+                  clock.hour24,
+                )} \u00b7 in ${formatRemaining(clock.alarmAt - Date.now())}.`}
+          </p>
+          <label class="stp-toggle">
+            <input
+              type="checkbox"
+              checked={clock.showRemaining}
+              onChange={(e) => clock.setShowRemaining(e.currentTarget.checked)}
+            />
+            Show time remaining instead of the alarm time
+          </label>
+        </section>
+
+        <section class="stp-section">
+          <h3>Presets</h3>
+          <p class="stp-hint">
+            Save your current settings as a preset, then tap one to apply it
+            later.
+          </p>
+
+          <Show when={presets().length > 0}>
+            <div class="stp-presets" role="group" aria-label="Saved presets">
+              <For each={presets()}>
+                {(p) => (
+                  <div class="stp-preset-chip">
+                    <button
+                      type="button"
+                      class="stp-preset-apply"
+                      onClick={() => applyPreset(p)}
+                      title={`Apply ${p.name}`}
+                    >
+                      {p.name}
+                    </button>
+                    <button
+                      type="button"
+                      class="stp-preset-del"
+                      onClick={() => void removePreset(p)}
+                      aria-label={`Delete preset ${p.name}`}
+                      title="Delete preset"
+                    >
+                      <Icon icon={X} size={13} labelFromParent />
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
+
+          <Show when={presetsError()}>
+            <p class="stp-hint">
+              Couldn't load presets.{" "}
+              <button
+                type="button"
+                class="btn-ghost press"
+                onClick={() => void loadPresets()}
+              >
+                Try again
+              </button>
+            </p>
+          </Show>
+
+          <Show
+            when={naming()}
+            fallback={
+              <button
+                type="button"
+                class="stp-preset-new"
+                ref={(el) => (newPresetBtn = el)}
+                onClick={startNaming}
+              >
+                + Save current as preset
+              </button>
+            }
+          >
+            <form class="stp-preset-save" onSubmit={(e) => void savePreset(e)}>
+              <input
+                class="stp-preset-name"
+                type="text"
+                value={presetName()}
+                placeholder="Preset name"
+                maxlength="60"
+                aria-label="Preset name"
+                ref={(el) => (nameInput = el)}
+                onInput={(e) => setPresetName(e.currentTarget.value)}
+              />
+              <button
+                class="stp-preset-confirm"
+                type="submit"
+                aria-disabled={
+                  !presetName().trim() || saving() ? "true" : "false"
+                }
+              >
+                Save
+              </button>
+              <button
+                class="stp-preset-cancel"
+                type="button"
+                onClick={cancelNaming}
+              >
+                Cancel
+              </button>
+            </form>
+          </Show>
         </section>
       </div>
 
