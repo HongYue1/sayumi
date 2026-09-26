@@ -154,6 +154,19 @@ describe("clock preferences", () => {
     expect(second.clock.show).toBe(false);
   });
 
+  it("names an alarm, trims the name, and drops it with the alarm", async () => {
+    const { clock } = await load();
+    clock.setAlarm(Date.now() + 600_000, "  Stop for dinner  ");
+    flush();
+    expect(clock.alarmLabel).toBe("Stop for dinner");
+
+    // A cleared alarm keeps no name: the next alarm is a new one, not this
+    // one renamed, so a stale label must not surface in the next sheet.
+    clock.setAlarm(null);
+    flush();
+    expect(clock.alarmLabel).toBe("");
+  });
+
   it("keeps a future alarm and drops a past one", async () => {
     const future = Date.now() + 600_000;
     localStorage.setItem(KEY, JSON.stringify({ alarmAt: future }));

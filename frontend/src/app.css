@@ -4786,29 +4786,18 @@ main {
    is a native <input type="time">, so the UA owns the spinner and the picker;
    the .field face is not reused because the UA control ignores most of it and
    the mismatch read worse than an honestly native field. */
+/* The panel no longer arms alarms -- it links to the sheet that does (see
+   components/AlarmSetDialog.tsx) and prints what is armed beside the button. */
 .stp-alarm {
   display: flex;
-  align-items: end;
-  gap: var(--sp-2);
+  align-items: center;
+  gap: var(--sp-3);
   margin: var(--sp-2) 0;
   flex-wrap: wrap;
 }
-.stp-alarm-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: var(--text-sm);
-  font-weight: 520;
-  color: var(--muted);
-}
-.stp-alarm-field input {
-  font: inherit;
+.stp-alarm p {
+  margin: 0;
   font-variant-numeric: tabular-nums;
-  color: var(--fg);
-  background: var(--surface);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
-  padding: 0.4rem 0.5rem;
 }
 
 /* ── Read (reader route) ────────────────────────────────────────────── */
@@ -5267,27 +5256,44 @@ main {
 .alarm-backdrop {
   background: color-mix(in srgb, #000 62%, transparent);
 }
-.alarm-sheet {
+/* Both alarm sheets are chrome, not paper: --elevated with a hairline, the
+   same surface as the reader bar and its panels. On `paper` they read as a
+   page over the page, which is the one thing the reader's own furniture never
+   does. */
+.alarm-sheet,
+.alarm-set-sheet {
   position: relative;
-  display: grid;
-  justify-items: center;
-  gap: var(--sp-3);
-  width: min(22rem, 100%);
-  padding: var(--sp-6);
+  background: var(--elevated);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-3);
-  text-align: center;
   animation: app-sheet-in var(--dur-slow) var(--ease-out);
 }
-/* The bell is the only moving part, and it stops at the reduced-motion switch
-   like every other animation in the sheet. */
+.alarm-sheet {
+  width: min(21rem, 100%);
+  padding: var(--sp-5);
+}
+/* Bell and time side by side, not stacked and centred: the old sheet gave
+   three centred blocks equal weight, so the time -- the only fact on it --
+   had to compete with the word "Alarm" above it. */
+.alarm-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.alarm-head-text .eyebrow {
+  margin: 0;
+}
+/* The bell is the only moving part, and the global prefers-reduced-motion
+   switch stops it with every other animation. */
 .alarm-bell {
+  flex-shrink: 0;
   display: grid;
   place-items: center;
-  width: 3.25rem;
-  height: 3.25rem;
+  width: 2.6rem;
+  height: 2.6rem;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--accent-ink);
   animation: alarm-bell-pulse 1.6s var(--ease-out) infinite;
 }
@@ -5297,20 +5303,138 @@ main {
     box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 34%, transparent);
   }
   50% {
-    box-shadow: 0 0 0 10px color-mix(in srgb, var(--accent) 0%, transparent);
+    box-shadow: 0 0 0 9px color-mix(in srgb, var(--accent) 0%, transparent);
   }
-}
-.alarm-title {
-  margin: 0;
-  font-size: var(--text-xl);
 }
 .alarm-time {
   margin: 0;
-  font-size: 2.15rem;
-  font-weight: 600;
-  line-height: 1.1;
+  font-size: 1.9rem;
+  font-weight: 620;
+  line-height: 1.15;
   color: var(--fg);
 }
+/* The alarm's name, when it was given one: quoted visually by the rule rather
+   than by punctuation, so a label that already contains quotes reads right. */
+.alarm-note {
+  margin: var(--sp-3) 0 0;
+  padding-left: var(--sp-3);
+  border-left: 2px solid var(--hairline-strong);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--fg);
+}
+.alarm-actions {
+  display: grid;
+  gap: var(--sp-2);
+  margin-top: var(--sp-5);
+}
 .alarm-stop {
-  min-width: 9rem;
+  width: 100%;
+}
+/* Snooze is the secondary row, and the three offsets are equal: one grid
+   column each, so no minute count looks like the recommended one. */
+.alarm-snooze {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-2);
+}
+.alarm-snooze-btn {
+  padding: 0.4rem 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.alarm-snooze-btn:hover,
+.alarm-snooze-btn:focus-visible {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+/* The "set an alarm" sheet: same surface, sized for two fields. */
+.alarm-set-sheet {
+  width: min(24rem, 100%);
+  padding: var(--sp-5);
+}
+.alarm-set-close {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-2);
+}
+.alarm-set-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.alarm-set-head .eyebrow {
+  margin: 0;
+}
+.alarm-set-bell {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent-ink);
+}
+.alarm-set-title {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+.alarm-set-form {
+  display: grid;
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+}
+.alarm-set-field {
+  display: grid;
+  gap: 0.35rem;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.alarm-set-field input {
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-base);
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.alarm-set-field input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.alarm-set-time {
+  font-variant-numeric: tabular-nums;
+}
+.alarm-set-state {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.alarm-set-state:empty {
+  display: none;
+}
+.alarm-set-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
 }

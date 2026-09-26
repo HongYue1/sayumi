@@ -36,6 +36,7 @@ import OfflineBanner from "~/components/OfflineBanner";
 import CommandPalette from "~/components/CommandPalette";
 import ShortcutsHelp from "~/components/ShortcutsHelp";
 import AboutDialog from "~/components/AboutDialog";
+import AlarmSetDialog from "~/components/AlarmSetDialog";
 
 // Global shortcuts. Only active once signed in. Composition and controls
 // that own the key stand down through the same contract as Read and frame.ts.
@@ -392,6 +393,7 @@ export default function App() {
         <CommandPalette />
         <ShortcutsHelp />
         <AboutDialog />
+        <AlarmSetDialog />
         <Toaster />
       </Errored>
     </>

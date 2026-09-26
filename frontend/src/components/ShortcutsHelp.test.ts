@@ -174,8 +174,8 @@ describe("ShortcutsHelp", () => {
     for (const key of ["Space", "PageDown", "PageUp", "Home", "End", "Shift"]) {
       expect(caps).toContain(key);
     }
-    expect(rows()).toHaveLength(19);
-    expect(caps).toHaveLength(23);
+    expect(rows()).toHaveLength(20);
+    expect(caps).toHaveLength(24);
   });
 
   it("documents every key the reader keymap binds", async () => {

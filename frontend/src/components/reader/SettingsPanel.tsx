@@ -30,13 +30,7 @@ import DropSelect from "./DropSelect";
 import { READER_FONTS, getFontById } from "~/lib/fonts";
 import { fontRegistry, isUserFamilyId } from "~/lib/fontRegistry";
 import { toast } from "~/lib/toast";
-import {
-  clock,
-  alarmTargetFrom,
-  formatClock,
-  formatRemaining,
-  hhmmFrom,
-} from "~/lib/clock";
+import { clock, formatClock, formatRemaining } from "~/lib/clock";
 import { router } from "~/lib/router";
 import { ui } from "~/lib/ui";
 import { SPECIMEN_BOOK_ID } from "~/lib/specimen";
@@ -62,10 +56,6 @@ const CLOCK_FORMATS: { id: "12" | "24"; label: string }[] = [
   { id: "12", label: "12-hour" },
   { id: "24", label: "24-hour" },
 ];
-
-/** The "alarm set" confirmation holds a time the reader has to read back, so
- *  it outlasts the 2s default toast. */
-const ALARM_TOAST_MS = 4500;
 
 const MODES: { id: UserSettings["displayMode"]; label: string }[] = [
   { id: "scroll", label: "Scroll" },
@@ -414,39 +404,11 @@ export default function SettingsPanel(props: Props) {
 
   const [rescanning, setRescanning] = createSignal(false);
 
-  // --- Clock + alarm --------------------------------------------------------
   // The clock group is per-device state in lib/clock.ts, not part of the
-  // server-synced settings object (the reasoning is in that module), so these
-  // rows call clock.* instead of set().
-  //
-  // The time field is a DRAFT, seeded from the armed alarm (or from an hour
-  // ahead when none is): a <input type="time"> reports every keystroke, and
-  // arming on each one would fire an alarm for 01:00 while "01:30" was still
-  // being typed. Arming is the explicit button below.
-  const [alarmDraft, setAlarmDraft] = createSignal(
-    hhmmFrom(new Date(clock.alarmAt ?? Date.now() + 3_600_000)),
-  );
-  function armAlarm(): void {
-    const at = alarmTargetFrom(Date.now(), alarmDraft());
-    if (at === null) {
-      toast.show("Enter a time as HH:MM");
-      return;
-    }
-    clock.setAlarm(at);
-    // The target, not the typed text: a time already past today arms for
-    // tomorrow, and the reader should be told which one they got. Held longer
-    // than the default 2s because it carries a value to check rather than a
-    // "done" -- reading a time and comparing it to the one you meant does not
-    // fit in a glance.
-    toast.show(
-      `Alarm set for ${formatClock(new Date(at), clock.hour24)}`,
-      ALARM_TOAST_MS,
-    );
-  }
-  function clearAlarm(): void {
-    clock.setAlarm(null);
-    toast.show("Alarm cleared");
-  }
+  // server-synced settings object (the reasoning is in that module), so those
+  // rows call clock.* instead of set(). Arming an alarm is not here at all:
+  // it belongs to components/AlarmSetDialog.tsx, which this panel and the
+  // chrome both open through ui.openAlarm().
 
   // Reset-to-defaults uses a two-step confirm (no blocking dialog): the first
   // click arms it, a second click within 3s applies. Avoids nuking a tuned
@@ -1274,39 +1236,29 @@ export default function SettingsPanel(props: Props) {
             value={clock.hour24 ? "24" : "12"}
             onChange={(id) => clock.setHour24(id === "24")}
           />
+          {/* The alarm itself is armed in the chrome's own sheet (A, or the
+              alarm button): setting one is a mid-chapter errand, and burying
+              it three sections into settings was the wrong place for it. What
+              stays here is the PREFERENCE -- how the alarm is displayed. */}
           <div class="stp-alarm">
-            <label class="stp-alarm-field">
-              Alarm
-              <input
-                type="time"
-                value={alarmDraft()}
-                onInput={(e) => setAlarmDraft(e.currentTarget.value)}
-              />
-            </label>
-            <button type="button" class="btn-quiet press" onClick={armAlarm}>
-              {clock.alarmAt === null ? "Set" : "Update"}
+            <button
+              type="button"
+              class="btn-quiet press"
+              onClick={() => ui.openAlarm()}
+            >
+              {clock.alarmAt === null ? "Set an alarm\u2026" : "Edit alarm"}
             </button>
-            <Show when={clock.alarmAt !== null}>
-              <button
-                type="button"
-                class="btn-quiet press"
-                onClick={clearAlarm}
-              >
-                Clear
-              </button>
-            </Show>
+            {/* Live state for the armed alarm, so the panel says what the pill
+                says. role="status" is safe here (unlike on the pill itself):
+                this text changes only when the alarm is armed or cleared. */}
+            <p class="stp-hint" role="status">
+              {clock.alarmAt === null
+                ? "No alarm set."
+                : `${formatClock(new Date(clock.alarmAt), clock.hour24)} \u00b7 in ${formatRemaining(
+                    clock.alarmAt - Date.now(),
+                  )}`}
+            </p>
           </div>
-          {/* Live state for the armed alarm, so the panel says what the pill
-              says. role="status" is safe here (unlike on the pill itself):
-              this text changes only when the alarm is armed or cleared. */}
-          <p class="stp-hint" role="status">
-            {clock.alarmAt === null
-              ? "No alarm set."
-              : `Alarm at ${formatClock(
-                  new Date(clock.alarmAt),
-                  clock.hour24,
-                )} \u00b7 in ${formatRemaining(clock.alarmAt - Date.now())}.`}
-          </p>
           <label class="stp-toggle">
             <input
               type="checkbox"

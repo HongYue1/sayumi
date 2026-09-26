@@ -23,12 +23,7 @@
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import Icon from "~/lib/Icon";
 import { AlarmClock } from "~/lib/icons";
-import {
-  clock,
-  formatClock,
-  formatRemaining,
-  playAlarmChime,
-} from "~/lib/clock";
+import { clock, formatClock, formatRemaining } from "~/lib/clock";
 import AlarmDialog from "~/components/reader/AlarmDialog";
 
 interface Props {
@@ -40,10 +35,14 @@ const TICK_MS = 1000;
 
 export default function ClockPill(props: Props) {
   const [nowMs, setNowMs] = createSignal(Date.now());
-  // The instant a due alarm was set for, while its sheet is up. A toast used
+  // The due alarm while its sheet is up -- instant and name, captured here
+  // because clearing the alarm below wipes both from the store. A toast used
   // to carry this and faded on its own timer, which is exactly the failure an
   // alarm must not have; the sheet blocks the screen until it is turned off.
-  const [ringingAt, setRingingAt] = createSignal<number | null>(null);
+  const [ringing, setRinging] = createSignal<{
+    at: number;
+    label: string;
+  } | null>(null);
 
   // An armed alarm has to be watched even with the pill switched off: the
   // alarm is a separate promise from the clock, and turning the clock off is
@@ -53,11 +52,11 @@ export default function ClockPill(props: Props) {
   function ring(at: number): void {
     // Cleared first: a one-shot alarm, and clearing before the toast means a
     // slow toast render cannot let the next tick ring it twice.
+    const label = clock.alarmLabel;
     clock.setAlarm(null);
-    setRingingAt(at);
-    // The first note is played here, on the tick it came due; the sheet owns
-    // the repeats for as long as it is up.
-    playAlarmChime();
+    setRinging({ at, label });
+    // The ring itself belongs to the sheet: its mount starts the sound and its
+    // unmount stops it, so no loop can outlive the dialog.
   }
 
   createEffect(
@@ -97,8 +96,14 @@ export default function ClockPill(props: Props) {
     <>
       {/* Not gated on clock.show: an armed alarm is a promise of its own, and
           switching the clock display off was never "cancel my alarm". */}
-      <Show when={ringingAt()}>
-        {(at) => <AlarmDialog at={at()} ondismiss={() => setRingingAt(null)} />}
+      <Show when={ringing()}>
+        {(due) => (
+          <AlarmDialog
+            at={due().at}
+            label={due().label}
+            ondismiss={() => setRinging(null)}
+          />
+        )}
       </Show>
       <Show when={clock.show}>
         <div

@@ -1,6 +1,5 @@
 // Suite for the reader clock pill. Nothing is stubbed but the wall clock and
-// the alarm chime (a real AudioContext does not exist under happy-dom). The
-// invariants:
+// the alarm sound (happy-dom has no media playback). The invariants:
 //   - Placement is the reading mode's, not a preference: centre in paged
 //     modes (rdp-clock-mid), the free right corner in scroll mode.
 //   - Switching the clock off renders nothing at all, but an ARMED ALARM
@@ -15,20 +14,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@solidjs/web";
 import { flush } from "solid-js";
 import ClockPill from "~/components/reader/ClockPill";
-import { clock, playAlarmChime } from "~/lib/clock";
-import type * as ClockModule from "~/lib/clock";
+import { clock } from "~/lib/clock";
+import { startAlarmSound, stopAlarmSound } from "~/lib/alarmSound";
 
 const KEY = "sayumi:clock";
 // A fixed instant, in local time so the rendered string cannot move with the
 // test host's timezone: 2026-03-04, 12:35:00.
 const NOW = new Date(2026, 2, 4, 12, 35, 0, 0).getTime();
 
-vi.mock("~/lib/clock", async (importOriginal) => {
-  const actual = await importOriginal<typeof ClockModule>();
-  // Only the chime is replaced: happy-dom has no AudioContext, and the
-  // formatters and the preference store are the things under test.
-  return { ...actual, playAlarmChime: vi.fn() };
-});
+// The whole sound module is replaced: happy-dom's <audio> never plays, and
+// what is under test is that the ring is started and stopped with the sheet.
+vi.mock("~/lib/alarmSound", () => ({
+  startAlarmSound: vi.fn(),
+  stopAlarmSound: vi.fn(),
+  preloadAlarmSound: vi.fn(),
+}));
 
 async function settle(): Promise<void> {
   for (let i = 0; i < 4; i += 1) {
@@ -55,8 +55,12 @@ describe("ClockPill", () => {
     return document.querySelector(".alarm-sheet");
   }
 
-  function chimes(): number {
-    return vi.mocked(playAlarmChime).mock.calls.length;
+  function rings(): number {
+    return vi.mocked(startAlarmSound).mock.calls.length;
+  }
+
+  function stops(): number {
+    return vi.mocked(stopAlarmSound).mock.calls.length;
   }
 
   beforeEach(() => {
@@ -68,8 +72,9 @@ describe("ClockPill", () => {
     clock.setShowRemaining(false);
     clock.setAlarm(null);
     flush();
-    // A module-factory vi.fn, so restoreAllMocks does not clear its calls.
-    vi.mocked(playAlarmChime).mockClear();
+    // Module-factory vi.fns, so restoreAllMocks does not clear their calls.
+    vi.mocked(startAlarmSound).mockClear();
+    vi.mocked(stopAlarmSound).mockClear();
     container = document.createElement("div");
     document.body.append(container);
   });
@@ -140,7 +145,7 @@ describe("ClockPill", () => {
     // The instant it was set for, not "now": the two differ when a laptop
     // wakes with the alarm long past.
     expect(open?.textContent).toContain("12:36 PM");
-    expect(chimes()).toBe(1);
+    expect(rings()).toBe(1);
 
     // A cleared alarm cannot ring a second time on the next tick.
     vi.setSystemTime(NOW + 62_000);
@@ -149,7 +154,7 @@ describe("ClockPill", () => {
     expect(document.querySelectorAll(".alarm-sheet")).toHaveLength(1);
   });
 
-  it("keeps chiming while the sheet is up, and stops when it is turned off", async () => {
+  it("rings for as long as the sheet is up, and no longer", async () => {
     clock.setAlarm(NOW + 60_000);
     flush();
     mount(true);
@@ -157,21 +162,43 @@ describe("ClockPill", () => {
     vi.setSystemTime(NOW + 61_000);
     vi.advanceTimersByTime(1000);
     await settle();
-    expect(chimes()).toBe(1);
-
-    // One note is missable in a noisy room, so the sheet repeats it.
-    vi.advanceTimersByTime(8000);
-    await settle();
-    expect(chimes()).toBeGreaterThan(1);
-
-    const stop = sheet()?.querySelector<HTMLButtonElement>(".alarm-stop");
-    stop?.click();
-    await settle();
-    expect(sheet()).toBeNull();
-    const after = chimes();
+    // The sound loops in the element, so it is started once, not re-triggered
+    // on a timer while the sheet waits.
+    expect(rings()).toBe(1);
     vi.advanceTimersByTime(20_000);
     await settle();
-    expect(chimes()).toBe(after);
+    expect(rings()).toBe(1);
+    expect(stops()).toBe(0);
+
+    sheet()?.querySelector<HTMLButtonElement>(".alarm-stop")?.click();
+    await settle();
+    expect(sheet()).toBeNull();
+    // Turning it off must silence it: a loop left behind a closed sheet has no
+    // control left to stop it.
+    expect(stops()).toBe(1);
+  });
+
+  it("shows the alarm's name, and keeps it across a snooze", async () => {
+    clock.setAlarm(NOW + 60_000, "Stop for dinner");
+    flush();
+    mount(true);
+    await settle();
+    vi.setSystemTime(NOW + 61_000);
+    vi.advanceTimersByTime(1000);
+    await settle();
+    expect(sheet()?.textContent).toContain("Stop for dinner");
+
+    const snooze =
+      sheet()?.querySelectorAll<HTMLButtonElement>(".alarm-snooze-btn");
+    expect(snooze?.length).toBe(3);
+    snooze?.[0]?.click();
+    await settle();
+    // Snoozing closes the ring and re-arms the same alarm ten minutes out.
+    expect(sheet()).toBeNull();
+    // Ten minutes from the click, which is a second past the ring: the fake
+    // clock moved with the timer that fired the alarm.
+    expect(clock.alarmAt).toBe(NOW + 62_000 + 10 * 60_000);
+    expect(clock.alarmLabel).toBe("Stop for dinner");
   });
 
   it("closes the ringing sheet on Escape", async () => {

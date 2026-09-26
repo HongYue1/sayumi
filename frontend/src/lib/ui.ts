@@ -22,6 +22,11 @@ export interface UIState {
   readonly palette: boolean;
   readonly shortcuts: boolean;
   readonly about: boolean;
+  /** The reader's "set an alarm" sheet. In this store rather than in Read's
+   *  local state because two places open it (the chrome's alarm button and
+   *  the settings panel's Clock section) and the reader's keyboard has to
+   *  stand down while it is up, which is what anyOverlayOpen is for. */
+  readonly alarm: boolean;
   /** True while ANY global overlay is open. The single place the disjunct
    *  lives: a future overlay kind joins the store here, and readers (the
    *  reader's keyboard stand-down) never re-derive the list by hand. */
@@ -29,6 +34,7 @@ export interface UIState {
   togglePalette(): void;
   openShortcuts(): void;
   openAbout(): void;
+  openAlarm(): void;
   closeOverlays(): void;
 }
 
@@ -45,6 +51,7 @@ export function createUIState(): UIState {
   const [palette, setPalette] = createSignal(false);
   const [shortcuts, setShortcuts] = createSignal(false);
   const [about, setAbout] = createSignal(false);
+  const [alarm, setAlarm] = createSignal(false);
 
   return {
     get palette(): boolean {
@@ -56,8 +63,11 @@ export function createUIState(): UIState {
     get about(): boolean {
       return about();
     },
+    get alarm(): boolean {
+      return alarm();
+    },
     get anyOverlayOpen(): boolean {
-      return palette() || shortcuts() || about();
+      return palette() || shortcuts() || about() || alarm();
     },
 
     togglePalette(): void {
@@ -72,12 +82,14 @@ export function createUIState(): UIState {
       if (next) {
         setShortcuts(false);
         setAbout(false);
+        setAlarm(false);
       }
     },
 
     openShortcuts(): void {
       setPalette(false);
       setAbout(false);
+      setAlarm(false);
       setShortcuts(true);
     },
 
@@ -87,13 +99,22 @@ export function createUIState(): UIState {
     openAbout(): void {
       setPalette(false);
       setShortcuts(false);
+      setAlarm(false);
       setAbout(true);
+    },
+
+    openAlarm(): void {
+      setPalette(false);
+      setShortcuts(false);
+      setAbout(false);
+      setAlarm(true);
     },
 
     closeOverlays(): void {
       setPalette(false);
       setShortcuts(false);
       setAbout(false);
+      setAlarm(false);
     },
   };
 }

@@ -29,13 +29,22 @@ interface ClockPrefs {
   showRemaining: boolean;
   /** Epoch ms the alarm is due, or null when none is armed. */
   alarmAt: number | null;
+  /** What the alarm is for ("Stop for dinner"), or "" when unnamed. Kept
+   *  beside the instant rather than in its own key: the ringing sheet shows
+   *  both, and a label without its alarm is meaningless. */
+  alarmLabel: string;
 }
+
+/** Cap on a stored label. Long enough for a sentence, short enough that the
+ *  ringing sheet stays a sheet. */
+export const MAX_ALARM_LABEL = 60;
 
 const DEFAULTS: ClockPrefs = {
   show: true,
   hour24: false,
   showRemaining: false,
   alarmAt: null,
+  alarmLabel: "",
 };
 
 function read(): ClockPrefs {
@@ -70,6 +79,10 @@ function read(): ClockPrefs {
       o.alarmAt > Date.now()
         ? o.alarmAt
         : null,
+    alarmLabel:
+      typeof o.alarmLabel === "string"
+        ? o.alarmLabel.slice(0, MAX_ALARM_LABEL)
+        : DEFAULTS.alarmLabel,
   };
 }
 
@@ -110,6 +123,9 @@ export const clock = {
   get alarmAt(): number | null {
     return prefs().alarmAt;
   },
+  get alarmLabel(): string {
+    return prefs().alarmLabel;
+  },
   setShow(on: boolean): void {
     patch({ show: on });
   },
@@ -119,11 +135,23 @@ export const clock = {
   setShowRemaining(on: boolean): void {
     patch({ showRemaining: on });
   },
-  /** Arms the alarm for an epoch-ms instant, or clears it with null. */
-  setAlarm(at: number | null): void {
-    patch({ alarmAt: at });
+  /**
+   * Arms the alarm for an epoch-ms instant, or clears it with null.
+   *
+   * The label always travels with the instant: clearing drops it, and arming
+   * without one replaces the previous alarm's name rather than inheriting it
+   * (a snooze passes the label back in deliberately).
+   */
+  setAlarm(at: number | null, label = ""): void {
+    patch({
+      alarmAt: at,
+      alarmLabel: at === null ? "" : label.trim().slice(0, MAX_ALARM_LABEL),
+    });
   },
 };
+
+/** Minutes offered by the ringing sheet's snooze row. */
+export const SNOOZE_MINUTES = [10, 15, 20] as const;
 
 /**
  * Wall-clock time for the pill.
@@ -201,44 +229,4 @@ export function hhmmFrom(at: Date): string {
   return `${String(at.getHours()).padStart(2, "0")}:${String(
     at.getMinutes(),
   ).padStart(2, "0")}`;
-}
-
-/**
- * A two-note chime when the alarm comes due.
- *
- * Synthesised, not a bundled audio file: the binary embeds its own assets and
- * an alarm is not worth a sound file in it. Wrapped in try/catch and
- * best-effort by design -- an autoplay-blocked or unsupported AudioContext
- * must not take the visual alert (toast plus the pill's flash) down with it.
- */
-export function playAlarmChime(): void {
-  try {
-    const Ctor =
-      window.AudioContext ??
-      (window as unknown as { webkitAudioContext?: typeof AudioContext })
-        .webkitAudioContext;
-    if (Ctor === undefined) return;
-    const ctx = new Ctor();
-    const gain = ctx.createGain();
-    gain.connect(ctx.destination);
-    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-    // A short swell and decay per note: a square-edged gain step on a sine
-    // clicks audibly on every device tested.
-    gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.9);
-    const osc = ctx.createOscillator();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.setValueAtTime(1174, ctx.currentTime + 0.22);
-    osc.connect(gain);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.95);
-    // Release the hardware once the tail has played; a context left open holds
-    // an audio device for the rest of the session.
-    osc.addEventListener("ended", () => void ctx.close().catch(() => {}), {
-      once: true,
-    });
-  } catch {
-    // See the doc comment: silence is an acceptable degradation here.
-  }
 }

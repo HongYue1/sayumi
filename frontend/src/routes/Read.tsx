@@ -91,6 +91,7 @@ import {
   toggleFullscreen,
 } from "~/lib/fullscreen";
 import ClockPill from "~/components/reader/ClockPill";
+import { clock } from "~/lib/clock";
 import {
   ArrowLeft,
   Bookmark as BookmarkIcon,
@@ -103,6 +104,7 @@ import {
   Ellipsis,
   Maximize,
   Minimize,
+  AlarmClock,
 } from "~/lib/icons";
 
 // Reader side-panels split into their own chunks so they don't inflate the
@@ -1702,6 +1704,8 @@ export default function Read(props: Props) {
       // down too, or the menu and the reader both claim the press. Arrows
       // included: a Down under an open menu paged forward underneath it.
       return [
+        "a",
+        "A",
         "t",
         "T",
         "s",
@@ -1725,7 +1729,8 @@ export default function Read(props: Props) {
     // The specimen has no TOC, search, or bookmarks; ignore those shortcuts so
     // they can't open panels whose buttons are hidden in preview mode.
     // Shift+F is absent on purpose: fullscreen is chrome, not a panel, and the
-    // specimen shows its button like every other book.
+    // specimen shows its button like every other book. A is absent for the
+    // same reason -- the alarm is a device-wide sheet, not a book panel.
     if (
       isSpecimen &&
       (e.key === "t" ||
@@ -1804,6 +1809,12 @@ export default function Read(props: Props) {
           return true;
         }
         return false;
+      case "a":
+      case "A":
+        // The alarm sheet, not a panel: arming an alarm is a one-field errand
+        // mid-chapter, so it opens over the book and closes itself.
+        ui.openAlarm();
+        return true;
       case "t":
       case "T":
         togglePanel("toc");
@@ -1985,6 +1996,18 @@ export default function Read(props: Props) {
               aria-pressed={activePanel() === "toc" ? "true" : "false"}
             >
               <Icon icon={List} labelFromParent />
+            </button>
+            {/* Front and centre rather than three sections into settings:
+                an alarm is set mid-chapter ("stop at half past"), and the
+                button stays lit while one is armed so the chrome answers
+                "is one set?" without opening anything. */}
+            <button
+              type="button"
+              class={["rdp-icon", { active: clock.alarmAt !== null }]}
+              onClick={() => ui.openAlarm()}
+              aria-label="Set an alarm"
+            >
+              <Icon icon={AlarmClock} labelFromParent />
             </button>
           </Show>
           {/* Hidden where the browser has no element fullscreen at all (iOS
