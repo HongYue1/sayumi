@@ -4747,6 +4747,35 @@ main {
   accent-color: var(--accent);
 }
 
+/* Alarm row: the time field and its Set/Clear buttons on one line. The field
+   is a native <input type="time">, so the UA owns the spinner and the picker;
+   the .field face is not reused because the UA control ignores most of it and
+   the mismatch read worse than an honestly native field. */
+.stp-alarm {
+  display: flex;
+  align-items: end;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0;
+  flex-wrap: wrap;
+}
+.stp-alarm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: var(--text-sm);
+  font-weight: 520;
+  color: var(--muted);
+}
+.stp-alarm-field input {
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.5rem;
+}
+
 /* ── Read (reader route) ────────────────────────────────────────────── */
 
 .rdp {
@@ -4830,34 +4859,81 @@ main {
   color: var(--accent-ink);
   background: var(--accent-soft);
 }
+/* Title block: book, hairline, chapter name, count chip -- all on ONE
+   baseline.
+
+   It was a two-line stack (1.08rem title over a 0.68rem uppercase eyebrow
+   tracked at 0.1em, inked with --faint, the 45% wash). That eyebrow was the
+   least legible text in the app: small, all-caps, tracked and washed out, four
+   properties each costing legibility, on the one line that answers "where am
+   I". Dropping the stack frees the bar's height for type instead of leading,
+   so the title reads at 1.3rem and the chapter at 0.9rem in --muted (70%),
+   sentence case, untracked.
+
+   Truncation order is a contract with Read.tsx's markup: the book title keeps
+   its width up to 60% of the bar (flex-shrink: 0 within that cap), the chapter
+   name is the flexible item and gives way first, and the count never
+   truncates -- a half-shown "111/4" is worse than no count at all. */
 .rdp-title {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
+  align-items: baseline;
+  gap: 0.55rem;
   padding-left: var(--sp-1);
 }
 .rdp-book {
-  font-weight: 560;
-  font-size: 1.08rem;
-  /* Snug, not tight: at 1.1 the title's descenders sat on the chapter
-     eyebrow below across the 0.15rem stack gap. */
+  font-weight: 620;
+  font-size: 1.3rem;
   line-height: var(--lh-snug);
+  /* Holds its width against the chapter name, but not past 60% of the bar:
+     a long light-novel title would otherwise push the chapter out entirely. */
+  flex-shrink: 0;
+  max-width: 60%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Hairline between the two, centered rather than baseline-aligned: on the
+   baseline it hung below the x-height of both neighbours. */
+.rdp-title-rule {
+  flex-shrink: 0;
+  align-self: center;
+  width: 1px;
+  height: 1.1em;
+  background: var(--hairline-strong);
+}
 .rdp-chapter {
-  font-size: 0.68rem;
-  font-weight: 600;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.9rem;
+  font-weight: 500;
   line-height: var(--lh-snug);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--faint);
+  color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* The chapter count, chipped so the numbers read as a separate fact from the
+   chapter's name instead of trailing it as more prose. */
+.rdp-count {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.1;
+}
+/* Phone-width bars cannot hold four items and the tool row. The count is kept
+   over the chapter's name: it answers the same question in a third of the
+   width, and the TOC panel is one tap away for the name. */
+@media (max-width: 560px) {
+  .rdp-title-rule,
+  .rdp-chapter {
+    display: none;
+  }
 }
 .rdp-stage {
   position: absolute;
@@ -5090,4 +5166,70 @@ main {
 .rdp-pos.rdp-hidden {
   opacity: 0;
   transform: translateY(6px);
+}
+
+/* Clock pill. Same face, size, weight, padding and shape as .rdp-pos and the
+   frame's #page-indicator -- one design for all three -- and the same opaque
+   chrome tone, because in scroll mode it floats over live book text.
+
+   Position depends on the reading mode, which is why the class comes from
+   ClockPill: scroll mode has no page pill, so the clock takes the free right
+   corner; both paged modes do, so it takes the middle. The middle is a
+   translateX(-50%) off left: 50%, which is why the transform is not used for
+   the flash below. */
+.rdp-clock {
+  position: absolute;
+  right: 16px;
+  bottom: 12px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--elevated);
+  color: color-mix(in srgb, var(--fg) 70%, var(--elevated));
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  transition: color var(--dur) var(--ease-out);
+}
+.rdp-clock.rdp-clock-mid {
+  right: auto;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.rdp-clock-sep {
+  width: 1px;
+  height: 11px;
+  background: color-mix(in srgb, var(--fg) 22%, transparent);
+}
+/* The armed alarm rides beside the time, accent-inked so one glance separates
+   "it is 12:35" from "something happens at 1:25". */
+.rdp-clock-alarm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent-ink);
+}
+/* Flagged for a few seconds after the alarm comes due: the toast is the
+   announcement, this is the trace left for a reader who looked away while it
+   faded. Opacity-only pulse (no transform -- the centred variant is already
+   using one) and the global prefers-reduced-motion switch zeroes it. */
+.rdp-clock.rdp-clock-rang {
+  color: var(--accent-ink);
+  background: var(--elevated);
+  animation: rdp-clock-flash 1.1s var(--ease-out) infinite;
+}
+@keyframes rdp-clock-flash {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
 }

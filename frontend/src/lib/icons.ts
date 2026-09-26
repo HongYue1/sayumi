@@ -33,6 +33,16 @@ export const ArrowLeft: IconNode = [
   ["path", { d: "M19 12H5" }],
 ];
 
+/** lucide `alarm-clock` */
+export const AlarmClock: IconNode = [
+  ["circle", { cx: "12", cy: "13", r: "8" }],
+  ["path", { d: "M12 9v4l2 2" }],
+  ["path", { d: "M5 3 2 6" }],
+  ["path", { d: "m22 6-3-3" }],
+  ["path", { d: "M6.38 18.7 4 21" }],
+  ["path", { d: "M17.64 18.67 20 21" }],
+];
+
 /** lucide `arrow-up-down` */
 export const ArrowUpDown: IconNode = [
   ["path", { d: "m21 16-4 4-4-4" }],
@@ -132,6 +142,22 @@ export const LayoutGrid: IconNode = [
   ["rect", { width: "7", height: "7", x: "14", y: "3", rx: "1" }],
   ["rect", { width: "7", height: "7", x: "14", y: "14", rx: "1" }],
   ["rect", { width: "7", height: "7", x: "3", y: "14", rx: "1" }],
+];
+
+/** lucide `maximize` */
+export const Maximize: IconNode = [
+  ["path", { d: "M8 3H5a2 2 0 0 0-2 2v3" }],
+  ["path", { d: "M21 8V5a2 2 0 0 0-2-2h-3" }],
+  ["path", { d: "M3 16v3a2 2 0 0 0 2 2h3" }],
+  ["path", { d: "M16 21h3a2 2 0 0 0 2-2v-3" }],
+];
+
+/** lucide `minimize` */
+export const Minimize: IconNode = [
+  ["path", { d: "M8 3v3a2 2 0 0 1-2 2H3" }],
+  ["path", { d: "M21 8h-3a2 2 0 0 1-2-2V3" }],
+  ["path", { d: "M3 16h3a2 2 0 0 1 2 2v3" }],
+  ["path", { d: "M16 21v-3a2 2 0 0 1 2-2h3" }],
 ];
 
 /** lucide `list` */

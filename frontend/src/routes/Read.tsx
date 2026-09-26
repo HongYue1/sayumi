@@ -86,6 +86,12 @@ import Icon from "~/lib/Icon";
 import { trap } from "~/lib/focusTrap";
 import { inChromeRevealZone } from "~/lib/chromeReveal";
 import {
+  fullscreenSupported,
+  isFullscreen,
+  toggleFullscreen,
+} from "~/lib/fullscreen";
+import ClockPill from "~/components/reader/ClockPill";
+import {
   ArrowLeft,
   Bookmark as BookmarkIcon,
   BookmarkCheck,
@@ -95,6 +101,8 @@ import {
   List,
   CircleHelp,
   Ellipsis,
+  Maximize,
+  Minimize,
 } from "~/lib/icons";
 
 // Reader side-panels split into their own chunks so they don't inflate the
@@ -1716,12 +1724,13 @@ export default function Read(props: Props) {
     }
     // The specimen has no TOC, search, or bookmarks; ignore those shortcuts so
     // they can't open panels whose buttons are hidden in preview mode.
+    // Shift+F is absent on purpose: fullscreen is chrome, not a panel, and the
+    // specimen shows its button like every other book.
     if (
       isSpecimen &&
       (e.key === "t" ||
         e.key === "T" ||
         e.key === "f" ||
-        e.key === "F" ||
         e.key === "b" ||
         e.key === "B")
     )
@@ -1804,8 +1813,13 @@ export default function Read(props: Props) {
         togglePanel("settings");
         return true;
       case "f":
-      case "F":
         togglePanel("search");
+        return true;
+      case "F":
+        // Shift+F toggles fullscreen (plain F opens search) -- the same
+        // plain/Shift split as b / Shift+B below. F11 still works; it belongs
+        // to the browser and never reaches this handler.
+        toggleFullscreen();
         return true;
       case "b":
         void toggleBookmark();
@@ -1891,18 +1905,29 @@ export default function Read(props: Props) {
         >
           <Icon icon={ArrowLeft} labelFromParent />
         </button>
+        {/* One line, not a stacked title + eyebrow. The eyebrow it replaces
+            was 0.68rem uppercase at 0.1em tracking in the --faint wash (45%
+            of the ink), which is the least legible text in the app; sharing
+            the title's baseline buys both halves a readable size, and the
+            chapter count moves into a chip so the numbers stop competing
+            with the chapter's name. Truncation order is deliberate: the book
+            title holds its width (flex-shrink: 0 in app.css), the chapter
+            name gives way first, and the count never truncates. */}
         <div class="rdp-title">
           <span class="rdp-book display">
             {book()?.title ?? (bookLoadFailed() ? "Unavailable" : "…")}
           </span>
           <Show when={book()}>
             {(b) => (
-              <span class="rdp-chapter">
-                {chapterLabel() || `Chapter ${currentChapter() + 1}`} ·{" "}
-                <span class="tnum">
+              <>
+                <span class="rdp-title-rule" aria-hidden="true" />
+                <span class="rdp-chapter">
+                  {chapterLabel() || `Chapter ${currentChapter() + 1}`}
+                </span>
+                <span class="rdp-count tnum">
                   {currentChapter() + 1}/{b().chapterCount}
                 </span>
-              </span>
+              </>
             )}
           </Show>
         </div>
@@ -1960,6 +1985,26 @@ export default function Read(props: Props) {
               aria-pressed={activePanel() === "toc" ? "true" : "false"}
             >
               <Icon icon={List} labelFromParent />
+            </button>
+          </Show>
+          {/* Hidden where the browser has no element fullscreen at all (iOS
+              Safari on iPhone): a button whose only outcome is a swallowed
+              rejection is worse than no button. */}
+          <Show when={fullscreenSupported()}>
+            <button
+              type="button"
+              class={["rdp-icon", { "rdp-fold": !isSpecimen }]}
+              onClick={toggleFullscreen}
+              // One stable name across both states, as with Bookmark above:
+              // aria-pressed carries the state, so a flipping label would
+              // make every toggle announce twice.
+              aria-label="Fullscreen"
+              aria-pressed={isFullscreen() ? "true" : "false"}
+            >
+              <Icon
+                icon={isFullscreen() ? Minimize : Maximize}
+                labelFromParent
+              />
             </button>
           </Show>
           <button
@@ -2027,6 +2072,22 @@ export default function Read(props: Props) {
                     <Icon icon={Settings} size={16} decorative />
                     Settings
                   </button>
+                  <Show when={fullscreenSupported()}>
+                    <button
+                      type="button"
+                      class="rdp-mrow"
+                      role="menuitem"
+                      tabindex="-1"
+                      onClick={() => pickMore(toggleFullscreen)}
+                    >
+                      <Icon
+                        icon={isFullscreen() ? Minimize : Maximize}
+                        size={16}
+                        decorative
+                      />
+                      {isFullscreen() ? "Exit fullscreen" : "Fullscreen"}
+                    </button>
+                  </Show>
                   <button
                     type="button"
                     class="rdp-mrow"
@@ -2254,9 +2315,14 @@ export default function Read(props: Props) {
         />
       </div>
 
-      {/* Book-level position at a glance. Shown only while the chrome is hidden:
-          with the bar up, the title eyebrow already reports the chapter, so the
-          chip takes over as the whereabouts cue once the chrome tucks away.
+      {/* Book-level position at a glance, up whenever the reader is. It used
+          to be shown only while the chrome was hidden, on the grounds that the
+          title eyebrow reported the chapter -- but the eyebrow is gone (the
+          bar's one-line title carries chapter and count now) and, more to the
+          point, this chip is the only whole-BOOK percentage anywhere in the
+          reader, so hiding it behind an auto-hide timer meant waiting four
+          seconds to answer "how far in am I". It sits bottom-left, clear of
+          the clock in the middle and the page pill on the right.
           The percent is whole-book (same formula as the library tiles), not
           the chapter: the bottom bar already owns chapter progress in scroll
           mode, and the page pill owns it in paged modes. Deliberately NOT a
@@ -2266,7 +2332,7 @@ export default function Read(props: Props) {
         <Show when={book()}>
           {(b) => (
             <div
-              class={["rdp-pos tnum", { "rdp-hidden": chromeVisible() }]}
+              class="rdp-pos tnum"
               aria-label={`Chapter ${currentChapter() + 1} of ${b().chapterCount}, ${Math.round(calcBookProgress(currentChapter(), chapterPercent(), b().chapterCount) * 100)} percent`}
             >
               Ch {currentChapter() + 1}/{b().chapterCount} ·{" "}
@@ -2282,6 +2348,13 @@ export default function Read(props: Props) {
           )}
         </Show>
       )}
+
+      {/* Clock (and the alarm, when one is armed). Centre in paged modes,
+          right in scroll mode -- ClockPill owns that rule; the reason lives
+          there. Outside the specimen guard above only because it reports the
+          device, not the book: the specimen is a real reading surface for
+          tuning type, and a clock helps there too. */}
+      <ClockPill paged={isPaged()} />
     </div>
   );
 }

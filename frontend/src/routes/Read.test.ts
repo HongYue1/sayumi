@@ -1088,7 +1088,7 @@ describe("Read keyboard: forwarded modifier facts", () => {
 });
 
 describe("Read progress", () => {
-  it("reports whole-book progress in the chrome-hidden pill", async () => {
+  it("reports whole-book progress in the position pill", async () => {
     let now = 10000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
     await bootReader();
@@ -1108,6 +1108,9 @@ describe("Read progress", () => {
     // here would interrupt screen readers without pause, so the pill stays a
     // plain, on-demand-readable cue.
     expect(pill.getAttribute("role")).toBeNull();
+    // The pill used to hide itself whenever the chrome was up; where you are
+    // in the book is wanted most while the chrome is open, so it now stays.
+    expect(pill.classList.contains("rdp-hidden")).toBe(false);
   });
 
   it("forced-flushes the latest position on back and navigates to the library", async () => {

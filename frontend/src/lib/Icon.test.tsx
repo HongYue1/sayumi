@@ -240,10 +240,10 @@ describe("Icon", () => {
 
     expect(violations).toEqual([]);
     expect({ calls, files: files.size, ...intents }).toEqual({
-      calls: 76,
-      files: 21,
-      decorative: 42,
-      labelFromParent: 33,
+      calls: 79,
+      files: 22,
+      decorative: 44,
+      labelFromParent: 34,
       label: 1,
     });
   });

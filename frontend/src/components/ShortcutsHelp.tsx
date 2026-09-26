@@ -62,6 +62,7 @@ const groups: { title: string; items: { keys: string[]; desc: string }[] }[] = [
       { keys: ["T"], desc: "Table of contents" },
       { keys: ["S"], desc: "Settings" },
       { keys: ["F"], desc: "Search in book" },
+      { keys: ["Shift", "F"], desc: "Toggle fullscreen" },
       { keys: ["B"], desc: "Toggle bookmark" },
       { keys: ["Shift", "B"], desc: "Bookmarks panel" },
     ],
